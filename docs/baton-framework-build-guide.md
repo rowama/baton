@@ -1,5 +1,7 @@
 # Baton: Build Guide for a Vendor-Neutral, Director-Led Multi-Step Process Framework
 
+> **Revision 2.2.** Adds adoption into existing projects (detect, doctor, research, triage, seeding, baseline), complexity-tailored processes, built-in subject-matter consultation, and the "invisible when healthy" principle. See §20; supporting changes in §1, §3, §5, §7, §11, §12, §14.
+>
 > **Revision 2.1.** Renamed from the working title "Relay" to **Baton** (repo `rowama/baton`). No design changes from Revision 2.
 >
 > **Revision 2.** Adds model-neutral process packages, capability-based dynamic routing, per-step isolated worker execution, repo-resident run persistence for cross-platform handoff, and publishing of deliverables into the project tree.
@@ -37,6 +39,10 @@ A small runtime ("**Baton**") that lets *any* agentic harness act as the **Direc
 | **Verification** | Declarative gates per step: schema, script, LLM review, human sign-off. |
 | **Cross-platform continuity** | Run state lives in the project repo. Any capable Director can `baton resume` from the last committed checkpoint. |
 | **Deliverables in the project** | Specs, designs, plans and drawings are published to real project paths. The run directory holds their provenance. |
+| **Tailored formality** | A triage step rates the work on the recipe's own complexity scale. The runtime includes or skips steps and gates from that rating deterministically. |
+| **Low-friction adoption** | Existing projects are adopted in place: existing work is imported as attested step outputs, and a single human-approved baseline starts normal operation. |
+| **Subject-matter consultation** | Subject-matter questions always go to a consult worker with a runtime-assembled packet. The Director routes; it never answers from its own inference. |
+| **Invisible when healthy** | Checks, detection and resume are silent unless something is wrong. Human attention is spent only at gates, escalations and the adoption baseline. |
 
 ### Non-goals
 
@@ -79,6 +85,10 @@ Human ⇄ Director (any harness)
 7. **Isolation by construction.** Workers never inherit the Director's environment by default. Each profile declares exactly what its child process sees, so one step's API key can never change another step's billing or auth.
 8. **The repo is the system of record.** Event logs, artifacts and records are committed at checkpoints. SQLite is a rebuildable cache. This makes runs portable across machines and Director platforms.
 9. **MCP as the Director interface, CLI as the fallback.** Both call the same Python core.
+10. **Invisible when healthy.** Baton earns its place only if the human isn't babysitting it. Every check reports nothing when there is nothing to report, and every human touchpoint must be a real decision (a gate, an escalation, the adoption baseline), never a confirmation of routine machinery.
+11. **The Director is the process expert, not the subject-matter expert.** It explains the run in plain language (where it has been, where it is, where it could go) from the record. For subject matter it points to recorded work or routes the question to a consult worker. It never answers subject-matter questions from its own inference, and the process never changes based on anything held only in the Director's context.
+12. **Formality scales with complexity, decided once and recorded.** Triage is a normal step whose output picks the complexity level. The runtime applies it; the Director never decides which steps to skip.
+13. **The Director never modifies a process.** It does not add, remove or reorder steps or roles. Variability comes only from the recipe's own complexity levels and the built-in consult mechanism.
 
 ---
 
@@ -171,9 +181,32 @@ run_inputs:
 defaults:
   max_attempts: 3
 
+complexity:                        # recipe-owned scale, lowest to highest (§20.4)
+  levels: [minor, standard, major]
+  triage_step: triage
+
+consult_requires:                  # optional; default is in the vocabulary file (§20.6)
+  capabilities: [long_form_writing, technical_reasoning]
+  tier: strong
+
 steps:
+  - id: triage
+    title: Assess complexity
+    requires:
+      capabilities: [structured_output, technical_reasoning]
+      tier: standard
+    prompt: prompts/triage.md       # recipe-specific criteria
+    inputs:
+      - { name: feature_request, from: run.inputs.feature_request, required: true }
+      - { name: research,        from: research.findings,          required: false }   # present on adoption (§20.3)
+    output_schema: schemas/triage_out.json   # must include level + reasons (§20.4)
+    gates:
+      - type: schema
+
   - id: requirements
     title: Clarify requirements
+    depends_on: [triage]
+    applies_to: [standard, major]     # skipped (recorded) for minor work
     requires:
       capabilities: [structured_output, long_form_writing]
       min_context_tokens: 64000
@@ -191,12 +224,14 @@ steps:
     gates:
       - type: schema
       - type: human
+        applies_to: [major]          # gates can be level-scoped too
         prompt: "Approve requirements before design?"
     doc_template: templates/step_record.md.j2
 
   - id: design
     title: Technical design
     depends_on: [requirements]
+    applies_to: [major]
     requires:
       capabilities: [structured_output, long_form_writing, technical_reasoning]
       tier: strong
@@ -220,15 +255,19 @@ steps:
         rubric: prompts/design_review_rubric.md
 
   - id: implement
-    depends_on: [design]
+    depends_on: [triage, requirements, design]   # skipped dependencies count as satisfied
     requires:
       capabilities: [tool_use, file_write, shell, code_exec, repo_workspace]
       tier: strong
     workspace: project_root           # worker operates in the project repo
     prompt: prompts/implement.md
     inputs:
-      - { name: design,     from: steps.design.output,               required: true }
-      - { name: design_doc, from: steps.design.artifacts.design_doc, required: true }
+      - { name: feature_request,  from: run.inputs.feature_request,                    required: true }
+      - { name: triage,           from: steps.triage.output,                           required: true }
+      - { name: requirements_doc, from: steps.requirements.artifacts.requirements_doc, required: true }
+      - { name: design,           from: steps.design.output,                           required: true }
+      - { name: design_doc,       from: steps.design.artifacts.design_doc,             required: true }
+      # "required" applies only when the source step is included at the run's level (§20.4)
     output_schema: schemas/implement_out.json   # must include commit_sha
     gates:
       - type: schema
@@ -251,12 +290,17 @@ Only these forms are legal. The loader must reject anything else.
 | `static.<relative/path>` | File shipped inside the process package |
 | `human.<decision_id>` | A recorded human decision |
 | `human_revision.<step_id>.<artifact>` | A human edit to a published artifact, explicitly ingested (§19.3) |
+| `research.findings` | The adoption research result (§20.3); absent for runs that did not start with adoption |
+
+`steps.<id>.*` references resolve equally to a **passed** or an **imported** (seeded) step (§20.5). Consultation answers are deliberately **not** referenceable; they enter a run only after promotion to a human decision or revision (§20.6).
 
 **Load-time validation** (in `process_loader.py`):
 - Every `steps.<id>` reference names an ancestor in `depends_on`, including transitive ancestors.
 - No cycles. Every file path exists. Every schema is valid JSON Schema (Draft 2020-12).
-- Every gate `type` is known, and every `requires` / `reviewer_requires` uses only names from the declared `capabilities_vocab`.
+- Every gate `type` is known, and every `requires` / `reviewer_requires` / `consult_requires` uses only names from the declared `capabilities_vocab`.
 - `publish.to` templates may reference only `paths.*`, `run.*` and `project.*` variables.
+- If `complexity` is declared: the triage step exists, has no `applies_to`, and its output schema includes `level` constrained to the declared levels. Every `applies_to` (on steps and gates) uses only declared levels.
+- **Per-level closure:** for each level, compute the included steps. Every included step must still be reachable, and the run must have at least one included step after triage. The loader prints a per-level step table (`baton plan <process>`) so recipe authors can see exactly what each level runs.
 
 ### 5.3 Neutrality lint (mandatory, blocking)
 
@@ -281,6 +325,7 @@ capabilities:
   shell:               "Can execute shell commands"
   code_exec:           "Can run code and observe results"
   repo_workspace:      "Can operate inside a git working tree and commit"
+  workspace_read:      "Can read (not modify) files in a project working tree"
   vision:              "Accepts image inputs"
   web_access:          "Can fetch / search the web"
 tiers: [basic, standard, strong]
@@ -446,7 +491,12 @@ blocked_on_deps → ready → dispatched → submitted → verifying → passed 
                                                         └→ escalated (attempts ≥ max | status=blocked | no eligible worker)
 escalated → ready (after human decision) | abandoned
 awaiting_human  (human gate pending) → verifying
+blocked_on_deps → skipped    (not applicable at the run's complexity level; set by the runtime after triage)
+blocked_on_deps → imported   (seeded from existing work at adoption; §20.5)
+skipped → blocked_on_deps    (only via an approved re-triage; §20.4)
 ```
+
+`skipped` and `imported` both satisfy `depends_on`. Inputs referencing a `skipped` step are omitted and listed in the manifest as `not_applicable`; their `required` flag does not apply.
 
 Only `engine.py` performs transitions; each one appends exactly one event. Illegal transitions raise errors. Test every edge.
 
@@ -456,7 +506,7 @@ Only `engine.py` performs transitions; each one appends exactly one event. Illeg
 - **`events.jsonl`** is append-only and is the authoritative state. Each event has `seq` (monotonic), `ts`, `run_id`, `step_id`, `attempt`, `type`, `actor` (director id / runtime / human) and `data`. Each line also carries `prev_sha256` (hash chain), which detects tampering or bad merges.
 - **CAS:** `.baton/runs/<run_id>/cas/<sha[:2]>/<sha>`, written atomically (temp file plus `os.replace`). Binaries over a configurable size are expected to be tracked by Git LFS (§17).
 - **SQLite** (`.baton/cache/state.db`, gitignored) is a **derived cache** for fast queries. `store.rebuild(run_id)` replays events to regenerate it. On any mismatch, events win.
-- Event types: `run_started`, `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released`, `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `artifact_published`, `drift_detected`, `human_revision_ingested`, `step_escalated`, `attempt_orphaned`, `human_decision`, `checkpoint_committed`, `run_completed`, `run_abandoned`.
+- Event types: `run_started`, `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released`, `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `artifact_published`, `drift_detected`, `human_revision_ingested`, `step_escalated`, `attempt_orphaned`, `human_decision`, `checkpoint_committed`, `run_completed`, `run_abandoned`, plus (§20) `situation_detected`, `research_recorded`, `complexity_set`, `step_skipped`, `step_imported`, `retriage_requested`, `retriage_applied`, `baseline_established`, `consult_requested`, `consult_answered`, `consult_promoted`.
 
 ### 7.3 Routing (`routing.py`)
 
@@ -516,6 +566,14 @@ Property tests: same state + same profile ⇒ identical `packet_sha256`; removin
 | `claim_lease / renew_lease / release_lease / take_over_lease(reason)` | Run lease management (§18.3) |
 | `get_step_record(run_id, step_id)` / `run_summary(run_id)` | Rendered docs |
 | `abandon_run(run_id, reason)` | Terminal |
+| `detect()` | Deterministic situation check (§20.2); silent summary when healthy |
+| `adopt(process_id, inputs, crosswalk?)` | Start an adoption run: research → triage → proposed seeds and baseline (§20.3) |
+| `establish_baseline(run_id, decision)` | Apply the human-approved baseline: imports, complexity, skipped steps (§20.7) |
+| `request_retriage(run_id, reason)` | Re-run triage behind a human gate; affects not-yet-started steps only (§20.4) |
+| `explain(run_id, scope?)` | Plain-language narrative of past, present and possible paths, built from the record (§20.8) |
+| `consult(run_id, question, refs, mode)` | Subject-matter consultation; runtime assembles the packet from the Director's references (§20.6) |
+| `consult_followup(consult_id, question, extra_refs?)` | Next turn of a consultation |
+| `promote_consult(consult_id, as, note)` | Turn a consult answer into a human decision or revision, with human approval |
 | `doctor(profile?)` | Profile health check (§11.2) |
 
 Every mutating call requires the caller to hold the run lease.
@@ -608,8 +666,10 @@ Registration (**[VERIFY]** each against current docs):
 
 ### 11.2 CLI (`cli.py`)
 
-`baton processes | start | status | eligible | begin | dispatch | submit | decide | retry | revise | resume | lease | record | summary | abandon | trace | doctor | mcp`
+`baton processes | plan | detect | adopt | baseline | start | status | explain | eligible | begin | dispatch | submit | decide | retry | retriage | revise | consult | resume | lease | record | summary | abandon | trace | doctor | mcp`
 
+- **Quiet by default.** `detect`, `doctor`, `resume` and `status` print a single "ok" line when healthy and detail only for problems. `--verbose` shows everything.
+- `baton plan <process>` prints the per-level step and gate table (§5.2).
 - `baton trace <run_id>` tails `events.jsonl` in readable form.
 - `baton doctor [<profile>]`:
   - Checks that the runtime version matches `.baton/baton.lock`, that every vendored package hash matches, and that the vocabulary version is supported.
@@ -621,12 +681,12 @@ Registration (**[VERIFY]** each against current docs):
 ```markdown
 ---
 name: baton-director
-description: Run or resume a multi-step Baton process as Director — route steps to capable workers, dispatch them, handle gates and escalations, and keep the human informed. Use whenever the user asks to start, continue, resume, or check a Baton process run.
+description: Run, resume, or adopt a multi-step Baton process as Director — route steps to capable workers, dispatch them, handle gates and escalations, explain the process in plain language, route subject-matter questions to a consultant, and keep the human informed. Use whenever the user asks to start, continue, resume, adopt into a project, check, or ask about a Baton process run.
 ---
 
 # Baton Director
 
-You coordinate. You are NOT the domain expert for any step.
+You coordinate. You are the expert on the process, and NOT the expert on any step's subject matter.
 
 ## Hard rules
 - Never perform step work yourself. Every step's output must come from dispatch_step / submit_step.
@@ -634,23 +694,37 @@ You coordinate. You are NOT the domain expert for any step.
 - Never fabricate a human decision. record_human_decision only with the human's actual words.
 - Retry guidance must be additive; never restate or summarize inputs.
 - Only choose workers from eligible_workers. Never edit worker profiles, preferences, or the lockfile without the human's instruction.
+- Never add, remove, skip or reorder steps or roles. Step inclusion comes only from triage and the recipe; changes go through request_retriage.
 
-## Starting or resuming
-1. Run doctor. If it reports problems, tell the human before proceeding.
-2. For an existing run: resume(run_id). If the lease is held by another Director, report holder and expiry; take over only with the human's approval and a stated reason.
+## Process questions (you answer these)
+- Explain where the run has been, where it is, and where it could go, in plain language, using explain/status/step records. Name the next decision the human will face, if any.
+- Base explanations on the record, never on memory or guesswork. If the record doesn't say, say so.
+
+## Subject-matter questions (you route these)
+- Never answer subject-matter questions from your own inference, even when asked directly or when you think you know.
+- Say so plainly ("I'm not the expert on this, so I'll ask one"), then call consult with references to the relevant recorded work. Choose references by step names, titles and the recipe; do not read the subject content to choose them.
+- Relay the consultant's answer faithfully (verbatim when short), labeled as the consultant's. Do not add your own analysis.
+- If the answer should change the project, ask the human; only promote_consult with their explicit agreement. Nothing from a consultation affects the run otherwise.
+- Do not use consultation content in later routing decisions. After a consultation, prefer resuming from a fresh session (state lives in the record, so nothing is lost).
+
+## Starting, resuming or adopting
+1. detect, then doctor. Both are silent when healthy; only interrupt the human if they report a problem.
+2. Existing run: resume(run_id). If the lease is held by another Director, report holder and expiry; take over only with the human's approval and a stated reason.
+3. Existing project without Baton runs: adopt. Present the proposed baseline as ONE decision (what will be imported, the complexity level and why, which steps will run and which are skipped). Record the human's answer verbatim.
 
 ## Loop
 1. status(run_id) → ready steps, awaiting_human items, drift warnings.
 2. awaiting_human: present question, relevant step record, options; record the answer verbatim.
 3. drift warnings: ask the human whether to ingest the edited published file as a revision or leave it outside the process.
-4. ready step: eligible_workers → choose (respect preference order unless there is a stated reason not to) → tell the human which worker and why in one line → dispatch_step.
+4. ready step: eligible_workers → choose (respect preference order unless there is a stated reason not to) → dispatch_step. Mention the worker choice only if the human has asked to see routing, or if it departs from preference.
 5. gate failure: if attempts remain, retry_step (may switch to another eligible worker; optional additive guidance); otherwise escalate with reasons.
 6. no eligible worker: escalate; explain which capabilities are missing.
-7. all steps passed: run_summary → present to human; release lease.
+7. scope appears to have changed (the human says so, or a consult or gate result suggests it): offer request_retriage.
+8. all steps passed: run_summary → present to human; release lease.
 
 ## Communicating with the human
-- After each step: step, worker, result, published deliverables, next action.
-- Escalations: what failed, why (gate reasons), options, your recommendation.
+- Be quiet when things are healthy. Report at step completion briefly (step, result, published deliverables, next action), and in full only at decisions and escalations.
+- Escalations: what failed, why (gate reasons), options, your recommendation about the *process* (retry, switch worker, retriage, consult); never a subject-matter verdict.
 ```
 
 Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness workers.
@@ -695,6 +769,15 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 **Phase 11: Real processes.** `software-feature` and one non-software package (e.g. `backyard-project`, with manual workers, photo artifacts and human gates).
 ✅ Both run end-to-end and both pass the neutrality lint. Domain changes required zero runtime code changes.
 
+**Phase 12: Complexity tailoring.** Triage contract, `applies_to` on steps and gates, `skipped` state, `baton plan`, re-triage.
+✅ The `backyard-project` recipe at `minor` (e.g. expand a flower bed) and `major` (e.g. build a shed) runs different, correct step sets, visible in `baton plan`. A re-triage from `minor` to `major` after two steps adds future steps only, behind a human gate. Passed steps are untouched.
+
+**Phase 13: Adoption.** `detect`, research step, crosswalk, seeding (`imported`), baseline.
+✅ Adopt into a fixture project that has existing specs and code from a different formal process, using a crosswalk. Seeded artifacts validate against step schemas, a seeded artifact that fails its schema is reported (not silently imported), and exactly **one** human decision (the baseline) occurs before normal operation. `detect` on a healthy project prints one line.
+
+**Phase 14: Consultation.** `consult`, follow-ups, promotion, relay and handoff modes.
+✅ A consult packet contains only Director-selected references plus the record index, with hashes. A follow-up requesting an extra item includes it. A non-promoted answer is unreachable from any step input; a promoted answer appears as a human decision. Transcript review shows the Director relayed answers without adding subject-matter content.
+
 ---
 
 ## 13. Testing Strategy
@@ -719,6 +802,11 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 7. Git LFS size threshold and whether LFS is required or optional.
 8. Optional OpenTelemetry export of events (off by default).
 9. Process versioning: runs pin the package version and hash at start (suggested), and upgrading mid-run requires a recorded human decision.
+10. Triage approval: always human-gated, or auto-accepted below a recipe-declared level (e.g. `minor` auto-accepts)? Suggested: auto-accept at the lowest level, gate above it; at adoption it is always part of the baseline decision.
+11. Seed validation failures: block the baseline, or import with a recorded "nonconforming" flag that forces the step to re-run? Suggested: never import nonconforming; offer to re-run that step instead.
+12. Consult handoff mode: which harnesses support spawning a separate session or bot, and how its transcript returns. Ship relay mode first; handoff per harness later.
+13. Consultation retention: commit full consult transcripts with the run (suggested, redacted), or only the question and final answer.
+14. Research scope limits: maximum files and bytes scanned, and file types considered, before research asks the human to narrow it.
 
 ---
 
@@ -738,10 +826,13 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 - `README.md` covers install (pinned), registering the MCP server per harness, writing worker profiles, `baton doctor`, authoring a neutral process package, vendoring a package into a project and resuming a run on a new machine.
 - One software and one non-software example package ship with the runtime.
 - Swapping the Director harness, or any step's worker, requires only local config changes. Recipe changes require no runtime changes.
+- Adopting into an existing project with a crosswalk requires exactly one human decision (the baseline), and a healthy project produces no routine prompts.
 
 ---
 
 ## 17. Adopting Baton in a Project (Vendoring)
+
+This section covers *what files* an adopting project holds. For *how* Baton is brought into an ongoing project (detect, research, triage, seeding, baseline), see §20.
 
 **Principle: commit what the process *is* and what it has *produced*; never commit who runs it or how they pay.**
 
@@ -861,3 +952,115 @@ Workspace steps (source code) don't use `publish`; their output *is* the project
 ### 19.4 Large and binary deliverables
 
 Drawings, photos and CAD files are tracked by Git LFS (rules set by `baton init`), so CAS and published copies cost only pointers in normal git history.
+
+---
+
+## 20. Adoption, Complexity Tailoring and Consultation
+
+### 20.1 Goal and shape
+
+Baton must drop into **ongoing projects**, including ones already run under a different formal process, with the least possible friction, and then stay out of the way. Every recipe must also scale its formality to the work: expanding a flower bed and building a shed are the same recipe at different complexity levels.
+
+None of this adds a new subsystem. Research and triage are ordinary steps; detection is a deterministic check; consultation reuses the packet and worker machinery. The flow:
+
+```
+detect (deterministic, silent) ─► doctor (silent if healthy)
+      │
+      ├─ existing run ............................► resume ─► continue
+      └─ project without Baton runs ─► research ─► triage ─► baseline (ONE human decision) ─► continue
+new work in an adopted project ..................► triage ─► continue
+```
+
+### 20.2 `detect`: situation recognition (no AI)
+
+`detect()` inspects the filesystem, git and the event logs and returns one situation plus a recommended next action. It is deterministic and fast.
+
+| Situation | Signals | Next action |
+|---|---|---|
+| `not_adopted` | no `.baton/` | `adopt` (or `start` for brand-new work) |
+| `idle` | `.baton/` present, no active run | ready for `start` |
+| `active_here` | active run, lease held by this Director or expired | `resume` |
+| `active_elsewhere` | unexpired lease held by another Director | report holder; takeover needs human approval |
+| `orphaned_attempts` | attempts left `dispatched`/`submitted` | `resume` (marks them orphaned, retryable) |
+| `diverged` | event hash chain conflict | stop; human resolves |
+| `drift` | published deliverables edited outside Baton | ask human: ingest or leave (§19.3) |
+| `machine_unready` | `doctor` reports a problem | fix profiles/auth first |
+
+Healthy situations (`idle`, `active_here` with no orphans or drift) print a single line. `situation_detected` is recorded only when a run exists.
+
+### 20.3 Research (adoption only)
+
+Research gathers **evidence**; it does not judge. It runs as a built-in first step of an adoption run, before the recipe's triage.
+
+- **Scope is set by the recipe, not the project.** Research answers one question: *which of this recipe's step outputs and artifacts already exist here, where, and in what state?* It also reports existing agent configuration, candidate path mappings and candidate project commands. It is not a general audit.
+- **Read-only.** The worker needs `workspace_read` (plus `structured_output`, `technical_reasoning`) and runs with the project root as a read-only workspace where the harness supports it [VERIFY per harness]. A built-in gate confirms deterministically that the working tree is unchanged afterward.
+- **Output** (`research.findings`, schema shipped with the runtime):
+  - `evidence[]`: `{path, sha256, kind, maps_to?, confidence, notes}`, where `maps_to` is a step artifact or output reference
+  - `proposed_seeds[]`: `{step, artifacts{name: path}, output_draft}`. For seeds, research drafts the step's structured `output` from the existing artifact; it is validated and attested at baseline, never trusted as-is.
+  - `agent_config`: existing `AGENTS.md`, `CLAUDE.md`, skills folders, MCP config (so `init` merges rather than overwrites)
+  - `path_candidates`, `command_candidates`, `gaps[]`
+- **Crosswalks make research near-deterministic.** For projects that ran under a known prior process, a crosswalk maps that process's artifacts to recipe steps:
+
+  ```yaml
+  # .baton/crosswalks/acme-eng-v3--software-feature.yaml (project-local or shipped with a recipe)
+  from_process: acme-eng-v3
+  to_process: software-feature@1
+  artifacts:
+    - { match: "docs/prd/*.md",  to: steps.requirements.artifacts.requirements_doc }
+    - { match: "docs/tdd/*.md",  to: steps.design.artifacts.design_doc }
+  completion_signals:
+    - { step: requirements, evidence: "file docs/prd/<slug>.md contains 'Status: Approved'" }
+  ```
+
+  With a crosswalk, research mostly confirms matches and fills structured outputs, instead of interpreting the project from scratch. Writing one crosswalk per prior process is the single biggest friction reducer for adoption. Crosswalks contain no model or vendor references and pass the neutrality lint.
+
+### 20.4 Triage and complexity levels
+
+- **The recipe owns its scale** (`complexity.levels`, lowest to highest) and its triage criteria (in the triage prompt). A backyard recipe and a software recipe judge complexity differently; the runtime only applies the result.
+- **Triage output contract:** `{level, reasons[], signals{...}}`, where `level` is one of the recipe's levels. Recorded as `complexity_set`.
+- **Deterministic inclusion.** After triage passes, the runtime marks every step whose `applies_to` excludes the level as `skipped` (`step_skipped`, with the level as reason), and disables level-scoped gates the same way. Steps without `applies_to` always run. The Director has no say in this.
+- **Re-triage.** Scope changes (the flower bed becomes a patio). `request_retriage(reason)` runs triage again with the run's current record as input, then a human gate. On approval (`retriage_applied`), steps not yet started are re-evaluated: newly applicable steps go from `skipped` to `blocked_on_deps`, newly excluded ones to `skipped`. **Passed and imported steps are never changed**; if the new level would have run a step differently, its record is flagged "pre-retriage" for the human's awareness.
+- **Keep levels few.** Three is a sensible default. Each level should differ in steps or gates the human would actually notice.
+
+### 20.5 Seeding: importing existing work
+
+A seed turns existing work into a step result without re-doing it.
+
+- A seeded step goes to `imported` (`step_imported`), with `worker = human` and the human's attestation from the baseline decision.
+- **Same contract as any result:** seeded artifacts enter CAS with hashes, and the seed's `output` must validate against the step's output schema. A seed that fails validation is **not** imported; the baseline offers to run that step instead.
+- Gates that can run on a seed (schema, script) do run. LLM-review and human gates are satisfied by the baseline attestation and recorded as such.
+- Downstream steps consume imported results exactly like passed ones, so the handoff guarantee holds from the first Baton-executed step onward.
+
+### 20.6 Consultation
+
+Subject-matter questions always go to a consult worker. The Director's value is knowing **where** the relevant knowledge lives; the consultant's value is understanding **what** it means.
+
+- **The Director selects, the runtime assembles.** `consult(run_id, question, refs, mode)`. The Director chooses `refs` by name from the record and recipe (e.g. `steps.design.artifacts.design_doc`, `steps.requirements.output`, `human.d_014`, published deliverables, and for consults only `project:<path-or-glob>`) without reading their content. The runtime resolves them into a hashed consult packet.
+- **Plain provenance, not Baton.** Each item carries a neutral label (what it is, which step produced it, its standing: "approved design, attempt 2", "edited by a human after publishing", "imported from prior process"). The consultant needs no knowledge of Baton.
+- **Safety net.** The packet includes an index of everything else on record (titles and references only). The answer schema is `{answer, confidence, sources_used[], requested_refs[], suggests_retriage}`. If `requested_refs` is non-empty, the Director approves a follow-up (or asks the human), and `consult_followup` includes those items plus the prior turns.
+- **Routing.** The consultant is chosen by `eligible_workers` against the recipe's `consult_requires`, or the vocabulary default. No independence constraint.
+- **Isolation from the run.** Consult answers are recorded (`consult_requested` / `consult_answered`, transcript in `.baton/runs/<id>/consults/`) but are **not** referenceable as step inputs. They affect the run only through `promote_consult(as: decision | revision)` with the human's explicit agreement (`consult_promoted`).
+- **Keeping subject matter out of the Director.** The Director relays answers faithfully without adding analysis and does not use them in routing. Because all state lives in the record, the Director can resume in a fresh session after a consultation at no cost; the skill recommends this. Leakage is minimized, not eliminated: the relayed answer passes through the Director's context once.
+- **Modes.** `relay` (default): the Director is the go-between, multi-turn via follow-ups. `handoff` (optional, per harness): the consult adapter opens a separate session or bot the user talks to directly, and its transcript or summary is recorded as the answer when the session closes. Baton does not care which mode was used.
+- **Consultation is built in, not a step.** It sits outside the step graph, cannot satisfy gates, and requires no recipe change. This is why the Director never needs to add roles or steps.
+
+### 20.7 The baseline
+
+The baseline ends adoption and is the only human decision it requires.
+
+- **Contents**, presented by the Director as one decision: proposed `project.yaml` path mappings and commands; agent-config merges; seeds to import (each with source path and the step it satisfies); the complexity level with triage reasons; the resulting plan (steps that will run, steps skipped); known gaps.
+- **Blameless.** The baseline records what exists, what is assumed and what is missing. Gaps are listed as gaps, not failures of the prior process.
+- **Applying it** (`establish_baseline`): writes `project.yaml` and config merges, imports seeds, applies the complexity level, records `baseline_established` with the human's verbatim decision, and makes a checkpoint commit. From here the run is ordinary Baton.
+- The human may edit any part (drop a seed, change a path, override the level); the edited version is what gets applied and recorded.
+
+### 20.8 Explaining the process
+
+`explain(run_id, scope?)` returns **process facts only**, assembled deterministically from events, the recipe and the plan: completed, imported and skipped steps with outcomes (status, attempts, gate results, decisions); the current position and any pending decision; remaining steps at the current level; steps that would apply at other levels; and possible branches (retry, switch worker, escalate, re-triage). The Director turns this into plain language on request. Because `explain` contains no subject content, the Director can answer "where are we and what happens next?" fully without loading any subject matter.
+
+### 20.9 What this deliberately does not add
+
+- No Director-created roles, steps or process edits.
+- No AI in situation detection.
+- No expression language for step inclusion (only `applies_to` level lists).
+- No project-wide audit during research.
+- No second source of truth: research findings, triage, seeds, consultations and the baseline are all ordinary events and CAS blobs in the run.
