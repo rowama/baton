@@ -1,5 +1,7 @@
-# Relay: Build Guide for a Vendor-Neutral, Director-Led Multi-Step Process Framework
+# Baton: Build Guide for a Vendor-Neutral, Director-Led Multi-Step Process Framework
 
+> **Revision 2.1.** Renamed from the working title "Relay" to **Baton** (repo `rowama/baton`). No design changes from Revision 2.
+>
 > **Revision 2.** Adds model-neutral process packages, capability-based dynamic routing, per-step isolated worker execution, repo-resident run persistence for cross-platform handoff, and publishing of deliverables into the project tree.
 >
 > **Audience:** a fresh AI coding session (Claude Code, Codex, Hermes, etc.) tasked with building this framework from scratch.
@@ -15,12 +17,13 @@
 4. **Vendor neutrality.** No model vendor is privileged anywhere in the core or in process packages. Vendors exist only inside worker profiles and adapters.
 5. **Small, tested increments.** Write tests alongside each module. Keep `pytest` green at every commit.
 6. **Ask the human** when a requirement here is ambiguous. Do not silently pick an interpretation for anything listed in §14 (Open Decisions).
+7. **The name is a label, not a spec.** "Baton" evokes work passed from worker to worker under the Director. Use the metaphor only where it helps explain or group a concept. Never derive a design decision, feature or term from it; use plain technical names (step, packet, result, worker, gate) in code and docs.
 
 ---
 
 ## 1. What We Are Building
 
-A small runtime ("**Relay**") that lets *any* agentic harness act as the **Director** of a multi-step process, while each step is executed by a **Worker**. A Worker can be a raw model API call, another harnessed agent or a human. Relay guarantees:
+A small runtime ("**Baton**") that lets *any* agentic harness act as the **Director** of a multi-step process, while each step is executed by a **Worker**. A Worker can be a raw model API call, another harnessed agent or a human. Baton guarantees:
 
 | Guarantee | Mechanism |
 |---|---|
@@ -32,12 +35,12 @@ A small runtime ("**Relay**") that lets *any* agentic harness act as the **Direc
 | **Observability** | Append-only event log (JSONL) of every transition, packet, result, gate outcome, routing choice and human decision. |
 | **Documentation** | Each step renders a Markdown record. Each run produces a summary. |
 | **Verification** | Declarative gates per step: schema, script, LLM review, human sign-off. |
-| **Cross-platform continuity** | Run state lives in the project repo. Any capable Director can `relay resume` from the last committed checkpoint. |
+| **Cross-platform continuity** | Run state lives in the project repo. Any capable Director can `baton resume` from the last committed checkpoint. |
 | **Deliverables in the project** | Specs, designs, plans and drawings are published to real project paths. The run directory holds their provenance. |
 
 ### Non-goals
 
-- Not an agent framework. Relay does not run an LLM loop itself; Directors and Workers do.
+- Not an agent framework. Baton does not run an LLM loop itself; Directors and Workers do.
 - Not a scheduler or queue. Steps run when the Director dispatches them.
 - No GUI. Use the CLI and Markdown outputs.
 
@@ -46,31 +49,31 @@ A small runtime ("**Relay**") that lets *any* agentic harness act as the **Direc
 ## 2. Roles
 
 - **Human:** owns goals, approves human gates, answers escalations. Talks only to the Director.
-- **Director:** any harness loaded with the `relay-director` skill and connected to the Relay MCP server (or using the CLI). It is an expert at *running processes, routing work and communicating*, not at any step's domain. It **never performs step work itself**.
-- **Relay runtime:** deterministic Python, installed as a pinned tool. The project repo's event logs are the source of truth for run state.
+- **Director:** any harness loaded with the `baton-director` skill and connected to the Baton MCP server (or using the CLI). It is an expert at *running processes, routing work and communicating*, not at any step's domain. It **never performs step work itself**.
+- **Baton runtime:** deterministic Python, installed as a pinned tool. The project repo's event logs are the source of truth for run state.
 - **Worker:** executes exactly one step attempt under one **worker profile**. It receives a packet directory and must produce a result directory. It is stateless with respect to the run.
 
 ```
 Human ⇄ Director (any harness)
             │  MCP tools / CLI
             ▼
-        Relay runtime ── project repo: .relay/runs/<run_id>/ (events, CAS, docs)
+        Baton runtime ── project repo: .baton/runs/<run_id>/ (events, CAS, docs)
             │  spawn child process with profile's env + auth
             ▼
         Worker (API model | headless harness | human)
             │  writes result/ (result.json + artifacts)
             ▼
-        Relay validates → gates → records → publishes → checkpoint commit → next step ready
+        Baton validates → gates → records → publishes → checkpoint commit → next step ready
 ```
 
 ---
 
 ## 3. Key Design Decisions (and why)
 
-1. **Runtime owns handoff.** The Director only says "begin step X with worker profile P". Relay decides what goes into the packet based on the process definition. This removes the main failure mode, a Director that summarizes, forgets or paraphrases context.
+1. **Runtime owns handoff.** The Director only says "begin step X with worker profile P". Baton decides what goes into the packet based on the process definition. This removes the main failure mode, a Director that summarizes, forgets or paraphrases context.
 2. **File-based protocol.** Every harness can read and write files. Packets and results are directories, so they are inspectable, diffable and replayable.
 3. **Content addressing.** Every artifact is stored by SHA-256. A packet manifest lists the hashes. The worker's `result.json` must echo `packet_sha256`, which proves it was produced against that exact packet.
-4. **Provenance-checked gates.** An artifact counts only if it was registered through `submit_step`. This blocks a Director that bypasses Relay and does the work itself.
+4. **Provenance-checked gates.** An artifact counts only if it was registered through `submit_step`. This blocks a Director that bypasses Baton and does the work itself.
 5. **Processes are model-neutral data.** Domain knowledge lives in YAML, schemas, prompts and templates. Steps declare *what capabilities they need*, never *who* does them. The same package can run on completely different models in different instances.
 6. **Routing is dynamic but enforced.** The Director chooses, the runtime constrains. Eligibility is computed deterministically from capability declarations; an ineligible choice is rejected.
 7. **Isolation by construction.** Workers never inherit the Director's environment by default. Each profile declares exactly what its child process sees, so one step's API key can never change another step's billing or auth.
@@ -83,13 +86,13 @@ Human ⇄ Director (any harness)
 
 There are three distinct things. Keep them separate.
 
-### 4.1 The Relay runtime (its own repo, installed as a pinned tool)
+### 4.1 The Baton runtime (its own repo, installed as a pinned tool)
 
 ```
-relay/
+baton/
 ├── pyproject.toml
 ├── README.md
-├── src/relay/
+├── src/baton/
 │   ├── models.py          # pydantic models: ProcessDef, StepDef, Requires, WorkerProfile, Packet, Result, Event…
 │   ├── capabilities.py    # vocabulary loading + matching
 │   ├── process_loader.py  # load + validate + neutrality lint
@@ -106,7 +109,7 @@ relay/
 │   ├── gitops.py          # checkpoint commits
 │   ├── redact.py          # secret redaction for anything committed
 │   ├── engine.py          # orchestration API used by MCP + CLI
-│   ├── worker_runner.py   # `python -m relay.worker_runner` — child-process entrypoint for API workers
+│   ├── worker_runner.py   # `python -m baton.worker_runner` — child-process entrypoint for API workers
 │   ├── adapters/
 │   │   ├── base.py
 │   │   ├── litellm_api.py
@@ -117,10 +120,10 @@ relay/
 │   ├── mcp_server.py
 │   └── cli.py
 ├── capabilities/
-│   └── relay-capabilities-1.yaml   # versioned controlled vocabulary (§5.4)
+│   └── baton-capabilities-1.yaml   # versioned controlled vocabulary (§5.4)
 ├── skills/
-│   ├── relay-director/SKILL.md
-│   └── relay-worker/SKILL.md
+│   ├── baton-director/SKILL.md
+│   └── baton-worker/SKILL.md
 ├── examples/processes/
 │   ├── software-feature/
 │   └── backyard-project/
@@ -141,14 +144,14 @@ software-feature/
 ### 4.3 Machine/user-local configuration (never in any repo)
 
 ```
-~/.relay/
+~/.baton/
 ├── workers.yaml           # worker profiles (§5.5)
 ├── secrets/               # optional file-based secret store (0700)
 ├── homes/<profile>/       # optional relocated CLI config homes [VERIFY support per CLI]
 └── logs/                  # unredacted raw worker stdout/stderr
 ```
 
-Project-local overrides go in `.relay/workers.local.yaml`, which is **gitignored**.
+Project-local overrides go in `.baton/workers.local.yaml`, which is **gitignored**.
 
 ---
 
@@ -159,7 +162,7 @@ Project-local overrides go in `.relay/workers.local.yaml`, which is **gitignored
 ```yaml
 id: software-feature
 version: 1
-capabilities_vocab: relay-capabilities/1
+capabilities_vocab: baton-capabilities/1
 description: Take a feature request to a merged, tested change.
 
 run_inputs:
@@ -259,16 +262,16 @@ Only these forms are legal. The loader must reject anything else.
 
 The loader **rejects** any process package containing:
 - the keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth` anywhere in `process.yaml`;
-- string values matching known vendor or model patterns (a maintained denylist in `relay-capabilities-*.yaml`: e.g. `openai/`, `anthropic/`, `gpt-`, `claude-`, `gemini`, `grok`, `llama`). Prompts and templates are scanned too, with a warning rather than an error, since prose may legitimately mention a vendor.
+- string values matching known vendor or model patterns (a maintained denylist in `baton-capabilities-*.yaml`: e.g. `openai/`, `anthropic/`, `gpt-`, `claude-`, `gemini`, `grok`, `llama`). Prompts and templates are scanned too, with a warning rather than an error, since prose may legitimately mention a vendor.
 
 This is what makes a package safely shareable: it can be dropped into any project and run with any compliant workers.
 
-### 5.4 Capability vocabulary (`relay-capabilities/1`)
+### 5.4 Capability vocabulary (`baton-capabilities/1`)
 
 A versioned, controlled list shipped with the runtime. Example entries:
 
 ```yaml
-id: relay-capabilities/1
+id: baton-capabilities/1
 capabilities:
   structured_output:   "Reliably returns JSON conforming to a supplied schema"
   long_form_writing:   "Produces coherent multi-page documents"
@@ -290,7 +293,7 @@ Rules:
 - Unknown capability names are a **load error** for both packages and profiles.
 - New capabilities ⇒ new vocabulary version. The runtime supports multiple versions side by side; packages declare which one they target.
 
-### 5.5 Worker profiles (`~/.relay/workers.yaml`, machine-local)
+### 5.5 Worker profiles (`~/.baton/workers.yaml`, machine-local)
 
 A profile bundles everything needed to run one worker in isolation:
 
@@ -349,18 +352,18 @@ human:
 | defaults | `api_key` ⇒ `clean`; `cli_login` ⇒ `allowlist` with HOME-type vars | `env_deny` is always applied last, in every mode. |
 | `auth.config_home` | path | Optional relocated CLI config directory so multiple logins can coexist **[VERIFY each CLI supports this and which env var it uses]**. |
 | `isolation` | `none` \| `user` \| `container` | `container` runs the worker in a container with only the packet, result and workspace mounted. |
-| secrets | `secret:<name>` | Resolved only at spawn time, from env var, OS keyring or `~/.relay/secrets/<name>`, in that configurable order. **Never** written to packets, manifests, events or logs. |
+| secrets | `secret:<name>` | Resolved only at spawn time, from env var, OS keyring or `~/.baton/secrets/<name>`, in that configurable order. **Never** written to packets, manifests, events or logs. |
 
-**Credential storage caveat [VERIFY]:** CLI logins are usually files under the user's home directory (e.g. Codex keeps its login under `~/.codex/`). Some CLIs may use the OS keychain on some platforms, which can require the user's login session rather than any env var. `relay doctor` (§11.2) exists to catch this per profile, per machine.
+**Credential storage caveat [VERIFY]:** CLI logins are usually files under the user's home directory (e.g. Codex keeps its login under `~/.codex/`). Some CLIs may use the OS keychain on some platforms, which can require the user's login session rather than any env var. `baton doctor` (§11.2) exists to catch this per profile, per machine.
 
 ---
 
 ## 6. The Communication Protocol
 
-### 6.1 Packet (Relay → Worker)
+### 6.1 Packet (Baton → Worker)
 
 ```
-.relay/runs/<run_id>/steps/<step_id>/attempt-<n>/packet/
+.baton/runs/<run_id>/steps/<step_id>/attempt-<n>/packet/
 ├── manifest.json
 ├── INSTRUCTIONS.md        # rendered prompt + protocol rules + output contract
 ├── inputs/
@@ -373,7 +376,7 @@ human:
 
 ```json
 {
-  "protocol": "relay/2",
+  "protocol": "baton/2",
   "run_id": "r_20261101_ab12",
   "process_id": "software-feature",
   "process_version": 1,
@@ -397,7 +400,7 @@ human:
 - `packet_sha256` is SHA-256 over the canonical JSON (sorted keys, no whitespace) of the manifest **with `packet_sha256` set to `null`**, combined with the hashes of every file in `inputs/`, `INSTRUCTIONS.md` and `output_schema.json`. Document the exact algorithm in code and test it.
 - On retry, `prior_attempt_feedback` holds the gate failure reasons from the previous attempt.
 
-### 6.2 Result (Worker → Relay)
+### 6.2 Result (Worker → Baton)
 
 ```
 attempt-<n>/result/
@@ -407,7 +410,7 @@ attempt-<n>/result/
 
 ```json
 {
-  "protocol": "relay/2",
+  "protocol": "baton/2",
   "packet_sha256": "…",
   "status": "completed",
   "output": { "...": "must validate against output_schema.json" },
@@ -421,7 +424,7 @@ attempt-<n>/result/
 - `status` is one of `completed`, `blocked` (needs a human answer) or `failed`.
 - Workers write **only** inside `result/`, except workspace workers, whose project changes are captured by gates and a `commit_sha` in `output`.
 
-### 6.3 `INSTRUCTIONS.md` structure (rendered by Relay)
+### 6.3 `INSTRUCTIONS.md` structure (rendered by Baton)
 
 1. Role and step title
 2. Step prompt (Jinja2; small JSON inputs inlined, large inputs referenced by path)
@@ -449,18 +452,18 @@ Only `engine.py` performs transitions; each one appends exactly one event. Illeg
 
 ### 7.2 Store (`store.py`): events are the source of truth
 
-- **Run directory:** `<project>/.relay/runs/<run_id>/` containing `events.jsonl`, `cas/`, `steps/` and `docs/`.
+- **Run directory:** `<project>/.baton/runs/<run_id>/` containing `events.jsonl`, `cas/`, `steps/` and `docs/`.
 - **`events.jsonl`** is append-only and is the authoritative state. Each event has `seq` (monotonic), `ts`, `run_id`, `step_id`, `attempt`, `type`, `actor` (director id / runtime / human) and `data`. Each line also carries `prev_sha256` (hash chain), which detects tampering or bad merges.
-- **CAS:** `.relay/runs/<run_id>/cas/<sha[:2]>/<sha>`, written atomically (temp file plus `os.replace`). Binaries over a configurable size are expected to be tracked by Git LFS (§17).
-- **SQLite** (`.relay/cache/state.db`, gitignored) is a **derived cache** for fast queries. `store.rebuild(run_id)` replays events to regenerate it. On any mismatch, events win.
+- **CAS:** `.baton/runs/<run_id>/cas/<sha[:2]>/<sha>`, written atomically (temp file plus `os.replace`). Binaries over a configurable size are expected to be tracked by Git LFS (§17).
+- **SQLite** (`.baton/cache/state.db`, gitignored) is a **derived cache** for fast queries. `store.rebuild(run_id)` replays events to regenerate it. On any mismatch, events win.
 - Event types: `run_started`, `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released`, `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `artifact_published`, `drift_detected`, `human_revision_ingested`, `step_escalated`, `attempt_orphaned`, `human_decision`, `checkpoint_committed`, `run_completed`, `run_abandoned`.
 
 ### 7.3 Routing (`routing.py`)
 
 `eligible_workers(run_id, step_id)`:
-1. Load all profiles (user-level, then `.relay/workers.local.yaml` overrides).
+1. Load all profiles (user-level, then `.baton/workers.local.yaml` overrides).
 2. Keep a profile only if it has **all** required capabilities, its tier is ≥ the required tier, and it meets every numeric minimum (e.g. `context_tokens ≥ min_context_tokens`). For `workspace` steps it must also have `repo_workspace`.
-3. Order the survivors by `.relay/preferences.yaml` (committed, non-secret), e.g.:
+3. Order the survivors by `.baton/preferences.yaml` (committed, non-secret), e.g.:
    ```yaml
    prefer:
      by_step: { implement: [claude-code-max, codex-pro-sub] }
@@ -535,8 +538,8 @@ Gate failures produce structured `reasons`, which become `prior_attempt_feedback
 
 ## 9. Documentation System (`docs.py`)
 
-- **Step record** (`.relay/runs/<id>/docs/<step_id>.md`): title, worker profile (name and non-secret hash, never secrets), attempt count, inputs with hashes, output, artifacts (CAS hash **and** published path), gate results, notes and human decisions.
-- **Run summary** (`.relay/runs/<id>/docs/SUMMARY.md`): process and version, inputs, timeline from events, a per-step table (worker, attempts, gates, published deliverables), escalations and lease history.
+- **Step record** (`.baton/runs/<id>/docs/<step_id>.md`): title, worker profile (name and non-secret hash, never secrets), attempt count, inputs with hashes, output, artifacts (CAS hash **and** published path), gate results, notes and human decisions.
+- **Run summary** (`.baton/runs/<id>/docs/SUMMARY.md`): process and version, inputs, timeline from events, a per-step table (worker, attempts, gates, published deliverables), escalations and lease history.
 - Docs are **derived** and regenerable from events and CAS, never hand-edited. They are committed because they are the human-readable view for anyone picking up the repo.
 
 ---
@@ -553,7 +556,7 @@ Gate failures produce structured `reasons`, which become `prior_attempt_feedback
 4. If `auth.mode == api_key`, resolve each `secret:` reference and inject it.
 5. If `auth.config_home` is set, set the CLI's config-dir variable **[VERIFY name per CLI]**.
 6. **Remove every `env_deny` variable last**, in every mode.
-7. Add `RELAY_PACKET_DIR`, `RELAY_RESULT_DIR` and `RELAY_WORKSPACE` (if any).
+7. Add `BATON_PACKET_DIR`, `BATON_RESULT_DIR` and `BATON_WORKSPACE` (if any).
 
 The constructed environment's **variable names** (never values) are logged in the `dispatched` event.
 
@@ -567,11 +570,11 @@ class WorkerAdapter(Protocol):
     def postprocess(self, profile, packet_dir, result_dir, proc_result) -> None: ...
 ```
 
-A shared `spawn()` runs the command with the constructed environment, timeout, `cwd` and optional container or user isolation. It captures stdout and stderr to `~/.relay/logs/` (raw) and a redacted copy to CAS. Adapters never interpret results; intake does.
+A shared `spawn()` runs the command with the constructed environment, timeout, `cwd` and optional container or user isolation. It captures stdout and stderr to `~/.baton/logs/` (raw) and a redacted copy to CAS. Adapters never interpret results; intake does.
 
 ### 10.3 `litellm_api`
 
-- The command is `python -m relay.worker_runner --adapter litellm_api --profile-json <non-secret profile> …`; the child reads secrets only from its own environment.
+- The command is `python -m baton.worker_runner --adapter litellm_api --profile-json <non-secret profile> …`; the child reads secrets only from its own environment.
 - Inside the child: build messages (system = protocol rules; user = `INSTRUCTIONS.md` + inlined inputs), call LiteLLM, and request structured output where supported **[VERIFY per model]**. The model returns `{output, artifacts: {name: content}, notes}`, and the runner writes `result.json` and artifacts, filling in `packet_sha256` itself.
 - Inputs too large to inline produce a hard error by default (see §14).
 
@@ -599,35 +602,35 @@ Prints the packet path and waits. The human (or the Director, relaying for the h
 - **Never** expose a tool that lets the Director write step outputs, artifacts or events directly.
 
 Registration (**[VERIFY]** each against current docs):
-- Claude Code: project-scoped `.mcp.json`, or `claude mcp add relay -- relay mcp`
-- Codex: an `[mcp_servers.relay]` entry with `command`/`args` in Codex config (check whether project-level config is supported)
-- Hermes: `hermes mcp add relay --command "relay mcp"`
+- Claude Code: project-scoped `.mcp.json`, or `claude mcp add baton -- baton mcp`
+- Codex: an `[mcp_servers.baton]` entry with `command`/`args` in Codex config (check whether project-level config is supported)
+- Hermes: `hermes mcp add baton --command "baton mcp"`
 
 ### 11.2 CLI (`cli.py`)
 
-`relay processes | start | status | eligible | begin | dispatch | submit | decide | retry | revise | resume | lease | record | summary | abandon | trace | doctor | mcp`
+`baton processes | start | status | eligible | begin | dispatch | submit | decide | retry | revise | resume | lease | record | summary | abandon | trace | doctor | mcp`
 
-- `relay trace <run_id>` tails `events.jsonl` in readable form.
-- `relay doctor [<profile>]`:
-  - Checks that the runtime version matches `.relay/relay.lock`, that every vendored package hash matches, and that the vocabulary version is supported.
+- `baton trace <run_id>` tails `events.jsonl` in readable form.
+- `baton doctor [<profile>]`:
+  - Checks that the runtime version matches `.baton/baton.lock`, that every vendored package hash matches, and that the vocabulary version is supported.
   - For each profile (or the named one): builds its exact environment, then runs a trivial no-op task through its adapter (e.g. "write `{"ok":true}` to result.json"). It reports success, duration, which auth mode was effective, and which env var names were present or denied.
   - Reports, per vendored process, which steps currently have **zero** eligible profiles on this machine.
 
-### 11.3 `skills/relay-director/SKILL.md` (Agent Skills format)
+### 11.3 `skills/baton-director/SKILL.md` (Agent Skills format)
 
 ```markdown
 ---
-name: relay-director
-description: Run or resume a multi-step Relay process as Director — route steps to capable workers, dispatch them, handle gates and escalations, and keep the human informed. Use whenever the user asks to start, continue, resume, or check a Relay process run.
+name: baton-director
+description: Run or resume a multi-step Baton process as Director — route steps to capable workers, dispatch them, handle gates and escalations, and keep the human informed. Use whenever the user asks to start, continue, resume, or check a Baton process run.
 ---
 
-# Relay Director
+# Baton Director
 
 You coordinate. You are NOT the domain expert for any step.
 
 ## Hard rules
 - Never perform step work yourself. Every step's output must come from dispatch_step / submit_step.
-- Never compose or edit a context packet. Relay builds packets. If a step cannot start, report the HandoffError's missing inputs to the human.
+- Never compose or edit a context packet. Baton builds packets. If a step cannot start, report the HandoffError's missing inputs to the human.
 - Never fabricate a human decision. record_human_decision only with the human's actual words.
 - Retry guidance must be additive; never restate or summarize inputs.
 - Only choose workers from eligible_workers. Never edit worker profiles, preferences, or the lockfile without the human's instruction.
@@ -650,7 +653,7 @@ You coordinate. You are NOT the domain expert for any step.
 - Escalations: what failed, why (gate reasons), options, your recommendation.
 ```
 
-Also write `skills/relay-worker/SKILL.md` (the §6 protocol rules) for harness workers.
+Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness workers.
 
 ---
 
@@ -672,16 +675,16 @@ Also write `skills/relay-worker/SKILL.md` (the §6 protocol rules) for harness w
 ✅ Hash mismatch rejected; schema failure rejected with reasons; script gate pass/fail; human gate blocks until decided; provenance enforced.
 
 **Phase 6: Engine + CLI + manual adapter + publishing + docs.**
-✅ A full 3-step toy run done by hand via CLI, including a forced failure and retry. Deliverables appear at the mapped project paths. Editing a published file triggers `drift_detected`, and `relay revise` ingests it as a revision consumed by a later step. `SUMMARY.md` renders.
+✅ A full 3-step toy run done by hand via CLI, including a forced failure and retry. Deliverables appear at the mapped project paths. Editing a published file triggers `drift_detected`, and `baton revise` ingests it as a revision consumed by a later step. `SUMMARY.md` renders.
 
 **Phase 6b: Profiles, environment isolation, doctor.**
-✅ Tests prove that `clean` / `allowlist` / `inherit` produce the expected variable *names*, that `env_deny` always wins, and that secret values never appear in any file under `.relay/` (grep test). `relay doctor` succeeds for a fake adapter and reports a missing secret clearly.
+✅ Tests prove that `clean` / `allowlist` / `inherit` produce the expected variable *names*, that `env_deny` always wins, and that secret values never appear in any file under `.baton/` (grep test). `baton doctor` succeeds for a fake adapter and reports a missing secret clearly.
 
 **Phase 7: `litellm_api` adapter (child process) + `llm_review`.**
 ✅ The toy process completes with two different vendors' models. Review-gate failure feedback appears in the next attempt's packet.
 
 **Phase 8: Harness adapters.**
-✅ One step runs via headless Claude Code or Codex in `cli_login` mode and another via an `api_key` profile, **in the same run**. `relay doctor` confirms each profile's effective auth mode. Timeouts are handled cleanly.
+✅ One step runs via headless Claude Code or Codex in `cli_login` mode and another via an `api_key` profile, **in the same run**. `baton doctor` confirms each profile's effective auth mode. Timeouts are handled cleanly.
 
 **Phase 9: Persistence, leases, resume, checkpoint commits.**
 ✅ Start a run on machine/Director A and checkpoint. Clone fresh on machine/Director B (a different harness), then `doctor` → `resume` → complete. A stale `dispatched` attempt becomes `orphaned` and is retried. A second Director cannot mutate the run without a recorded takeover.
@@ -707,12 +710,12 @@ Also write `skills/relay-worker/SKILL.md` (the §6 protocol rules) for harness w
 
 ## 14. Open Decisions (ask the human before choosing)
 
-1. Parallel step dispatch inside Relay vs. leaving parallelism to the Director.
+1. Parallel step dispatch inside Baton vs. leaving parallelism to the Director.
 2. Large inputs for API workers: hard error (default) vs. auto-chunking vs. requiring a file-capable worker.
 3. No eligible worker: escalate (default) vs. fail the run.
 4. Who maintains the capability vocabulary, and the process for proposing new capabilities and denylist entries.
 5. Lease duration and renewal interval defaults; whether takeover requires human approval (skill says yes) or is also enforced in the runtime.
-6. Automatic checkpoint commits on by default, or opt-in? Commit message format? Commit to the current branch or a dedicated `relay/<run_id>` branch?
+6. Automatic checkpoint commits on by default, or opt-in? Commit message format? Commit to the current branch or a dedicated `baton/<run_id>` branch?
 7. Git LFS size threshold and whether LFS is required or optional.
 8. Optional OpenTelemetry export of events (off by default).
 9. Process versioning: runs pin the package version and hash at start (suggested), and upgrading mid-run requires a recorded human decision.
@@ -721,35 +724,35 @@ Also write `skills/relay-worker/SKILL.md` (the §6 protocol rules) for harness w
 
 ## 15. Security & Safety Notes
 
-- Script gates execute commands from process packages, so treat **vendored packages as trusted code**. Review them before vendoring, and keep the lockfile hash check (`relay doctor`) on.
+- Script gates execute commands from process packages, so treat **vendored packages as trusted code**. Review them before vendoring, and keep the lockfile hash check (`baton doctor`) on.
 - Harness workers may run with broad permissions. Prefer `isolation: container` or a dedicated user, with the workspace scoped.
-- **Everything committed passes `redact.py`.** It strips known secret values (the resolved secrets for the current process) and known token patterns. Raw unredacted logs stay in `~/.relay/logs/`.
+- **Everything committed passes `redact.py`.** It strips known secret values (the resolved secrets for the current process) and known token patterns. Raw unredacted logs stay in `~/.baton/logs/`.
 - Secrets are never written anywhere under the project tree. The Phase 6b and §13 tests enforce this.
-- Packets and results may contain sensitive project data. Treat `.relay/runs/` like the rest of the repo's confidential content.
+- Packets and results may contain sensitive project data. Treat `.baton/runs/` like the rest of the repo's confidential content.
 
 ---
 
 ## 16. Definition of Done
 
 - All phases' acceptance criteria pass.
-- `README.md` covers install (pinned), registering the MCP server per harness, writing worker profiles, `relay doctor`, authoring a neutral process package, vendoring a package into a project and resuming a run on a new machine.
+- `README.md` covers install (pinned), registering the MCP server per harness, writing worker profiles, `baton doctor`, authoring a neutral process package, vendoring a package into a project and resuming a run on a new machine.
 - One software and one non-software example package ship with the runtime.
 - Swapping the Director harness, or any step's worker, requires only local config changes. Recipe changes require no runtime changes.
 
 ---
 
-## 17. Adopting Relay in a Project (Vendoring)
+## 17. Adopting Baton in a Project (Vendoring)
 
 **Principle: commit what the process *is* and what it has *produced*; never commit who runs it or how they pay.**
 
 ```
 <project>/
-├── AGENTS.md                         # pointer: "This repo uses Relay. See .agents/skills/relay-director."
-├── .agents/skills/relay-director/    # vendored skill (symlink/copy to .claude/skills/ etc. if a harness needs it)
-├── .agents/skills/relay-worker/
+├── AGENTS.md                         # pointer: "This repo uses Baton. See .agents/skills/baton-director."
+├── .agents/skills/baton-director/    # vendored skill (symlink/copy to .claude/skills/ etc. if a harness needs it)
+├── .agents/skills/baton-worker/
 ├── .mcp.json                         # project MCP registration (no secrets) [VERIFY per harness]
-├── .relay/
-│   ├── relay.lock                    # runtime version, vocabulary version, package hashes
+├── .baton/
+│   ├── baton.lock                    # runtime version, vocabulary version, package hashes
 │   ├── project.yaml                  # path mapping + project vars (test_command, etc.)
 │   ├── preferences.yaml              # optional, non-secret routing preferences
 │   ├── processes/<id>@<version>/     # vendored, pinned process packages
@@ -757,21 +760,21 @@ Also write `skills/relay-worker/SKILL.md` (the §6 protocol rules) for harness w
 │   ├── workers.local.yaml            # GITIGNORED
 │   └── cache/                        # GITIGNORED (SQLite)
 ├── docs/specs/ docs/design/ plans/ cad/ …   # published deliverables (§19)
-└── .gitattributes                    # LFS rules for .relay/runs/**/cas large blobs + binary deliverables
+└── .gitattributes                    # LFS rules for .baton/runs/**/cas large blobs + binary deliverables
 ```
 
 | Item | Commit? |
 |---|---|
-| Process packages (pinned) + `relay.lock` | ✅ |
+| Process packages (pinned) + `baton.lock` | ✅ |
 | Skills, `AGENTS.md` pointer, MCP project config | ✅ |
 | `project.yaml`, `preferences.yaml` | ✅ |
-| `.relay/runs/**` (events, CAS, packets, results, docs) | ✅ (redacted) |
+| `.baton/runs/**` (events, CAS, packets, results, docs) | ✅ (redacted) |
 | Published deliverables at project paths | ✅ |
-| Relay runtime source | ❌ install it pinned (`uv tool install relay==X` or equivalent); vendor only for offline use or a fork |
-| Worker profiles (`~/.relay/workers.yaml`, `.relay/workers.local.yaml`) | ❌ |
+| Baton runtime source | ❌ install it pinned (`uv tool install baton==X` or equivalent); vendor only for offline use or a fork |
+| Worker profiles (`~/.baton/workers.yaml`, `.baton/workers.local.yaml`) | ❌ |
 | Secrets, raw logs, SQLite cache | ❌ |
 
-`relay init` creates this structure, the `.gitignore` entries and the `.gitattributes` LFS rules. `relay vendor <package-dir>` copies a package, runs the neutrality lint and records its hash in the lockfile.
+`baton init` creates this structure, the `.gitignore` entries and the `.gitattributes` LFS rules. `baton vendor <package-dir>` copies a package, runs the neutrality lint and records its hash in the lockfile.
 
 ---
 
@@ -783,7 +786,7 @@ Any capable Director, on any machine, can clone the repo and continue a run reli
 
 ### 18.2 Checkpoint commits (`gitops.py`)
 
-- After `step_passed` + publish, `human_decision`, `step_escalated` and `run_completed`, the runtime stages `.relay/runs/<run_id>/` plus the published deliverables, then commits with a structured message, e.g. `relay(<run_id>): design passed [attempt 1, worker openai-api-strong]`.
+- After `step_passed` + publish, `human_decision`, `step_escalated` and `run_completed`, the runtime stages `.baton/runs/<run_id>/` plus the published deliverables, then commits with a structured message, e.g. `baton(<run_id>): design passed [attempt 1, worker openai-api-strong]`.
 - A `checkpoint_committed` event (with the commit SHA) is appended **in the next commit**, since the SHA isn't known until after committing. Alternatively, record SHAs only in git and let `resume` read `git log`. Choose one and document it.
 - Workspace steps (code) commit their own changes; their `commit_sha` is recorded in the step output, and the checkpoint commit follows.
 - Never commit with uncommitted unrelated changes present; refuse and report instead (or use a dedicated branch; see §14).
@@ -806,9 +809,9 @@ Any capable Director, on any machine, can clone the repo and continue a run reli
 
 ### 18.5 What a new machine still needs (by design)
 
-The pinned runtime (per the lockfile) and its own worker profiles that satisfy the steps' `requires`. `relay doctor` verifies both before the Director touches the run.
+The pinned runtime (per the lockfile) and its own worker profiles that satisfy the steps' `requires`. `baton doctor` verifies both before the Director touches the run.
 
-**Prescribed pickup workflow:** clone → install pinned runtime → write or confirm profiles → `relay doctor` → `relay resume <run_id>` → continue.
+**Prescribed pickup workflow:** clone → install pinned runtime → write or confirm profiles → `baton doctor` → `baton resume <run_id>` → continue.
 
 ---
 
@@ -822,7 +825,7 @@ artifacts:
     publish: { to: "{{ paths.designs }}/{{ run.slug }}-design.md" }
 ```
 
-Packages reference only **logical** path keys. The project maps them in `.relay/project.yaml`:
+Packages reference only **logical** path keys. The project maps them in `.baton/project.yaml`:
 
 ```yaml
 paths:
@@ -841,7 +844,7 @@ A missing path key is a **start-time error** (`start_run` refuses), so recipes f
 
 On `step_passed`, for each artifact with `publish`:
 1. Render the target path and refuse anything outside the project root.
-2. If the target exists and **was not** last written by Relay with the same hash, treat it as a conflict. Do not overwrite; escalate to the human (overwrite / keep / publish to an alternate name).
+2. If the target exists and **was not** last written by Baton with the same hash, treat it as a conflict. Do not overwrite; escalate to the human (overwrite / keep / publish to an alternate name).
 3. Copy from CAS, then append `artifact_published {step, artifact, path, sha256}`.
 
 Workspace steps (source code) don't use `publish`; their output *is* the project tree, recorded via `commit_sha`.
@@ -857,4 +860,4 @@ Workspace steps (source code) don't use `publish`; their output *is* the project
 
 ### 19.4 Large and binary deliverables
 
-Drawings, photos and CAD files are tracked by Git LFS (rules set by `relay init`), so CAS and published copies cost only pointers in normal git history.
+Drawings, photos and CAD files are tracked by Git LFS (rules set by `baton init`), so CAS and published copies cost only pointers in normal git history.
