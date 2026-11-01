@@ -1,5 +1,7 @@
 # Baton: Build Guide for a Vendor-Neutral, Director-Led Multi-Step Process Framework
 
+> **Revision 3.** Informed by a review of `rowama/eng-process` (the owner's existing engineering process) and its use on `rowama/mmbridge`. Adds: projects with **concurrent work items** (runs) instead of a single project phase; **sub-processes** (`foreach` / `repeat_until`) for cross-worker iteration; **async execution and liveness** (completion hooks, running markers, effort timeouts, failure classification); `revise_step` within a work item; **findings-based reviews**, advisory gates and waivers; cross-step reviewer independence; protected files; PATH handling and gate preflight; **SMEs by subject** (project, platform, process) generalizing consultation; a project-level **platform area**; the owner communication contract; action permissions; Windows notes; `baton check`. New §21–§26; supporting changes throughout. The owner's eng-process will be ported as a Baton recipe; its crosswalk is a separate guide.
+>
 > **Revision 2.2.** Adds adoption into existing projects (detect, doctor, research, triage, seeding, baseline), complexity-tailored processes, built-in subject-matter consultation, and the "invisible when healthy" principle. See §20; supporting changes in §1, §3, §5, §7, §11, §12, §14.
 >
 > **Revision 2.1.** Renamed from the working title "Relay" to **Baton** (repo `rowama/baton`). No design changes from Revision 2.
@@ -41,23 +43,32 @@ A small runtime ("**Baton**") that lets *any* agentic harness act as the **Direc
 | **Deliverables in the project** | Specs, designs, plans and drawings are published to real project paths. The run directory holds their provenance. |
 | **Tailored formality** | A triage step rates the work on the recipe's own complexity scale. The runtime includes or skips steps and gates from that rating deterministically. |
 | **Low-friction adoption** | Existing projects are adopted in place: existing work is imported as attested step outputs, and a single human-approved baseline starts normal operation. |
-| **Subject-matter consultation** | Subject-matter questions always go to a consult worker with a runtime-assembled packet. The Director routes; it never answers from its own inference. |
+| **Subject-matter consultation** | Questions go to a subject-matter expert (SME) worker by subject (project, platform, process) with a runtime-assembled packet. The Director routes; it never answers from its own inference. |
 | **Invisible when healthy** | Checks, detection and resume are silent unless something is wrong. Human attention is spent only at gates, escalations and the adoption baseline. |
+| **Concurrent work items** | A project holds many runs, one per work item (feature, increment, fix), each at its own step. The project never "steps back"; work items move independently (§21). |
+| **Cross-worker iteration** | Sub-processes repeat a group of steps per item (`foreach`, e.g. per slice) or until a gate passes (`repeat_until`), bounded and enforced by the runtime (§22). |
+| **Long-running work** | Dispatch is asynchronous. The runtime tracks liveness, wakes the Director on completion, enforces effort-based timeouts and classifies failures (§23). |
 
 ### Non-goals
 
-- Not an agent framework. Baton does not run an LLM loop itself; Directors and Workers do.
-- Not a scheduler or queue. Steps run when the Director dispatches them.
+- Not an agent framework. Baton does not run an LLM loop itself; Directors and Workers do. Iteration *inside* a worker (e.g. a coding agent looping until its tests pass) is the worker's own business; Baton gives it the exit criteria and a budget, and models only iteration *across* workers.
+- Not a general scheduler or queue. Steps run when the Director dispatches them; the runtime only supervises dispatched work and wakes the Director when it ends.
 - No GUI. Use the CLI and Markdown outputs.
+- No backlog or idea management. Owners keep notes and backlogs in tools of their choice.
 
 ---
 
 ## 2. Roles
 
-- **Human:** owns goals, approves human gates, answers escalations. Talks only to the Director.
-- **Director:** any harness loaded with the `baton-director` skill and connected to the Baton MCP server (or using the CLI). It is an expert at *running processes, routing work and communicating*, not at any step's domain. It **never performs step work itself**.
-- **Baton runtime:** deterministic Python, installed as a pinned tool. The project repo's event logs are the source of truth for run state.
+- **Owner (human):** owns goals, approves human gates, answers escalations. Talks to the Director (and may be contacted by SMEs through it).
+- **Director:** any harness loaded with the `baton-director` skill that can reach the Baton runtime: by shell (CLI) on the runtime host, or by MCP. It is an expert at *running processes, routing work and communicating*, not at any step's domain. It **never performs step work itself**.
+- **Baton runtime:** deterministic Python, installed as a pinned tool **on the host where workers run** (the "runtime host"). The project repo's event logs are the source of truth.
 - **Worker:** executes exactly one step attempt under one **worker profile**. It receives a packet directory and must produce a result directory. It is stateless with respect to the run.
+- **SMEs (subject-matter experts):** workers consulted by subject (§25). Three subjects are built in: **project** (the work's domain), **platform** (development and deployment infrastructure: an IT-type expert such as the owner's platform agent) and **process** (Baton itself: introspection and process improvement). A platform SME may be an agent that interacts with workers, the Director and the owner to resolve infrastructure issues.
+
+**Hierarchy:** a **project** (one repo) contains many **runs**, one per **work item** (a feature, an increment, a fix). A run follows one recipe through its **steps**; some steps are **sub-processes** that repeat. Views: the project board (runs × current position), a run, a step.
+
+**Typical topology:** the runtime, the repo and CLI-harness workers live on one machine (the runtime host). The Director may run elsewhere (e.g. a cloud chat agent) as long as it can execute `baton` there by shell or reach its MCP server. Because a remote Director's turn can end while work is still running, the runtime wakes it through a completion hook (§23).
 
 ```
 Human ⇄ Director (any harness)
@@ -84,11 +95,16 @@ Human ⇄ Director (any harness)
 6. **Routing is dynamic but enforced.** The Director chooses, the runtime constrains. Eligibility is computed deterministically from capability declarations; an ineligible choice is rejected.
 7. **Isolation by construction.** Workers never inherit the Director's environment by default. Each profile declares exactly what its child process sees, so one step's API key can never change another step's billing or auth.
 8. **The repo is the system of record.** Event logs, artifacts and records are committed at checkpoints. SQLite is a rebuildable cache. This makes runs portable across machines and Director platforms.
-9. **MCP as the Director interface, CLI as the fallback.** Both call the same Python core.
+9. **CLI and MCP are equal Director interfaces.** Both call the same Python core. A Director with shell access to the runtime host uses the CLI; MCP is for harnesses that prefer tools. Neither is privileged.
 10. **Invisible when healthy.** Baton earns its place only if the human isn't babysitting it. Every check reports nothing when there is nothing to report, and every human touchpoint must be a real decision (a gate, an escalation, the adoption baseline), never a confirmation of routine machinery.
 11. **The Director is the process expert, not the subject-matter expert.** It explains the run in plain language (where it has been, where it is, where it could go) from the record. For subject matter it points to recorded work or routes the question to a consult worker. It never answers subject-matter questions from its own inference, and the process never changes based on anything held only in the Director's context.
 12. **Formality scales with complexity, decided once and recorded.** Triage is a normal step whose output picks the complexity level. The runtime applies it; the Director never decides which steps to skip.
-13. **The Director never modifies a process.** It does not add, remove or reorder steps or roles. Variability comes only from the recipe's own complexity levels and the built-in consult mechanism.
+13. **The Director never modifies a process.** It does not add, remove or reorder steps or roles. Variability comes only from the recipe's own complexity levels, sub-process expansion and the built-in SME consultation.
+14. **Work items move, projects don't.** Each work item is its own run with its own position. Correcting an earlier step is local to one run (`revise_step`, §21.3); nothing ever rewinds the project.
+15. **Recipes hold the process; the runtime holds the machinery.** Hooks, process IDs, timeouts, liveness, PATH handling, permissions and platform facts are runtime and project configuration. A recipe never mentions them, so it stays portable.
+16. **Async by default.** Every dispatch may outlive the Director's session. Completion is owned by the runtime, which records it and wakes whoever must act next (§23).
+17. **Structured over parsed.** Reviewers and workers return schema-validated JSON (findings, verdicts, outputs). Nothing important is scraped from free text.
+18. **Value added versus owner effort.** Every feature must save the owner more effort than it costs. Generalizing a mechanism is preferred to adding a parallel one (e.g. platform and process help are SME subjects, not new subsystems).
 
 ---
 
@@ -114,6 +130,15 @@ baton/
 │   ├── packet.py          # context packet builder (the critical module)
 │   ├── validate.py        # JSON Schema validation
 │   ├── gates.py
+│   ├── findings.py        # findings-based review gates, dispositions, waivers (§24)
+│   ├── subprocess_expand.py  # foreach / repeat_until expansion of step groups (§22)
+│   ├── project.py         # project board: runs, work items, concurrency (§21)
+│   ├── supervisor.py      # async dispatch, running markers, timeouts, completion hooks (§23)
+│   ├── classify.py        # failure classification: subject vs platform vs process (§23.5)
+│   ├── sme.py             # SME consultation by subject (§25)
+│   ├── platform_area.py   # project-level platform facts + incidents (§25.3)
+│   ├── permissions.py     # action permissions: push, tag, merge, deploy (§26.2)
+│   ├── check.py           # `baton check` for CI / pre-commit (§26.4)
 │   ├── publish.py         # deliverable publishing + drift detection
 │   ├── docs.py            # Jinja2 rendering
 │   ├── gitops.py          # checkpoint commits
@@ -158,6 +183,7 @@ software-feature/
 ├── workers.yaml           # worker profiles (§5.5)
 ├── secrets/               # optional file-based secret store (0700)
 ├── homes/<profile>/       # optional relocated CLI config homes [VERIFY support per CLI]
+├── hooks.yaml             # machine-level completion hooks (e.g. wake a remote Director) (§23.3)
 └── logs/                  # unredacted raw worker stdout/stderr
 ```
 
@@ -185,9 +211,10 @@ complexity:                        # recipe-owned scale, lowest to highest (§20
   levels: [minor, standard, major]
   triage_step: triage
 
-consult_requires:                  # optional; default is in the vocabulary file (§20.6)
-  capabilities: [long_form_writing, technical_reasoning]
-  tier: strong
+sme:                               # optional; per-subject SME requirements (§25). Defaults live in the vocabulary file.
+  project:
+    capabilities: [long_form_writing, technical_reasoning, workspace_read]
+    tier: strong
 
 steps:
   - id: triage
@@ -247,34 +274,90 @@ steps:
         publish: { to: "{{ paths.designs }}/{{ run.slug }}-design.md" }
     gates:
       - type: schema
-      - type: llm_review
+      - type: findings_review            # §24: severities + dispositions, not pass/fail
+        advisory: true                   # records findings; never blocks by itself
         reviewer_requires:
           capabilities: [structured_output, technical_reasoning]
           tier: strong
-        independence: different_vendor    # different_model | different_vendor
+        independence: { from_step: design, level: different_vendor }   # different_model | different_vendor
         rubric: prompts/design_review_rubric.md
 
-  - id: implement
-    depends_on: [triage, requirements, design]   # skipped dependencies count as satisfied
+  - id: plan
+    title: Plan vertical slices
+    depends_on: [design]
+    applies_to: [standard, major]
     requires:
-      capabilities: [tool_use, file_write, shell, code_exec, repo_workspace]
+      capabilities: [structured_output, long_form_writing, technical_reasoning, workspace_read]
       tier: strong
-    workspace: project_root           # worker operates in the project repo
-    prompt: prompts/implement.md
+    workspace: project_root
+    workspace_mode: read
+    prompt: prompts/plan.md
     inputs:
-      - { name: feature_request,  from: run.inputs.feature_request,                    required: true }
-      - { name: triage,           from: steps.triage.output,                           required: true }
       - { name: requirements_doc, from: steps.requirements.artifacts.requirements_doc, required: true }
-      - { name: design,           from: steps.design.output,                           required: true }
       - { name: design_doc,       from: steps.design.artifacts.design_doc,             required: true }
-      # "required" applies only when the source step is included at the run's level (§20.4)
-    output_schema: schemas/implement_out.json   # must include commit_sha
+    output_schema: schemas/plan_out.json   # includes slices: [{id, title, outcome, criteria[], effort}]
     gates:
       - type: schema
-      - type: script
-        run: "{{ project.test_command }}"
-        cwd: project_root
-        timeout_s: 900
+      - type: findings_review            # gating: no open critical/high findings
+        block_on: [critical, high]
+        reviewer_requires: { capabilities: [structured_output, technical_reasoning], tier: strong }
+        independence: { from_step: plan, level: different_vendor }
+        rubric: prompts/plan_review_rubric.md
+      - type: human
+        prompt: "Approve the plan and its slices?"
+
+  - id: slices                           # a sub-process (§22)
+    title: Deliver each slice
+    depends_on: [triage, requirements, design, plan]   # skipped dependencies count as satisfied
+    foreach: steps.plan.output.slices    # one instance per slice, in order
+    foreach_if_source_skipped: once      # minor work: run once with item = run.inputs
+    concurrency: 1                       # WIP limit
+    steps:
+      - id: implement
+        effort_from: item.effort         # S | M | L sets the timeout band (§23.4)
+        requires:
+          capabilities: [tool_use, file_write, shell, code_exec, repo_workspace]
+          tier: strong
+        workspace: project_root
+        protect: ["tests/acceptance/specs/**"]   # §24.4: worker must not modify these
+        prompt: prompts/implement.md
+        inputs:
+          - { name: slice,            from: item,                                          required: true }
+          - { name: feature_request,  from: run.inputs.feature_request,                    required: true }
+          - { name: design_doc,       from: steps.design.artifacts.design_doc,             required: true }
+          - { name: prior_findings,   from: group.previous_iteration.findings,             required: false }
+          # "required" applies only when the source step is included at the run's level (§20.4)
+        output_schema: schemas/implement_out.json   # must include commit_sha
+        gates:
+          - type: schema
+          - type: script
+            run: "{{ project.test_command }}"
+            cwd: project_root
+            timeout_s: 900
+      - id: code_review
+        depends_on: [implement]
+        requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
+        workspace: project_root
+        workspace_mode: read
+        prompt: prompts/code_review.md
+        inputs:
+          - { name: slice,  from: item,                         required: true }
+          - { name: commit, from: group.steps.implement.output, required: true }
+        output_schema: schemas/findings.json       # fixed findings schema (§24.1)
+        independence: { from_step: implement, level: different_vendor }
+        gates:
+          - type: findings                         # this step's own output is a findings list
+            block_on: [critical, high]
+      - id: accept
+        depends_on: [code_review]
+        requires: { capabilities: [human_judgment] }   # only human profiles have it: owner's manual verification
+        prompt: prompts/slice_acceptance.md            # lists only steps runnable against what is live now (§26.1)
+        inputs:
+          - { name: slice,   from: item,                           required: true }
+          - { name: review,  from: group.steps.code_review.output, required: true }
+        output_schema: schemas/acceptance_out.json
+    repeat_until: group.steps.code_review.gates.passed   # re-run implement with the findings until clean
+    max_iterations: 3
 ```
 
 ### 5.2 Input source references (closed grammar)
@@ -291,13 +374,20 @@ Only these forms are legal. The loader must reject anything else.
 | `human.<decision_id>` | A recorded human decision |
 | `human_revision.<step_id>.<artifact>` | A human edit to a published artifact, explicitly ingested (§19.3) |
 | `research.findings` | The adoption research result (§20.3); absent for runs that did not start with adoption |
+| `item` / `item.<json.path>` | Inside a `foreach` sub-process: the current item (§22) |
+| `group.steps.<id>.output` / `.artifacts.<name>` | Inside a sub-process: a sibling step's result in the **same** instance and iteration |
+| `group.previous_iteration.findings` | Inside a `repeat_until` sub-process: open findings from the previous iteration (§22.3) |
+| `platform.facts` | The project's platform facts file (§25.3) |
 
-`steps.<id>.*` references resolve equally to a **passed** or an **imported** (seeded) step (§20.5). Consultation answers are deliberately **not** referenceable; they enter a run only after promotion to a human decision or revision (§20.6).
+`steps.<id>.*` references resolve equally to a **passed** or an **imported** (seeded) step (§20.5). Steps outside a sub-process may reference a sub-process only as a whole (`steps.<group>.outputs`, the list of each instance's final outputs). SME answers are deliberately **not** referenceable; they enter a run only after promotion to a human decision or revision (§25.2).
 
 **Load-time validation** (in `process_loader.py`):
 - Every `steps.<id>` reference names an ancestor in `depends_on`, including transitive ancestors.
 - No cycles. Every file path exists. Every schema is valid JSON Schema (Draft 2020-12).
-- Every gate `type` is known, and every `requires` / `reviewer_requires` / `consult_requires` uses only names from the declared `capabilities_vocab`.
+- Every gate `type` is known, and every `requires` / `reviewer_requires` / `sme.*` uses only names from the declared `capabilities_vocab`.
+- Sub-processes: `foreach` names an ancestor step's output path whose schema is an array; `repeat_until` references only gates of steps inside the group; `max_iterations` is set (1–10) whenever `repeat_until` is; `group.*` and `item` references appear only inside a group; groups do not nest more than one level (§22.5).
+- `independence.from_step` names the step itself or an ancestor (in the same group, if inside one).
+- `protect` globs are relative to the workspace and appear only on workspace steps.
 - `publish.to` templates may reference only `paths.*`, `run.*` and `project.*` variables.
 - If `complexity` is declared: the triage step exists, has no `applies_to`, and its output schema includes `level` constrained to the declared levels. Every `applies_to` (on steps and gates) uses only declared levels.
 - **Per-level closure:** for each level, compute the included steps. Every included step must still be reachable, and the run must have at least one included step after triage. The loader prints a per-level step table (`baton plan <process>`) so recipe authors can see exactly what each level runs.
@@ -326,6 +416,8 @@ capabilities:
   code_exec:           "Can run code and observe results"
   repo_workspace:      "Can operate inside a git working tree and commit"
   workspace_read:      "Can read (not modify) files in a project working tree"
+  loopback_network:    "Can bind and connect to localhost ports (needed to run socket/integration tests)"
+  human_judgment:      "A person: manual verification, acceptance, physical-world work"
   vision:              "Accepts image inputs"
   web_access:          "Can fetch / search the web"
 tiers: [basic, standard, strong]
@@ -372,19 +464,26 @@ codex-pro-sub:
 claude-code-max:
   adapter: claude_code
   vendor: anthropic
-  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, long_form_writing, technical_reasoning]
+  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, loopback_network, long_form_writing, technical_reasoning]
   tier: strong
   context_tokens: 200000
   auth: { mode: cli_login }
   env_mode: allowlist
-  env_allow: [HOME, USERPROFILE, APPDATA, LOCALAPPDATA, PATH, LANG, TERM]
+  env_allow: [HOME, USERPROFILE, APPDATA, LOCALAPPDATA, LANG, TERM]
   env_deny:  [ANTHROPIC_API_KEY]
-  timeout_s: 3600
+  executable: claude
+  path:
+    search: [nvm]                    # resolve the CLI from nvm node dirs if not on the base PATH (§5.5.1)
+    prepend: []
+  args:
+    write: ["--permission-mode", "bypassPermissions"]   # [VERIFY] headless runs must not stall on approvals
+    read:  ["--permission-mode", "plan"]                # [VERIFY] read-only workspace steps
 
-human:
+owner:
   adapter: manual
   vendor: human
-  capabilities: [long_form_writing, vision, file_write]
+  person: owner                      # who to contact (§26.1); a human profile per person
+  capabilities: [human_judgment, long_form_writing, vision, file_write]
   tier: strong
 ```
 
@@ -399,7 +498,23 @@ human:
 | `isolation` | `none` \| `user` \| `container` | `container` runs the worker in a container with only the packet, result and workspace mounted. |
 | secrets | `secret:<name>` | Resolved only at spawn time, from env var, OS keyring or `~/.baton/secrets/<name>`, in that configurable order. **Never** written to packets, manifests, events or logs. |
 
+| `executable` | name or absolute path | The CLI to run for harness adapters. |
+| `path.search` | list: `nvm`, `pyenv`, `asdf`, explicit dirs | Where to look for `executable` when it is not on the base PATH (§5.5.1). |
+| `path.prepend` | list of dirs | Always prepended to the child PATH (`~` expanded; no `$VAR` expansion). |
+| `args.write` / `args.read` | arg lists | Adapter args for workspace-writing vs read-only steps (permission/sandbox modes). `doctor` verifies gate commands actually run under them (§11.2). |
+| `capabilities` | vocabulary names | Must be **true on this machine**. E.g. a sandboxed reviewer that cannot bind localhost must not claim `loopback_network`; its test results are then treated as partial (§24.1). |
+
 **Credential storage caveat [VERIFY]:** CLI logins are usually files under the user's home directory (e.g. Codex keeps its login under `~/.codex/`). Some CLIs may use the OS keychain on some platforms, which can require the user's login session rather than any env var. `baton doctor` (§11.2) exists to catch this per profile, per machine.
+
+#### 5.5.1 PATH resolution (why it is explicit)
+
+CLI harnesses installed through version managers (e.g. Node via nvm) live in per-version directories that a non-login, non-interactive shell does not have on PATH. A clean environment makes this worse. Resolution, in order, recorded in the `dispatched` event:
+1. `executable` is an absolute path → use it.
+2. Found on the **base PATH**: the profile's `path.prepend` + a minimal system PATH (`/usr/local/bin:/usr/bin:/bin`, or the Windows system dirs).
+3. Each `path.search` source: `nvm` → `$NVM_DIR/versions/node/*/bin` and `~/.nvm/versions/node/*/bin`, newest version first; others analogously. The first dir containing the executable is prepended.
+4. Not found → the dispatch fails with `executable_not_found`, classified as a **platform** failure (§23.5), naming every location searched.
+
+Platform facts discovered here (e.g. "codex lives under nvm v22") may be recorded in the project's platform area (§25.3) so they are visible to every Director and SME.
 
 ---
 
@@ -408,7 +523,7 @@ human:
 ### 6.1 Packet (Baton → Worker)
 
 ```
-.baton/runs/<run_id>/steps/<step_id>/attempt-<n>/packet/
+.baton/runs/<run_id>/steps/<step_path>/attempt-<n>/packet/
 ├── manifest.json
 ├── INSTRUCTIONS.md        # rendered prompt + protocol rules + output contract
 ├── inputs/
@@ -427,7 +542,14 @@ human:
   "process_version": 1,
   "process_package_sha256": "…",
   "step_id": "design",
+  "step_path": "design",
+  "instance": null,
+  "iteration": null,
   "attempt": 1,
+  "effort": "M",
+  "deadline": "2026-11-01T22:00:00Z",
+  "exit_criteria": ["…rendered from the step's gates and output contract…"],
+  "protected_paths": [],
   "worker_profile": "openai-api-strong",
   "worker_profile_sha256": "…",
   "inputs": [
@@ -444,6 +566,8 @@ human:
 - `worker_profile_sha256` is a hash of the profile's **non-secret** fields (adapter, vendor, model, capabilities, tier, env_mode, isolation). It gives auditability without leaking credentials.
 - `packet_sha256` is SHA-256 over the canonical JSON (sorted keys, no whitespace) of the manifest **with `packet_sha256` set to `null`**, combined with the hashes of every file in `inputs/`, `INSTRUCTIONS.md` and `output_schema.json`. Document the exact algorithm in code and test it.
 - On retry, `prior_attempt_feedback` holds the gate failure reasons from the previous attempt.
+- Inside a sub-process, `step_path` is `<group>/<instance>/<iteration>/<step>` (e.g. `slices/s2/i1/implement`); `instance` is the `foreach` item id and `iteration` the `repeat_until` count (§22).
+- `exit_criteria` tells the worker what "done" means (its own DoD): every gate it will face and the output contract. Iteration *inside* the worker toward these criteria is the worker's business; `deadline` (from effort, §23.4) bounds it.
 
 ### 6.2 Result (Worker → Baton)
 
@@ -484,19 +608,25 @@ attempt-<n>/result/
 ### 7.1 Step state machine (`state.py`)
 
 ```
-blocked_on_deps → ready → dispatched → submitted → verifying → passed → published
-                     ↑          │                       │
-                     │          └→ orphaned (on resume) ┤
-                     └──── retry (attempt+1) ◄──────────┤ failed (attempts < max)
-                                                        └→ escalated (attempts ≥ max | status=blocked | no eligible worker)
+blocked_on_deps → ready → dispatched → running → submitted → verifying → passed → published
+                     ↑          │          │                       │
+                     │          │          ├→ timed_out ───────────┤ (classified, §23.5)
+                     │          └──────────┴→ orphaned (on resume) ┤
+                     └──── retry (attempt+1) ◄─────────────────────┤ failed (attempts < max)
+                                                                   └→ escalated (attempts ≥ max | status=blocked | no eligible worker | platform failure)
 escalated → ready (after human decision) | abandoned
 awaiting_human  (human gate pending) → verifying
 blocked_on_deps → skipped    (not applicable at the run's complexity level; set by the runtime after triage)
 blocked_on_deps → imported   (seeded from existing work at adoption; §20.5)
 skipped → blocked_on_deps    (only via an approved re-triage; §20.4)
+passed | imported → superseded  (via revise_step: a new attempt replaces it; §21.3)
+passed | imported → stale       (an upstream step in the same run was revised; must re-pass or be re-approved)
+stale → ready | passed          (re-run, or human re-approval recorded)
 ```
 
-`skipped` and `imported` both satisfy `depends_on`. Inputs referencing a `skipped` step are omitted and listed in the manifest as `not_applicable`; their `required` flag does not apply.
+`skipped` and `imported` both satisfy `depends_on`; `stale` and `superseded` do **not**. Inputs referencing a `skipped` step are omitted and listed in the manifest as `not_applicable`; their `required` flag does not apply.
+
+`dispatched` means the worker process was started; `running` means the supervisor has confirmed it alive (§23.2). Sub-process groups have their own aggregate state (§22.4).
 
 Only `engine.py` performs transitions; each one appends exactly one event. Illegal transitions raise errors. Test every edge.
 
@@ -506,7 +636,9 @@ Only `engine.py` performs transitions; each one appends exactly one event. Illeg
 - **`events.jsonl`** is append-only and is the authoritative state. Each event has `seq` (monotonic), `ts`, `run_id`, `step_id`, `attempt`, `type`, `actor` (director id / runtime / human) and `data`. Each line also carries `prev_sha256` (hash chain), which detects tampering or bad merges.
 - **CAS:** `.baton/runs/<run_id>/cas/<sha[:2]>/<sha>`, written atomically (temp file plus `os.replace`). Binaries over a configurable size are expected to be tracked by Git LFS (§17).
 - **SQLite** (`.baton/cache/state.db`, gitignored) is a **derived cache** for fast queries. `store.rebuild(run_id)` replays events to regenerate it. On any mismatch, events win.
-- Event types: `run_started`, `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released`, `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `artifact_published`, `drift_detected`, `human_revision_ingested`, `step_escalated`, `attempt_orphaned`, `human_decision`, `checkpoint_committed`, `run_completed`, `run_abandoned`, plus (§20) `situation_detected`, `research_recorded`, `complexity_set`, `step_skipped`, `step_imported`, `retriage_requested`, `retriage_applied`, `baseline_established`, `consult_requested`, `consult_answered`, `consult_promoted`.
+- Event types: `run_started`, `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released`, `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `artifact_published`, `drift_detected`, `human_revision_ingested`, `step_escalated`, `attempt_orphaned`, `human_decision`, `checkpoint_committed`, `run_completed`, `run_abandoned`, plus (§20) `situation_detected`, `research_recorded`, `complexity_set`, `step_skipped`, `step_imported`, `retriage_requested`, `retriage_applied`, `baseline_established`, plus (Rev 3) `group_expanded`, `iteration_started`, `iteration_limit_reached`, `step_running`, `heartbeat`, `step_timed_out`, `failure_classified`, `completion_hook_fired`, `completion_hook_failed`, `step_revised`, `step_stale`, `findings_recorded`, `finding_dispositioned`, `gate_waived`, `protected_path_modified`, `sme_requested`, `sme_answered`, `sme_promoted`, `platform_fact_recorded`, `platform_incident_opened`, `platform_incident_resolved`, `process_feedback`, `step_skip_recorded`, `permission_used`, `permission_requested`.
+
+Project-level events (platform area, process feedback) live in `.baton/project/events.jsonl` with the same format and hash chain (§21.1).
 
 ### 7.3 Routing (`routing.py`)
 
@@ -525,7 +657,7 @@ Only `engine.py` performs transitions; each one appends exactly one event. Illeg
 
 If the list is empty, the step goes to `escalated` with reason `no_eligible_worker` (or fails; see §14).
 
-**Review-gate routing:** `llm_review` selects from profiles satisfying `reviewer_requires` **and** the `independence` constraint relative to the step's chosen profile: `different_model` compares `model`, `different_vendor` compares `vendor`.
+**Independence.** A review gate (`reviewer_requires`) or a reviewing step selects only profiles that satisfy its `independence` constraint relative to the worker that produced the referenced step's **current** result: `independence.from_step` (default: the step itself) and `level` (`different_profile` | `different_model` | `different_vendor`). E.g. a code review can require a different vendor than whoever ran `implement` in the same slice instance. Self-review is refused unless a human decision waives it (§24.3).
 
 ### 7.4 Packet builder (`packet.py`): the critical module
 
@@ -557,7 +689,9 @@ Property tests: same state + same profile ⇒ identical `packet_sha256`; removin
 | `status(run_id)` | Step states, attempts, pending human items, lease holder, drift warnings |
 | `eligible_workers(run_id, step_id)` | Ordered eligible profiles + exclusion reasons |
 | `begin_step(run_id, step_id, worker)` | Validate eligibility, build packet, return packet path |
-| `dispatch_step(run_id, step_id, worker)` | `begin_step` + spawn worker + `submit_step` (the common path) |
+| `dispatch_step(run_id, step_id, worker, wait=false)` | `begin_step` + spawn worker under the supervisor; returns immediately with a dispatch id unless `wait` (§23). Intake runs automatically when the worker exits. |
+| `wait(run_id, dispatch_id?, timeout?)` | Block until a dispatch completes or the timeout passes (for Directors that can stay attached) |
+| `board(project?)` | All runs: work item, recipe, position, pending decisions, running work (§21.2) |
 | `submit_step(run_id, step_id, result_dir)` | For externally run (e.g. manual) workers |
 | `record_human_decision(run_id, ref, decision, note)` | Approve gates / answer questions (verbatim text) |
 | `retry_step(run_id, step_id, worker?, extra_guidance?)` | New attempt; may switch worker; guidance is additive only |
@@ -571,12 +705,18 @@ Property tests: same state + same profile ⇒ identical `packet_sha256`; removin
 | `establish_baseline(run_id, decision)` | Apply the human-approved baseline: imports, complexity, skipped steps (§20.7) |
 | `request_retriage(run_id, reason)` | Re-run triage behind a human gate; affects not-yet-started steps only (§20.4) |
 | `explain(run_id, scope?)` | Plain-language narrative of past, present and possible paths, built from the record (§20.8) |
-| `consult(run_id, question, refs, mode)` | Subject-matter consultation; runtime assembles the packet from the Director's references (§20.6) |
-| `consult_followup(consult_id, question, extra_refs?)` | Next turn of a consultation |
-| `promote_consult(consult_id, as, note)` | Turn a consult answer into a human decision or revision, with human approval |
+| `ask_sme(subject, question, refs, run_id?, mode)` | SME consultation by subject (`project` / `platform` / `process`); runtime assembles the packet from the Director's references (§25) |
+| `sme_followup(consult_id, question, extra_refs?)` | Next turn of a consultation |
+| `promote_sme(consult_id, as, note)` | Turn an SME answer into a human decision, revision or platform fact, with human approval |
+| `revise_step(run_id, step_path, reason)` | Correct an earlier step within one work item: new attempt, downstream steps in that run marked `stale` (§21.3) |
+| `disposition_finding(run_id, step_path, finding_id, disposition, evidence?)` | Record `fixed` / `accepted-risk` / `rejected` on a review finding (§24.2) |
+| `waive_gate(run_id, step_path, gate, reason)` | Human-approved waiver of one gate occurrence (§24.3) |
+| `platform_fact / platform_incident(…)` | Record platform facts and incidents at project level (§25.3) |
+| `process_feedback(kind, text, run_id?)` | Record friction or a skipped step for the process SME (§25.4) |
 | `doctor(profile?)` | Profile health check (§11.2) |
+| `check()` | Non-interactive consistency check for CI / pre-commit (§26.4) |
 
-Every mutating call requires the caller to hold the run lease.
+Every mutating call on a run requires the caller to hold **that run's** lease. Project-level calls (platform, process feedback) use a short project-level lock instead.
 
 ---
 
@@ -587,10 +727,18 @@ Every mutating call requires the caller to hold the run lease.
 | `schema` | Done at intake; recorded as a gate for the audit trail | Valid |
 | `script` | Runs a command with `cwd`/`timeout_s` under a clean env; output is redacted, then stored in CAS | Exit 0 |
 | `llm_review` | Builds a **review packet** (step inputs + result + rubric) and dispatches it to a reviewer chosen per §7.3. Fixed reviewer schema: `{verdict: pass\|fail, reasons: [str]}` | `verdict == pass` |
+| `findings_review` | Like `llm_review`, but the reviewer returns a **findings list** (§24.1); dispositions are recorded per finding | No finding at a `block_on` severity is `open` (§24.2) |
+| `findings` | For a step whose own output is a findings list (e.g. a code-review step) | Same rule as `findings_review` |
+| `protected` | Implicit on workspace steps with `protect:`: hashes the protected paths before and after the run | No change, or `on_violation: warn` (§24.4) |
 | `human` | Moves the step to `awaiting_human`; the Director asks and calls `record_human_decision` | Decision = approve |
 | `provenance` | Implicit: every referenced artifact was registered via `submit_step` | Always enforced |
 
-Gate failures produce structured `reasons`, which become `prior_attempt_feedback` on retry.
+Common gate options:
+- `advisory: true` records the gate's result but never blocks (e.g. cross-model review of a design). Advisory gates still appear in step records and in the process SME's statistics.
+- `applies_to: [levels]` scopes a gate to complexity levels (§20.4).
+- Any blocking gate occurrence can be **waived** by a recorded human decision with a reason (`waive_gate`, §24.3). Waivers are visible in every record that depends on that step.
+
+Gate failures produce structured `reasons` (and, for findings gates, the open findings), which become `prior_attempt_feedback` on retry or `group.previous_iteration.findings` in a `repeat_until` loop.
 
 ---
 
@@ -610,7 +758,7 @@ Gate failures produce structured `reasons`, which become `prior_attempt_feedback
 
 1. Start from `{}` (`clean` / `allowlist`) or from a copy of `os.environ` (`inherit`).
 2. `allowlist`: copy each `env_allow` variable from the parent if present.
-3. Always set a minimal `PATH` and `LANG` if they are absent.
+3. Build `PATH` per §5.5.1 (minimal system PATH, `path.prepend`, and the dir that resolved `executable`); set `LANG` if absent.
 4. If `auth.mode == api_key`, resolve each `secret:` reference and inject it.
 5. If `auth.config_home` is set, set the CLI's config-dir variable **[VERIFY name per CLI]**.
 6. **Remove every `env_deny` variable last**, in every mode.
@@ -628,7 +776,9 @@ class WorkerAdapter(Protocol):
     def postprocess(self, profile, packet_dir, result_dir, proc_result) -> None: ...
 ```
 
-A shared `spawn()` runs the command with the constructed environment, timeout, `cwd` and optional container or user isolation. It captures stdout and stderr to `~/.baton/logs/` (raw) and a redacted copy to CAS. Adapters never interpret results; intake does.
+A shared `spawn()` runs the command **under the supervisor** (§23) with the constructed environment, `cwd` and optional container or user isolation, detached from the caller's session (its own process group/session, so the Director's shell ending or a hang-up does not kill it). It captures stdout and stderr to `~/.baton/logs/` (raw) and a redacted copy to CAS. Adapters never interpret results; intake does.
+
+Workspace steps pass `args.write` or `args.read` (from `workspace_mode`) so read-only steps (research, review) run in the harness's read-only mode where it has one.
 
 ### 10.3 `litellm_api`
 
@@ -655,7 +805,7 @@ Prints the packet path and waits. The human (or the Director, relaying for the h
 
 ### 11.1 MCP server (`mcp_server.py`)
 
-- Use the official MCP Python SDK **[VERIFY current package name / server API]**, stdio transport.
+- Use the official MCP Python SDK **[VERIFY current package name / server API]**. Transport: stdio by default. An optional authenticated HTTP transport (bearer token from a secret, bound to localhost or a private network) serves Directors that cannot run a local process; it is not needed when the Director has a shell on the runtime host (§2 topology).
 - One tool per engine function in §7.6. Tool results are compact JSON with next-action hints, e.g. `{"ready_steps": ["design"], "awaiting_human": [], "lease": "held"}`.
 - **Never** expose a tool that lets the Director write step outputs, artifacts or events directly.
 
@@ -666,7 +816,9 @@ Registration (**[VERIFY]** each against current docs):
 
 ### 11.2 CLI (`cli.py`)
 
-`baton processes | plan | detect | adopt | baseline | start | status | explain | eligible | begin | dispatch | submit | decide | retry | retriage | revise | consult | resume | lease | record | summary | abandon | trace | doctor | mcp`
+`baton processes | plan | detect | adopt | baseline | start | board | status | explain | eligible | begin | dispatch | wait | submit | decide | retry | retriage | revise | findings | waive | ask | platform | feedback | resume | lease | record | summary | abandon | trace | supervise | doctor | check | mcp`
+
+- **Every command emits `--json`** for Directors and prints readable text by default. Exit codes are stable (0 ok, 1 problem found, 2 usage error, 3 lease held elsewhere, 4 needs human decision).
 
 - **Quiet by default.** `detect`, `doctor`, `resume` and `status` print a single "ok" line when healthy and detail only for problems. `--verbose` shows everything.
 - `baton plan <process>` prints the per-level step and gate table (§5.2).
@@ -675,59 +827,77 @@ Registration (**[VERIFY]** each against current docs):
   - Checks that the runtime version matches `.baton/baton.lock`, that every vendored package hash matches, and that the vocabulary version is supported.
   - For each profile (or the named one): builds its exact environment, then runs a trivial no-op task through its adapter (e.g. "write `{"ok":true}` to result.json"). It reports success, duration, which auth mode was effective, and which env var names were present or denied.
   - Reports, per vendored process, which steps currently have **zero** eligible profiles on this machine.
+  - **Executable resolution:** shows where each harness CLI was found (§5.5.1) or every place it was searched.
+  - **Gate preflight:** for profiles eligible for workspace steps, runs the project's gate commands (e.g. `project.test_command`, with a dry/collect-only variant when the project declares one in `project.preflight`) **through the worker's own adapter and permission args**, so a permission mode that would block the gates is caught before a full run is wasted.
+  - **Supervisor and hooks:** confirms the supervisor can start detached processes and that configured completion hooks are reachable (a no-op ping where the hook supports it).
+  - Problems found are classified (platform vs configuration) and platform problems can be recorded as platform incidents (§25.3).
 
 ### 11.3 `skills/baton-director/SKILL.md` (Agent Skills format)
 
 ```markdown
 ---
 name: baton-director
-description: Run, resume, or adopt a multi-step Baton process as Director — route steps to capable workers, dispatch them, handle gates and escalations, explain the process in plain language, route subject-matter questions to a consultant, and keep the human informed. Use whenever the user asks to start, continue, resume, adopt into a project, check, or ask about a Baton process run.
+description: Run, resume, or adopt Baton processes as Director — keep every work item moving, route steps to capable workers, dispatch and follow long-running work, handle gates, findings and escalations, explain the process in plain language, route questions to the right SME, and keep the owner informed. Use whenever the user asks to start, continue, resume, adopt into a project, check, or ask about Baton work.
 ---
 
 # Baton Director
 
-You coordinate. You are the expert on the process, and NOT the expert on any step's subject matter.
+You coordinate. You are the expert on the process, and NOT the expert on any step's subject matter or on the platform.
+Drive Baton with the `baton` CLI (`--json`) on the runtime host, or its MCP tools. Both are equivalent.
 
 ## Hard rules
-- Never perform step work yourself. Every step's output must come from dispatch_step / submit_step.
-- Never compose or edit a context packet. Baton builds packets. If a step cannot start, report the HandoffError's missing inputs to the human.
-- Never fabricate a human decision. record_human_decision only with the human's actual words.
+- Never perform step work yourself. Every step's output must come from dispatch / submit.
+- Never compose or edit a context packet. Baton builds packets. If a step cannot start, report the HandoffError's missing inputs.
+- Never fabricate a human decision, disposition or waiver. Record only the owner's actual words.
 - Retry guidance must be additive; never restate or summarize inputs.
-- Only choose workers from eligible_workers. Never edit worker profiles, preferences, or the lockfile without the human's instruction.
-- Never add, remove, skip or reorder steps or roles. Step inclusion comes only from triage and the recipe; changes go through request_retriage.
+- Only choose workers from eligible_workers. Never edit worker profiles, preferences, permissions or the lockfile without the owner's instruction.
+- Never add, remove, skip or reorder steps or roles. Inclusion comes only from triage, the recipe and sub-process expansion; changes go through request_retriage or revise_step.
+- Act only within the project's action permissions (push, tag, merge, deploy). Anything outside them is a request to the owner.
+
+## Work items
+- The project has many runs (work items) at different positions. Start each session with `board`; pick up whatever needs you.
+- New work is a new run (start, then triage). Never fold unrelated work into an active run.
+- If an earlier step of a work item turns out to be wrong, propose revise_step for that run, with the reason. It never affects other runs.
+
+## Long-running work
+- dispatch returns immediately. If you can stay attached, use wait; otherwise end your turn. The runtime will wake you through the completion hook, or the next session's `board` will show the result.
+- Never treat a dispatch as finished until Baton records its completion. If a step timed out or failed, read its classification: subject failures are retried or escalated per the recipe; platform failures go to the platform SME; configuration problems go to the owner.
 
 ## Process questions (you answer these)
-- Explain where the run has been, where it is, and where it could go, in plain language, using explain/status/step records. Name the next decision the human will face, if any.
+- Explain where a work item has been, where it is, and where it could go, from explain/status/board. Name the next decision the owner will face.
 - Base explanations on the record, never on memory or guesswork. If the record doesn't say, say so.
 
-## Subject-matter questions (you route these)
-- Never answer subject-matter questions from your own inference, even when asked directly or when you think you know.
-- Say so plainly ("I'm not the expert on this, so I'll ask one"), then call consult with references to the relevant recorded work. Choose references by step names, titles and the recipe; do not read the subject content to choose them.
-- Relay the consultant's answer faithfully (verbatim when short), labeled as the consultant's. Do not add your own analysis.
-- If the answer should change the project, ask the human; only promote_consult with their explicit agreement. Nothing from a consultation affects the run otherwise.
-- Do not use consultation content in later routing decisions. After a consultation, prefer resuming from a fresh session (state lives in the record, so nothing is lost).
+## Questions for experts (you route these)
+- Subject matter → ask_sme(subject=project). Infrastructure, tools, accounts, deployment → ask_sme(subject=platform). How Baton or the recipe itself should work → ask_sme(subject=process).
+- Never answer these from your own inference. Say so plainly ("I'm not the expert on this, so I'll ask one"). Choose references by step names, titles and the recipe; do not read subject content to choose them.
+- Relay answers faithfully, labeled as the SME's. Do not add your own analysis.
+- If an answer should change the project, ask the owner; promote only with explicit agreement.
+- Do not use SME content in later routing decisions. After a consultation, prefer resuming from a fresh session.
+- When you hit friction with the process (a confusing step, a skipped step, a redundant gate), record it with process_feedback.
 
 ## Starting, resuming or adopting
-1. detect, then doctor. Both are silent when healthy; only interrupt the human if they report a problem.
-2. Existing run: resume(run_id). If the lease is held by another Director, report holder and expiry; take over only with the human's approval and a stated reason.
-3. Existing project without Baton runs: adopt. Present the proposed baseline as ONE decision (what will be imported, the complexity level and why, which steps will run and which are skipped). Record the human's answer verbatim.
+1. detect, then doctor. Both are silent when healthy; only interrupt the owner if they report a problem.
+2. board → for each run that needs action: resume it (lease). If a lease is held by another Director, report holder and expiry; take over only with the owner's approval and a stated reason.
+3. Existing project without Baton runs: adopt. Present the proposed baseline as ONE decision. Record the answer verbatim.
 
-## Loop
-1. status(run_id) → ready steps, awaiting_human items, drift warnings.
-2. awaiting_human: present question, relevant step record, options; record the answer verbatim.
-3. drift warnings: ask the human whether to ingest the edited published file as a revision or leave it outside the process.
-4. ready step: eligible_workers → choose (respect preference order unless there is a stated reason not to) → dispatch_step. Mention the worker choice only if the human has asked to see routing, or if it departs from preference.
-5. gate failure: if attempts remain, retry_step (may switch to another eligible worker; optional additive guidance); otherwise escalate with reasons.
+## Loop (per run)
+1. status → ready steps, running work, awaiting_human items, open findings, drift warnings.
+2. awaiting_human: present the question, the relevant record and options; record the answer verbatim.
+3. open blocking findings: let the recipe's loop handle them (repeat_until); if the owner must decide (accepted-risk, rejection disputes), ask.
+4. ready step: eligible_workers → choose (respect preference order unless there is a stated reason not to) → dispatch. Starting work the process already calls for is not a question for the owner; mention it as FYI only if the owner asked to see routing.
+5. gate failure: if attempts remain, retry (may switch worker; optional additive guidance); otherwise escalate with reasons.
 6. no eligible worker: escalate; explain which capabilities are missing.
-7. scope appears to have changed (the human says so, or a consult or gate result suggests it): offer request_retriage.
-8. all steps passed: run_summary → present to human; release lease.
+7. scope appears to have changed: offer request_retriage.
+8. run complete: run_summary → present to owner; release lease.
 
-## Communicating with the human
-- Be quiet when things are healthy. Report at step completion briefly (step, result, published deliverables, next action), and in full only at decisions and escalations.
-- Escalations: what failed, why (gate reasons), options, your recommendation about the *process* (retry, switch worker, retriage, consult); never a subject-matter verdict.
+## Communicating with the owner
+- Follow the project's communication contract (`.baton/communication.md`) exactly; it overrides the defaults below.
+- Defaults: quiet when healthy. Brief status, then a clearly labeled list of actions for the owner (one step per line, pasteable commands alone in their own block, placeholders that are not valid shell syntax), then the single decision owed. If there is nothing for them to do, say so in one line.
+- For manual verification, list only steps runnable against what is live now, each with how you confirmed it is ready.
+- Escalations: what failed, why (gate reasons / classification), options, your recommendation about the *process*; never a subject-matter or platform verdict.
 ```
 
-Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness workers.
+Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules, the meaning of `exit_criteria`, `deadline` and `protected_paths`, and "stop and report a mismatch instead of improvising") for harness workers.
 
 ---
 
@@ -775,16 +945,35 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 **Phase 13: Adoption.** `detect`, research step, crosswalk, seeding (`imported`), baseline.
 ✅ Adopt into a fixture project that has existing specs and code from a different formal process, using a crosswalk. Seeded artifacts validate against step schemas, a seeded artifact that fails its schema is reported (not silently imported), and exactly **one** human decision (the baseline) occurs before normal operation. `detect` on a healthy project prints one line.
 
-**Phase 14: Consultation.** `consult`, follow-ups, promotion, relay and handoff modes.
+**Phase 14: Consultation.** `ask_sme` (project subject), follow-ups, promotion, relay and handoff modes.
 ✅ A consult packet contains only Director-selected references plus the record index, with hashes. A follow-up requesting an extra item includes it. A non-promoted answer is unreachable from any step input; a promoted answer appears as a human decision. Transcript review shows the Director relayed answers without adding subject-matter content.
+
+**Phase 15: Projects, board, concurrent runs, `revise_step`.** (§21)
+✅ Two runs of different recipes progress independently in one repo. The workspace lock serializes two write-mode steps from different runs. Checkpoint commits never include another run's files. `revise_step` on a design marks only that run's dependent steps stale; a stale step can be confirmed by a human decision without re-running.
+
+**Phase 16: Sub-processes.** (§22) Build this **before** Phase 7 if adopting a project mid-increment is an early goal.
+✅ A plan with three slices expands into three instances, run one at a time. A code-review step returning an open high finding triggers iteration 2, whose implement packet contains that finding. `max_iterations` escalates. Revising the plan to change one slice and add another re-expands correctly (unchanged instance kept, changed instance stale, new one added).
+
+**Phase 17: Async execution and liveness.** (§23)
+✅ A dispatch survives the Director's shell exiting (killed parent, hang-up). Completion hooks fire on success, gate failure, timeout and crash. Each liveness row in §23.2 is reproduced in a test. An S-effort step past its deadline is terminated and classified. Without hooks, detaching prints the warning.
+
+**Phase 18: Findings, waivers, protected files, independence.** (§24, §7.3)
+✅ A rejected finding without valid evidence is refused. `accepted-risk` without an owner decision is refused. A waiver unblocks exactly one gate occurrence. Modifying a protected path is detected in warn and fail modes. A code review by the same vendor as the implementer is refused unless waived.
+
+**Phase 19: SMEs, platform area, process feedback.** (§25)
+✅ An `executable_not_found` failure opens a platform incident, preselects facts and logs for the platform SME, and blocks only the affected step. A promoted platform fact appears in the next platform SME packet and in `platform.facts`. Process feedback and statistics appear in a process-SME packet. A skipped blocking gate is surfaced to the owner immediately.
+
+**Phase 20: Communication contract, permissions, cross-platform, `baton check`.** (§26)
+✅ The runtime refuses a push that `permissions` denies and records allowed pushes. A docs-only change is recognized from the globs. `baton check` passes on a clean repo and fails on a tampered event, a missing CAS blob and a planted secret sentinel. The full suite passes on Linux and native Windows CI runners.
 
 ---
 
 ## 13. Testing Strategy
 
 - **Unit:** loader and lint, vocabulary matching, routing, hashing, the state machine, gates, env construction, publishing and drift detection.
-- **Property-based** (`hypothesis`): packet determinism; required-input removal; any sequence of legal events rebuilds to the same state.
-- **Fake adapter:** scripted good, bad-schema, wrong-hash and blocked results, plus timeouts.
+- **Property-based** (`hypothesis`): packet determinism; required-input removal; any sequence of legal events rebuilds to the same state; `foreach` re-expansion is stable for unchanged items.
+- **Fake adapter:** scripted good, bad-schema, wrong-hash and blocked results, plus timeouts, crashes, hangs, findings lists and exit 127.
+- **Process-control tests:** supervisor detachment, deadline termination of a whole process tree, and marker/PID liveness classification on POSIX and Windows.
 - **Secret-leak test:** run a full toy process with sentinel secret values, then assert the sentinels appear nowhere in the repo working tree or the git history.
 - **Golden files:** `INSTRUCTIONS.md`, step records, summary.
 - **Live tests** (opt-in env var): real LiteLLM and harness adapters.
@@ -793,7 +982,7 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 
 ## 14. Open Decisions (ask the human before choosing)
 
-1. Parallel step dispatch inside Baton vs. leaving parallelism to the Director.
+1. Parallelism: sub-process `concurrency` and concurrent runs are supported (§21, §22). Should the Director also be allowed to dispatch independent top-level steps of one run in parallel? Suggested: yes, subject to the workspace lock.
 2. Large inputs for API workers: hard error (default) vs. auto-chunking vs. requiring a file-capable worker.
 3. No eligible worker: escalate (default) vs. fail the run.
 4. Who maintains the capability vocabulary, and the process for proposing new capabilities and denylist entries.
@@ -804,9 +993,15 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 9. Process versioning: runs pin the package version and hash at start (suggested), and upgrading mid-run requires a recorded human decision.
 10. Triage approval: always human-gated, or auto-accepted below a recipe-declared level (e.g. `minor` auto-accepts)? Suggested: auto-accept at the lowest level, gate above it; at adoption it is always part of the baseline decision.
 11. Seed validation failures: block the baseline, or import with a recorded "nonconforming" flag that forces the step to re-run? Suggested: never import nonconforming; offer to re-run that step instead.
-12. Consult handoff mode: which harnesses support spawning a separate session or bot, and how its transcript returns. Ship relay mode first; handoff per harness later.
-13. Consultation retention: commit full consult transcripts with the run (suggested, redacted), or only the question and final answer.
+12. SME handoff mode: which harnesses support spawning a separate session or bot, and how its transcript returns. Ship relay mode first; handoff per harness later.
+13. Consultation retention: commit full SME transcripts with the run (suggested, redacted), or only the question and final answer.
 14. Research scope limits: maximum files and bytes scanned, and file types considered, before research asks the human to narrow it.
+15. Worktree isolation for concurrent write-mode steps (§21.2): ship it, or keep the single workspace lock only? Suggested: lock only at first.
+16. Effort bands and `extend_once` defaults (§23.4). Suggested: S 45 min, M 2 h, L 4 h, extend once.
+17. Automatic platform-SME invocation on platform failures (hook) versus Director-initiated only. Suggested: Director-initiated unless `on_platform_failure` is configured.
+18. Protected-path violation default: `warn` (suggested, matching existing practice) or `fail`.
+19. Who may set `fixed` and `rejected` dispositions: the next iteration's worker with evidence (suggested), or only the Director with evidence.
+20. Where the platform SME's own credentials and channels live (it may itself be an agent with its own access); Baton only routes to it.
 
 ---
 
@@ -817,6 +1012,9 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 - **Everything committed passes `redact.py`.** It strips known secret values (the resolved secrets for the current process) and known token patterns. Raw unredacted logs stay in `~/.baton/logs/`.
 - Secrets are never written anywhere under the project tree. The Phase 6b and §13 tests enforce this.
 - Packets and results may contain sensitive project data. Treat `.baton/runs/` like the rest of the repo's confidential content.
+- Completion hooks and `command` adapters execute shell commands: machine-level hooks may reference secrets; project-level hooks may not (the loader rejects `secret:` there).
+- Action permissions (§26.2) bound what the runtime and Director may do to the repository and its remotes; the defaults never merge, deploy or force-push.
+- An SME (especially a platform SME) may hold its own credentials outside Baton. Baton never passes secrets into SME packets; it passes facts, incidents and redacted logs.
 
 ---
 
@@ -827,6 +1025,7 @@ Also write `skills/baton-worker/SKILL.md` (the §6 protocol rules) for harness w
 - One software and one non-software example package ship with the runtime.
 - Swapping the Director harness, or any step's worker, requires only local config changes. Recipe changes require no runtime changes.
 - Adopting into an existing project with a crosswalk requires exactly one human decision (the baseline), and a healthy project produces no routine prompts.
+- A remote Director with only shell access to the runtime host can run a multi-slice work item to completion across several of its own sessions, woken by completion hooks, with no owner action other than the recipe's decisions.
 
 ---
 
@@ -844,12 +1043,16 @@ This section covers *what files* an adopting project holds. For *how* Baton is b
 ├── .mcp.json                         # project MCP registration (no secrets) [VERIFY per harness]
 ├── .baton/
 │   ├── baton.lock                    # runtime version, vocabulary version, package hashes
-│   ├── project.yaml                  # path mapping + project vars (test_command, etc.)
+│   ├── project.yaml                  # paths, project vars, permissions, hooks (non-secret), limits, contacts, sme
+│   ├── communication.md              # owner communication contract (§26.1)
+│   ├── project/events.jsonl          # project-level events (§21.1)
+│   ├── platform/facts.md             # platform facts (§25.3)
+│   ├── process/lessons.md            # project-level process lessons (§25.4)
 │   ├── preferences.yaml              # optional, non-secret routing preferences
 │   ├── processes/<id>@<version>/     # vendored, pinned process packages
 │   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, docs/
 │   ├── workers.local.yaml            # GITIGNORED
-│   └── cache/                        # GITIGNORED (SQLite)
+│   └── cache/                        # GITIGNORED (SQLite, running markers, locks)
 ├── docs/specs/ docs/design/ plans/ cad/ …   # published deliverables (§19)
 └── .gitattributes                    # LFS rules for .baton/runs/**/cas large blobs + binary deliverables
 ```
@@ -858,12 +1061,13 @@ This section covers *what files* an adopting project holds. For *how* Baton is b
 |---|---|
 | Process packages (pinned) + `baton.lock` | ✅ |
 | Skills, `AGENTS.md` pointer, MCP project config | ✅ |
-| `project.yaml`, `preferences.yaml` | ✅ |
+| `project.yaml`, `preferences.yaml`, `communication.md` | ✅ |
+| `.baton/project/`, `.baton/platform/`, `.baton/process/` | ✅ (redacted) |
 | `.baton/runs/**` (events, CAS, packets, results, docs) | ✅ (redacted) |
 | Published deliverables at project paths | ✅ |
 | Baton runtime source | ❌ install it pinned (`uv tool install baton==X` or equivalent); vendor only for offline use or a fork |
 | Worker profiles (`~/.baton/workers.yaml`, `.baton/workers.local.yaml`) | ❌ |
-| Secrets, raw logs, SQLite cache | ❌ |
+| Secrets, raw logs, SQLite cache, running markers, machine-level hooks | ❌ |
 
 `baton init` creates this structure, the `.gitignore` entries and the `.gitattributes` LFS rules. `baton vendor <package-dir>` copies a package, runs the neutrality lint and records its hash in the lockfile.
 
@@ -873,7 +1077,7 @@ This section covers *what files* an adopting project holds. For *how* Baton is b
 
 ### 18.1 Goal
 
-Any capable Director, on any machine, can clone the repo and continue a run reliably from the last checkpoint.
+Any capable Director, on any machine, can clone the repo and continue a run reliably from the last checkpoint. With concurrent work items (§21), everything here applies per run; project-level files use a short project lock.
 
 ### 18.2 Checkpoint commits (`gitops.py`)
 
@@ -881,6 +1085,7 @@ Any capable Director, on any machine, can clone the repo and continue a run reli
 - A `checkpoint_committed` event (with the commit SHA) is appended **in the next commit**, since the SHA isn't known until after committing. Alternatively, record SHAs only in git and let `resume` read `git log`. Choose one and document it.
 - Workspace steps (code) commit their own changes; their `commit_sha` is recorded in the step output, and the checkpoint commit follows.
 - Never commit with uncommitted unrelated changes present; refuse and report instead (or use a dedicated branch; see §14).
+- Pushing follows the project's action permissions (§26.2); checkpoint commits of `.baton/` and published docs normally qualify as docs-only.
 
 ### 18.3 Run lease (`lease.py`)
 
@@ -893,7 +1098,7 @@ Any capable Director, on any machine, can clone the repo and continue a run reli
 
 1. Verify the event hash chain and every CAS blob's hash.
 2. Rebuild the SQLite cache.
-3. Any attempt in `dispatched` or `submitted` with no completed intake becomes `attempt_orphaned` (retryable).
+3. Any attempt in `dispatched`, `running` or `submitted` is checked against its running marker (§23.2): still alive → left running; finished with a result → intake completes now; otherwise `attempt_orphaned` (retryable), with the failure classified.
 4. Re-check published deliverables for drift.
 5. Claim the lease (or report the holder).
 6. Return status and ready steps.
@@ -973,7 +1178,7 @@ new work in an adopted project ..................► triage ─► continue
 
 ### 20.2 `detect`: situation recognition (no AI)
 
-`detect()` inspects the filesystem, git and the event logs and returns one situation plus a recommended next action. It is deterministic and fast.
+`detect()` inspects the filesystem, git and the event logs and returns the project situation plus, for each run, its situation and a recommended next action (the board, §21.2, is the human-readable form). It is deterministic and fast. Running work is judged by its marker (§23.2), and open platform incidents (§25.3) are reported.
 
 | Situation | Signals | Next action |
 |---|---|---|
@@ -1030,16 +1235,19 @@ A seed turns existing work into a step result without re-doing it.
 - **Same contract as any result:** seeded artifacts enter CAS with hashes, and the seed's `output` must validate against the step's output schema. A seed that fails validation is **not** imported; the baseline offers to run that step instead.
 - Gates that can run on a seed (schema, script) do run. LLM-review and human gates are satisfied by the baseline attestation and recorded as such.
 - Downstream steps consume imported results exactly like passed ones, so the handoff guarantee holds from the first Baton-executed step onward.
+- **Seeding into sub-processes.** A work item adopted mid-way (e.g. the third of three slices has been implemented and reviewed but not yet accepted by the owner) is seeded at the granularity it actually reached: the source step (the plan) is imported, the group is expanded from it, finished instances are imported whole, and a partly finished instance has its completed steps imported while the rest start normally. A gate that already passed outside Baton is imported with its evidence; a pending owner approval stays a pending human gate.
+- **Seeding findings and waivers.** Review findings and their dispositions are imported with the step they belong to. Steps approved before a gate existed are imported with a recorded waiver for that gate (§24.3), proposed in the baseline.
+- **One work item per run.** An adopted project usually has several work items: finished ones (left as history, not seeded), at most a few in flight (each becomes its own run, seeded), and new ones (started normally). The baseline lists each in-flight item and its proposed seeds as part of the single decision.
 
-### 20.6 Consultation
+### 20.6 Consultation (project subject; generalized in §25)
 
 Subject-matter questions always go to a consult worker. The Director's value is knowing **where** the relevant knowledge lives; the consultant's value is understanding **what** it means.
 
-- **The Director selects, the runtime assembles.** `consult(run_id, question, refs, mode)`. The Director chooses `refs` by name from the record and recipe (e.g. `steps.design.artifacts.design_doc`, `steps.requirements.output`, `human.d_014`, published deliverables, and for consults only `project:<path-or-glob>`) without reading their content. The runtime resolves them into a hashed consult packet.
+- **The Director selects, the runtime assembles.** `ask_sme(subject="project", question, refs, run_id, mode)` (other subjects: §25). The Director chooses `refs` by name from the record and recipe (e.g. `steps.design.artifacts.design_doc`, `steps.requirements.output`, `human.d_014`, published deliverables, and for consults only `project:<path-or-glob>`) without reading their content. The runtime resolves them into a hashed consult packet.
 - **Plain provenance, not Baton.** Each item carries a neutral label (what it is, which step produced it, its standing: "approved design, attempt 2", "edited by a human after publishing", "imported from prior process"). The consultant needs no knowledge of Baton.
-- **Safety net.** The packet includes an index of everything else on record (titles and references only). The answer schema is `{answer, confidence, sources_used[], requested_refs[], suggests_retriage}`. If `requested_refs` is non-empty, the Director approves a follow-up (or asks the human), and `consult_followup` includes those items plus the prior turns.
-- **Routing.** The consultant is chosen by `eligible_workers` against the recipe's `consult_requires`, or the vocabulary default. No independence constraint.
-- **Isolation from the run.** Consult answers are recorded (`consult_requested` / `consult_answered`, transcript in `.baton/runs/<id>/consults/`) but are **not** referenceable as step inputs. They affect the run only through `promote_consult(as: decision | revision)` with the human's explicit agreement (`consult_promoted`).
+- **Safety net.** The packet includes an index of everything else on record (titles and references only). The answer schema is `{answer, confidence, sources_used[], requested_refs[], suggests_retriage}`. If `requested_refs` is non-empty, the Director approves a follow-up (or asks the human), and `sme_followup` includes those items plus the prior turns.
+- **Routing.** The consultant is chosen by `eligible_workers` against the recipe's `sme.project` requirements, then `project.yaml`, then the vocabulary default. No independence constraint.
+- **Isolation from the run.** Consult answers are recorded (`sme_requested` / `sme_answered`, transcript in `.baton/runs/<id>/sme/`) but are **not** referenceable as step inputs. They affect the run only through `promote_sme(as: decision | revision)` with the human's explicit agreement (`sme_promoted`).
 - **Keeping subject matter out of the Director.** The Director relays answers faithfully without adding analysis and does not use them in routing. Because all state lives in the record, the Director can resume in a fresh session after a consultation at no cost; the skill recommends this. Leakage is minimized, not eliminated: the relayed answer passes through the Director's context once.
 - **Modes.** `relay` (default): the Director is the go-between, multi-turn via follow-ups. `handoff` (optional, per harness): the consult adapter opens a separate session or bot the user talks to directly, and its transcript or summary is recorded as the answer when the session closes. Baton does not care which mode was used.
 - **Consultation is built in, not a step.** It sits outside the step graph, cannot satisfy gates, and requires no recipe change. This is why the Director never needs to add roles or steps.
@@ -1064,3 +1272,299 @@ The baseline ends adoption and is the only human decision it requires.
 - No expression language for step inclusion (only `applies_to` level lists).
 - No project-wide audit during research.
 - No second source of truth: research findings, triage, seeds, consultations and the baseline are all ordinary events and CAS blobs in the run.
+
+---
+
+## 21. Projects and Work Items
+
+### 21.1 Model and layout
+
+A **project** is one repository. It holds any number of **runs**; each run is one **work item** (a feature, an increment, a fix, a small chore) following one recipe. Work items move independently: a small fix can be triaged, built and shipped while a larger increment sits at its third slice. Nothing ever moves the *project* backward.
+
+```
+.baton/
+├── project.yaml                  # paths, project vars, permissions, hooks (non-secret), limits, contacts
+├── communication.md              # owner communication contract (§26.1)
+├── project/events.jsonl          # project-level events: platform incidents, process feedback (hash-chained)
+├── platform/facts.md             # platform facts (§25.3)
+├── process/lessons.md            # project-level process lessons (§25.4)
+└── runs/<run_id>/                # one per work item (events, cas, steps, docs, sme)
+```
+
+Each run's `run_started` event records the work item: `{title, kind, slug, recipe, recipe_version}`. `kind` is free text from the recipe's run inputs (e.g. `feature`, `fix`).
+
+### 21.2 The board and concurrency
+
+`baton board` lists every non-terminal run: work item, recipe, current position (including sub-process progress such as "slices 2/3, s3 at accept"), running work, pending owner decisions, lease holder. `--needs-me` filters to runs with a pending human decision. The board is the first thing a Director reads each session.
+
+Concurrency rules:
+- **Leases are per run.** A Director may hold several.
+- **One working tree, one writer.** Workspace steps in write mode take a project-level **workspace lock**; a second write-mode step (in any run) waits until it is free. Read-mode steps don't take it. An optional `workspace_isolation: worktree` in `project.yaml` gives each write-mode step its own git worktree instead **[VERIFY merge strategy before enabling]**.
+- **Git operations are serialized** by a short project lock. Checkpoint commits stage only the committing run's directory and its own published deliverables, never another run's files.
+- Optional `limits` in `project.yaml` (e.g. `active_runs: 3`) make `start` refuse beyond the limit, with an explanation.
+
+### 21.3 Correcting an earlier step: `revise_step`
+
+When a later step shows that an earlier one in the **same work item** was wrong (slice 2 reveals a design flaw), the Director proposes, and the owner approves, `revise_step(run, step_path, reason)`:
+1. The target step gets a new attempt. Its packet includes the previous result and the stated reason (`revision_of`). The old result becomes `superseded`.
+2. Every step in that run whose inputs depend on the target, directly or transitively, becomes `stale`. Inside sub-processes, instances that do not depend on it are untouched.
+3. When the revised step passes, each stale step is either re-run (`ready`) or confirmed unchanged by a human decision. This is useful when a wording fix in a design does not invalidate completed slices.
+4. The reason is recorded without blame (`step_revised`). Other runs are never affected.
+
+Revising a step whose output fed a `foreach` (e.g. the plan) re-expands the group (§22.2).
+
+---
+
+## 22. Sub-processes (Cross-Worker Iteration)
+
+### 22.1 Declaration
+
+A step entry with its own `steps:` list is a **sub-process** (group). Options:
+
+| Key | Meaning |
+|---|---|
+| `foreach` | Reference to an array in an ancestor step's validated output; one **instance** per item. Each item must have a unique `id`. |
+| `foreach_if_source_skipped` | `once` (run a single instance with `item` = run inputs) or `skip` (skip the group). |
+| `concurrency` | Max instances active at once (a work-in-progress limit). Default 1. |
+| `repeat_until` | Condition over gates of steps inside the group (e.g. `group.steps.code_review.gates.passed`). After each iteration, if false, start another. |
+| `repeat_from` | Step id where a new iteration starts (default: the first step). |
+| `max_iterations` | Required with `repeat_until` (1–10). Reaching it escalates (`iteration_limit_reached`). |
+
+Inside a group, steps use `item`, `group.steps.<id>.*` and `group.previous_iteration.findings` (§5.2).
+
+### 22.2 `foreach` expansion
+
+When the source step passes, the runtime expands the group deterministically: one instance per item, ordered as in the array, recorded in `group_expanded` with each item's id and content hash. Instances start as concurrency allows.
+
+If the source step is later revised (§21.3), the group is re-expanded against the new array:
+- **Same id, same hash:** keeps its state.
+- **Same id, changed content:** that instance becomes `stale`.
+- **Removed id:** `superseded`.
+- **New id:** added.
+
+### 22.3 `repeat_until` iteration
+
+Two kinds of repetition are deliberately separate:
+- **Attempts:** the same step tried again after its own gate failed (e.g. tests failed). Bounded by `max_attempts`.
+- **Iterations:** the group's loop runs again because its exit condition is not met (e.g. the independent code review still has open high findings). Bounded by `max_iterations`.
+
+Each new iteration receives the previous iteration's open findings and gate reasons as `group.previous_iteration.findings`, so the implementer fixes exactly what the reviewer found. Previous iterations stay in the record.
+
+### 22.4 Aggregate state
+
+- An instance is `passed` when its last iteration's steps all passed.
+- The group is `passed` when every instance is `passed`, `superseded` or `skipped`.
+- Downstream steps may reference the group only as a whole (`steps.<group>.outputs`).
+- `explain` and the board describe groups in plain terms ("3 slices: 2 accepted, 1 in review, iteration 2 of 3").
+
+### 22.5 Limits
+
+- Groups nest at most one level (a group may not contain a group).
+- `foreach` and `repeat_until` may be combined; the loop then runs per instance.
+- Iteration *inside* a worker is not modeled. The worker gets `exit_criteria` and a `deadline` in its manifest and is free to loop internally until it meets them or runs out of time.
+
+---
+
+## 23. Async Execution and Liveness
+
+### 23.1 Dispatch model
+
+`dispatch` returns as soon as the worker is started. A small **per-dispatch supervisor** process (no daemon) is started detached from the caller's session:
+- POSIX: new session and process group (`setsid`).
+- Windows: detached process group flags **[VERIFY]**.
+
+The supervisor starts the worker, maintains the running marker, enforces the deadline, runs intake when the worker exits, fires completion hooks and exits. A Director whose turn or shell ends does not affect it.
+
+### 23.2 Running marker and heartbeat
+
+While a dispatch is live, the supervisor keeps `.baton/cache/running/<dispatch_id>.json` (machine-local, gitignored) containing `host`, `supervisor_pid`, `worker_pid`, `run_id`, `step_path`, `started`, `deadline` and a `heartbeat` timestamp refreshed every 30 s. The marker is removed after intake completes. A `step_running` event is recorded once the worker is confirmed alive; heartbeats are not written to the event log.
+
+Liveness, as reported by `status`, `board` and `resume`:
+
+| Marker | Process | Result | Classification |
+|---|---|---|---|
+| present | alive | – | running (or overdue if past deadline) |
+| present | dead | written | missed completion → resume intake |
+| present | dead | none | died silently → `orphaned`, classify (§23.5) |
+| absent | – | intake done | finished |
+
+### 23.3 Completion hooks
+
+After intake, the supervisor fires hooks on **every** outcome (passed, gate failed, needs human, timed out, failed). Hooks are configured outside recipes:
+- **Project-level, non-secret:** `.baton/project.yaml` `hooks:`.
+- **Machine-level, may reference secrets:** `~/.baton/hooks.yaml`, e.g. a webhook URL that wakes a remote Director.
+
+```yaml
+hooks:
+  on_complete: "curl -fsS -m 20 -X POST -d run=$BATON_RUN_ID -d step=$BATON_STEP_PATH -d outcome=$BATON_OUTCOME secret:director_wake_url"
+  on_needs_human: ""          # optional; falls back to on_complete
+  on_platform_failure: ""     # optional; e.g. wake the platform SME
+```
+
+Hooks run through the platform shell from the repo root. `secret:<name>` references are allowed only in the machine-level file; they are substituted at execution and never logged. Hook environment: `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME`, `BATON_CLASSIFICATION`, `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (path to the step record). Hook failures are recorded (`completion_hook_failed`) and never change the step's outcome.
+
+If no hook is configured and the Director dispatches without `--wait`, `dispatch` prints a warning: the result will only be seen at the next `board`/`status`. Silent misses are avoided by design, not by discipline.
+
+### 23.4 Effort and timeouts
+
+Steps declare `effort: S | M | L`, or `effort_from` an item field. Bands come from `project.yaml` (defaults S = 45 min, M = 2 h, L = 4 h). At the deadline the supervisor:
+1. If the worker is alive and `extend_once: true` is set, records an overdue notice, fires `on_complete` with outcome `overdue`, and extends by one band.
+2. Otherwise terminates the worker's process group, records `step_timed_out`, runs intake on whatever result exists (normally none) and classifies the failure.
+
+### 23.5 Failure classification
+
+`classify.py` applies deterministic rules, in order, and records `failure_classified`:
+
+| Class | Typical signals | Goes to |
+|---|---|---|
+| `configuration` | Unknown profile, missing secret, invalid project.yaml | Owner (with exact fix) |
+| `platform` | Executable not found (exit 127), auth/login failures, sandbox or permission denials on gate commands, network/DNS errors, disk full, killed by the OS, supervisor died | Platform SME (§25), with an incident opened |
+| `subject` | Gate failed, schema invalid, worker reported `failed` or `blocked` | The recipe's normal path: retry, iterate or escalate |
+| `unknown` | Nothing matched | Platform SME first, then owner |
+
+Adapters contribute signal patterns for their CLI (e.g. known auth-error text). Rules are data, so new patterns can be added without code changes. A platform failure gets at most **one** automatic retry, and only when the platform SME records a fix. Otherwise the step waits on the incident.
+
+---
+
+## 24. Reviews, Findings, Waivers and Protected Files
+
+### 24.1 Findings schema (fixed, runtime-owned)
+
+```json
+{
+  "findings": [
+    {"id": "F1", "severity": "high", "location": "src/auth.py:42", "title": "…", "detail": "…", "suggested_fix": "…"}
+  ],
+  "coverage": {"complete": true, "notes": ""}
+}
+```
+
+- Severities: `critical | high | medium | low`. Reviewers must return this JSON. Nothing is parsed from free text, which removes a whole class of "no findings" parsing errors.
+- `coverage.complete: false` (e.g. the reviewer could not run socket tests because its profile lacks `loopback_network`) is shown in the record and makes the gate result read "partial".
+
+### 24.2 Dispositions
+
+Each finding starts `open`. Allowed dispositions:
+
+| Disposition | Requirement |
+|---|---|
+| `fixed` | A reference (commit or file:line). In a `repeat_until` loop, the next review iteration confirms it. |
+| `rejected` | **Evidence**: a `file:line` that exists at the reviewed commit, or a test reference. Validated by the runtime. |
+| `accepted-risk` | A recorded **owner** decision id. Workers and Directors cannot set it alone. |
+
+A findings gate passes when no finding with a severity in `block_on` is `open`. Advisory findings gates never block, but their dispositions are still recorded.
+
+### 24.3 Waivers
+
+`waive_gate(run, step_path, gate, reason)` requires a human decision and records `gate_waived`. Uses include grandfathering a step that was approved before a gate existed (common at adoption), or allowing a self-review once. A waiver applies to one gate occurrence only; it never changes the recipe.
+
+### 24.4 Protected files
+
+A workspace step may declare `protect: [globs]` with `on_violation: warn | fail` (default `warn`). The runtime hashes matching files before dispatch and after the worker exits; any change records `protected_path_modified` with the diff summary.
+- `warn`: the step continues but carries an owner decision, approve or revert, before the group or run can pass.
+- `fail`: the gate fails.
+
+This generalizes "locked acceptance specs": an approval gate can record the hash set of protected paths at approval time, and later steps must preserve it.
+
+### 24.5 Review statistics
+
+Per reviewer profile and per step, the runtime keeps counts of findings by severity, dispositions (fixed, rejected, accepted-risk) and iterations to clean. They feed the process SME (§25.4); they are never used to block.
+
+---
+
+## 25. Subject-Matter Experts and the Platform Area
+
+### 25.1 Subjects
+
+`ask_sme(subject, question, refs, run_id?, mode)` generalizes §20.6 consultation to three built-in subjects:
+
+| Subject | Expert on | Default packet scope |
+|---|---|---|
+| `project` | The work's domain | Selected run records, published deliverables, `project:` file refs |
+| `platform` | Development and deployment infrastructure: hosts, CLIs, auth, networks, deployment platforms | Platform facts, open incidents, `doctor` output, redacted run logs, non-secret profile config |
+| `process` | Baton and the recipe | Events, step records, process feedback, review statistics, the recipe |
+
+Requirements per subject come from the recipe (`sme.<subject>`), then `project.yaml` (`sme:` may name `preferred_profiles`, e.g. a dedicated platform agent), then vocabulary defaults. An SME profile can use any adapter, including a `command` adapter that relays to another agent or a `manual` adapter for a human expert. Everything else from §20.6 applies unchanged: the Director selects references, the runtime assembles hashed packets, answers are recorded but not referenceable until promoted, and `relay` and `handoff` modes are available.
+
+**Promotion targets:** a human decision, an artifact revision, a **platform fact**, or a **process proposal** (a suggested recipe or configuration change for the owner to approve; recipe changes are made as a new recipe version and re-vendored, never in place).
+
+**Direct interaction:** a platform SME may need to work with a worker, the Director or the owner (e.g. guide the owner through a login). In `handoff` mode the SME session is opened with the relevant contacts. In any mode, its conclusions return to Baton as a recorded answer and, where durable, a promoted platform fact.
+
+### 25.2 Automatic routing
+
+- A step failure classified `platform` or `unknown` (§23.5) opens a platform incident. The Director then asks the platform SME, with the incident, the failing dispatch's redacted logs and the relevant facts preselected by the runtime.
+- If `on_platform_failure` is configured, the hook can wake the platform SME directly.
+
+### 25.3 The platform area
+
+Platform knowledge belongs to the project, not to any run:
+- **`.baton/platform/facts.md`:** durable facts, one entry each with source and date. Examples: "codex is installed under nvm v22 on the runtime host"; "service X listens on 8080 inside the container, 8000 outside"; "headless coding agent needs bypass permissions to run tests". Facts arrive by promotion from the platform SME, by owner edit, or are auto-recorded by the runtime as `observed` (e.g. resolved executable paths).
+- **Incidents:** project events (`platform_incident_opened` / `platform_incident_resolved`) with affected runs and steps, the classification and the resolution. Steps blocked on an incident show it on the board.
+- **Use:** any step may take `platform.facts` as an input. Platform SME packets include facts and open incidents automatically. `doctor` reports open incidents.
+
+### 25.4 The process SME (introspection)
+
+Process improvement is consultation with `subject=process`, not a separate subsystem:
+- **Inputs it sees:** `process_feedback` events recorded by Directors, workers (through `notes`) or the owner (kinds: `friction`, `skipped_step`, `waste`, `confusing`); skip records with `informed_owner: true|false`; and statistics the runtime keeps automatically (attempts, iterations, timeouts and their classes, time per step, review statistics).
+- **When:** on demand, at run completion if the recipe includes a retrospective step that consults it, or on a cadence the owner chooses.
+- **Outputs:** answers and **process proposals**. The owner approves each before anything changes. Project-level lessons go to `.baton/process/lessons.md` ("when X, do Y, because Z", with origin and confirmation count). Lessons confirmed across projects are promoted into the recipe package by its maintainer.
+- **Safety-relevant skips** (any skipped blocking gate or human approval) are surfaced to the owner immediately by the runtime, not left for a retrospective.
+
+---
+
+## 26. Owner Communication, Permissions, Cross-Platform and `baton check`
+
+### 26.1 Communication contract
+
+`.baton/communication.md` (project-owned; a recipe may ship a default) defines how the Director writes to the owner. The Director skill must follow it. Baton's default, adopted from the owner's existing practice:
+- **Shape:** brief status (or omit); a labeled list of the owner's actions, one step per line, each pasteable command alone in its own block; the single decision owed at the end. If there is nothing to do, a one-line "no action" statement.
+- **Placeholders** that are not valid shell syntax (`PASTE_TOKEN_HERE`, never `$TOKEN`).
+- **First mention** of anything new the owner must do or understand: where it lives (product, UI path, file or CLI), what it does, and the exact value or action.
+- **Manual verification** lists only steps runnable against what is live now, each with how readiness was confirmed; blocked steps are labeled with what unblocks them.
+- **Reversed defaults** get a one-line "Before → After" in the approval ask.
+- **Risk mitigations the agents propose** are presented as a decision with their cost and a narrower alternative, never absorbed silently.
+
+`project.yaml` `contacts:` names who receives what (e.g. `owner: owner`, `platform: <profile>`), using human or agent profiles.
+
+### 26.2 Action permissions
+
+```yaml
+# .baton/project.yaml
+permissions:
+  push:
+    docs_only: allow            # allow | ask | deny
+    after_verified: allow       # code changes once the work item's verification steps have passed
+    other: ask
+  tag: ask
+  force_push: deny
+  merge: deny
+  deploy: deny
+docs_only_globs: ["docs/**", "**/*.md", ".baton/runs/**", ".baton/platform/**", ".baton/process/**"]
+```
+
+- The runtime enforces these for its own git operations (checkpoint commits, pushes) and records `permission_used`.
+- For actions outside the runtime, the Director skill must check the permission first; `ask` becomes a request to the owner (`permission_requested`), and `deny` is never attempted.
+- "Docs only" means every changed path matches `docs_only_globs`.
+
+### 26.3 Cross-platform requirements
+
+The runtime host may be Linux, macOS, native Windows or WSL:
+- Store and compare paths in POSIX form; accept backslashes on input.
+- Write text as UTF-8 **without BOM** with LF endings; tolerate a BOM on read.
+- Run git with explicit settings (`-c core.autocrlf=false`) so committed files are byte-stable across platforms.
+- Never rely on shebangs; entry points come from the installed package (`baton`, `python -m baton`, or `py -m baton` on Windows).
+- Detached processes and process-tree termination use platform-specific code paths (§23.1), tested on both families.
+- Directory permissions: `0700` on POSIX; best-effort user-only ACLs on Windows.
+- In WSL, keep repos on the Linux filesystem, not `/mnt/c`; `doctor` warns otherwise.
+
+### 26.4 `baton check`
+
+A non-interactive consistency check for pre-commit hooks and CI. Exit 0 when clean, 1 with one `ERROR <path>: <message>` line per problem. Checks:
+- Event hash chains (runs and project) and CAS integrity.
+- Lockfile versus vendored package hashes, and the neutrality lint on vendored packages.
+- Published deliverables versus their recorded hashes (drift is a warning unless `--strict`).
+- No secrets under `.baton/` (sentinel and pattern scan).
+- No run in an impossible state (e.g. a passed step whose blocking gate has no recorded outcome).
+- `project.yaml` and `communication.md` present and valid.
+
+It never needs network access or worker profiles, so it runs anywhere the repo is checked out.
