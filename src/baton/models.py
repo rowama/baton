@@ -252,6 +252,27 @@ class Findings(_Strict):
 
 
 # --------------------------------------------------------------------------
+# Results: what a worker returns (§7.2, baton-packet/1)
+# --------------------------------------------------------------------------
+
+
+class ResultArtifact(_Strict):
+    name: str = Field(min_length=1)
+    path: str = Field(min_length=1)  # relative to the result directory
+
+
+class Result(_Strict):
+    protocol: str
+    packet_sha256: str
+    status: Literal["completed", "blocked", "failed"]
+    output: Any = None
+    artifacts: list[ResultArtifact] = Field(default_factory=list)
+    notes: str = ""
+    questions_for_human: list[str] = Field(default_factory=list)
+    process_feedback: list[Any] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
 # Worker profiles (§6.1). Phase 1 validates capabilities and tier; the
 # remaining fields are carried for later layers.
 # --------------------------------------------------------------------------

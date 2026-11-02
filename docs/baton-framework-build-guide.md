@@ -611,6 +611,7 @@ Adapters never interpret results; intake does.
   "attempt": 1,
   "effort": "M",
   "deadline": "2026-11-01T22:00:00Z",
+  "workspace": "write",
   "exit_criteria": ["…rendered from the step's gates and output contract…"],
   "protected_paths": ["tests/acceptance/specs/**"],
   "worker_profile": "claude-code-sub",
@@ -618,6 +619,7 @@ Adapters never interpret results; intake does.
   "inputs": [ {"name": "slice", "kind": "json", "path": "inputs/slice.json", "sha256": "…"} ],
   "not_applicable": [],
   "required_artifacts": [],
+  "optional_artifacts": [],
   "prior_feedback": null,
   "packet_sha256": "…"
 }
@@ -626,7 +628,9 @@ Adapters never interpret results; intake does.
 - `step_path` is `<step>` or, inside a group, `<group>/<instance>/<iteration>/<step>`, where `<instance>` is the runtime-assigned instance id (§5.8).
 - `exit_criteria` tells the worker what "done" means (its own DoD); `deadline` bounds its internal iteration.
 - `worker_profile_sha256` covers non-secret profile fields only.
-- `packet_sha256`: SHA-256 over the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) combined with the hashes of every input file, `INSTRUCTIONS.md` and `output_schema.json`. Document the algorithm in code and test it.
+- `packet_sha256`: SHA-256 of `"baton-packet/1\n"`, then the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) and `"\n"`, then `"<path>\0<sha256>\n"` for every other packet file (inputs, `INSTRUCTIONS.md`, `output_schema.json`) sorted by POSIX path. Documented in `packet.py` and tested. The manifest holds no clock reading except `deadline`, which the caller supplies.
+- `workspace` is the step's mode (`none` | `read` | `write`); `optional_artifacts` lists declared artifacts that are not required.
+- Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event. Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
 - `prior_feedback`: gate reasons from the previous attempt, or the revision reason (§8.9).
 
 `INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback.
@@ -784,7 +788,7 @@ A platform failure gets at most one automatic retry, and only after the platform
 
 ### 8.9 Work items, concurrency and corrections
 
-- **Runs** are independent work items; `run_started` records `{title, kind, slug, recipe, versions, branch}`. `baton board` lists all non-terminal runs (position including group progress, running work, pending decisions, lease holder; `--needs-me` filters to pending owner decisions).
+- **Runs** are independent work items; `run_started` records `{title, kind, slug, recipe, recipe_sha256, versions, branch, max_attempts, inputs_sha256}` (the validated run inputs are a CAS blob). `baton board` lists all non-terminal runs (position including group progress, running work, pending decisions, lease holder; `--needs-me` filters to pending owner decisions).
 - **Locks:** leases are per run (a Director may hold several). Write-mode workspace steps take a project **workspace lock** (one writer per working tree; optional `workspace_isolation: worktree` **[VERIFY merge strategy]**). Git operations and project-level files use a short **project lock**. Checkpoint commits stage only the committing run's files and its own deliverables. Optional `limits.active_runs` in `project.yaml`.
 - **`revise(run, step_path, reason)`** (owner-approved): the step gets a new attempt whose packet includes the previous result and the reason; the old result becomes `superseded`; every dependent step in that run becomes `stale`; stale steps are re-run or confirmed unchanged by a human decision; the reason is recorded without blame. Other runs are never affected. Revising a `foreach` source re-expands its group (§8.5).
 
@@ -794,6 +798,8 @@ A platform failure gets at most one automatic retry, and only after the platform
 2. Verify required artifacts; ingest into CAS. Check protected paths (§9.4).
 3. `blocked` → `escalated` with the questions. Otherwise run gates in order (blocking gates stop at the first failure; advisory gates always run and record).
 4. All blocking gates pass → `step_passed` → publish (§10.4) → record (§10.6) → checkpoint (§10.1) → dependents ready; group bookkeeping (§8.5); hooks fire.
+
+Recording: `result_submitted` carries the hashes of the stored `result.json`, the output and each registered artifact; the implicit provenance check is recorded as a `gate_passed` with `gate: "provenance"`; declared gates are recorded by index. `step_passed` repeats the output and artifact hashes, and is the only thing downstream packets resolve from. Envelope, hash, schema and artifact problems are one `result_rejected` listing every reason. A rejected result, a failed blocking gate, a `failed` worker or a rejected human gate returns the step to `ready` (its reasons become the next packet's `prior_feedback`) while attempts remain, else `escalated` (`attempts_exhausted`). A gate command that cannot be rendered or has a bad `cwd` escalates at once (`configuration`). A human gate's decision is referenced by the step path of the step awaiting it; `human_decision` records the owner's words verbatim, followed by the gate's `gate_passed` / `gate_failed`.
 
 ---
 
