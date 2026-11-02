@@ -36,10 +36,12 @@ from pydantic import ValidationError
 from .data import read_text
 from .models import Result, ScriptGate, Step
 from .packet import PROTOCOL, RunContext, output_schema_for, verify_packet
+from .redact import redact_bytes
 from .store import canonical_json
+from .supervisor import kill_tree
 
 #: Variables a script gate's command keeps from the runtime's environment.
-#: A placeholder for profile-style environment construction (§6.2, Phase 5).
+#: Gates run under the runtime's own reduced environment, never a worker profile's.
 GATE_ENV_ALLOW = ("PATH", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TERM", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR")
 FEEDBACK_TAIL_LINES = 40
 DEFAULT_SCRIPT_TIMEOUT_S = 900
@@ -181,19 +183,6 @@ def render_command(ctx: RunContext, template: str) -> str:
     return env.from_string(template).render(**variables)
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
-    if os.name == "posix":
-        import signal
-
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    else:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
-        proc.kill()
-
-
 def run_script_gate(ctx: RunContext, gate: ScriptGate, step_path: str) -> GateOutcome:
     """Run the command in the project root (or ``cwd`` inside it) under a reduced environment."""
     try:
@@ -221,11 +210,12 @@ def run_script_gate(ctx: RunContext, gate: ScriptGate, step_path: str) -> GateOu
         out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         timed_out = True
-        _kill_tree(proc)
+        kill_tree(proc)
         out, _ = proc.communicate()
     duration = round(time.monotonic() - started, 3)
-    # Raw output goes to the run's CAS. Redaction (redact.py) arrives with secrets (Phase 5).
-    output_sha = ctx.log.cas.put(out or b"")
+    # Output enters the run's record, so it is redacted first (§15.2).
+    out = redact_bytes(out or b"")
+    output_sha = ctx.log.cas.put(out)
     data = {"command": command, "exit_code": proc.returncode, "duration_s": duration, "output_sha256": output_sha}
     if timed_out:
         data["timed_out"] = True

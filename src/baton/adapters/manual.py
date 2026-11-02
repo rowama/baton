@@ -15,7 +15,15 @@ from ..models import WorkerProfile
 
 class ManualAdapter:
     name = "manual"
+    needs_executable = False
+    config_home_var: str | None = None
     failure_signals: list[dict[str, Any]] = []
+
+    def check_profile(self, profile: WorkerProfile) -> None:
+        return None
+
+    def preflight(self, profile: WorkerProfile, packet_dir: Path) -> list[str]:
+        return []
 
     def command(self, profile: WorkerProfile, packet_dir: Path, result_dir: Path, workspace: Path | None, mode: str) -> list[str] | None:
         return None

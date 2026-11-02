@@ -1,17 +1,38 @@
-"""Routing: which profiles may do a step (§8.4).
+"""Routing: which profiles may do a step, in what order (§8.4).
 
-Phase 3 needs only the requirement check the packet builder re-runs before it
-builds anything (§8.6 step 1). Profile loading order, independence and
-preferences arrive with the routing layer (Phase 5).
+``eligible_workers`` is the whole rule; the packet builder re-checks the
+requirement part (``requirement_gaps``) before it builds anything (§8.6).
+
+1. Profiles come from the machine, then ``.baton/workers.local.yaml`` (``project.py``).
+2. Keep profiles with every required capability, a sufficient tier and the
+   numeric minimums (plus ``repo_workspace`` for write steps and
+   ``workspace_read`` for read steps).
+3. Independence: when the step declares ``independence: {from_step, level}``,
+   drop profiles that match the worker of ``from_step``'s current result at
+   that level. The worker's vendor and model are read from the run's record
+   (``worker_selected``), not from this machine's profiles.
+4. Order by ``.baton/preferences.yaml``: ``exclude`` removes, ``prefer.by_step``
+   then ``prefer.by_capability`` put named profiles first; the rest follow by
+   name. Preferences never add an ineligible profile.
+5. An empty list escalates the step (``no_eligible_worker``; §18 #2: escalate,
+   never fail the run). The engine records that.
 """
 
 from __future__ import annotations
 
-from .models import Requires, WorkerProfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from pydantic import ValidationError
+
+from .data import YamlError, load_yaml
+from .models import Independence, Preferences, Requires, Step, WorkerProfile
 from .vocab import Vocabulary
 
 #: Capability a profile needs for each workspace mode (§8.4 step 2).
 WORKSPACE_CAPABILITY = {"read": "workspace_read", "write": "repo_workspace"}
+PREFERENCES_FILE = "preferences.yaml"
 
 
 def requirement_gaps(requires: Requires, workspace: str, profile: WorkerProfile, vocab: Vocabulary) -> list[str]:
@@ -34,3 +55,159 @@ def requirement_gaps(requires: Requires, workspace: str, profile: WorkerProfile,
         if have < requires.min_context_tokens:
             gaps.append(f"needs context_tokens >= {requires.min_context_tokens}; profile has {have or 'none declared'}")
     return gaps
+
+
+# ---------------------------------------------------------------------------
+# Preferences
+# ---------------------------------------------------------------------------
+
+
+class PreferencesError(Exception):
+    pass
+
+
+def load_preferences(baton_dir: Path) -> Preferences:
+    """``.baton/preferences.yaml``, or empty preferences when absent."""
+    path = baton_dir / PREFERENCES_FILE
+    if not path.is_file():
+        return Preferences()
+    try:
+        raw = load_yaml(path) or {}
+        if "secret:" in str(raw):
+            raise PreferencesError(f"{path}: secret: references are not allowed in preferences")
+        return Preferences.model_validate(raw)
+    except YamlError as e:
+        raise PreferencesError(f"{path}: {e}") from e
+    except ValidationError as e:
+        msgs = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise PreferencesError(f"{path}: {msgs}") from e
+
+
+# ---------------------------------------------------------------------------
+# Independence
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WorkerIdentity:
+    """Who produced a result, as recorded in ``worker_selected``."""
+
+    profile: str
+    vendor: str | None
+    model: str | None
+
+
+def identity_of(profile_name: str, profile: WorkerProfile) -> WorkerIdentity:
+    return WorkerIdentity(profile_name, profile.vendor, profile.model)
+
+
+def same_at(level: str, a: WorkerIdentity, b: WorkerIdentity) -> bool:
+    """Whether ``a`` and ``b`` count as the same worker at an independence level.
+
+    ``different_model``: the same profile, or both declare the same ``model``.
+    ``different_vendor``: the same vendor (case-insensitive), or the same profile.
+    """
+    if a.profile == b.profile:
+        return True
+    if level == "different_profile":
+        return False
+    if level == "different_model":
+        return a.model is not None and a.model == b.model
+    return a.vendor is not None and b.vendor is not None and a.vendor.lower() == b.vendor.lower()
+
+
+def result_worker(events: list[Any], step_path: str, own: bool) -> WorkerIdentity | None:
+    """The worker behind ``step_path``'s current result, from the record.
+
+    For the step itself (``own``) that is its latest attempt; for an ancestor,
+    the attempt recorded in its last ``step_passed``.
+    """
+    attempt = None
+    for ev in reversed(events):
+        if ev.step_path != step_path:
+            continue
+        if own and ev.type == "dispatched":
+            attempt = ev.attempt
+            break
+        if not own and ev.type == "step_passed":
+            attempt = ev.attempt
+            break
+    if attempt is None:
+        return None
+    for ev in reversed(events):
+        if ev.type == "worker_selected" and ev.step_path == step_path and ev.attempt == attempt:
+            d = ev.data
+            return WorkerIdentity(d.get("profile", "?"), d.get("vendor"), d.get("model"))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Eligibility
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Eligibility:
+    step_path: str
+    eligible: list[dict[str, Any]] = field(default_factory=list)  # [{profile, adapter, vendor, reasons}]
+    excluded: list[dict[str, Any]] = field(default_factory=list)  # [{profile, reasons}]
+
+    def names(self) -> list[str]:
+        return [e["profile"] for e in self.eligible]
+
+    def reasons_for(self, name: str) -> list[str]:
+        for e in self.excluded:
+            if e["profile"] == name:
+                return e["reasons"]
+        return []
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"step_path": self.step_path, "eligible": self.eligible, "excluded": self.excluded}
+
+
+def eligible_workers(
+    step: Step,
+    step_path: str,
+    profiles: dict[str, WorkerProfile],
+    vocab: Vocabulary,
+    *,
+    events: list[Any] | None = None,
+    preferences: Preferences | None = None,
+) -> Eligibility:
+    """The ordered eligible profiles with reasons, and every exclusion with its reasons."""
+    prefs = preferences or Preferences()
+    out = Eligibility(step_path)
+    indep: Independence | None = step.independence
+    other = None
+    if indep is not None and events is not None:
+        own = indep.from_step == step.id
+        source_path = step_path if own else indep.from_step
+        other = result_worker(events, source_path, own)
+
+    kept: dict[str, dict[str, Any]] = {}
+    for name in sorted(profiles):
+        p = profiles[name]
+        reasons = requirement_gaps(step.requires, step.workspace, p, vocab)
+        if other is not None and indep is not None and same_at(indep.level, identity_of(name, p), other):
+            reasons.append(f"independence: {indep.level} from {indep.from_step} (done by {other.profile}, vendor {other.vendor or '?'})")
+        if name in prefs.exclude:
+            reasons.append("excluded by preferences.yaml")
+        if reasons:
+            out.excluded.append({"profile": name, "reasons": reasons})
+            continue
+        why = ["meets requirements"] + ([f"independent of {indep.from_step} ({indep.level})"] if other is not None and indep else [])
+        kept[name] = {"profile": name, "adapter": p.adapter, "vendor": p.vendor, "reasons": why}
+
+    ordered: list[str] = []
+    for name in prefs.prefer.by_step.get(step_path, prefs.prefer.by_step.get(step.id, [])):
+        if name in kept and name not in ordered:
+            ordered.append(name)
+            kept[name]["reasons"].append(f"preferred for step {step.id}")
+    for cap in step.requires.capabilities:
+        for name in prefs.prefer.by_capability.get(cap, []):
+            if name in kept and name not in ordered:
+                ordered.append(name)
+                kept[name]["reasons"].append(f"preferred for {cap}")
+    ordered += [n for n in kept if n not in ordered]
+    out.eligible = [kept[n] for n in ordered]
+    return out

@@ -21,9 +21,10 @@ gate that cannot be configured escalate at once.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
@@ -38,14 +39,18 @@ from .packet import (
     build_packet,
     gate_included,
     node_for,
+    remove_tree,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
+from .redact import redact_text
 from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, canonical_json
+from .supervisor import ChildResult
 
 __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
-    "abandon_run", "begin_attempt", "decide", "open_run", "pending_decisions", "plan", "refresh", "start", "submit",
+    "abandon_run", "begin_attempt", "decide", "escalate_no_worker", "finish_child", "open_run", "pending_decisions", "plan",
+    "refresh", "start", "submit",
 ]
 
 
@@ -172,14 +177,26 @@ def begin_attempt(
     dispatch_id: str | None = None,
     adapter: str | None = None,
     guidance: str | None = None,
+    preflight: Callable[[BuiltPacket], list[str]] | None = None,
+    dispatch_data: dict[str, Any] | None = None,
 ) -> BuiltPacket:
     """Build the packet for the step's next attempt and mark the attempt dispatched and running.
 
-    Raises ``HandoffError`` or ``EngineError`` with nothing written.
+    ``preflight`` may refuse the built packet for this worker (e.g. inputs too
+    large for an API model, §18 #1); the packet is then removed. Raises
+    ``HandoffError`` or ``EngineError`` with nothing written.
     """
     built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline, guidance=guidance)
+    if preflight is not None:
+        problems = preflight(built)
+        if problems:
+            remove_tree(built.dir.parent)
+            raise EngineError("dispatch.worker_cannot_take_packet", f"{profile_name} cannot take {step_path}: " + "; ".join(problems))
     log, n = ctx.log, built.attempt
-    log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data={"profile": profile_name})
+    selected: dict[str, Any] = {"profile": profile_name, "vendor": profile.vendor}  # recorded for independence (§8.4)
+    if profile.model:
+        selected["model"] = profile.model
+    log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data=selected)
     pb = {"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]}
     if guidance:
         pb["guidance"] = guidance
@@ -189,6 +206,7 @@ def begin_attempt(
         disp["dispatch_id"] = dispatch_id
     if adapter:
         disp["adapter"] = adapter
+    disp.update(dispatch_data or {})
     log.append("dispatched", actor=actor, step_path=step_path, attempt=n, data=disp)
     log.append("step_running", step_path=step_path, attempt=n)
     return built
@@ -296,6 +314,53 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
     return Outcome(step_path, n, "escalated", reasons)
 
 
+FAILURE_LINE = re.compile(r"baton-worker: failure=(\w+) code=(\w+) message=(.*)")
+
+
+def classify_exit(child: ChildResult) -> dict[str, Any]:
+    """Failure class for a worker that exited without a result (§8.8; full rules arrive in Phase 7)."""
+    tail = child.tail.decode("utf-8", errors="replace")
+    m = None
+    for m in FAILURE_LINE.finditer(tail):
+        pass
+    if m is not None:
+        return {"class": m.group(1), "code": m.group(2), "message": redact_text(m.group(3).strip())}
+    if child.exit_code == 127:
+        return {"class": "platform", "code": "executable_not_found", "message": "the worker's command was not found (exit 127)"}
+    last = [ln for ln in tail.splitlines() if ln.strip()][-1:] or [""]
+    return {"class": "unknown", "code": f"exit_{child.exit_code}", "message": redact_text(last[0][:300])}
+
+
+def finish_child(ctx: RunContext, step_path: str, n: int, child: ChildResult, *, actor: str = "runtime") -> Outcome:
+    """Take in an attached worker's ending: intake when it wrote a result, else classify.
+
+    Over the time limit: ``step_timed_out``, then retry or escalate like a failed
+    gate. Exited without ``result.json``: ``attempt_orphaned``, classified, and
+    escalated with its class (platform failures wait for a fix, §8.8).
+    """
+    log = ctx.log
+    if child.timed_out:
+        log.append("step_timed_out", step_path=step_path, attempt=n, data=child.as_dict())
+        reason = f"the worker did not finish within {child.duration_s:.0f} s"
+        log.append("failure_classified", step_path=step_path, attempt=n, data={"class": "subject", "code": "timeout", "message": reason})
+        return _failed(ctx, step_path, n, [reason])
+    if (ctx.attempt_dir(step_path, n) / "result" / "result.json").is_file():
+        return submit(ctx, step_path, actor=actor)
+    cls = classify_exit(child)
+    log.append("attempt_orphaned", step_path=step_path, attempt=n, data=child.as_dict())
+    log.append("failure_classified", step_path=step_path, attempt=n, data=cls)
+    reasons = [f"{cls['class']} failure ({cls['code']}): {cls['message']}"]
+    log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": cls["class"], "code": cls["code"], "reasons": reasons})
+    return Outcome(step_path, n, "escalated", reasons)
+
+
+def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str, Any]], *, actor: str = "runtime") -> Outcome:
+    """A ready step with no eligible worker escalates (§8.4; §18 #2: never fails the run)."""
+    reasons = [f"{e['profile']}: {'; '.join(e['reasons'])}" for e in excluded] or ["no worker profiles on this machine"]
+    ctx.log.append("step_escalated", actor=actor, step_path=step_path, data={"reason": "no_eligible_worker", "reasons": reasons})
+    return Outcome(step_path, ctx.log.state().step(step_path).attempt, "escalated", reasons)
+
+
 # ---------------------------------------------------------------------------
 # Owner decisions
 # ---------------------------------------------------------------------------
@@ -386,7 +451,7 @@ def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, acto
         "human_decision",
         actor=actor,
         step_path=ref,
-        attempt=n,
+        attempt=n or None,  # escalated before any attempt (no eligible worker)
         data={"ref": ref, "kind": "escalation", "decision": decision, "note": note, **extra},
     )
     if decision == "retry":
@@ -605,31 +670,108 @@ class Api:
             "last_seq": rs.last_seq,
         }
 
+    def _routing(self, ctx: RunContext, step_path: str) -> Any:
+        from .routing import PreferencesError, eligible_workers, load_preferences
+
+        node = node_for(ctx.recipe, step_path)
+        if not isinstance(node, Step):
+            raise EngineError("engine.unknown_step", f"{step_path} is not a runnable step of {ctx.recipe.recipe.ref}")
+        try:
+            prefs = load_preferences(self.project.baton)
+        except PreferencesError as e:
+            raise EngineError("configuration.preferences", str(e)) from e
+        return eligible_workers(
+            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=ctx.log.events(), preferences=prefs
+        )
+
+    def eligible(self, run_id: str, step_path: str) -> dict[str, Any]:
+        """Ordered eligible profiles with reasons, and every exclusion (§8.4).
+
+        A ready step with none escalates (``no_eligible_worker``); the owner's
+        ``decide <step> retry`` readies it again once a worker exists.
+        """
+        ctx = self._ctx(run_id)
+        result = self._routing(ctx, step_path)
+        out: dict[str, Any] = {"run_id": run_id, **result.as_dict()}
+        if result.eligible or ctx.log.state().step(step_path).state != "ready":
+            out["escalated"] = False
+            return out
+
+        def body(c: RunContext) -> dict[str, Any]:
+            escalate_no_worker(c, step_path, result.excluded, actor=self.director.actor)
+            return {"run_id": run_id, **result.as_dict(), "escalated": True}
+
+        return self._mutate(run_id, body)
+
     def dispatch(self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None) -> dict[str, Any]:
-        """Build the packet and hand it to the worker's adapter. Manual workers then ``submit``."""
+        """Build the packet and hand it to the worker's adapter.
+
+        The worker must be in the step's eligible set (§8.4). Manual workers
+        then ``submit``; process workers (API models) run attached here, and
+        intake runs when they exit, all in this one call.
+        """
         import secrets
 
         from . import adapters
+        from .profiles import SetupError, build_env
+        from .supervisor import run_child
 
         profiles = self.project.profiles()
         if worker not in profiles:
             raise EngineError("configuration.unknown_profile", f"no worker profile {worker!r} on this machine (known: {', '.join(sorted(profiles)) or 'none'})")
         profile = profiles[worker]
         adapter = adapters.get(profile.adapter)
+        if profile.isolation != "none":
+            raise EngineError("configuration.isolation_unsupported", f"{worker}: isolation {profile.isolation!r} is not supported by this runtime yet; use none")
+        ctx0 = self._ctx(run_id)
+        routing = self._routing(ctx0, step_path)
+        if worker not in routing.names():
+            why = "; ".join(routing.reasons_for(worker)) or "not eligible"
+            raise EngineError("routing.ineligible", f"{worker} is not eligible for {step_path}: {why} (see `baton eligible {run_id} {step_path}`)")
 
         def body(ctx: RunContext) -> dict[str, Any]:
             dispatch_id = f"d_{secrets.token_hex(4)}"
+            n_next = ctx.log.state().step(step_path).attempt + 1
+            adir = ctx.attempt_dir(step_path, n_next)
+            node = node_for(ctx.recipe, step_path)
+            workspace = self.project.root if getattr(node, "workspace", "none") != "none" else None
+            env = None
+            try:
+                adapter.check_profile(profile)
+                if adapter.name != "manual":
+                    env = build_env(
+                        profile, home=self.project.home, packet_dir=adir / "packet", result_dir=adir / "result",
+                        workspace=workspace, config_home_var=adapter.config_home_var, resolve=adapter.needs_executable,
+                    )
+            except SetupError as e:
+                raise EngineError(e.code, str(e)) from e
+            extra: dict[str, Any] = {"env": env.describe()} if env is not None else {}
             built = begin_attempt(
-                ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name, guidance=guidance
+                ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
+                guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
             )
-            return {
+            out: dict[str, Any] = {
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
                 "worker": worker, "adapter": adapter.name, "packet_sha256": built.sha256,
                 "packet": str(built.dir), "result": str(built.result_dir),
                 "handoff": adapter.handoff(profile, built.dir, built.result_dir),
             }
+            argv = adapter.command(profile, built.dir, built.result_dir, workspace, getattr(node, "workspace", "none"))
+            if argv is None or env is None:
+                return out  # a person does the work; the Director submits
+            log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
+            child = run_child(argv, env=env.env, cwd=workspace or built.dir.parent, log_path=log_path)
+            outcome = finish_child(ctx, step_path, built.attempt, child, actor=f"worker:{worker}")
+            out.update(_outcome_dict(outcome))
+            out["worker_exit"] = {**child.as_dict(), "log": str(log_path)}
+            return out
 
         return self._mutate(run_id, body)
+
+    def doctor(self, profile: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
+        from .doctor import doctor
+
+        return doctor(self.project, profile, run_noop=run_noop)
 
     def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None) -> dict[str, Any]:
         """A new attempt of a step whose previous attempt was not accepted. Guidance is additive only."""

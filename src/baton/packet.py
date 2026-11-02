@@ -161,8 +161,13 @@ def gate_included(gate: Any, level: str | None) -> bool:
 
 
 def profile_sha256(profile: WorkerProfile) -> str:
-    """Hash of the profile's non-secret fields: ``auth.env`` keeps variable names only."""
+    """Hash of the profile's non-secret fields: ``auth.env`` keeps variable names only.
+
+    Empty ``options`` are left out, so adding that field kept earlier hashes.
+    """
     body = profile.model_dump(mode="json", exclude_none=True)
+    if not body.get("options"):
+        body.pop("options", None)
     auth = body.get("auth") or {}
     if "env" in auth:
         auth["env"] = sorted(auth["env"])

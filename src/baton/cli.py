@@ -249,11 +249,27 @@ def dispatch(
 ) -> None:
     """Build the step's packet and hand it to the worker."""
     out = _call(as_json, lambda: _api().dispatch(run, step, worker))
-    text = (
-        f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]\n"
-        f"{out['handoff']}\nThen: baton submit {out['run_id']} {out['step_path']}"
-    )
-    _done(out, as_json, text)
+    _dispatched(out, as_json)
+
+
+def _dispatched(out: dict, as_json: bool) -> None:
+    head = f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]"
+    if "outcome" not in out:  # a person does the work
+        _done(out, as_json, f"{head}\n{out['handoff']}\nThen: baton submit {out['run_id']} {out['step_path']}")
+    code = EXIT_PROBLEM if out["outcome"] == "retry" and not out["needs_owner"] else None
+    _done(out, as_json, f"{head}\n{_outcome_text(out)}", code)
+
+
+@app.command()
+def eligible(run: Annotated[str, typer.Argument(help="Run id.")], step: Annotated[str, typer.Argument(help="Step path.")], as_json: JsonOpt = False) -> None:
+    """Workers that may do a step, in preference order, with every exclusion's reasons."""
+    out = _call(as_json, lambda: _api().eligible(run, step))
+    lines = [f"{i}. {e['profile']} ({e['adapter']}, {e['vendor']}): {'; '.join(e['reasons'])}" for i, e in enumerate(out["eligible"], 1)]
+    if not lines:
+        lines.append(f"No eligible worker for {step}." + (" The step is escalated." if out["escalated"] else ""))
+    lines += [f"   excluded {e['profile']}: {'; '.join(e['reasons'])}" for e in out["excluded"]]
+    lines += _pending_lines(out)
+    _done(out, as_json, "\n".join(lines))
 
 
 @app.command()
@@ -266,11 +282,7 @@ def retry(
 ) -> None:
     """Start a new attempt of a step whose previous attempt was not accepted."""
     out = _call(as_json, lambda: _api().retry(run, step, worker, guidance))
-    text = (
-        f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]\n"
-        f"{out['handoff']}\nThen: baton submit {out['run_id']} {out['step_path']}"
-    )
-    _done(out, as_json, text)
+    _dispatched(out, as_json)
 
 
 def _outcome_text(out: dict) -> str:
@@ -402,6 +414,20 @@ def check(as_json: JsonOpt = False) -> None:
         for i in issues:
             typer.echo(f"{'ERROR' if i.severity == 'error' else 'WARNING'} {i.where}: {i.message}")
     raise typer.Exit(EXIT_PROBLEM if errors else EXIT_OK)
+
+
+@app.command()
+def doctor(
+    profile: Annotated[Optional[str], typer.Option("--profile", help="Check only this worker profile.")] = None,
+    no_run: Annotated[bool, typer.Option("--no-run", help="Skip the no-op round trips (no model calls).")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Machine readiness: lockfile, profiles (env, executables, a no-op run each), uncovered steps. One line when healthy."""
+    out = _call(as_json, lambda: _api().doctor(profile, run_noop=not no_run))
+    lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
+    lines += [f"WARNING {w}" for w in out["warnings"]]
+    _emit({**out}, as_json, "\n".join(lines))
+    raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 
 def main() -> None:

@@ -1,8 +1,9 @@
 """Secret detection and redaction for anything committed (§15.2).
 
-Phase 4 provides the patterns ``check`` scans ``.baton/`` with (§13.5).
-Redacting resolved secret *values* (from profiles and hooks) arrives with
-secrets in the routing layer.
+``check`` scans ``.baton/`` with the patterns below (§13.5). Secret *values*
+resolved at spawn time (``profiles.resolve_secret``) are registered here, so
+``redact_text`` removes them from anything this process writes to the record,
+whatever their shape.
 
 **Sentinels.** Tests plant values starting with ``SENTINEL_PREFIX`` as fake
 secrets; any sentinel found in the project tree is an error. Real secrets are
@@ -30,6 +31,15 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
 
 REDACTED = "[REDACTED]"
 
+#: Resolved secret values known to this process (never persisted).
+_KNOWN: set[str] = set()
+
+
+def register(value: str) -> None:
+    """Remember a resolved secret value so ``redact_text`` removes it."""
+    if value and len(value) >= 4:
+        _KNOWN.add(value)
+
 
 @dataclass(frozen=True)
 class SecretHit:
@@ -46,9 +56,14 @@ def scan_bytes(data: bytes) -> list[SecretHit]:
     return sorted(hits, key=lambda h: h.offset)
 
 
+def redact_bytes(data: bytes, values: tuple[str, ...] = ()) -> bytes:
+    """``redact_text`` for raw output (decoded as UTF-8 with replacement)."""
+    return redact_text(data.decode("utf-8", errors="replace"), values).encode("utf-8")
+
+
 def redact_text(text: str, values: tuple[str, ...] = ()) -> str:
     """Replace known secret values and secret-like tokens with ``[REDACTED]``."""
-    for v in sorted((v for v in values if v), key=len, reverse=True):
+    for v in sorted({v for v in (*values, *_KNOWN) if v}, key=len, reverse=True):
         text = text.replace(v, REDACTED)
     raw = text.encode("utf-8")
     for _, pat in SECRET_PATTERNS:

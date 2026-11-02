@@ -557,19 +557,21 @@ owner:
 | `args.write` / `args.read` | Adapter args for write-mode vs read-mode workspace steps (permission and sandbox modes) |
 | `isolation` | `none` \| `user` \| `container` |
 | `capabilities` | Must be **true on this machine** (e.g. a sandbox that cannot bind localhost must not claim `loopback_network`) |
-| secrets | `secret:<name>`, resolved at spawn time from env, OS keyring or `~/.baton/secrets/`; never written to packets, events or logs |
+| `env_deny` | Exact names or `fnmatch` patterns (`*_API_KEY`); removes a name whatever put it there (inherit, `env_allow`, `auth.env`) |
+| `options` | Non-secret adapter options (`litellm_api`: keyword arguments for the completion call, e.g. `base_url`, `temperature`) |
+| secrets | `secret:<name>`, allowed only in `auth.env`; resolved at spawn time from the variable `BATON_SECRET_<NAME>` (upper-cased, other characters `_`), then the OS keyring (service `baton`; needs the optional `keyring` package), then the file `~/.baton/secrets/<name>`. A missing secret refuses the dispatch as `configuration`, naming all three places. Never written to packets, events or logs; resolved values are redacted from anything the runtime records |
 
 CLI logins are usually files under the home directory; some platforms use an OS keychain that needs the user's session **[VERIFY]**. `doctor` (§13.4) proves each profile works on each machine.
 
 ### 6.2 Environment and PATH
 
-`profiles.build_env(profile)`: start empty (`clean` / `allowlist`) or from the parent (`inherit`); copy allowed variables; build `PATH`; inject resolved secrets for `api_key`; set the config-home variable if any; **remove `env_deny` last**; add `BATON_PACKET_DIR`, `BATON_RESULT_DIR`, `BATON_WORKSPACE`. Only variable **names** are logged.
+`profiles.build_env(profile)`: start empty (`clean` / `allowlist`) or from the parent (`inherit`); copy allowed variables; build `PATH`; inject resolved secrets for `api_key`; set the config-home variable if any; **remove `env_deny` last**; add `BATON_PACKET_DIR`, `BATON_RESULT_DIR`, `BATON_WORKSPACE` (the last only for workspace steps). Only variable **names** are logged: `dispatched` records the env mode, the names present, the names denied, the names holding secrets and the resolved executable. On Windows, `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP` and `TMP` are always passed, since a child process cannot start without them **[VERIFY]**.
 
 **PATH resolution** is explicit because version-managed CLIs (e.g. Node via nvm) are not on PATH in non-login shells:
 1. Absolute `executable` → use it.
-2. Found on the base PATH (`path.prepend` + minimal system PATH) → use it.
-3. Each `path.search` source (`nvm` → `$NVM_DIR/versions/node/*/bin`, `~/.nvm/versions/node/*/bin`, newest first; likewise `pyenv`, `asdf`, explicit dirs) → prepend the first dir that has it.
-4. Otherwise fail with `executable_not_found` (a **platform** failure, §8.8), listing every place searched.
+2. Found on the base PATH (`path.prepend` + minimal system PATH; `path.prepend` + the parent's PATH under `inherit`) → use it.
+3. Each `path.search` source (`nvm` → `$NVM_DIR/versions/node/*/bin`, `~/.nvm/versions/node/*/bin`, newest version first by numeric order, and `$NVM_HOME/v*` for nvm-windows **[VERIFY]**; `pyenv` → `$PYENV_ROOT/versions/*/bin`, `~/.pyenv/versions/*/bin`; `asdf` → `$ASDF_DATA_DIR/shims` or `~/.asdf/shims`; explicit dirs, `~` allowed) → prepend the first dir that has it. Any other source name is a profile load error.
+4. Otherwise fail with `executable_not_found` (a **platform** failure, §8.8), listing every place searched (a source whose root does not exist is listed as its pattern).
 
 Resolved locations may be recorded as observed platform facts (§12.3).
 
@@ -583,7 +585,7 @@ class WorkerAdapter(Protocol):
     failure_signals: list[dict]          # patterns for classification (§8.8)
 ```
 
-- **`litellm_api`**: runs `python -m baton.worker_runner` as the child. It builds messages from `INSTRUCTIONS.md` and inlined inputs, requests structured output where supported **[VERIFY per model]**, and writes `result.json` and artifacts itself. Inputs too large to inline are an error by default (§18).
+- **`litellm_api`**: runs `python -m baton.worker_runner` as the child (installed with the optional extra `baton[api]`). It builds messages from `INSTRUCTIONS.md` plus the text of every input not already inlined there, requests structured output where `litellm` reports support **[VERIFY per model]** (otherwise the reply schema goes in the prompt), and writes artifacts and `result.json` itself. The model replies with one JSON object: `status`, `output`, `artifacts` (text by declared name), `notes`, `questions_for_human`; a reply that is not a JSON object is a `failed` result (the step's problem, retried). **Inputs too large to inline are a hard error (§18 #1):** a non-UTF-8 input, or messages over `context_tokens × 2` bytes (roughly half the window; 256 KiB when `context_tokens` is not declared). The runtime checks this when dispatching, before anything is recorded, and refuses with a hint to choose a worker that reads files. Failures that are not the step's (authentication, network or provider errors, an unknown model, `litellm` missing) write no result; the child prints one line `baton-worker: failure=<class> code=<code> message=<redacted text>` and exits non-zero.
 - **`subprocess_harness`** with presets **`claude_code`** (`claude -p`) and **`codex`** (`codex exec`), all flags **[VERIFY]**: prompt "Read <packet>/INSTRUCTIONS.md and follow it exactly; write outputs to <result>/". `cwd` is the attempt directory, or the project root for workspace steps; `args.read`/`args.write` per `workspace` mode.
 - **`command`**: a configured command line with placeholders (`{prompt_file}`, `{packet}`, `{result}`, `{workspace}`), for other tools or for relaying to another agent.
 - **`manual`**: prints the packet path and waits for `submit`. Used for humans and physical-world work.
@@ -733,7 +735,9 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 2. Keep profiles with all required capabilities, sufficient tier and numeric minimums (`repo_workspace` for write steps, `workspace_read` for read steps).
 3. Apply **independence**: if the step or gate declares `independence: {from_step, level}`, exclude profiles that match the worker of `from_step`'s current result at that level (`different_profile` | `different_model` | `different_vendor`). Self-review is refused unless waived (§9.3).
 4. Order by `.baton/preferences.yaml` (`prefer.by_step`, `prefer.by_capability`, `exclude`). Preferences reorder or exclude only; they never add an ineligible profile.
-5. Return the ordered list with reasons and exclusion reasons. Empty → `escalated` (`no_eligible_worker`).
+5. Return the ordered list with reasons and exclusion reasons. Empty → `escalated` (`no_eligible_worker`; §18 #2: the run never fails for this). `eligible` records the escalation for a ready step; the owner's `decide <step> retry` readies it again once a capable profile exists.
+
+The worker of a result is read from the run's record, not from the current machine: `worker_selected` records the profile name, `vendor` and `model`. For `different_model`, two workers match when they are the same profile or both declare the same `model`; for `different_vendor`, when vendors match case-insensitively. `dispatch` refuses a worker outside the eligible set, with its exclusion reasons. `by_step` keys are step ids or step paths.
 
 ### 8.5 Groups at runtime
 
@@ -786,6 +790,8 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
 | `unknown` | Nothing matched | Platform SME first, then owner |
 
 A platform failure gets at most one automatic retry, and only after the platform SME records a fix; otherwise the step waits on the incident.
+
+A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified` (from the adapter's failure line, exit code 127 as `executable_not_found`, otherwise `unknown`; messages redacted), then `step_escalated` with the class as its reason. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log`.
 
 ### 8.9 Work items, concurrency and corrections
 
@@ -1083,7 +1089,7 @@ Follow `.baton/communication.md` exactly.
 
 ### 13.4 `doctor`
 
-Per machine and profile; silent when healthy.
+Per machine and profile; silent when healthy (`baton doctor [--profile <name>] [--no-run]`; `--no-run` skips the no-op round trips, which for API profiles are small real model calls).
 - Lockfile versus the running runtime version, recipe hashes, supported format and vocabulary versions.
 - For each profile: build its exact environment, resolve its executable (§6.2), run a no-op task through its adapter; report auth mode, duration, env names present or denied.
 - **Gate preflight** for write-capable profiles: run `project.preflight` (or the test command) through the worker's own adapter and permission args, so a mode that would block gates is caught before a full run is wasted.
@@ -1265,8 +1271,8 @@ One order, core first, then layers in the order real use needs them. Every phase
 
 Suggested answers are in brackets; the guide assumes them until told otherwise.
 
-1. Large inputs for API workers: hard error, auto-chunking, or require a file-capable worker? [hard error]
-2. No eligible worker: escalate or fail the run? [escalate]
+1. Large inputs for API workers: hard error, auto-chunking, or require a file-capable worker? [hard error] **Decided (2026-11-02):** hard error, as suggested (§6.3).
+2. No eligible worker: escalate or fail the run? [escalate] **Decided (2026-11-02):** escalate; the run never fails for this (§8.4).
 3. Dispatching independent top-level steps of one run in parallel (beyond groups and concurrent runs)? [allowed, subject to the workspace lock] **Decided (2026-11-02):** allowed, as suggested; write-mode steps are serialized once the workspace lock exists (Phase 10).
 4. Who maintains the capability vocabulary and classification rules, and how changes are proposed. **Decided (2026-11-01):** the runtime maintainer; changes are proposed as a PR to the runtime repo that adds a new version file (published versions are never edited).
 5. Lease duration and renewal defaults; whether takeover approval is also enforced in the runtime. [1 h, renewed on activity; skill-enforced] **Decided (2026-11-02):** as suggested (§10.2).

@@ -17,7 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "hypothesis>=6"]  # hypothesis: property tests (§17)
+api = ["litellm>=1.70"]  # the litellm_api adapter (§6.3); imported only by the worker child
+keyring = ["keyring>=25"]  # optional OS-keyring secret store (§6.1)
+dev = ["pytest>=8", "hypothesis>=6", "litellm>=1.70"]  # hypothesis: property tests (§17)
 
 [project.scripts]
 baton = "baton.cli:main"

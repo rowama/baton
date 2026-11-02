@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from ..packet import EngineError
 from .base import WorkerAdapter
+from .litellm_api import LitellmApiAdapter
 from .manual import ManualAdapter
 
-#: Adapters this runtime can run. API and harness adapters arrive with Phases 5 and 6.
-ADAPTERS: dict[str, WorkerAdapter] = {"manual": ManualAdapter()}
+#: Adapters this runtime can run. Harness adapters (claude_code, codex, command) arrive with Phase 6.
+ADAPTERS: dict[str, WorkerAdapter] = {"manual": ManualAdapter(), "litellm_api": LitellmApiAdapter()}
 
 
 def get(name: str) -> WorkerAdapter:

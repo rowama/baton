@@ -273,8 +273,7 @@ class Result(_Strict):
 
 
 # --------------------------------------------------------------------------
-# Worker profiles (§6.1). Phase 1 validates capabilities and tier; the
-# remaining fields are carried for later layers.
+# Worker profiles (§6.1) and routing preferences (§8.4)
 # --------------------------------------------------------------------------
 
 
@@ -311,6 +310,20 @@ class WorkerProfile(_Strict):
     args: ProfileArgs | None = None
     isolation: Literal["none", "user", "container"] = "none"
     command: str | None = None  # for the `command` adapter
+    #: Non-secret adapter options (e.g. ``base_url``, ``temperature`` for ``litellm_api``).
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class PreferOrder(_Strict):
+    by_step: dict[str, list[str]] = Field(default_factory=dict)
+    by_capability: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class Preferences(_Strict):
+    """``.baton/preferences.yaml``: reorder or exclude eligible profiles; never add one (§8.4)."""
+
+    prefer: PreferOrder = Field(default_factory=PreferOrder)
+    exclude: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
