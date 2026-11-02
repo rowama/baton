@@ -289,8 +289,11 @@ class ProfilePath(_Strict):
 
 
 class ProfileArgs(_Strict):
-    write: list[str] = Field(default_factory=list)
-    read: list[str] = Field(default_factory=list)
+    """Adapter args per workspace mode (§6.1). ``None`` keeps the adapter's built-in default for that mode."""
+
+    write: list[str] | None = None
+    read: list[str] | None = None
+    none: list[str] | None = None
 
 
 class WorkerProfile(_Strict):

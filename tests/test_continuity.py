@@ -304,7 +304,7 @@ def test_slugify():
 def test_unsupported_adapter(plain):
     api, root, home, clock = plain
     (home / "workers.yaml").write_text(
-        "cli:\n  adapter: codex\n  vendor: someone\n  capabilities: [structured_output, long_form_writing]\n  tier: strong\n"
+        "cli:\n  adapter: carrier_pigeon\n  vendor: someone\n  capabilities: [structured_output, long_form_writing]\n  tier: strong\n"
     )
     run = api.start("fit-check", FIT_INPUTS)["run_id"]
     with pytest.raises(EngineError) as e:

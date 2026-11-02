@@ -16,6 +16,8 @@ from ..models import WorkerProfile
 class ManualAdapter:
     name = "manual"
     needs_executable = False
+    #: Cannot change the working tree, so no before/after tree check.
+    touches_files = False
     config_home_var: str | None = None
     failure_signals: list[dict[str, Any]] = []
 

@@ -173,10 +173,11 @@ def test_home_nvm_and_explicit_dirs(tmp_path):
     home = tmp_path / "home"
     exe = make_exe(home / ".nvm" / "versions" / "node" / "v20.0.0" / "bin", "fromhome")
     p = prof(adapter="codex", executable="fromhome", path={"search": ["nvm"]})
-    assert resolve_executable(p, [], home=home, environ={}).executable == str(exe)
+    # ``~`` is the user's home (HOME), not the Baton home.
+    assert resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable == str(exe)
     tool = make_exe(home / "tools" / "bin", "explicit")
     p = prof(adapter="codex", executable="explicit", path={"search": ["~/tools/bin"]})
-    assert resolve_executable(p, [], home=home, environ={}).executable == str(tool)
+    assert resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable == str(tool)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX executables")
@@ -192,7 +193,7 @@ def test_base_path_and_absolute(tmp_path):
 def test_missing_cli_is_platform_failure_listing_every_path(tmp_path, nvm):
     p = prof(adapter="codex", executable="nowhere-cli", path={"search": ["nvm", "pyenv"], "prepend": ["/opt/pre"]})
     with pytest.raises(SetupError) as e:
-        build_env(p, home=tmp_path / "home", environ={"NVM_DIR": str(nvm)})
+        build_env(p, home=tmp_path / "baton-home", environ={"NVM_DIR": str(nvm), "HOME": str(tmp_path / "home")})
     err = e.value
     assert err.code == "platform.executable_not_found" and err.failure_class == "platform"
     searched = err.detail["searched"]

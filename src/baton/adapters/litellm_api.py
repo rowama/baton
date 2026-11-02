@@ -23,6 +23,8 @@ class LitellmApiAdapter:
     name = "litellm_api"
     #: Starts the runtime's own interpreter: no executable to resolve.
     needs_executable = False
+    #: Cannot change the working tree, so no before/after tree check.
+    touches_files = False
     config_home_var: str | None = None
     failure_signals: list[dict[str, Any]] = [
         {"pattern": r"baton-worker: failure=(\w+) code=(\w+)", "class_from": 1},

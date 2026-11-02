@@ -128,3 +128,69 @@ def last_checkpoint(root: Path, run_id: str) -> str | None:
         return None
     proc = git(root, "log", "-1", "--format=%H", "--fixed-strings", f"--grep=baton({run_id}):", check=False)
     return proc.stdout.strip() or None
+
+
+# ---------------------------------------------------------------------------
+# Working-tree snapshots: the runtime check for read and none steps (§6.3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TreeSnapshot:
+    head: str | None
+    files: dict[str, str]  # changed or untracked path -> content sha256 (or "deleted")
+
+
+def tree_snapshot(root: Path, exclude: list[str] = ()) -> TreeSnapshot | None:
+    """HEAD plus every path git reports as changed or untracked, with content hashes.
+
+    Paths under any ``exclude`` prefix (POSIX, relative to the root) are left
+    out. Ignored files are not seen. Returns None outside a git work tree.
+    """
+    import hashlib
+
+    if not is_repo(root):
+        return None
+    top = toplevel(root)
+    head = git(top, "rev-parse", "--verify", "-q", "HEAD", check=False).stdout.strip() or None
+    raw = git(top, "status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
+    entries = raw.split("\0")
+    paths: list[str] = []
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        xy, path = e[:2], e[3:]
+        paths.append(path)
+        if "R" in xy or "C" in xy:  # the source path follows
+            if i < len(entries):
+                paths.append(entries[i])
+            i += 1
+    prefixes = [p.rstrip("/") + "/" for p in exclude]
+    files: dict[str, str] = {}
+    for path in paths:
+        if any(path.startswith(p) for p in prefixes):
+            continue
+        f = top / path
+        if f.is_file():
+            files[path] = hashlib.sha256(f.read_bytes()).hexdigest()
+        elif f.is_dir():  # e.g. a nested repository
+            files[path] = "dir"
+        else:
+            files[path] = "deleted"
+    return TreeSnapshot(head, files)
+
+
+def tree_changes(before: TreeSnapshot | None, after: TreeSnapshot | None) -> list[str]:
+    """What differs between two snapshots: changed paths, and HEAD if it moved."""
+    if before is None or after is None:
+        return []
+    out = []
+    if before.head != after.head:
+        out.append(f"HEAD moved from {before.head or '(none)'} to {after.head or '(none)'}")
+    for path in sorted(set(before.files) | set(after.files)):
+        if before.files.get(path) != after.files.get(path):
+            out.append(path)
+    return out

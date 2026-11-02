@@ -56,7 +56,7 @@ def test_packet_layout_and_manifest(store):
     assert json.loads((p.dir / "inputs" / "profile.json").read_text(encoding="utf-8")) == PROFILE_OUT
     assert (p.dir / "inputs" / "rubric.md").read_bytes() == (FIT_CHECK / "static" / "rubric.md").read_bytes()
     assert m["prior_feedback"] is None and m["not_applicable"] == []
-    assert any("owner approves" in c for c in m["exit_criteria"])
+    assert any("the owner is asked" in c for c in m["exit_criteria"])
     assert p.result_dir.is_dir() and (p.result_dir / "artifacts").is_dir()
     assert verify_packet(p.dir) == (p.sha256, [])
 

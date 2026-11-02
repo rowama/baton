@@ -303,7 +303,8 @@ def exit_criteria(step: Step, level: str | None) -> list[str]:
         if isinstance(g, ScriptGate):
             out.append(f"The check `{g.run}` exits 0{adv}.")
         elif isinstance(g, HumanGate):
-            out.append(f"The owner approves{adv}: {g.prompt}")
+            # The runtime asks the owner after intake; a worker must not block on it (seen live: it did).
+            out.append(f"Afterwards the owner is asked{adv} (by the runtime, not by you; do not report `blocked` for it): {g.prompt}")
         elif isinstance(g, (ReviewGate, FindingsGate)):
             sev = ", ".join(g.block_on or []) or "any blocking"
             out.append(f"An independent review leaves no open {sev} findings{adv}.")

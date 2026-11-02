@@ -50,7 +50,7 @@ File: `inputs/rubric.md`
 
 - Write result/result.json (status, output, artifacts), echoing packet_sha256 from manifest.json.
 - `output` validates against output_schema.json.
-- The owner approves: Accept this verdict and its suggested next step?
+- Afterwards the owner is asked (by the runtime, not by you; do not report `blocked` for it): Accept this verdict and its suggested next step?
 
 ## Protocol
 

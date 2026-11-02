@@ -310,14 +310,16 @@ def test_doctor_quiet_when_healthy_and_reports_problems(tmp_path):
     # Problems: a missing secret, a CLI that cannot be found (listing where), an unavailable adapter.
     (cli.home / "workers.yaml").write_text(
         api_profile("api", "acme", "openai/acme-model", "absent", None)
-        + "cli:\n  adapter: codex\n  vendor: zenith\n  executable: no-such-cli-xyz\n  path: { search: [nvm] }\n  capabilities: [structured_output]\n",
+        + "cli:\n  adapter: codex\n  vendor: zenith\n  executable: no-such-cli-xyz\n  path: { search: [nvm] }\n  capabilities: [structured_output]\n"
+        + "  auth: { mode: cli_login }\n"
+        + "odd:\n  adapter: carrier_pigeon\n  vendor: zenith\n  capabilities: [structured_output]\n",
         encoding="utf-8",
     )
     res = cli("doctor", "--no-run", expect=1).payload
     assert res["ok"] is False
     assert res["profiles"]["api"]["failure_class"] == "configuration"
     assert res["profiles"]["cli"]["failure_class"] == "platform" and res["profiles"]["cli"]["searched"]
-    assert any("not available in this runtime" in p for p in res["profiles"]["cli"]["problems"])
+    assert any("not available in this runtime" in p for p in res["profiles"]["odd"]["problems"])
     assert any("can do fit-check@1/assess" in w for w in res["warnings"])
 
 

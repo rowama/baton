@@ -219,8 +219,13 @@ def _step(ctx: RunContext, step_path: str) -> Step:
     return node
 
 
-def submit(ctx: RunContext, step_path: str, *, actor: str = "runtime") -> Outcome:
-    """Run intake on the step's running attempt: read ``result/``, then run its gates in order."""
+def submit(ctx: RunContext, step_path: str, *, actor: str = "runtime", workspace_changes: list[str] | None = None) -> Outcome:
+    """Run intake on the step's running attempt: read ``result/``, then run its gates in order.
+
+    ``workspace_changes`` (from the runtime's tree check on ``read`` / ``none``
+    steps) fails the implicit ``workspace`` gate and escalates the step,
+    whatever the result says: the tree is the owner's to inspect or revert.
+    """
     step = _step(ctx, step_path)
     log = ctx.log
     current = log.state().step(step_path)
@@ -242,6 +247,8 @@ def submit(ctx: RunContext, step_path: str, *, actor: str = "runtime") -> Outcom
         data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered()},
     )
     log.append("verification_started", step_path=step_path, attempt=n)
+    if workspace_changes:
+        return _workspace_modified(ctx, step_path, n, workspace_changes)
     if sub.problems:
         log.append("result_rejected", step_path=step_path, attempt=n, data={"reasons": sub.problems})
         return _failed(ctx, step_path, n, sub.problems)
@@ -302,6 +309,22 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
     return Outcome(step_path, n, "passed", [], ready, _completed(ctx))
 
 
+def _workspace_reasons(step_path: str, changes: list[str]) -> list[str]:
+    shown = ", ".join(changes[:20]) + (f" and {len(changes) - 20} more" if len(changes) > 20 else "")
+    return [f"{step_path} may not change the working tree, but it changed: {shown}"]
+
+
+def _workspace_modified(ctx: RunContext, step_path: str, n: int, changes: list[str]) -> Outcome:
+    """The implicit ``workspace`` gate failed: escalate (never reverted, never retried on a changed tree)."""
+    reasons = _workspace_reasons(step_path, changes)
+    ctx.log.append(
+        "gate_failed", step_path=step_path, attempt=n,
+        data={"gate": "workspace", "type": "workspace", "implicit": True, "changed": changes, "reasons": reasons},
+    )
+    ctx.log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "workspace_modified", "changed": changes, "reasons": reasons})
+    return Outcome(step_path, n, "escalated", reasons)
+
+
 def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outcome:
     """Back to ``ready`` for another attempt, or ``escalated`` when the budget is used."""
     try:
@@ -317,21 +340,46 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
 FAILURE_LINE = re.compile(r"baton-worker: failure=(\w+) code=(\w+) message=(.*)")
 
 
-def classify_exit(child: ChildResult) -> dict[str, Any]:
-    """Failure class for a worker that exited without a result (§8.8; full rules arrive in Phase 7)."""
+def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Failure class for a worker that exited without a result (§8.8; full rules arrive in Phase 7).
+
+    Order: the runner's failure line; the adapter's ``failure_signals``
+    (``pattern``, ``class``, ``code``; the matching line is the message); exit
+    127; otherwise ``unknown`` with the last output line.
+    """
     tail = child.tail.decode("utf-8", errors="replace")
     m = None
     for m in FAILURE_LINE.finditer(tail):
         pass
     if m is not None:
         return {"class": m.group(1), "code": m.group(2), "message": redact_text(m.group(3).strip())}
+    for sig in signals or []:
+        if "class" not in sig:
+            continue
+        hit = None
+        for hit in re.finditer(sig["pattern"], tail):
+            pass
+        if hit is not None:
+            line_start = tail.rfind("\n", 0, hit.start()) + 1
+            line_end = tail.find("\n", hit.end())
+            line = tail[line_start : line_end if line_end >= 0 else len(tail)].strip()
+            return {"class": sig["class"], "code": sig.get("code", "signal"), "message": redact_text(line[:300])}
     if child.exit_code == 127:
         return {"class": "platform", "code": "executable_not_found", "message": "the worker's command was not found (exit 127)"}
     last = [ln for ln in tail.splitlines() if ln.strip()][-1:] or [""]
     return {"class": "unknown", "code": f"exit_{child.exit_code}", "message": redact_text(last[0][:300])}
 
 
-def finish_child(ctx: RunContext, step_path: str, n: int, child: ChildResult, *, actor: str = "runtime") -> Outcome:
+def finish_child(
+    ctx: RunContext,
+    step_path: str,
+    n: int,
+    child: ChildResult,
+    *,
+    actor: str = "runtime",
+    signals: list[dict[str, Any]] | None = None,
+    workspace_changes: list[str] | None = None,
+) -> Outcome:
     """Take in an attached worker's ending: intake when it wrote a result, else classify.
 
     Over the time limit: ``step_timed_out``, then retry or escalate like a failed
@@ -341,16 +389,24 @@ def finish_child(ctx: RunContext, step_path: str, n: int, child: ChildResult, *,
     log = ctx.log
     if child.timed_out:
         log.append("step_timed_out", step_path=step_path, attempt=n, data=child.as_dict())
+        if workspace_changes:
+            reasons = _workspace_reasons(step_path, workspace_changes)
+            log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
+            return Outcome(step_path, n, "escalated", reasons)
         reason = f"the worker did not finish within {child.duration_s:.0f} s"
         log.append("failure_classified", step_path=step_path, attempt=n, data={"class": "subject", "code": "timeout", "message": reason})
         return _failed(ctx, step_path, n, [reason])
     if (ctx.attempt_dir(step_path, n) / "result" / "result.json").is_file():
-        return submit(ctx, step_path, actor=actor)
-    cls = classify_exit(child)
+        return submit(ctx, step_path, actor=actor, workspace_changes=workspace_changes)
+    cls = classify_exit(child, signals)
     log.append("attempt_orphaned", step_path=step_path, attempt=n, data=child.as_dict())
     log.append("failure_classified", step_path=step_path, attempt=n, data=cls)
     reasons = [f"{cls['class']} failure ({cls['code']}): {cls['message']}"]
-    log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": cls["class"], "code": cls["code"], "reasons": reasons})
+    esc: dict[str, Any] = {"reason": cls["class"], "code": cls["code"], "reasons": reasons}
+    if workspace_changes:
+        reasons += _workspace_reasons(step_path, workspace_changes)
+        esc["changed"] = workspace_changes
+    log.append("step_escalated", step_path=step_path, attempt=n, data=esc)
     return Outcome(step_path, n, "escalated", reasons)
 
 
@@ -712,7 +768,7 @@ class Api:
         """
         import secrets
 
-        from . import adapters
+        from . import adapters, gitops
         from .profiles import SetupError, build_env
         from .supervisor import run_child
 
@@ -734,7 +790,8 @@ class Api:
             n_next = ctx.log.state().step(step_path).attempt + 1
             adir = ctx.attempt_dir(step_path, n_next)
             node = node_for(ctx.recipe, step_path)
-            workspace = self.project.root if getattr(node, "workspace", "none") != "none" else None
+            mode = getattr(node, "workspace", "none")
+            workspace = self.project.root if mode != "none" else None
             env = None
             try:
                 adapter.check_profile(profile)
@@ -745,7 +802,9 @@ class Api:
                     )
             except SetupError as e:
                 raise EngineError(e.code, str(e)) from e
-            extra: dict[str, Any] = {"env": env.describe()} if env is not None else {}
+            extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode}
+            if env is not None:
+                extra["env"] = env.describe()
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
@@ -756,12 +815,23 @@ class Api:
                 "packet": str(built.dir), "result": str(built.result_dir),
                 "handoff": adapter.handoff(profile, built.dir, built.result_dir),
             }
-            argv = adapter.command(profile, built.dir, built.result_dir, workspace, getattr(node, "workspace", "none"))
+            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
                 return out  # a person does the work; the Director submits
+            if env.resolved is not None:
+                argv = [env.resolved.executable, *argv[1:]]
+            # read / none steps may not change the tree; CLI flags cannot confine
+            # writes to result/, so the runtime compares before and after (§6.3).
+            check_tree = getattr(adapter, "touches_files", False) and mode != "write"
+            exclude = [built.dir.parent.resolve().relative_to(self.project.root.resolve()).as_posix()]
+            before = gitops.tree_snapshot(self.project.root, exclude) if check_tree else None
             log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
             child = run_child(argv, env=env.env, cwd=workspace or built.dir.parent, log_path=log_path)
-            outcome = finish_child(ctx, step_path, built.attempt, child, actor=f"worker:{worker}")
+            changes = gitops.tree_changes(before, gitops.tree_snapshot(self.project.root, exclude)) if check_tree else []
+            outcome = finish_child(
+                ctx, step_path, built.attempt, child, actor=f"worker:{worker}",
+                signals=adapter.failure_signals, workspace_changes=changes,
+            )
             out.update(_outcome_dict(outcome))
             out["worker_exit"] = {**child.as_dict(), "log": str(log_path)}
             return out

@@ -54,6 +54,24 @@ SEARCH_SOURCES = ("nvm", "pyenv", "asdf")
 BATON_VARS = ("BATON_PACKET_DIR", "BATON_RESULT_DIR", "BATON_WORKSPACE")
 
 
+#: Executable used when a harness profile names none (§6.3 presets).
+DEFAULT_EXECUTABLES = {"claude_code": "claude", "codex": "codex"}
+
+
+def executable_for(profile: WorkerProfile) -> str | None:
+    """The executable to resolve: ``executable``, else the preset's default, else the ``command`` adapter's first word."""
+    if profile.executable:
+        return profile.executable
+    if profile.adapter in DEFAULT_EXECUTABLES:
+        return DEFAULT_EXECUTABLES[profile.adapter]
+    if profile.adapter == "command" and profile.command:
+        import shlex
+
+        words = shlex.split(profile.command)
+        return words[0] if words else None
+    return None
+
+
 class ProfileError(Exception):
     def __init__(self, issues: list[Issue]):
         self.issues = issues
@@ -225,8 +243,16 @@ def _newest_first(pattern_root: Path, sub: str) -> list[Path]:
     return [d / sub if sub else d for d in sorted(dirs, key=_version_key, reverse=True)]
 
 
+def user_home(environ: Mapping[str, str]) -> Path:
+    """The user's home (``~`` in ``path.search``): ``HOME``, else ``USERPROFILE``, else the OS's idea of it."""
+    for name in ("HOME", "USERPROFILE"):
+        if environ.get(name):
+            return Path(environ[name])
+    return Path.home()
+
+
 def search_dirs(source: str, home: Path, environ: Mapping[str, str]) -> list[Path]:
-    """Directories a ``path.search`` source contributes, newest version first."""
+    """Directories a ``path.search`` source contributes, newest version first. ``home`` is the user's home."""
     out: list[Path] = []
     if source == "nvm":
         roots = []
@@ -269,8 +295,8 @@ def resolve_executable(
 ) -> Resolved:
     """Find ``profile.executable`` (§6.2). Raises ``SetupError`` (platform) listing every place searched."""
     environ = os.environ if environ is None else environ
-    exe = profile.executable
-    assert exe, "resolve_executable needs profile.executable"
+    exe = executable_for(profile)
+    assert exe, "resolve_executable needs an executable"
     searched: list[str] = []
     p = Path(os.path.expanduser(exe))
     if p.is_absolute():
@@ -284,7 +310,7 @@ def resolve_executable(
             if hit:
                 return Resolved(str(Path(hit).absolute()), None, "base_path", searched)
         for src in profile.path.search if profile.path else []:
-            for d in search_dirs(src, home, environ):
+            for d in search_dirs(src, user_home(environ), environ):
                 searched.append(str(d))
                 hit = shutil.which(exe, path=str(d))
                 if hit:
@@ -359,7 +385,7 @@ def build_env(
     base = prepend + (environ.get("PATH", "").split(os.pathsep) if mode == "inherit" else system_path(environ))
     base = [d for d in base if d]
     resolved = None
-    if resolve and profile.executable:
+    if resolve and executable_for(profile):
         resolved = resolve_executable(profile, base, home=home, environ=environ)
     path_dirs = ([resolved.path_dir] if resolved and resolved.path_dir else []) + base
     env["PATH"] = os.pathsep.join(dict.fromkeys(path_dirs))

@@ -14,6 +14,8 @@ class WorkerAdapter(Protocol):
     failure_signals: list[dict[str, Any]]
     #: Whether ``profile.executable`` must be resolved on PATH (§6.2) before the worker starts.
     needs_executable: bool
+    #: Whether the worker can change the working tree (read/none steps then get the tree check).
+    touches_files: bool
     #: Environment variable the CLI reads its config home from (``auth.config_home``), if any.
     config_home_var: str | None
 
