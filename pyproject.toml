@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "hypothesis>=6"]  # hypothesis: property tests (§17)
 
 [project.scripts]
 baton = "baton.cli:main"

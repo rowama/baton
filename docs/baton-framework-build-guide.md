@@ -664,28 +664,47 @@ blocked_on_deps → ready → dispatched → running → submitted → verifying
                     │          └──────────┴→ orphaned ───────────┤
                     └── retry (attempt+1) ◄──────────────────────┤ gate failed, attempts < max
                                                                  └→ escalated
+ready            → escalated  (no eligible worker, §8.4)
 escalated        → ready (after a decision) | abandoned
 verifying        ⇄ awaiting_human (human gate)
 blocked_on_deps  → skipped    (complexity level)        skipped → blocked_on_deps (approved re-triage)
 blocked_on_deps  → imported   (adoption seed)
 passed|imported  → superseded (revised)                 passed|imported → stale (an upstream step was revised)
+superseded       → ready      (the revised step's new attempt)
 stale            → ready | passed (re-run, or confirmed by a human decision)
 ```
 
 - `skipped` and `imported` satisfy `depends_on`; `stale` and `superseded` do not.
 - `escalated` reasons: attempts exhausted, `blocked` result, no eligible worker, iteration limit, platform failure.
 - Only `engine.py` performs transitions; each appends exactly one event. Illegal transitions raise. Test every edge.
+- A step with no events is `blocked_on_deps`. Attempt numbers are assigned at `dispatched` (previous + 1); `worker_selected` and `packet_built` carry that next number, events about the attempt in flight carry the current one. The attempt budget (`max_attempts`, recorded in `run_started`) restarts whenever a step becomes `ready` other than by retry.
+
+| Edge | Event |
+|---|---|
+| → `ready` (any source) | `step_ready` |
+| `ready` → `dispatched` → `running` → `submitted` | `dispatched`, `step_running`, `result_submitted` |
+| `submitted` → `verifying` | `verification_started` |
+| `verifying` → `awaiting_human` | `human_gate_opened` |
+| `awaiting_human` → `verifying` | `gate_passed` / `gate_failed` (the human gate's outcome; `human_decision` itself is a fact, never a transition) |
+| → `passed` | `step_passed` (from `stale`, with the confirming decision in `data`) |
+| → `timed_out` / `orphaned` / `escalated` / `abandoned` | `step_timed_out`, `attempt_orphaned`, `step_escalated`, `step_abandoned` |
+| → `skipped` / `blocked_on_deps` (from `skipped`) / `imported` | `step_skipped`, `step_unskipped`, `step_imported` |
+| → `superseded` / `stale` | `step_revised`, `step_stale` |
+
+Some step events record facts without a transition but are legal only in certain states (`worker_selected`, `packet_built` in `ready`; `gate_*`, `result_rejected`, `findings_recorded` in `verifying`; `failure_classified` after an attempt ends). Run level: `run_started` is first and once; after `run_completed` or `run_abandoned` no step event is accepted.
 
 ### 8.2 Events (the single list)
 
-Every event: `seq`, `ts`, `run_id` (or `project`), `step_path`, `attempt`, `type`, `actor` (director id / runtime / human / worker), `data`, `prev_sha256` (hash chain).
+Every event: `format` (`baton-events/N`), `seq`, `ts`, `run_id` (`null` in the project log), `step_path`, `attempt`, `type`, `actor` (`runtime` / `human` / `worker[:<profile>]` / `director[:<id>]`), `data`, `prev_sha256`, `sha256`.
+
+Each event is one line of canonical JSON (sorted keys, no insignificant whitespace, UTF-8, LF). `sha256` is the SHA-256 of the event's canonical JSON without the `sha256` key; `prev_sha256` is the previous event's `sha256` (`null` first); `seq` starts at 1 with no gaps. Any edit, deletion, insertion or reordering is detectable, including an edit to the last event; only truncation of whole trailing events needs an outside anchor (the checkpoint commits, §10.1). The per-event `format` lets one log hold several versions after a migration (§14.2).
 
 | Area | Event types |
 |---|---|
-| Run | `run_started` (work item, recipe, versions, branch), `run_completed`, `run_abandoned` |
+| Run | `run_started` (work item, recipe, versions, branch, `max_attempts`), `run_completed`, `run_abandoned` |
 | Leases | `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released` |
-| Steps | `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `result_rejected`, `gate_passed`, `gate_failed`, `step_passed`, `step_escalated`, `step_timed_out`, `attempt_orphaned`, `failure_classified` |
-| Tailoring | `complexity_set`, `step_skipped`, `retriage_requested`, `retriage_applied` |
+| Steps | `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `verification_started`, `result_rejected`, `gate_passed`, `gate_failed`, `human_gate_opened`, `step_passed`, `step_escalated`, `step_abandoned`, `step_timed_out`, `attempt_orphaned`, `failure_classified` |
+| Tailoring | `complexity_set`, `step_skipped`, `step_unskipped`, `retriage_requested`, `retriage_applied` |
 | Groups | `group_expanded`, `iteration_started`, `iteration_limit_reached` |
 | Corrections | `step_revised`, `step_stale` |
 | Reviews | `findings_recorded`, `finding_dispositioned`, `gate_waived`, `protected_path_modified` |
@@ -699,7 +718,7 @@ Every event: `seq`, `ts`, `run_id` (or `project`), `step_path`, `attempt`, `type
 ### 8.3 Store
 
 - Run directory `.baton/runs/<run_id>/`: `events.jsonl`, `cas/<sha[:2]>/<sha>` (atomic writes), `steps/`, `sme/`, `docs/`. Project log: `.baton/project/events.jsonl`.
-- SQLite (`.baton/cache/state.db`) is a derived cache; `store.rebuild()` replays events; events always win.
+- SQLite (`.baton/cache/state.db`) is a derived cache; `store.rebuild()` replays events; events always win. Every append is checked by the state machine before it is written, so a log holds only legal sequences; the cache is used only while it matches the log's size, otherwise the run is replayed.
 - Large binaries are expected in Git LFS (rules written by `baton init`).
 
 ### 8.4 Routing and independence

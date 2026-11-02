@@ -331,3 +331,92 @@ class Plan(BaseModel):
     description: str | None = None
     levels: list[PlanLevel]
     warnings: list[Issue] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# Events: baton-events/1 (§8.2). One envelope for run and project logs.
+# --------------------------------------------------------------------------
+
+EVENTS_FORMATS: tuple[str, ...] = ("baton-events/1",)
+
+#: Every event type, by area (§8.2). The single list.
+EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
+    "run": ("run_started", "run_completed", "run_abandoned"),
+    "leases": ("lease_claimed", "lease_renewed", "lease_taken_over", "lease_released"),
+    "steps": (
+        "step_ready", "worker_selected", "packet_built", "dispatched", "step_running",
+        "result_submitted", "verification_started", "result_rejected", "gate_passed",
+        "gate_failed", "human_gate_opened", "step_passed", "step_escalated", "step_abandoned",
+        "step_timed_out", "attempt_orphaned", "failure_classified",
+    ),
+    "tailoring": ("complexity_set", "step_skipped", "step_unskipped", "retriage_requested", "retriage_applied"),
+    "groups": ("group_expanded", "iteration_started", "iteration_limit_reached"),
+    "corrections": ("step_revised", "step_stale"),
+    "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified"),
+    "human": ("human_decision", "human_revision_ingested"),
+    "deliverables": ("artifact_published", "drift_detected"),
+    "adoption": ("situation_detected", "research_recorded", "step_imported", "baseline_established"),
+    "experts": ("sme_requested", "sme_answered", "sme_promoted"),
+    "machinery": (
+        "completion_hook_fired", "completion_hook_failed", "checkpoint_committed",
+        "permission_used", "permission_requested", "migrated",
+    ),
+    "project_log": (
+        "platform_fact_recorded", "platform_incident_opened", "platform_incident_resolved",
+        "process_feedback", "step_skip_recorded",
+    ),
+}
+EVENT_TYPES: frozenset[str] = frozenset(t for ts in EVENT_TYPES_BY_AREA.values() for t in ts)
+#: Types a run log may hold: everything except project-log records.
+RUN_EVENT_TYPES: frozenset[str] = EVENT_TYPES - frozenset(EVENT_TYPES_BY_AREA["project_log"])
+#: Types the project log may hold: its own records, expert consultations outside
+#: a run, and machinery.
+PROJECT_EVENT_TYPES: frozenset[str] = frozenset(
+    EVENT_TYPES_BY_AREA["project_log"] + EVENT_TYPES_BY_AREA["experts"] + EVENT_TYPES_BY_AREA["machinery"]
+)
+
+ACTOR = r"^(runtime|human|worker|director)(:[^\s]+)?$"
+SHA256_HEX = r"^[0-9a-f]{64}$"
+
+
+class Event(_Strict):
+    """One line of an event log.
+
+    ``sha256`` is the SHA-256 of the event's canonical JSON *without* the
+    ``sha256`` key (sorted keys, no whitespace, UTF-8). ``prev_sha256`` is
+    the previous event's ``sha256`` (``null`` on the first event). Together
+    they make any edit, deletion, insertion or reordering detectable,
+    including an edit to the last event.
+    """
+
+    format: str
+    seq: int = Field(ge=1)
+    ts: str
+    run_id: str | None  # None in the project log
+    step_path: str | None = None
+    attempt: int | None = Field(default=None, ge=1)
+    type: str
+    actor: str = Field(pattern=ACTOR)
+    data: dict[str, Any] = Field(default_factory=dict)
+    prev_sha256: str | None = Field(default=None, pattern=SHA256_HEX)
+    sha256: str = Field(pattern=SHA256_HEX)
+
+
+class StepStatus(BaseModel):
+    state: str
+    attempt: int
+    last_seq: int
+
+
+class RunStatus(BaseModel):
+    """Process state of one run, derived from its events (§8.3).
+
+    Only steps that have had events are listed; any other step of the recipe
+    is ``blocked_on_deps``.
+    """
+
+    run_id: str
+    state: str
+    last_seq: int
+    last_sha256: str | None
+    steps: dict[str, StepStatus]
