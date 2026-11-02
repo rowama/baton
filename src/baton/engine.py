@@ -4,10 +4,12 @@ Only this module sequences step events: ``packet.py`` builds packets and
 ``intake.py`` evaluates results and gates, and the functions here turn their
 answers into transitions, one event each (§8.1).
 
-Phase 3 provides the core of a step's life without adapters or supervision:
-``start`` → ``begin_attempt`` (packet built, attempt dispatched and running) →
-the worker writes ``result/`` → ``submit`` (intake and gates) → ``decide`` for
-human gates. ``dispatch`` with real adapters builds on ``begin_attempt``.
+The module-level functions are the core of a step's life over one run
+context: ``start`` → ``begin_attempt`` (packet built, attempt dispatched and
+running) → the worker writes ``result/`` → ``submit`` (intake and gates) →
+``decide`` for owner decisions. ``Api`` wraps them for a whole project:
+vendored recipes, profiles and adapters, leases, records and checkpoint
+commits, resume and check.
 
 Failure handling: a rejected result, a failed blocking gate, a ``failed``
 worker or a rejected human gate sends the step back to ``ready`` while
@@ -42,8 +44,8 @@ from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, canonical_json
 
 __all__ = [
-    "EngineError", "HandoffError", "Outcome", "RunContext",
-    "begin_attempt", "decide", "open_run", "pending_decisions", "plan", "refresh", "start", "submit",
+    "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
+    "abandon_run", "begin_attempt", "decide", "open_run", "pending_decisions", "plan", "refresh", "start", "submit",
 ]
 
 
@@ -78,8 +80,13 @@ def start(
     run_id: str | None = None,
     project: dict[str, Any] | None = None,
     actor: str = "director",
+    work_item: dict[str, Any] | None = None,
 ) -> RunContext:
-    """Validate run inputs, open a run pinned to this recipe, and ready its first steps."""
+    """Validate run inputs, open a run pinned to this recipe, and ready its first steps.
+
+    ``work_item`` adds the project-level facts of ``run_started`` (§8.9):
+    ``kind``, ``slug``, ``branch``.
+    """
     if not isinstance(inputs, dict):
         raise EngineError("run.inputs_invalid", "run inputs must be a JSON object")
     if recipe.recipe.run_inputs is not None:
@@ -97,6 +104,7 @@ def start(
         "capabilities_vocab": recipe.recipe.capabilities_vocab,
         "max_attempts": recipe.recipe.defaults.max_attempts,
         "inputs_sha256": hashlib.sha256(blob).hexdigest(),
+        **(work_item or {}),
     }
     log = store.start_run(data, actor=actor, run_id=run_id)
     log.cas.put(blob)  # the run directory exists only once the run has started
@@ -161,21 +169,27 @@ def begin_attempt(
     *,
     deadline: str | None = None,
     actor: str = "director",
+    dispatch_id: str | None = None,
+    adapter: str | None = None,
+    guidance: str | None = None,
 ) -> BuiltPacket:
     """Build the packet for the step's next attempt and mark the attempt dispatched and running.
 
     Raises ``HandoffError`` or ``EngineError`` with nothing written.
     """
-    built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline)
+    built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline, guidance=guidance)
     log, n = ctx.log, built.attempt
     log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data={"profile": profile_name})
-    log.append(
-        "packet_built",
-        step_path=step_path,
-        attempt=n,
-        data={"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]},
-    )
-    log.append("dispatched", actor=actor, step_path=step_path, attempt=n, data={"profile": profile_name, "packet_sha256": built.sha256})
+    pb = {"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]}
+    if guidance:
+        pb["guidance"] = guidance
+    log.append("packet_built", step_path=step_path, attempt=n, data=pb)
+    disp: dict[str, Any] = {"profile": profile_name, "packet_sha256": built.sha256}
+    if dispatch_id:
+        disp["dispatch_id"] = dispatch_id
+    if adapter:
+        disp["adapter"] = adapter
+    log.append("dispatched", actor=actor, step_path=step_path, attempt=n, data=disp)
     log.append("step_running", step_path=step_path, attempt=n)
     return built
 
@@ -287,32 +301,60 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
 # ---------------------------------------------------------------------------
 
 GATE_DECISIONS = ("approve", "reject")
+ESCALATION_DECISIONS = ("retry", "abandon")
 
 
 def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
-    """Open human gates: one per step awaiting a human, with the ``ref`` to pass to ``decide``."""
+    """Decisions owed by the owner, each with the ``ref`` to pass to ``decide``.
+
+    ``gate``: a step awaiting a human gate (``approve`` | ``reject``).
+    ``escalation``: an escalated step (``retry`` with a fresh attempt budget | ``abandon``).
+    """
     out = []
     record = ctx.record()
     for path, st in sorted(ctx.log.state().steps.items()):
         if st.state == "awaiting_human":
             opened = record.last("human_gate_opened", path, st.attempt)
-            out.append({"ref": path, "step_path": path, "attempt": st.attempt, "kind": "gate", "prompt": opened.data["prompt"] if opened else ""})
+            out.append(
+                {
+                    "ref": path, "step_path": path, "attempt": st.attempt, "kind": "gate",
+                    "prompt": opened.data["prompt"] if opened else "", "options": list(GATE_DECISIONS),
+                }
+            )
+        elif st.state == "escalated":
+            esc = record.last("step_escalated", path)
+            d = esc.data if esc else {}
+            out.append(
+                {
+                    "ref": path, "step_path": path, "attempt": st.attempt, "kind": "escalation",
+                    "reason": d.get("reason"), "reasons": d.get("reasons") or [], "questions": d.get("questions") or [],
+                    "options": list(ESCALATION_DECISIONS),
+                }
+            )
     return out
 
 
-def decide(ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: str = "human") -> Outcome:
-    """Record the owner's decision on an open human gate, verbatim, then continue the step.
+def decide(
+    ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: str = "human", recorded_by: str | None = None
+) -> Outcome:
+    """Record the owner's decision, verbatim, then continue the step.
 
-    ``ref`` is the step path of a step that is awaiting a human. ``approve``
-    passes the gate and runs any later gates; ``reject`` fails it, and the note
-    becomes the next attempt's feedback.
+    ``ref`` is the step path of a step awaiting a human gate or escalated.
+    Gate: ``approve`` passes the gate and runs any later gates; ``reject``
+    fails it, and the note becomes the next attempt's feedback. Escalation:
+    ``retry`` readies the step with a fresh attempt budget (the note is the
+    owner's answer, carried as the next attempt's feedback); ``abandon``
+    abandons the step.
     """
-    if decision not in GATE_DECISIONS:
-        raise EngineError("decide.bad_decision", f"decision must be one of {GATE_DECISIONS}, got {decision!r}")
     log = ctx.log
     current = log.state().step(ref)
+    extra = {"recorded_by": recorded_by} if recorded_by else {}
+    if current.state == "escalated":
+        return _decide_escalation(ctx, ref, decision, note, actor, extra)
+    if decision not in GATE_DECISIONS:
+        raise EngineError("decide.bad_decision", f"decision must be one of {GATE_DECISIONS}, got {decision!r}")
     if current.state != "awaiting_human":
-        raise EngineError("decide.nothing_pending", f"{ref} has no open human gate (it is {current.state})")
+        raise EngineError("decide.nothing_pending", f"{ref} has no open owner decision (it is {current.state})")
     step = _step(ctx, ref)
     n = current.attempt
     opened = ctx.record().last("human_gate_opened", ref, n)
@@ -322,7 +364,7 @@ def decide(ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: s
         actor=actor,
         step_path=ref,
         attempt=n,
-        data={"ref": ref, "kind": "gate", "gate": gate_index, "decision": decision, "note": note},
+        data={"ref": ref, "kind": "gate", "gate": gate_index, "decision": decision, "note": note, **extra},
     )
     base = {"gate": gate_index, "type": "human", "advisory": step.gates[gate_index].advisory}
     if decision == "approve":
@@ -333,3 +375,441 @@ def decide(ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: s
     if step.gates[gate_index].advisory:
         return _run_gates(ctx, step, ref, n, gate_index + 1)
     return _failed(ctx, ref, n, reasons)
+
+
+def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    if decision not in ESCALATION_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} is escalated; decision must be one of {ESCALATION_DECISIONS}, got {decision!r}")
+    log = ctx.log
+    n = log.state().step(ref).attempt
+    log.append(
+        "human_decision",
+        actor=actor,
+        step_path=ref,
+        attempt=n,
+        data={"ref": ref, "kind": "escalation", "decision": decision, "note": note, **extra},
+    )
+    if decision == "retry":
+        log.append("step_ready", step_path=ref, data={"after_decision": True})
+        return Outcome(ref, n, "retry", [note] if note else [])
+    log.append("step_abandoned", step_path=ref, data={"note": note})
+    return Outcome(ref, n, "abandoned", [note] if note else [])
+
+
+def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> None:
+    """End the run without completing it (§13.1 ``abandon``)."""
+    if not reason.strip():
+        raise EngineError("abandon.reason_required", "abandoning a run needs a reason")
+    ctx.log.append("run_abandoned", actor=actor, data={"reason": reason})
+
+
+# ---------------------------------------------------------------------------
+# The Director API over a project (§13.1): what the CLI and MCP server call
+# ---------------------------------------------------------------------------
+
+#: Events after which the run's record is committed (§10.1). ``lease_released``
+#: is included so a handoff travels through git.
+CHECKPOINT_TRIGGERS = ("human_decision", "step_passed", "step_escalated", "run_completed", "run_abandoned", "lease_released")
+
+
+class Api:
+    """One Director's view of one project. Every method returns plain JSON-able data.
+
+    Mutating calls hold the run's lease (``locks.py``), then regenerate the
+    run's records (``docs.py``) and, if a checkpoint event happened, commit
+    them (``gitops.py``). ``needs_owner`` in a payload means the run now waits
+    on an owner decision (CLI exit code 4).
+    """
+
+    def __init__(self, project: Any, director: Any):
+        self.project = project
+        self.director = director
+
+    @classmethod
+    def open(
+        cls,
+        root: str | Path | None = None,
+        *,
+        director_id: str | None = None,
+        harness: str | None = None,
+        home: str | Path | None = None,
+        clock: Any = None,
+    ) -> Api:
+        from .locks import Director
+        from .project import Project
+        from .store import utc_now
+
+        return cls(Project.open(root, home=home, clock=clock or utc_now), Director.current(director_id, harness))
+
+    @staticmethod
+    def init(root: str | Path) -> dict[str, Any]:
+        from .project import init
+
+        return init(root)
+
+    def close(self) -> None:
+        self.project.store.close()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _leases(self, ctx: RunContext) -> Any:
+        from .locks import Leases
+
+        return Leases(ctx.log, self.director, self.project.branch(), self.project.config.leases.minutes)
+
+    def _ctx(self, run_id: str) -> RunContext:
+        return self.project.context(run_id)
+
+    def _mutate(self, run_id: str, body: Any, *, allow_closed: bool = False) -> dict[str, Any]:
+        """Hold the lease, run ``body(ctx) -> dict``, then write records and checkpoint."""
+        ctx = self._ctx(run_id)
+        if not allow_closed and ctx.log.state().state != "active":
+            raise EngineError("run.closed", f"run {run_id} is {ctx.log.state().state}")
+        leases = self._leases(ctx)
+        leases.ensure()
+        before = ctx.log.state().last_seq
+        out = body(ctx) or {}
+        self._after(ctx, leases, before, out)
+        return out
+
+    def _after(self, ctx: RunContext, leases: Any, before: int, out: dict[str, Any]) -> None:
+        from . import docs
+
+        if ctx.log.state().state in ("completed", "abandoned") and leases.current() is not None:
+            leases.release(actor="runtime")
+        docs.write_records(ctx)
+        new = [e for e in ctx.log.events() if e.seq > before]
+        cp = self._checkpoint(ctx, new)
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        pending = pending_decisions(ctx)
+        out["pending_decisions"] = pending
+        out["needs_owner"] = bool(pending)
+
+    def _checkpoint(self, ctx: RunContext, new: list[Any]) -> Any:
+        from . import docs, gitops
+
+        triggers = [e for e in new if e.type in CHECKPOINT_TRIGGERS]
+        if not triggers:
+            return None
+        if not self.project.config.checkpoints.commit:
+            return gitops.Checkpoint(False, reason="checkpoint commits are off in project.yaml")
+        pf = gitops.preflight(self.project.root, [ctx.run_dir])
+        if isinstance(pf, str):
+            return gitops.Checkpoint(False, reason=pf)
+        top, rels = pf
+        subject, body = _checkpoint_message(ctx, triggers, new)
+        ctx.log.append("checkpoint_committed", data={"triggers": [e.type for e in triggers], "through_seq": triggers[-1].seq, "subject": subject})
+        docs.write_records(ctx)
+        if gitops.lfs_available(top):
+            gitops.lfs_attributes(ctx.run_dir, int(self.project.config.lfs.threshold_mb * 1024 * 1024))
+        try:
+            sha = gitops.commit(top, rels, subject, body)
+        except gitops.GitError as e:
+            return gitops.Checkpoint(False, subject=subject, reason=str(e))
+        return gitops.Checkpoint(sha is not None, sha, subject, None if sha else "nothing to commit")
+
+    # -- recipes ------------------------------------------------------------
+
+    def vendor(self, src: str | Path) -> dict[str, Any]:
+        from .project import vendor
+
+        return vendor(self.project, src)
+
+    def recipes(self) -> dict[str, Any]:
+        out = []
+        for ref in self.project.vendored():
+            entry = {"recipe": ref, "sha256": self.project.lock()["recipes"][ref]["sha256"]}
+            try:
+                loaded = self.project.recipe(ref)
+                entry["description"] = loaded.recipe.description
+                entry["ok"] = True
+            except EngineError as e:
+                entry.update(ok=False, error=str(e), code=e.code)
+            out.append(entry)
+        return {"recipes": out}
+
+    def plan(self, recipe: str, level: str | None = None) -> Plan:
+        """Plan for a vendored recipe ref, or a recipe directory."""
+        if Path(recipe).is_dir():
+            return plan(recipe, level)
+        return build_plan(self.project.recipe(recipe), level=level)
+
+    # -- runs ---------------------------------------------------------------
+
+    def start(self, recipe: str, inputs: dict[str, Any], *, title: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+        loaded = self.project.recipe(recipe)
+        title = title if title is not None else (inputs.get("title") if isinstance(inputs, dict) else None)
+        work_item = {
+            "kind": inputs.get("kind") if isinstance(inputs, dict) else None,
+            "slug": self.project.render_slug(inputs if isinstance(inputs, dict) else {}, title),
+            "branch": self.project.branch(),
+        }
+        ctx = start(
+            self.project.store, loaded, inputs, title=title, run_id=run_id, project=self.project.variables(),
+            actor=self.director.actor, work_item=work_item,
+        )
+        leases = self._leases(ctx)
+        leases.ensure()
+        out: dict[str, Any] = {"run_id": ctx.run_id}
+        self._after(ctx, leases, 0, out)
+        out.update(self.status(ctx.run_id))
+        return out
+
+    def status(self, run_id: str) -> dict[str, Any]:
+        from . import gitops, locks
+
+        ctx = self._ctx(run_id)
+        events = ctx.log.events()
+        rs = ctx.log.state()
+        started = events[0].data
+        steps = {}
+        for node in ctx.recipe.recipe.steps:
+            st = rs.step(node.id)
+            steps[node.id] = {"state": st.state, "attempt": st.attempt}
+        running = []
+        for path, st in sorted(rs.steps.items()):
+            if st.state in ("dispatched", "running"):
+                disp = _last_data(events, "dispatched", path, st.attempt)
+                adir = ctx.attempt_dir(path, st.attempt)
+                running.append(
+                    {
+                        "step_path": path, "attempt": st.attempt,
+                        "profile": disp.get("profile"), "adapter": disp.get("adapter"), "dispatch_id": disp.get("dispatch_id"),
+                        "packet": str(adir / "packet"), "result": str(adir / "result"),
+                    }
+                )
+        lease = locks.current(events)
+        now = ctx.log.clock()
+        lease_info = None
+        if lease is not None:
+            lease_info = {
+                "director_id": lease.director_id, "harness": lease.harness, "host": lease.host, "branch": lease.branch,
+                "expires_at": lease.expires_at, "expired": lease.expired(now),
+                "yours": lease.held_by(self.director, self.project.branch()),
+            }
+        pending = pending_decisions(ctx)
+        return {
+            "run_id": run_id,
+            "title": started.get("title"),
+            "recipe": started.get("recipe"),
+            "state": rs.state,
+            "level": ctx.record().level(),
+            "steps": steps,
+            "ready": [p for p, s in steps.items() if s["state"] == "ready"],
+            "running": running,
+            "pending_decisions": pending,
+            "needs_owner": bool(pending),
+            "lease": lease_info,
+            "last_checkpoint": gitops.last_checkpoint(self.project.root, run_id),
+            "last_seq": rs.last_seq,
+        }
+
+    def dispatch(self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None) -> dict[str, Any]:
+        """Build the packet and hand it to the worker's adapter. Manual workers then ``submit``."""
+        import secrets
+
+        from . import adapters
+
+        profiles = self.project.profiles()
+        if worker not in profiles:
+            raise EngineError("configuration.unknown_profile", f"no worker profile {worker!r} on this machine (known: {', '.join(sorted(profiles)) or 'none'})")
+        profile = profiles[worker]
+        adapter = adapters.get(profile.adapter)
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            dispatch_id = f"d_{secrets.token_hex(4)}"
+            built = begin_attempt(
+                ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name, guidance=guidance
+            )
+            return {
+                "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
+                "worker": worker, "adapter": adapter.name, "packet_sha256": built.sha256,
+                "packet": str(built.dir), "result": str(built.result_dir),
+                "handoff": adapter.handoff(profile, built.dir, built.result_dir),
+            }
+
+        return self._mutate(run_id, body)
+
+    def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None) -> dict[str, Any]:
+        """A new attempt of a step whose previous attempt was not accepted. Guidance is additive only."""
+        ctx = self._ctx(run_id)
+        st = ctx.log.state().step(step_path)
+        if st.state == "escalated":
+            raise EngineError("retry.escalated", f"{step_path} is escalated; record the owner's decision first (decide {step_path} retry)")
+        if st.state != "ready" or st.attempt == 0:
+            raise EngineError("retry.not_retryable", f"{step_path} is {st.state} with {st.attempt} attempts; retry needs a ready step with a previous attempt")
+        if worker is None:
+            worker = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt).get("profile")
+        return self.dispatch(run_id, step_path, worker, guidance=guidance)
+
+    def submit(self, run_id: str, step_path: str, result_dir: str | Path | None = None) -> dict[str, Any]:
+        """Run intake on a running attempt. ``result_dir`` is copied into the attempt's ``result/`` first."""
+        import shutil
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            st = ctx.log.state().step(step_path)
+            if st.state != "running":
+                raise EngineError("engine.not_running", f"{step_path} is {st.state}; only a running attempt can be submitted")
+            target = ctx.attempt_dir(step_path, st.attempt) / "result"
+            if result_dir is not None and Path(result_dir).resolve() != target.resolve():
+                src = Path(result_dir)
+                if not (src / "result.json").is_file():
+                    raise EngineError("submit.no_result", f"{src} has no result.json")
+                if (target / "result.json").exists():
+                    raise EngineError("submit.result_exists", f"{target} already holds a result")
+                shutil.copytree(src, target, dirs_exist_ok=True)
+            target.mkdir(parents=True, exist_ok=True)
+            profile = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt).get("profile")
+            outcome = submit(ctx, step_path, actor=f"worker:{profile}" if profile else "worker")
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def decide(self, run_id: str, ref: str, decision: str, note: str = "") -> dict[str, Any]:
+        """Record the owner's decision verbatim (gates and escalations)."""
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor)
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def abandon(self, run_id: str, reason: str) -> dict[str, Any]:
+        def body(ctx: RunContext) -> dict[str, Any]:
+            abandon_run(ctx, reason, actor=self.director.actor)
+            return {"run_id": ctx.run_id, "state": "abandoned"}
+
+        return self._mutate(run_id, body)
+
+    # -- continuity ---------------------------------------------------------
+
+    def resume(self, run_id: str) -> dict[str, Any]:
+        """Verify, rebuild, reconcile and claim the lease (§10.3); returns status.
+
+        Raises ``LeaseHeld`` (with the status attached) when another Director
+        holds the lease.
+        """
+        from .check import run_integrity
+        from .locks import LeaseHeld
+
+        store = self.project.store
+        store.run(run_id)
+        problems = run_integrity(store, run_id)
+        if problems:
+            raise IntegrityError(run_id, problems)
+        store.rebuild_run(run_id)
+        ctx = self._ctx(run_id)
+        # Reconcile in-flight attempts. Manual attempts wait for submit; git does
+        # not keep empty directories, so recreate their result directories.
+        reconciled = []
+        rs = ctx.log.state()
+        for path, st in sorted(rs.steps.items()):
+            if st.state == "running":
+                (ctx.attempt_dir(path, st.attempt) / "result" / "artifacts").mkdir(parents=True, exist_ok=True)
+                reconciled.append({"step_path": path, "attempt": st.attempt, "action": "waiting_for_submit"})
+        out: dict[str, Any] = {}
+        if rs.state == "active":
+            leases = self._leases(ctx)
+            before = rs.last_seq
+            try:
+                leases.ensure()
+            except LeaseHeld as e:
+                e.status = {**self.status(run_id), "reconciled": reconciled}  # type: ignore[attr-defined]
+                raise
+            self._after(ctx, leases, before, out)
+        out.update(self.status(run_id))
+        out["reconciled"] = reconciled
+        return out
+
+    def lease(self, run_id: str, action: str, reason: str | None = None) -> dict[str, Any]:
+        """``claim`` | ``release`` | ``take_over`` (with a reason; owner approval is the skill's rule)."""
+        ctx = self._ctx(run_id)
+        leases = self._leases(ctx)
+        before = ctx.log.state().last_seq
+        if action == "claim":
+            leases.ensure()
+        elif action == "take_over":
+            leases.take_over(reason or "")
+        elif action == "release":
+            leases.release()
+        else:
+            raise EngineError("lease.bad_action", f"lease action must be claim, release or take_over, got {action!r}")
+        out: dict[str, Any] = {"run_id": run_id, "action": action}
+        self._after(ctx, leases, before, out)
+        out["lease"] = self.status(run_id)["lease"]
+        return out
+
+    # -- records ------------------------------------------------------------
+
+    def record(self, run_id: str, step_path: str) -> str:
+        from . import docs
+
+        ctx = self._ctx(run_id)
+        if node_for(ctx.recipe, step_path) is None:
+            raise EngineError("engine.unknown_step", f"{step_path} is not a step of {ctx.recipe.recipe.ref}")
+        return docs.step_record(ctx, step_path)
+
+    def summary(self, run_id: str) -> str:
+        from . import docs
+
+        return docs.summary(self._ctx(run_id))
+
+    def trace(self, run_id: str, limit: int | None = 20) -> list[str]:
+        from . import docs
+
+        return docs.trace(self.project.store.run(run_id).events(), limit)
+
+    def check(self) -> list[Any]:
+        from .check import check
+
+        return check(self.project.root)
+
+
+class IntegrityError(EngineError):
+    """A run's log or CAS failed verification; nothing was changed."""
+
+    def __init__(self, run_id: str, issues: list[Any]):
+        super().__init__("resume.integrity", f"run {run_id} failed verification: " + "; ".join(f"{i.where}: {i.message}" for i in issues))
+        self.issues = issues
+
+
+def _last_data(events: list[Any], etype: str, step_path: str, attempt: int) -> dict[str, Any]:
+    for ev in reversed(events):
+        if ev.type == etype and ev.step_path == step_path and ev.attempt == attempt:
+            return ev.data
+    return {}
+
+
+def _outcome_dict(o: Outcome) -> dict[str, Any]:
+    return {
+        "step_path": o.step_path, "attempt": o.attempt, "outcome": o.outcome, "reasons": o.reasons,
+        "ready": o.ready, "run_completed": o.run_completed,
+    }
+
+
+def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) -> tuple[str, list[str]]:
+    """``baton(<run_id>): <step_path> passed [attempt 1, <profile>]`` (§10.1), one phrase per trigger."""
+    events = ctx.log.events()
+
+    def profile(e: Any) -> str:
+        return _last_data(events, "dispatched", e.step_path, e.attempt).get("profile") or "?"
+
+    phrases: list[str] = []
+    ended = any(e.type in ("run_completed", "run_abandoned") for e in triggers)
+    for e in triggers:
+        if e.type == "step_passed":
+            phrases.append(f"{e.step_path} passed [attempt {e.attempt}, {profile(e)}]")
+        elif e.type == "step_escalated":
+            phrases.append(f"{e.step_path} escalated ({e.data.get('reason')}) [attempt {e.attempt}, {profile(e)}]")
+        elif e.type == "human_decision":
+            phrases.append(f"{e.step_path} decision {e.data.get('decision')}" + (f" [attempt {e.attempt}]" if e.attempt else ""))
+        elif e.type == "run_completed":
+            phrases.append("run completed")
+        elif e.type == "run_abandoned":
+            phrases.append("run abandoned")
+        elif e.type == "lease_released" and not ended:
+            phrases.append(f"lease released by {e.data.get('director_id')}")
+    subject = f"baton({ctx.run_id}): " + "; ".join(phrases)
+    body = [f"seq {e.seq} {e.type}" + (f" {e.step_path}" if e.step_path else "") + (f"#{e.attempt}" if e.attempt else "") for e in new]
+    return subject, body

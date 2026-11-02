@@ -441,3 +441,32 @@ class RunStatus(BaseModel):
     last_seq: int
     last_sha256: str | None
     steps: dict[str, StepStatus]
+
+
+# --------------------------------------------------------------------------
+# Project configuration: .baton/project.yaml (§4.3, §10.4). Non-secret; the
+# loader rejects any ``secret:`` reference (§15.2). Later layers add their
+# keys here (hooks, permissions, limits, sme, effort bands).
+# --------------------------------------------------------------------------
+
+
+class LeaseConfig(_Strict):
+    minutes: int = Field(default=60, ge=1)  # §18 #5: 1 h, renewed on activity
+
+
+class CheckpointConfig(_Strict):
+    commit: bool = True  # §18 #6: on, to the current branch
+
+
+class LfsConfig(_Strict):
+    threshold_mb: float = Field(default=5, gt=0)  # §18 #7: optional, 5 MB
+
+
+class ProjectConfig(_Strict):
+    paths: dict[str, str] = Field(default_factory=dict)
+    project: dict[str, Any] = Field(default_factory=dict)
+    run_slug: str = "{{ run.inputs.title | slugify }}"
+    leases: LeaseConfig = Field(default_factory=LeaseConfig)
+    checkpoints: CheckpointConfig = Field(default_factory=CheckpointConfig)
+    lfs: LfsConfig = Field(default_factory=LfsConfig)
+    contacts: dict[str, str] = Field(default_factory=dict)

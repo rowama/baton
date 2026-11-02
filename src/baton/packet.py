@@ -340,9 +340,14 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
     lines.append("")
     if manifest["prior_feedback"]:
         pf = manifest["prior_feedback"]
-        lines += ["## Feedback on the previous attempt", "", f"Attempt {pf['attempt']} was not accepted:", ""]
-        lines += [f"- {r}" for r in pf["reasons"]]
-        lines += ["", "Address every point above in this attempt.", ""]
+        lines += ["## Feedback on the previous attempt", ""]
+        if pf["reasons"]:
+            lines += [f"Attempt {pf['attempt']} was not accepted:", ""]
+            lines += [f"- {r}" for r in pf["reasons"]]
+            lines.append("")
+        if pf.get("guidance"):
+            lines += ["Additional guidance for this attempt:", "", pf["guidance"], ""]
+        lines += ["Address every point above in this attempt.", ""]
     lines += [
         "## Protocol",
         "",
@@ -500,21 +505,36 @@ def unsupported_reason(node: Step | Group | None) -> str | None:
     return None
 
 
-def prior_feedback(record: RunRecord, step_path: str, attempt: int) -> dict[str, Any] | None:
-    """Reasons the previous attempt was not accepted, from its events."""
+def prior_feedback(record: RunRecord, step_path: str, attempt: int, guidance: str | None = None) -> dict[str, Any] | None:
+    """Reasons the previous attempt was not accepted, from its events, plus any retry guidance."""
     if attempt < 1:
         return None
     reasons: list[str] = []
     for ev in record.attempt_events(step_path, attempt):
         if ev.type == "result_rejected" or (ev.type == "gate_failed" and not ev.data.get("advisory")):
             reasons += ev.data.get("reasons") or []
+        elif ev.type == "step_escalated" and ev.data.get("questions"):
+            reasons += [f"you asked the owner: {q}" for q in ev.data["questions"]]
+        elif ev.type == "human_decision" and ev.data.get("kind") == "escalation" and ev.data.get("note"):
+            reasons.append(f"the owner answered: {ev.data['note']}")
+    if guidance:
+        return {"attempt": attempt, "reasons": reasons, "guidance": guidance}
     return {"attempt": attempt, "reasons": reasons} if reasons else None
 
 
 def build_packet(
-    ctx: RunContext, step_path: str, profile_name: str, profile: WorkerProfile, *, deadline: str | None = None
+    ctx: RunContext,
+    step_path: str,
+    profile_name: str,
+    profile: WorkerProfile,
+    *,
+    deadline: str | None = None,
+    guidance: str | None = None,
 ) -> BuiltPacket:
     """Assemble and write the packet for the step's next attempt. Writes no events.
+
+    ``guidance`` (a retry's additive note from the Director, §13.1) is added to
+    ``prior_feedback``; it never replaces inputs or reasons.
 
     Raises ``EngineError`` (step not ready, unsupported, ineligible profile) or
     ``HandoffError`` (missing required inputs); in both cases nothing is written.
@@ -577,7 +597,7 @@ def build_packet(
         "not_applicable": not_applicable,
         "required_artifacts": [art(a) for a in node.artifacts if a.required],
         "optional_artifacts": [art(a) for a in node.artifacts if not a.required],
-        "prior_feedback": prior_feedback(record, step_path, attempt - 1),
+        "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance),
         "packet_sha256": None,
     }
     files["INSTRUCTIONS.md"] = render_instructions(node, prompt, manifest, inputs, schema).encode("utf-8")

@@ -590,6 +590,10 @@ class Store:
             steps={p: StepStatus(state=s.state, attempt=s.attempt, last_seq=s.last_seq) for p, s in sorted(rs.steps.items())},
         )
 
+    def rebuild_run(self, run_id: str) -> None:
+        """Replay one run into the cache (raises ``StoreError`` if its log is invalid)."""
+        self._replay(self.run(run_id))
+
     def rebuild(self) -> list[Issue]:
         """Discard the cache and replay every run. Returns problems; runs with problems are left uncached."""
         self._cache.clear()

@@ -29,6 +29,7 @@ packages = ["src/baton"]
 [tool.hatch.build.targets.wheel.force-include]
 "vocab" = "baton/_data/vocab"
 "formats" = "baton/_data/formats"
+"defaults" = "baton/_data/defaults"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,34 @@
+# Run `r_20261101_ab12`: Contract review
+
+- Work item: Contract review
+- Slug: `contract-review`
+- Branch: `–`
+- Recipe: `fit-check@1` (`75fc016aecc6317659296ebf2f2377070ce8d4b99c707227fee59fabd66c68b7`)
+- Formats: events `baton-events/1`, packet `baton-packet/1`, recipe `baton-recipe/1`
+- Max attempts per step: 3
+- State: **completed**
+
+## Steps
+
+| Step | Title | State | Attempts | Last worker |
+|---|---|---|---|---|
+| `describe` | Profile the idea | passed | 2 | owner |
+| `assess` | Score against the fit rubric | passed | 1 | owner |
+
+## Timeline
+
+- 2026-11-01T12:00:01.000000Z: run started by director:alice@host1
+- 2026-11-01T12:00:15.000000Z `describe` attempt 1: result rejected: output (root): 'occurrence' is a required property
+- 2026-11-01T12:00:27.000000Z `describe` attempt 2: passed
+- 2026-11-01T12:00:41.000000Z `assess` attempt 1: owner decided **approve** — "Agreed; author the recipe."
+- 2026-11-01T12:00:43.000000Z `assess` attempt 1: passed
+- 2026-11-01T12:00:44.000000Z: run completed
+
+## Escalations
+
+None.
+
+## Leases
+
+- 2026-11-01T12:00:05.000000Z claimed by alice@host1 until 2026-11-01T13:00:04.000000Z
+- 2026-11-01T12:00:45.000000Z released by runtime

@@ -1,0 +1,286 @@
+"""Step records, run summaries and the readable event trace (§10.6).
+
+Everything here is derived from the run's events, its CAS and the packet
+manifests the runtime wrote, so records can be deleted and regenerated at
+any time. They are written under ``runs/<run_id>/docs/`` and committed with
+the run::
+
+    docs/<step_path>.md   one per step that has had any event
+    docs/SUMMARY.md       the work item, recipe and versions, steps, timeline,
+                          escalations and leases
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from . import locks
+from .data import read_text
+from .models import Event, Group
+from .packet import RunContext
+from .store import StoreError, atomic_write
+
+JSON_BLOCK_LIMIT = 16 * 1024
+
+
+def _fence(value: Any) -> list[str]:
+    text = json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+    if len(text) > JSON_BLOCK_LIMIT:
+        return [f"_{len(text)} bytes; see the CAS blob._"]
+    return ["```json", text, "```"]
+
+
+def _cas_json(ctx: RunContext, sha: str | None) -> Any:
+    if not sha:
+        return None
+    try:
+        return json.loads(ctx.log.cas.read(sha))
+    except (StoreError, ValueError):
+        return None
+
+
+def _title(ctx: RunContext, step_path: str) -> str:
+    node = next((n for n in ctx.recipe.recipe.steps if n.id == step_path), None)
+    return (node.title if node is not None and node.title else None) or step_path
+
+
+def _gate_line(ev: Event) -> str:
+    d = ev.data
+    gate = d.get("gate")
+    label = "provenance" if gate == "provenance" else f"{gate} {d.get('type', '')}".strip()
+    adv = " (advisory)" if d.get("advisory") else ""
+    verdict = "passed" if ev.type == "gate_passed" else "failed"
+    line = f"  - {label}{adv}: {verdict}"
+    if d.get("command"):
+        line += f" — `{d['command']}` exit {d.get('exit_code')}"
+    reasons = [r.splitlines()[0] for r in d.get("reasons") or []]
+    if ev.type == "gate_failed" and reasons:
+        line += f" — {'; '.join(reasons)}"
+    return line
+
+
+def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = None) -> str:
+    events = ctx.log.events() if events is None else events
+    mine = [e for e in events if e.step_path == step_path]
+    state = ctx.log.state().step(step_path)
+    lines = [
+        f"# `{step_path}`: {_title(ctx, step_path)}",
+        "",
+        f"- Run: `{ctx.run_id}`",
+        f"- Recipe: `{ctx.recipe.recipe.ref}`",
+        f"- State: **{state.state}**",
+        f"- Attempts: {state.attempt}",
+        "",
+    ]
+    attempts = sorted({e.attempt for e in mine if e.attempt is not None})
+    for n in attempts:
+        lines += _attempt_section(ctx, step_path, n, [e for e in mine if e.attempt == n], mine)
+    final = next((e for e in reversed(mine) if e.type in ("step_passed", "step_imported")), None)
+    if final is not None:
+        lines += ["## Accepted output", ""]
+        lines += _fence(_cas_json(ctx, final.data.get("output_sha256"))) + [""]
+        arts = final.data.get("artifacts") or {}
+        if arts:
+            lines += ["## Artifacts", ""]
+            for name in sorted(arts):
+                a = arts[name]
+                mt = f" ({a['media_type']})" if a.get("media_type") else ""
+                lines.append(f"- `{name}`{mt}: CAS `{a['sha256']}`")
+            lines.append("")
+    other = [e for e in mine if e.attempt is None and e.type in ("step_escalated", "step_abandoned", "human_decision")]
+    if other:
+        lines += ["## Other events", ""]
+        lines += [f"- {e.ts} {e.type} by {e.actor}: {_brief(e)}" for e in other] + [""]
+    return "\n".join(lines)
+
+
+def _brief(ev: Event) -> str:
+    d = ev.data
+    if ev.type == "human_decision":
+        note = f' — "{d.get("note")}"' if d.get("note") else ""
+        return f"{d.get('decision')}{note}"
+    return d.get("reason") or ""
+
+
+def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], mine: list[Event]) -> list[str]:
+    lines = [f"## Attempt {n}", ""]
+    disp = next((e for e in evs if e.type == "dispatched"), None)
+    if disp is not None:
+        lines.append(f"- Worker: `{disp.data.get('profile')}`, dispatched by {disp.actor} at {disp.ts}")
+    gates_open = False
+    for ev in evs:
+        d = ev.data
+        if ev.type in ("gate_passed", "gate_failed", "human_gate_opened") and not gates_open:
+            lines.append("- Gates:")
+            gates_open = True
+        if ev.type == "packet_built":
+            lines.append(f"- Packet: `{d.get('packet_sha256')}` (worker profile `{d.get('worker_profile_sha256')}`)")
+            if d.get("guidance"):
+                lines.append(f"- Retry guidance: {d['guidance']}")
+            lines += _inputs(ctx, step_path, n)
+        elif ev.type == "result_submitted":
+            lines.append(f"- Result: {d.get('status')} at {ev.ts} (`result.json` `{d.get('result_sha256')}`)")
+        elif ev.type in ("gate_passed", "gate_failed"):
+            lines.append(_gate_line(ev))
+        elif ev.type == "result_rejected":
+            lines.append("- Rejected:")
+            lines += [f"  - {r.splitlines()[0]}" for r in d.get("reasons") or []]
+        elif ev.type == "human_gate_opened":
+            lines.append(f"  - {d.get('gate')} human: opened — {d.get('prompt')}")
+        elif ev.type == "human_decision":
+            note = f' — "{d.get("note")}"' if d.get("note") else ""
+            by = f", recorded by {d['recorded_by']}" if d.get("recorded_by") else ""
+            indent = "  " if d.get("kind") == "gate" else ""
+            lines.append(f"{indent}- Owner decision{by}: **{d.get('decision')}**{note}")
+        elif ev.type == "step_passed":
+            lines.append(f"- Outcome: **passed** at {ev.ts}")
+        elif ev.type == "step_escalated":
+            lines.append(f"- Outcome: **escalated** ({d.get('reason')}) at {ev.ts}")
+            if d.get("questions"):
+                lines += [f"  - question: {q}" for q in d["questions"]]
+    # A retry is recorded as step_ready with retry_of = n (the event carries no attempt).
+    if any(e.type == "step_ready" and e.data.get("retry_of") == n for e in mine):
+        lines.append(f"- Outcome: not accepted; ready for attempt {n + 1}")
+    lines.append("")
+    return lines
+
+
+def _inputs(ctx: RunContext, step_path: str, n: int) -> list[str]:
+    mpath = ctx.attempt_dir(step_path, n) / "packet" / "manifest.json"
+    if not mpath.is_file():
+        return []
+    try:
+        manifest = json.loads(read_text(mpath))
+    except ValueError:
+        return []
+    out = []
+    for i in manifest.get("inputs") or []:
+        out.append(f"  - input `{i['name']}` from `{i.get('from')}`: `{i['sha256']}`")
+    for na in manifest.get("not_applicable") or []:
+        out.append(f"  - input `{na['name']}`: not applicable ({na.get('reason')})")
+    return (["- Inputs:"] + out) if out else []
+
+
+# ---------------------------------------------------------------------------
+# Run summary
+# ---------------------------------------------------------------------------
+
+_TIMELINE = {
+    "run_started", "result_rejected", "gate_failed", "human_decision", "step_passed", "step_escalated",
+    "step_abandoned", "run_completed", "run_abandoned", "lease_taken_over",
+}
+
+
+def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
+    events = ctx.log.events() if events is None else events
+    started = events[0].data
+    rs = ctx.log.state()
+    formats = started.get("formats") or {}
+    lines = [
+        f"# Run `{ctx.run_id}`: {started.get('title') or '(untitled)'}",
+        "",
+        f"- Work item: {started.get('title') or '–'}" + (f" ({started['kind']})" if started.get("kind") else ""),
+        f"- Slug: `{started.get('slug') or '–'}`",
+        f"- Branch: `{started.get('branch') or '–'}`",
+        f"- Recipe: `{started.get('recipe')}` (`{started.get('recipe_sha256')}`)",
+        f"- Formats: {', '.join(f'{k} `{v}`' for k, v in sorted(formats.items()))}",
+        f"- Max attempts per step: {started.get('max_attempts')}",
+        f"- State: **{rs.state}**",
+        "",
+        "## Steps",
+        "",
+        "| Step | Title | State | Attempts | Last worker |",
+        "|---|---|---|---|---|",
+    ]
+    for node in ctx.recipe.recipe.steps:
+        st = rs.step(node.id)
+        worker = next((e.data.get("profile") for e in reversed(events) if e.type == "dispatched" and e.step_path == node.id), None)
+        kind = " (group)" if isinstance(node, Group) else ""
+        lines.append(f"| `{node.id}`{kind} | {node.title or ''} | {st.state} | {st.attempt} | {worker or '–'} |")
+    lines += ["", "## Timeline", ""]
+    for ev in events:
+        if ev.type not in _TIMELINE or (ev.type == "gate_failed" and ev.data.get("advisory")):
+            continue
+        where = f" `{ev.step_path}`" + (f" attempt {ev.attempt}" if ev.attempt else "") if ev.step_path else ""
+        lines.append(f"- {ev.ts}{where}: {_timeline_text(ev)}")
+    lines += ["", "## Escalations", ""]
+    esc = [e for e in events if e.type == "step_escalated"]
+    lines += [f"- {e.ts} `{e.step_path}` attempt {e.attempt}: {e.data.get('reason')}" for e in esc] or ["None."]
+    lines += ["", "## Leases", ""]
+    lease_events = locks.history(events)
+    lines += [f"- {e.ts} {_lease_text(e)}" for e in lease_events] or ["None."]
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _timeline_text(ev: Event) -> str:
+    d = ev.data
+    t = ev.type
+    if t == "run_started":
+        return f"run started by {ev.actor}"
+    if t == "result_rejected":
+        return "result rejected: " + "; ".join(r.splitlines()[0] for r in d.get("reasons") or [])
+    if t == "gate_failed":
+        return f"gate {d.get('gate')} ({d.get('type')}) failed"
+    if t == "human_decision":
+        note = f' — "{d.get("note")}"' if d.get("note") else ""
+        return f"owner decided **{d.get('decision')}**{note}"
+    if t == "step_passed":
+        return "passed"
+    if t == "step_escalated":
+        return f"escalated ({d.get('reason')})"
+    if t == "step_abandoned":
+        return "abandoned"
+    if t == "run_completed":
+        return "run completed"
+    if t == "run_abandoned":
+        return f"run abandoned: {d.get('reason') or ''}".rstrip(": ")
+    if t == "lease_taken_over":
+        return f"lease taken over by {d.get('director_id')} from {d.get('from_director_id')}: {d.get('reason')}"
+    return t  # pragma: no cover
+
+
+def _lease_text(ev: Event) -> str:
+    d = ev.data
+    if ev.type == "lease_claimed":
+        return f"claimed by {d['director_id']} until {d['expires_at']}"
+    if ev.type == "lease_renewed":
+        return f"renewed by {d['director_id']} until {d['expires_at']}"
+    if ev.type == "lease_taken_over":
+        return f"taken over by {d['director_id']} from {d.get('from_director_id')} until {d['expires_at']}: {d.get('reason')}"
+    return f"released by {ev.actor}"
+
+
+# ---------------------------------------------------------------------------
+# Writing and tracing
+# ---------------------------------------------------------------------------
+
+
+def write_records(ctx: RunContext) -> list[Path]:
+    """Regenerate every step record and the summary; returns the files that changed."""
+    events = ctx.log.events()
+    docs = ctx.run_dir / "docs"
+    outputs: dict[Path, str] = {docs / "SUMMARY.md": summary(ctx, events)}
+    for path in sorted({e.step_path for e in events if e.step_path}):
+        outputs[docs / PurePosixPath(path + ".md")] = step_record(ctx, path, events)
+    changed = []
+    for p, text in outputs.items():
+        data = text.encode("utf-8")
+        if not p.is_file() or p.read_bytes() != data:
+            atomic_write(p, data)
+            changed.append(p)
+    return changed
+
+
+def trace(events: list[Event], limit: int | None = 20) -> list[str]:
+    """One readable line per event, newest last."""
+    chosen = events if not limit else events[-limit:]
+    out = []
+    for e in chosen:
+        where = (e.step_path or "") + (f"#{e.attempt}" if e.attempt else "")
+        detail = {k: v for k, v in e.data.items() if k in ("reason", "decision", "profile", "outcome", "director_id", "gate", "type", "status")}
+        extra = " " + json.dumps(detail, sort_keys=True, ensure_ascii=False) if detail else ""
+        out.append(f"{e.seq:>4} {e.ts} {e.type:<22} {where:<24} {e.actor}{extra}".rstrip())
+    return out

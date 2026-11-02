@@ -57,7 +57,8 @@ def test_fit_check_through_human_gate(store):
     _, out = attempt(ctx, "assess", VERDICT_OUT)
     assert out.outcome == "needs_human" and state(ctx, "assess") == "awaiting_human"
     assert engine.pending_decisions(ctx) == [
-        {"ref": "assess", "step_path": "assess", "attempt": 1, "kind": "gate", "prompt": "Accept this verdict and its suggested next step?"}
+        {"ref": "assess", "step_path": "assess", "attempt": 1, "kind": "gate",
+         "prompt": "Accept this verdict and its suggested next step?", "options": ["approve", "reject"]}
     ]
     out = engine.decide(ctx, "assess", "approve", "Agreed — go ahead.")
     assert out.outcome == "passed" and out.run_completed

@@ -161,6 +161,7 @@ baton/
 │   ├── intake.py            # result validation, gates, findings
 │   ├── supervisor.py        # detached per-dispatch supervisor, markers, deadlines, hooks
 │   ├── classify.py          # failure classification rules (data-driven)
+│   ├── project.py           # project root, project.yaml, lockfile access, vendoring, profile loading
 │   ├── locks.py             # run leases, workspace lock, project lock
 │   ├── publish.py           # deliverables + drift
 │   ├── adopt.py             # detect, research/seed/baseline helpers
@@ -178,7 +179,7 @@ baton/
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   # generated from models (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
-├── defaults/communication.md        # default owner communication contract
+├── defaults/communication.md        # default owner communication contract (written by `baton init`)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/
 └── tests/
 ```
@@ -854,15 +855,16 @@ Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §
 
 ### 10.1 Checkpoint commits
 
-After `step_passed` (with publishing), `human_decision`, `step_escalated` and `run_completed`, the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`).
-- Commit SHAs are read back from `git log` on resume, not written into the next event. This keeps commits self-contained.
+After `step_passed` (with publishing), `human_decision`, `step_escalated`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
+- Commit SHAs are read back from `git log` on resume, not written into the next event. This keeps commits self-contained. `checkpoint_committed` is appended just before the commit it belongs to (no SHA); if the commit then fails, the next checkpoint carries it.
 - Workspace steps commit their own code; their `commit_sha` is in the step output, and the checkpoint commit follows.
-- Never commit with unrelated uncommitted changes; refuse and report.
+- Never commit with unrelated uncommitted changes; refuse and report. The commit names its paths (`git commit --only`), so unstaged or untracked work elsewhere is never swept in; changes *staged* for other paths, a merge/rebase in progress or a missing git identity refuse the checkpoint, which is reported in the call's result and retried at the next trigger.
+- Git LFS is optional (§18 #7): with `git lfs` installed, stored blobs at or above `lfs.threshold_mb` (default 5) are listed in the run's own `.gitattributes` before staging.
 - Pushing follows action permissions (§13.7); checkpoint commits normally qualify as docs-only.
 
 ### 10.2 Leases
 
-A lease is an event `lease_claimed {director_id, harness, host, branch, expires_at}`. Mutating calls on a run require its lease. `take_over(reason)` records a takeover; the director skill requires owner approval first. Leases travel through git, so they coordinate *sequential* handoff. **A run lives on one branch at a time**: continuing it on another branch requires releasing it on the first. Divergent hash chains (two Directors on unsynced clones) are caught by `resume` and `check`, and need owner resolution.
+A lease is an event `lease_claimed {director_id, harness, host, branch, expires_at}`. Mutating calls on a run require its lease: a free or expired lease is claimed automatically, the holder's lease is renewed (`lease_renewed`) once half its term has passed, and an unexpired lease held by another Director (or by the same Director on another branch) refuses with exit code 3. The term is `project.yaml` `leases.minutes` (default 60; §18 #5). `take_over(reason)` records a takeover (`lease_taken_over`, with the previous holder and the reason); the director skill requires owner approval first, the runtime only requires the reason. The runtime releases the lease when a run completes or is abandoned. The Director identity is `--director` / `BATON_DIRECTOR` (default `<user>@<host>`); the harness name is `BATON_HARNESS`. Leases travel through git, so they coordinate *sequential* handoff. **A run lives on one branch at a time**: continuing it on another branch requires releasing it on the first. Divergent hash chains (two Directors on unsynced clones) are caught by `resume` and `check`, and need owner resolution.
 
 ### 10.3 Resume
 
@@ -1007,7 +1009,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `dispatch(run, step_path, worker, wait=false)` | Build packet, start supervised worker; returns a dispatch id |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates, questions, baseline items, confirmations of stale steps) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; later: questions, baseline items, confirmations of stale steps) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage; correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9) |
@@ -1024,7 +1026,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 
 ### 13.2 CLI and MCP
 
-- The CLI is the primary interface for a Director with a shell on the runtime host.
+- The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
 - The MCP server (official Python SDK **[VERIFY]**) exposes the same calls over stdio, with an optional authenticated HTTP transport (bearer secret; localhost or private network) for Directors without shell access.
 - Registration per harness **[VERIFY]**: Claude Code `.mcp.json` or `claude mcp add baton -- baton mcp`; Codex `[mcp_servers.baton]` in its config; Hermes `hermes mcp add baton --command "baton mcp"`.
 
@@ -1265,11 +1267,11 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 
 1. Large inputs for API workers: hard error, auto-chunking, or require a file-capable worker? [hard error]
 2. No eligible worker: escalate or fail the run? [escalate]
-3. Dispatching independent top-level steps of one run in parallel (beyond groups and concurrent runs)? [allowed, subject to the workspace lock]
+3. Dispatching independent top-level steps of one run in parallel (beyond groups and concurrent runs)? [allowed, subject to the workspace lock] **Decided (2026-11-02):** allowed, as suggested; write-mode steps are serialized once the workspace lock exists (Phase 10).
 4. Who maintains the capability vocabulary and classification rules, and how changes are proposed. **Decided (2026-11-01):** the runtime maintainer; changes are proposed as a PR to the runtime repo that adds a new version file (published versions are never edited).
-5. Lease duration and renewal defaults; whether takeover approval is also enforced in the runtime. [1 h, renewed on activity; skill-enforced]
-6. Automatic checkpoint commits on by default; commit to the current branch or a `baton/<run>` branch? [on; current branch]
-7. Git LFS: required or optional, and size threshold. [optional; 5 MB]
+5. Lease duration and renewal defaults; whether takeover approval is also enforced in the runtime. [1 h, renewed on activity; skill-enforced] **Decided (2026-11-02):** as suggested (§10.2).
+6. Automatic checkpoint commits on by default; commit to the current branch or a `baton/<run>` branch? [on; current branch] **Decided (2026-11-02):** as suggested (§10.1).
+7. Git LFS: required or optional, and size threshold. [optional; 5 MB] **Decided (2026-11-02):** as suggested; `baton init` notes when git-lfs is missing (§10.1).
 8. Triage approval: auto-accept at the lowest level, gate above? [yes; always part of the baseline at adoption] **Decided (2026-11-01):** yes, as suggested; `baton plan` shows the implicit approval gate above the lowest level.
 9. Effort bands and `extend_once`. [45 min / 2 h / 4 h; extend once]
 10. Worktree isolation for concurrent write-mode steps. [lock only at first]
