@@ -1,0 +1,130 @@
+id: software-feature
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Take a feature request to an accepted, tested change.
+
+run_inputs:
+  schema: schemas/run_inputs.json      # e.g. title, kind, feature_request
+
+defaults:
+  max_attempts: 3
+
+complexity:                            # recipe-owned scale, lowest to highest (§5.5)
+  levels: [minor, standard, major]
+  triage_step: triage
+
+sme:                                   # optional per-subject expert requirements (§12)
+  project: { capabilities: [long_form_writing, technical_reasoning, workspace_read], tier: strong }
+
+steps:
+  - id: triage
+    title: Assess complexity
+    requires: { capabilities: [structured_output, technical_reasoning], tier: standard }
+    prompt: prompts/triage.md
+    inputs:
+      - { name: feature_request, from: run.inputs.feature_request, required: true }
+      - { name: research,        from: research.findings,          required: false }   # present on adoption
+    output_schema: schemas/triage_out.json        # level + reasons
+    gates: [ { type: schema } ]
+
+  - id: requirements
+    title: Clarify requirements
+    depends_on: [triage]
+    applies_to: [standard, major]
+    requires: { capabilities: [structured_output, long_form_writing], tier: strong, min_context_tokens: 64000 }
+    prompt: prompts/requirements.md
+    inputs:
+      - { name: feature_request, from: run.inputs.feature_request, required: true }
+    output_schema: schemas/requirements_out.json
+    artifacts:
+      - { name: requirements_doc, required: true, media_type: text/markdown,
+          publish: { to: "{{ paths.specs }}/{{ run.slug }}-requirements.md" } }
+    gates:
+      - { type: schema }
+      - { type: human, applies_to: [major], prompt: "Approve requirements before design?" }
+
+  - id: design
+    title: Technical design
+    depends_on: [requirements]
+    applies_to: [major]
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: strong }
+    prompt: prompts/design.md
+    inputs:
+      - { name: requirements_doc, from: steps.requirements.artifacts.requirements_doc, required: true }
+    output_schema: schemas/design_out.json
+    artifacts:
+      - { name: design_doc, required: true, media_type: text/markdown,
+          publish: { to: "{{ paths.designs }}/{{ run.slug }}-design.md" } }
+    gates:
+      - { type: schema }
+      - type: review                       # §9.2: findings with severities and dispositions
+        advisory: true                     # recorded, never blocks
+        reviewer_requires: { capabilities: [structured_output, technical_reasoning], tier: strong }
+        independence: { from_step: design, level: different_vendor }
+        rubric: prompts/design_review_rubric.md
+
+  - id: plan
+    title: Plan vertical slices
+    depends_on: [design]
+    applies_to: [standard, major]
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning, workspace_read], tier: strong }
+    workspace: read
+    prompt: prompts/plan.md
+    inputs:
+      - { name: requirements_doc, from: steps.requirements.artifacts.requirements_doc, required: true }
+      - { name: design_doc,       from: steps.design.artifacts.design_doc,             required: true }
+    output_schema: schemas/plan_out.json   # slices: [{id, title, outcome, criteria[], effort}]
+    gates:
+      - { type: schema }
+      - type: review
+        block_on: [critical, high]
+        reviewer_requires: { capabilities: [structured_output, technical_reasoning], tier: strong }
+        independence: { from_step: plan, level: different_vendor }
+        rubric: prompts/plan_review_rubric.md
+      - { type: human, prompt: "Approve the plan and its slices?" }
+
+  - id: slices                             # a group (§5.4)
+    title: Deliver each slice
+    depends_on: [triage, requirements, design, plan]    # skipped dependencies count as satisfied
+    foreach: steps.plan.output.slices
+    foreach_if_source_skipped: once        # minor work: one instance with item = run inputs
+    concurrency: 1
+    repeat_until: group.steps.code_review.gates.passed
+    repeat_from: implement
+    max_iterations: 3
+    steps:
+      - id: implement
+        effort_from: item.effort           # S | M | L → timeout band (§8.7)
+        requires: { capabilities: [tool_use, file_write, shell, code_exec, repo_workspace], tier: strong }
+        workspace: write
+        protect: ["tests/acceptance/specs/**"]       # §9.4
+        prompt: prompts/implement.md
+        inputs:
+          - { name: slice,           from: item,                              required: true }
+          - { name: feature_request, from: run.inputs.feature_request,        required: true }
+          - { name: design_doc,      from: steps.design.artifacts.design_doc, required: true }
+          - { name: open_findings,   from: group.previous_iteration.findings, required: false }
+        output_schema: schemas/implement_out.json    # includes commit_sha
+        gates:
+          - { type: schema }
+          - { type: script, run: "{{ project.test_command }}", timeout_s: 900 }
+      - id: code_review
+        depends_on: [implement]
+        requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
+        workspace: read
+        independence: { from_step: implement, level: different_vendor }
+        prompt: prompts/code_review.md
+        inputs:
+          - { name: slice,  from: item,                         required: true }
+          - { name: change, from: group.steps.implement.output, required: true }
+        output_schema: baton:findings      # the runtime-owned findings schema (§9.2)
+        gates: [ { type: findings, block_on: [critical, high] } ]
+      - id: accept
+        depends_on: [code_review]
+        requires: { capabilities: [human_judgment] }  # only human profiles have it
+        prompt: prompts/slice_acceptance.md            # runnable-now steps only (§13.6)
+        inputs:
+          - { name: slice,  from: item,                           required: true }
+          - { name: review, from: group.steps.code_review.output, required: true }
+        output_schema: schemas/acceptance_out.json

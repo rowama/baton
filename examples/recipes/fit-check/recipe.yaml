@@ -1,0 +1,31 @@
+id: fit-check
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Decide in minutes whether an idea suits Baton, before investing in it.
+
+run_inputs:
+  schema: schemas/run_inputs.json      # title, idea
+
+steps:
+  - id: describe
+    title: Profile the idea
+    requires: { capabilities: [structured_output, long_form_writing], tier: standard }
+    prompt: prompts/describe.md
+    inputs:
+      - { name: idea, from: run.inputs.idea, required: true }
+    output_schema: schemas/profile.json
+    gates: [ { type: schema } ]
+
+  - id: assess
+    title: Score against the fit rubric
+    depends_on: [describe]
+    requires: { capabilities: [structured_output, technical_reasoning], tier: standard }
+    prompt: prompts/assess.md
+    inputs:
+      - { name: profile, from: steps.describe.output, required: true }
+      - { name: rubric,  from: static.rubric.md,      required: true }
+    output_schema: schemas/verdict.json
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Accept this verdict and its suggested next step?" }

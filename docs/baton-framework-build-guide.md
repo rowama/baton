@@ -148,6 +148,8 @@ baton/
 ├── pyproject.toml   README.md
 ├── src/baton/
 │   ├── models.py            # pydantic models for everything below
+│   ├── data.py              # shipped data lookup; strict YAML (duplicate keys rejected)
+│   ├── refs.py              # input-reference grammar (§5.2) parser
 │   ├── recipe.py            # load, validate, neutrality lint, per-level plan, group validation
 │   ├── vocab.py             # capability vocabulary
 │   ├── profiles.py          # worker profiles, secrets, env construction, PATH resolution
@@ -173,6 +175,7 @@ baton/
 │   ├── adapters/            # base, litellm_api, subprocess_harness, claude_code, codex, command, manual
 │   ├── cli.py   mcp_server.py   check.py   doctor.py
 ├── vocab/baton-capabilities-1.yaml
+├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   # generated from models (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
 ├── defaults/communication.md        # default owner communication contract
@@ -1226,11 +1229,11 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 1. Large inputs for API workers: hard error, auto-chunking, or require a file-capable worker? [hard error]
 2. No eligible worker: escalate or fail the run? [escalate]
 3. Dispatching independent top-level steps of one run in parallel (beyond groups and concurrent runs)? [allowed, subject to the workspace lock]
-4. Who maintains the capability vocabulary and classification rules, and how changes are proposed.
+4. Who maintains the capability vocabulary and classification rules, and how changes are proposed. **Decided (2026-11-01):** the runtime maintainer; changes are proposed as a PR to the runtime repo that adds a new version file (published versions are never edited).
 5. Lease duration and renewal defaults; whether takeover approval is also enforced in the runtime. [1 h, renewed on activity; skill-enforced]
 6. Automatic checkpoint commits on by default; commit to the current branch or a `baton/<run>` branch? [on; current branch]
 7. Git LFS: required or optional, and size threshold. [optional; 5 MB]
-8. Triage approval: auto-accept at the lowest level, gate above? [yes; always part of the baseline at adoption]
+8. Triage approval: auto-accept at the lowest level, gate above? [yes; always part of the baseline at adoption] **Decided (2026-11-01):** yes, as suggested; `baton plan` shows the implicit approval gate above the lowest level.
 9. Effort bands and `extend_once`. [45 min / 2 h / 4 h; extend once]
 10. Worktree isolation for concurrent write-mode steps. [lock only at first]
 11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured]

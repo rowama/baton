@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["verdict", "reasons", "next_step"],
+  "properties": {
+    "verdict": {"enum": ["fits", "fits_per_occurrence", "operations_engine"]},
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["row", "leans", "reason"],
+        "properties": {
+          "row": {"enum": ["occurrences", "judgment", "duration", "audit_trail"]},
+          "leans": {"enum": ["baton", "operations_engine"]},
+          "reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_step": {"type": "string"}
+  },
+  "additionalProperties": false
+}

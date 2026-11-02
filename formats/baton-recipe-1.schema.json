@@ -1,0 +1,968 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "name": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "publish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Publish"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "Complexity": {
+      "additionalProperties": false,
+      "properties": {
+        "levels": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Levels",
+          "type": "array"
+        },
+        "triage_step": {
+          "title": "Triage Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "levels",
+        "triage_step"
+      ],
+      "title": "Complexity",
+      "type": "object"
+    },
+    "Defaults": {
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        }
+      },
+      "title": "Defaults",
+      "type": "object"
+    },
+    "FindingsGate": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "block_on": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Block On"
+        },
+        "type": {
+          "const": "findings",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "FindingsGate",
+      "type": "object"
+    },
+    "Group": {
+      "additionalProperties": false,
+      "description": "A step containing steps: a sub-process (\u00a75.4).",
+      "properties": {
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "concurrency": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "foreach": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Foreach"
+        },
+        "foreach_if_source_skipped": {
+          "anyOf": [
+            {
+              "enum": [
+                "once",
+                "skip"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Foreach If Source Skipped"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Iterations"
+        },
+        "repeat_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat From"
+        },
+        "repeat_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat Until"
+        },
+        "steps": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Step"
+              },
+              {
+                "$ref": "#/$defs/Group"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "steps"
+      ],
+      "title": "Group",
+      "type": "object"
+    },
+    "HumanGate": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "prompt": {
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "type": {
+          "const": "human",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "prompt"
+      ],
+      "title": "HumanGate",
+      "type": "object"
+    },
+    "Independence": {
+      "additionalProperties": false,
+      "properties": {
+        "from_step": {
+          "title": "From Step",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "different_profile",
+            "different_model",
+            "different_vendor"
+          ],
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_step",
+        "level"
+      ],
+      "title": "Independence",
+      "type": "object"
+    },
+    "Input": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "from"
+      ],
+      "title": "Input",
+      "type": "object"
+    },
+    "Protect": {
+      "additionalProperties": false,
+      "properties": {
+        "on_violation": {
+          "default": "warn",
+          "enum": [
+            "warn",
+            "fail"
+          ],
+          "title": "On Violation",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "Protect",
+      "type": "object"
+    },
+    "Publish": {
+      "additionalProperties": false,
+      "properties": {
+        "to": {
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "required": [
+        "to"
+      ],
+      "title": "Publish",
+      "type": "object"
+    },
+    "Requires": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "min_context_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Context Tokens"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        }
+      },
+      "title": "Requires",
+      "type": "object"
+    },
+    "ReviewGate": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "block_on": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Block On"
+        },
+        "independence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Independence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reviewer_requires": {
+          "$ref": "#/$defs/Requires"
+        },
+        "rubric": {
+          "title": "Rubric",
+          "type": "string"
+        },
+        "type": {
+          "const": "review",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reviewer_requires",
+        "rubric"
+      ],
+      "title": "ReviewGate",
+      "type": "object"
+    },
+    "RunInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "title": "RunInputs",
+      "type": "object"
+    },
+    "SchemaGate": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "type": {
+          "const": "schema",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SchemaGate",
+      "type": "object"
+    },
+    "ScriptGate": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory": {
+          "default": false,
+          "title": "Advisory",
+          "type": "boolean"
+        },
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd"
+        },
+        "run": {
+          "minLength": 1,
+          "title": "Run",
+          "type": "string"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout S"
+        },
+        "type": {
+          "const": "script",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "run"
+      ],
+      "title": "ScriptGate",
+      "type": "object"
+    },
+    "SmeRequirements": {
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Requires"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "process": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Requires"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Requires"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "SmeRequirements",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "description": "A leaf step: one unit of work done by one worker per attempt.",
+      "properties": {
+        "applies_to": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applies To"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "doc_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doc Template"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "S",
+                "M",
+                "L"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
+        "effort_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort From"
+        },
+        "gates": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "findings": "#/$defs/FindingsGate",
+                "human": "#/$defs/HumanGate",
+                "review": "#/$defs/ReviewGate",
+                "schema": "#/$defs/SchemaGate",
+                "script": "#/$defs/ScriptGate"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/SchemaGate"
+              },
+              {
+                "$ref": "#/$defs/ScriptGate"
+              },
+              {
+                "$ref": "#/$defs/ReviewGate"
+              },
+              {
+                "$ref": "#/$defs/FindingsGate"
+              },
+              {
+                "$ref": "#/$defs/HumanGate"
+              }
+            ]
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "independence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Independence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/Input"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "protect": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/Protect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protect"
+        },
+        "requires": {
+          "$ref": "#/$defs/Requires"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "workspace": {
+          "default": "none",
+          "enum": [
+            "none",
+            "read",
+            "write"
+          ],
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "requires",
+        "prompt"
+      ],
+      "title": "Step",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities_vocab": {
+      "title": "Capabilities Vocab",
+      "type": "string"
+    },
+    "complexity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Complexity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "defaults": {
+      "$ref": "#/$defs/Defaults"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "format": {
+      "title": "Format",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "run_inputs": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunInputs"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "sme": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SmeRequirements"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "steps": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Step"
+          },
+          {
+            "$ref": "#/$defs/Group"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "format",
+    "capabilities_vocab",
+    "steps"
+  ],
+  "title": "baton-recipe/1",
+  "type": "object"
+}

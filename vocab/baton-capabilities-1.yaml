@@ -1,0 +1,29 @@
+# Baton capability vocabulary, version 1 (§5.6).
+#
+# Maintained by the Baton runtime maintainer. To change it, open a PR against
+# the runtime repository that adds a NEW file (baton-capabilities-<N+1>.yaml);
+# published versions are never edited, because recipes and profiles pin them.
+# Process-SME proposals that need a capability arrive as such PRs.
+id: baton-capabilities/1
+capabilities:
+  structured_output:   "Reliably returns JSON conforming to a supplied schema"
+  long_form_writing:   "Produces coherent multi-page documents"
+  technical_reasoning: "Sound multi-step technical analysis"
+  tool_use:            "Can call tools / functions"
+  file_write:          "Can write files to a given directory"
+  shell:               "Can execute shell commands"
+  code_exec:           "Can run code and observe results"
+  repo_workspace:      "Can operate inside a git working tree and commit"
+  workspace_read:      "Can read (not modify) files in a working tree"
+  loopback_network:    "Can bind and connect to localhost ports (socket/integration tests)"
+  vision:              "Accepts image inputs"
+  web_access:          "Can fetch / search the web"
+  human_judgment:      "A person: manual verification, acceptance, physical-world work"
+tiers: [basic, standard, strong]
+numeric:
+  min_context_tokens: "Profile context_tokens must be >= this"
+sme_defaults:
+  project:  { capabilities: [long_form_writing, technical_reasoning], tier: strong }
+  platform: { capabilities: [technical_reasoning, shell], tier: strong }
+  process:  { capabilities: [long_form_writing, technical_reasoning], tier: strong }
+vendor_denylist: ["openai/", "anthropic/", "gpt-", "claude-", "gemini", "grok", "llama", "mistral"]

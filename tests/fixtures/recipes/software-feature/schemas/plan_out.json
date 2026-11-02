@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["slices"],
+  "properties": {
+    "slices": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "outcome", "criteria", "effort"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "title": {"type": "string"},
+          "outcome": {"type": "string"},
+          "criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+          "effort": {"enum": ["S", "M", "L"]}
+        }
+      }
+    }
+  }
+}

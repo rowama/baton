@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["commit_sha", "summary"],
+  "properties": {
+    "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+    "summary": {"type": "string"},
+    "tests_added": {"type": "array", "items": {"type": "string"}}
+  }
+}

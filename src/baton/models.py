@@ -1,0 +1,333 @@
+"""Pydantic models for Baton's formats.
+
+The recipe models *are* the definition of ``baton-recipe/1``: the published
+JSON Schema (``formats/``) is generated from them (§15.3). Rules a schema
+cannot express (cross-references, files, vocabulary, neutrality) live in
+``recipe.py``.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal, Union
+
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
+
+STEP_ID = r"^[a-z][a-z0-9_]*$"
+RECIPE_ID = r"^[a-z][a-z0-9-]*$"
+
+Tier = str  # checked against the vocabulary's tiers, not a fixed enum
+Level = str  # checked against the recipe's declared complexity levels
+Severity = Literal["critical", "high", "medium", "low"]
+SEVERITIES: tuple[str, ...] = ("critical", "high", "medium", "low")
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+# --------------------------------------------------------------------------
+# Issues (validation results)
+# --------------------------------------------------------------------------
+
+
+class Issue(BaseModel):
+    """One validation problem. ``code`` is stable and machine-checkable."""
+
+    code: str
+    where: str = ""
+    message: str
+    severity: Literal["error", "warning"] = "error"
+
+    def __str__(self) -> str:
+        prefix = "ERROR" if self.severity == "error" else "WARNING"
+        loc = f" {self.where}" if self.where else ""
+        return f"{prefix}{loc}: [{self.code}] {self.message}"
+
+
+# --------------------------------------------------------------------------
+# Recipe format: baton-recipe/1
+# --------------------------------------------------------------------------
+
+
+class Requires(_Strict):
+    capabilities: list[str] = Field(default_factory=list)
+    tier: Tier | None = None
+    min_context_tokens: int | None = Field(default=None, ge=1)
+
+
+class Independence(_Strict):
+    from_step: str
+    level: Literal["different_profile", "different_model", "different_vendor"]
+
+
+class Input(_Strict):
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    from_: str = Field(alias="from")
+    required: bool = True
+
+
+class Publish(_Strict):
+    to: str
+
+
+class Artifact(_Strict):
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    required: bool = True
+    media_type: str | None = None
+    publish: Publish | None = None
+
+
+class Protect(_Strict):
+    paths: list[str] = Field(min_length=1)
+    on_violation: Literal["warn", "fail"] = "warn"
+
+
+class _GateBase(_Strict):
+    advisory: bool = False
+    applies_to: list[Level] | None = None
+
+
+class SchemaGate(_GateBase):
+    type: Literal["schema"]
+
+
+class ScriptGate(_GateBase):
+    type: Literal["script"]
+    run: str = Field(min_length=1)
+    cwd: str | None = None
+    timeout_s: int | None = Field(default=None, ge=1)
+
+
+class ReviewGate(_GateBase):
+    type: Literal["review"]
+    reviewer_requires: Requires
+    rubric: str
+    independence: Independence | None = None
+    block_on: list[Severity] | None = None
+
+
+class FindingsGate(_GateBase):
+    type: Literal["findings"]
+    block_on: list[Severity] | None = None
+
+
+class HumanGate(_GateBase):
+    type: Literal["human"]
+    prompt: str = Field(min_length=1)
+
+
+Gate = Annotated[
+    Union[SchemaGate, ScriptGate, ReviewGate, FindingsGate, HumanGate],
+    Field(discriminator="type"),
+]
+GATE_TYPES: tuple[str, ...] = ("schema", "script", "review", "findings", "human")
+IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected")
+
+
+class Step(_Strict):
+    """A leaf step: one unit of work done by one worker per attempt."""
+
+    id: str = Field(pattern=STEP_ID)
+    title: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+    applies_to: list[Level] | None = None
+    requires: Requires
+    prompt: str
+    inputs: list[Input] = Field(default_factory=list)
+    output_schema: str | None = None  # recipe-relative path, or "baton:findings"
+    artifacts: list[Artifact] = Field(default_factory=list)
+    gates: list[Gate] = Field(default_factory=list)
+    workspace: Literal["none", "read", "write"] = "none"
+    protect: list[str] | Protect | None = None
+    effort: Literal["S", "M", "L"] | None = None
+    effort_from: str | None = None
+    independence: Independence | None = None
+    doc_template: str | None = None
+
+    @property
+    def is_group(self) -> bool:
+        return False
+
+    def protect_paths(self) -> list[str]:
+        if self.protect is None:
+            return []
+        return list(self.protect) if isinstance(self.protect, list) else list(self.protect.paths)
+
+
+class Group(_Strict):
+    """A step containing steps: a sub-process (§5.4)."""
+
+    id: str = Field(pattern=STEP_ID)
+    title: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+    applies_to: list[Level] | None = None
+    foreach: str | None = None
+    foreach_if_source_skipped: Literal["once", "skip"] | None = None
+    concurrency: int = Field(default=1, ge=1)
+    repeat_until: str | None = None
+    repeat_from: str | None = None
+    max_iterations: int | None = None  # range checked by the loader for a specific error
+    steps: list[AnyStep] = Field(min_length=1)
+
+    @property
+    def is_group(self) -> bool:
+        return True
+
+
+def _step_kind(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return "group" if "steps" in value else "step"
+    if isinstance(value, Group):
+        return "group"
+    if isinstance(value, Step):
+        return "step"
+    return None
+
+
+AnyStep = Annotated[
+    Union[Annotated[Step, Tag("step")], Annotated[Group, Tag("group")]],
+    Discriminator(_step_kind),
+]
+Group.model_rebuild()
+
+
+class RunInputs(_Strict):
+    schema_: str = Field(alias="schema")
+
+
+class Defaults(_Strict):
+    max_attempts: int = Field(default=3, ge=1)
+
+
+class Complexity(_Strict):
+    levels: list[str] = Field(min_length=1)
+    triage_step: str
+
+
+class SmeRequirements(_Strict):
+    project: Requires | None = None
+    platform: Requires | None = None
+    process: Requires | None = None
+
+
+class Recipe(_Strict):
+    id: str = Field(pattern=RECIPE_ID)
+    version: int = Field(ge=1)
+    format: str
+    capabilities_vocab: str
+    description: str | None = None
+    run_inputs: RunInputs | None = None
+    defaults: Defaults = Field(default_factory=Defaults)
+    complexity: Complexity | None = None
+    sme: SmeRequirements | None = None
+    steps: list[AnyStep] = Field(min_length=1)
+
+    @property
+    def ref(self) -> str:
+        return f"{self.id}@{self.version}"
+
+
+# --------------------------------------------------------------------------
+# Findings: the runtime-owned schema "baton:findings" (§9.2)
+# --------------------------------------------------------------------------
+
+
+class Finding(_Strict):
+    id: str = Field(min_length=1)
+    severity: Severity
+    location: str = ""
+    title: str = Field(min_length=1)
+    detail: str = ""
+    suggested_fix: str = ""
+
+
+class Coverage(_Strict):
+    complete: bool
+    notes: str = ""
+
+
+class Findings(_Strict):
+    findings: list[Finding]
+    coverage: Coverage
+
+
+# --------------------------------------------------------------------------
+# Worker profiles (§6.1). Phase 1 validates capabilities and tier; the
+# remaining fields are carried for later layers.
+# --------------------------------------------------------------------------
+
+
+class ProfileAuth(_Strict):
+    mode: Literal["api_key", "cli_login", "none"]
+    env: dict[str, str] = Field(default_factory=dict)
+    config_home: str | None = None
+
+
+class ProfilePath(_Strict):
+    search: list[str] = Field(default_factory=list)
+    prepend: list[str] = Field(default_factory=list)
+
+
+class ProfileArgs(_Strict):
+    write: list[str] = Field(default_factory=list)
+    read: list[str] = Field(default_factory=list)
+
+
+class WorkerProfile(_Strict):
+    adapter: str
+    vendor: str
+    model: str | None = None
+    person: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    tier: Tier | None = None
+    context_tokens: int | None = Field(default=None, ge=1)
+    auth: ProfileAuth = Field(default_factory=lambda: ProfileAuth(mode="none"))
+    env_mode: Literal["clean", "allowlist", "inherit"] | None = None
+    env_allow: list[str] = Field(default_factory=list)
+    env_deny: list[str] = Field(default_factory=list)
+    executable: str | None = None
+    path: ProfilePath | None = None
+    args: ProfileArgs | None = None
+    isolation: Literal["none", "user", "container"] = "none"
+    command: str | None = None  # for the `command` adapter
+
+
+# --------------------------------------------------------------------------
+# Plan: the structured per-level step and gate table (§5.3, §15.3)
+# --------------------------------------------------------------------------
+
+
+class PlanGate(BaseModel):
+    type: str
+    blocking: bool
+    included: bool
+    implicit: bool = False
+    note: str = ""
+
+
+class PlanStep(BaseModel):
+    path: str
+    title: str
+    kind: Literal["step", "group"]
+    depth: int
+    included: bool
+    reason: str = ""  # why skipped
+    requires: Requires | None = None
+    workspace: str = "none"
+    gates: list[PlanGate] = Field(default_factory=list)
+    group: dict[str, Any] | None = None  # foreach / repeat details for groups
+
+
+class PlanLevel(BaseModel):
+    level: str | None  # None when the recipe declares no complexity scale
+    steps: list[PlanStep]
+
+
+class Plan(BaseModel):
+    recipe: str
+    format: str
+    capabilities_vocab: str
+    recipe_sha256: str
+    description: str | None = None
+    levels: list[PlanLevel]
+    warnings: list[Issue] = Field(default_factory=list)
