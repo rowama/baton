@@ -26,8 +26,12 @@ once directly and once through the worker under its own write-mode args, via
 ``baton.probe``; a command the worker cannot run, or whose exit differs, would
 fail every script gate, so it is reported before a real run (§13.4).
 
-Supervisor detachment, hooks and platform incidents arrive with their layers
-(Phases 7 and 12).
+**Async machinery** (§8.7): a supervisor can be started detached from this
+process (a new session on POSIX), and every configured completion hook can
+run here: ``hooks.yaml`` is valid, its ``secret:`` references resolve, and
+each command's program is found on PATH. Hooks are never fired by doctor.
+
+Platform incidents arrive with their layer (Phase 12).
 """
 
 from __future__ import annotations
@@ -254,11 +258,68 @@ def _lock_problems(project: Any) -> list[str]:
     return problems
 
 
+def _supervisor_problems(project: Any) -> list[str]:
+    """Can a supervisor detach from this process? (§8.7)"""
+    import time
+
+    from .supervisor import selftest_spawn
+
+    with tempfile.TemporaryDirectory(prefix="baton-doctor-") as tmp:
+        out = Path(tmp) / "selftest.json"
+        try:
+            proc = selftest_spawn(out)
+        except OSError as e:
+            return [f"cannot start a supervisor: {e}"]
+        end = time.monotonic() + 30
+        while time.monotonic() < end and proc.poll() is None:
+            time.sleep(0.05)
+        if not out.is_file():
+            return ["a detached supervisor did not start (dispatches could not run in the background)"]
+        info = json.loads(out.read_text(encoding="utf-8"))
+        if os.name == "posix" and info.get("sid") == os.getsid(0):
+            return ["a supervisor did not detach into its own session; it would end with the Director's shell"]
+    return []
+
+
+def _hook_problems(project: Any) -> list[str]:
+    """Configured hooks can run here: valid config, secrets resolve, programs found (never fired)."""
+    import shlex
+    import shutil
+
+    from .profiles import SetupError
+    from .supervisor import HookConfigError, load_hooks, render_hook
+
+    try:
+        configured = load_hooks(project)
+    except HookConfigError as e:
+        return [f"hooks: {e}"]
+    problems = []
+    for source, hooks in configured:
+        for name, command in hooks.items():
+            where = f"{source} hook {name}"
+            try:
+                rendered, _ = render_hook(command, source, project.home)
+            except SetupError as e:
+                problems.append(f"{where}: {e}")
+                continue
+            try:
+                words = shlex.split(rendered)
+            except ValueError as e:
+                problems.append(f"{where}: cannot parse the command: {e}")
+                continue
+            prog = next((w for w in words if "=" not in w.split("/")[0]), None)  # skip VAR=value prefixes
+            if prog and not shutil.which(prog) and not Path(prog).is_file():
+                problems.append(f"{where}: {prog!r} is not found on PATH")
+    return problems
+
+
 def doctor(project: Any, only: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
     from .routing import PreferencesError, load_preferences
 
     problems: list[str] = _lock_problems(project)
     warnings: list[str] = []
+    if only is None:
+        problems += _supervisor_problems(project) + _hook_problems(project)
     try:
         profiles = project.profiles()
     except EngineError as e:

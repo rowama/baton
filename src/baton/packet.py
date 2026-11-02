@@ -536,8 +536,12 @@ def build_packet(
     *,
     deadline: str | None = None,
     guidance: str | None = None,
+    effort: str | None = None,
 ) -> BuiltPacket:
     """Assemble and write the packet for the step's next attempt. Writes no events.
+
+    ``effort`` is the resolved effort (``effort`` or ``effort_from``, §8.7);
+    ``deadline`` is supplied by the caller (the manifest's only clock reading).
 
     ``guidance`` (a retry's additive note from the Director, §13.1) is added to
     ``prior_feedback``; it never replaces inputs or reasons.
@@ -592,7 +596,7 @@ def build_packet(
         "recipe_sha256": loaded.sha256,
         "step_path": step_path,
         "attempt": attempt,
-        "effort": node.effort,
+        "effort": effort or node.effort,
         "deadline": deadline,
         "workspace": node.workspace,
         "exit_criteria": exit_criteria(node, level),

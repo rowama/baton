@@ -153,7 +153,7 @@ def tree_snapshot(root: Path, exclude: list[str] = ()) -> TreeSnapshot | None:
         return None
     top = toplevel(root)
     head = git(top, "rev-parse", "--verify", "-q", "HEAD", check=False).stdout.strip() or None
-    raw = git(top, "status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
+    raw = git(top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
     entries = raw.split("\0")
     paths: list[str] = []
     i = 0

@@ -166,9 +166,9 @@ def test_cli_login_and_api_key_steps_in_one_run(tmp_path, monkeypatch, litellm_o
         encoding="utf-8",
     )
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d1 = cli.run("dispatch", run, "describe", "--worker", "claude-sub")
+    d1 = cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")
     assert d1["outcome"] == "passed", d1
-    d2 = cli("dispatch", run, "assess", "--worker", "zenith-api", expect=4).payload
+    d2 = cli("dispatch", run, "assess", "--worker", "zenith-api", "--wait", expect=4).payload
     assert d2["outcome"] == "needs_human", d2
     assert cli.run("decide", run, "assess", "approve", "--note", "Agreed.")["run_completed"] is True
 
@@ -202,7 +202,7 @@ def test_codex_found_only_under_nvm_runs_a_step(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d = cli.run("dispatch", run, "describe", "--worker", "codex-sub")
+    d = cli.run("dispatch", run, "describe", "--worker", "codex-sub", "--wait")
     assert d["outcome"] == "passed", d
     disp = next(e["data"] for e in events(project, run) if e["type"] == "dispatched")
     assert disp["env"]["resolved_by"] == "search:nvm" and disp["env"]["executable"] == str(bin_dir / "codex")
@@ -218,7 +218,7 @@ def test_cli_not_logged_in_is_a_platform_failure(tmp_path):
         harness_profile("claude-sub", "claude_code", "acme", executable=str(claude), capabilities=FIT_CAPS, env_mode="clean"), encoding="utf-8"
     )
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d = cli("dispatch", run, "describe", "--worker", "claude-sub", expect=4).payload
+    d = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=4).payload
     assert d["outcome"] == "escalated", d
     ev = events(project, run)
     cls = next(e["data"] for e in ev if e["type"] == "failure_classified")
@@ -244,7 +244,7 @@ def test_command_adapter_runs_a_step(tmp_path):
         encoding="utf-8",
     )
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d = cli.run("dispatch", run, "describe", "--worker", "relay")
+    d = cli.run("dispatch", run, "describe", "--worker", "relay", "--wait")
     assert d["outcome"] == "passed", d
 
 
@@ -264,7 +264,7 @@ def _ws_setup(tmp_path, mode: str, spec: dict):
 
 def test_read_step_that_changes_the_tree_escalates(tmp_path):
     cli, project, bin_dir, run = _ws_setup(tmp_path, "read", {"touch": "notes.txt"})
-    d = cli("dispatch", run, "describe", "--worker", "claude-sub", expect=4).payload
+    d = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=4).payload
     assert d["outcome"] == "escalated" and "notes.txt" in d["reasons"][0], d
     ev = events(project, run)
     gate = next(e["data"] for e in ev if e["type"] == "gate_failed")
@@ -280,19 +280,19 @@ def test_read_step_that_changes_the_tree_escalates(tmp_path):
 def test_read_step_that_leaves_the_tree_alone_passes(tmp_path):
     cli, project, _, run = _ws_setup(tmp_path, "read", {})
     (project / "scratch.txt").write_text("pre-existing uncommitted work\n")  # already dirty: not the worker's change
-    assert cli.run("dispatch", run, "describe", "--worker", "claude-sub")["outcome"] == "passed"
+    assert cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")["outcome"] == "passed"
 
 
 def test_none_step_writing_outside_its_attempt_escalates(tmp_path):
     cli, project, _, run = _ws_setup(tmp_path, "none", {})
     set_outputs(tmp_path / "bin", {"describe": {"output": GOOD_PROFILE, "touch": str(project / "README-x.md")}})
-    d = cli("dispatch", run, "describe", "--worker", "claude-sub", expect=4).payload
+    d = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=4).payload
     assert d["outcome"] == "escalated" and "README-x.md" in d["reasons"][0]
 
 
 def test_write_step_may_change_the_tree(tmp_path):
     cli, project, bin_dir, run = _ws_setup(tmp_path, "write", {"touch": "src.txt"})
-    assert cli.run("dispatch", run, "describe", "--worker", "claude-sub")["outcome"] == "passed"
+    assert cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")["outcome"] == "passed"
     (call,) = calls(bin_dir)
     assert call["argv"][2:] == ["--permission-mode", "bypassPermissions"]
 
@@ -454,15 +454,15 @@ def test_live_harnesses(tmp_path):
         assert rep["noop"]["ok"] is True, rep
         assert rep["preflight"]["ok"] is True, rep
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d1 = cli("dispatch", run, "describe", "--worker", "claude-sub", expect=None).payload
+    d1 = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=None).payload
     print(json.dumps(d1, indent=2))
     if d1["outcome"] == "escalated":
         # describe interviews the owner: a real worker asks first (a `blocked` result). The owner answers.
         assert d1["pending_decisions"][0]["reason"] == "blocked", d1
         cli("decide", run, "describe", "retry", "--note", LIVE_ANSWERS, expect=None)
-        d1 = cli("dispatch", run, "describe", "--worker", "claude-sub", expect=None).payload
+        d1 = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=None).payload
         print(json.dumps(d1, indent=2))
     assert d1["outcome"] == "passed", d1
-    d2 = cli("dispatch", run, "assess", "--worker", "codex-sub", expect=None).payload
+    d2 = cli("dispatch", run, "assess", "--worker", "codex-sub", "--wait", expect=None).payload
     print(json.dumps(d2, indent=2))
     assert d2["outcome"] == "needs_human", d2

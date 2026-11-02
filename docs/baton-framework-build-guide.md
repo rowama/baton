@@ -95,7 +95,7 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Lease** | Which Director may change a run right now. |
 | **Owner** | The human who makes the decisions. |
 
-Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, the workspace lock, the SQLite cache.
+Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the SQLite cache.
 
 ### 2.1 Core and layers
 
@@ -701,7 +701,7 @@ stale            → ready | passed (re-run, or confirmed by a human decision)
 | → `skipped` / `blocked_on_deps` (from `skipped`) / `imported` | `step_skipped`, `step_unskipped`, `step_imported` |
 | → `superseded` / `stale` | `step_revised`, `step_stale` |
 
-Some step events record facts without a transition but are legal only in certain states (`worker_selected`, `packet_built` in `ready`; `gate_*`, `result_rejected`, `findings_recorded` in `verifying`; `failure_classified` after an attempt ends). Run level: `run_started` is first and once; after `run_completed` or `run_abandoned` no step event is accepted.
+Some step events record facts without a transition but are legal only in certain states (`worker_selected`, `packet_built` in `ready`; `deadline_extended` in `running`; `gate_*`, `result_rejected`, `findings_recorded` in `verifying`; `failure_classified` after an attempt ends). Run level: `run_started` is first and once; after `run_completed` or `run_abandoned` no step event is accepted.
 
 ### 8.2 Events (the single list)
 
@@ -713,7 +713,7 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 |---|---|
 | Run | `run_started` (work item, recipe, versions, branch, `max_attempts`), `run_completed`, `run_abandoned` |
 | Leases | `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released` |
-| Steps | `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `verification_started`, `result_rejected`, `gate_passed`, `gate_failed`, `human_gate_opened`, `step_passed`, `step_escalated`, `step_abandoned`, `step_timed_out`, `attempt_orphaned`, `failure_classified` |
+| Steps | `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `verification_started`, `result_rejected`, `gate_passed`, `gate_failed`, `human_gate_opened`, `step_passed`, `step_escalated`, `step_abandoned`, `step_timed_out`, `attempt_orphaned`, `failure_classified`, `deadline_extended` |
 | Tailoring | `complexity_set`, `step_skipped`, `step_unskipped`, `retriage_requested`, `retriage_applied` |
 | Groups | `group_expanded`, `iteration_started`, `iteration_limit_reached` |
 | Corrections | `step_revised`, `step_stale` |
@@ -761,40 +761,41 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
 
 ### 8.7 Dispatch, supervision, completion and timeouts
 
-- **Dispatch** returns once the worker has started. A small **per-dispatch supervisor** (no daemon) is started detached from the caller (POSIX: new session; Windows: detached process group **[VERIFY]**), so a Director's shell ending does not affect it. The supervisor starts the worker, keeps the running marker, enforces the deadline, runs intake when the worker exits, fires hooks and exits. `wait` lets an attached Director block until completion.
-- **Running marker** `.baton/cache/running/<dispatch_id>.json`: host, supervisor and worker PIDs, step path, started, deadline, heartbeat (every 30 s). Removed after intake.
+- **Dispatch** returns once the worker has started, with its dispatch id, effort and deadline (`dispatch(…, wait=true)` / `--wait` blocks until the outcome is recorded). A small **per-dispatch supervisor** (no daemon) is started detached from the caller (POSIX: new session; Windows: detached process group **[VERIFY]**), so a Director's shell ending does not affect it. It receives the worker's constructed environment through a pipe (never written to disk), starts the worker, keeps the running marker, enforces the deadline, runs intake when the worker exits, fires hooks, writes records, makes the checkpoint commit and exits. The supervisor is the runtime finishing work a Director started: it writes events as `runtime` / `worker:<profile>` under a short per-run file lock (`.baton/cache/locks/`) and needs no lease. `wait(run, dispatch_id?, timeout?)` lets an attached Director block until completion. **Manual workers** get no supervisor and no timeout; their packet deadline is informational.
+- **Running marker** `.baton/cache/running/<dispatch_id>.json`: host, supervisor and worker PIDs, step path, attempt, started, deadline (and whether it was extended), heartbeat (every 30 s). For `read`/`none` steps the tree snapshot taken before the worker started is kept beside it. Removed after intake and hooks.
 
-| Marker | Process | Result | Meaning |
+| Marker | Process (supervisor) | Result | Meaning |
 |---|---|---|---|
 | present | alive | – | running (overdue if past deadline) |
 | present | dead | written | missed completion → finish intake now |
-| present | dead | none | died silently → `orphaned`, classify |
+| present | dead | none | died silently → `orphaned`, classified `platform` / `supervisor_died`, escalated |
 | absent | – | intake done | finished |
 
-- **Completion hooks** fire after intake on every outcome (passed, gate failed, needs human, timed out, failed). Project-level (non-secret) hooks go in `project.yaml`; machine-level hooks (may reference `secret:` values, substituted at execution, never logged) go in `~/.baton/hooks.yaml`:
+  Reconciliation (`resume`, `wait`) applies this table on this host (a marker from another host is reported, not judged). A worker still alive under a dead supervisor is terminated first. A running process attempt with no marker counts as a dead supervisor. Hooks fire for outcomes recorded by reconciliation too.
+- **Completion hooks** fire after intake on every outcome (passed, gate failed, needs human, timed out, failed), and with outcome `overdue` when a deadline is extended. Project-level (non-secret) hooks go in `project.yaml`; machine-level hooks (may reference `secret:` values, substituted shell-quoted at execution, never logged) go in `~/.baton/hooks.yaml`. When both are configured, both fire. A hook is a shell command line.
   ```yaml
   hooks:
     on_complete: "curl -fsS -m 20 -X POST -d run=$BATON_RUN_ID -d step=$BATON_STEP_PATH -d outcome=$BATON_OUTCOME secret:director_wake_url"
     on_needs_human: ""         # optional; falls back to on_complete
-    on_platform_failure: ""    # optional; e.g. wake the platform SME
+    on_platform_failure: ""    # optional; e.g. wake the platform SME; falls back to on_complete
   ```
-  Environment: `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME`, `BATON_CLASSIFICATION`, `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD`. Hook failures are recorded and never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `board`).
-- **Effort and timeouts:** steps declare `effort` (`S` / `M` / `L`) or `effort_from`; bands come from `project.yaml` (defaults 45 min / 2 h / 4 h). At the deadline: if alive and `extend_once` is on, record an overdue notice, fire the hook with outcome `overdue` and extend by one band; otherwise terminate the worker's process tree, record `step_timed_out` and classify.
+  Which hook: a `platform` classification uses `on_platform_failure`; a step now waiting on the owner (human gate or escalation) uses `on_needs_human`; otherwise `on_complete` (§18 #11). Environment: the caller's, plus `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed` \| `gate_failed` \| `needs_human` \| `timed_out` \| `failed` (ended without a result) \| `overdue`), `BATON_CLASSIFICATION`, `BATON_STEP_STATE` (the step's state after the outcome), `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (the step record, already regenerated). Each run is recorded as `completion_hook_fired` or `completion_hook_failed` (hook name, source, outcome, exit code; never the command). Hook failures never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `status`/`board`, or `wait`).
+- **Effort and timeouts:** steps declare `effort` (`S` / `M` / `L`) or `effort_from`; a step with neither, or whose `effort_from` does not resolve to one of them, gets `effort.default` (M). Bands come from `project.yaml` (`effort: { bands: {S: 45m, M: 2h, L: 4h}, extend_once: true, default: M }`; durations as `90s`, `45m`, `2h`). The deadline is dispatch time plus the band. At the deadline: if alive and `extend_once` is on (and not yet used), record `deadline_extended {previous_deadline, deadline, band}`, fire the hook with outcome `overdue` and extend by one band; otherwise terminate the worker's process tree, record `step_timed_out` and classify (`subject` / `timeout`; retried while attempts remain).
 
 ### 8.8 Failure classification
 
-`classify.py` applies data-driven rules (`classify/rules-1.yaml` plus adapter `failure_signals`), in order:
+`classify.py` applies data-driven rules (`classify/rules-1.yaml`, format `baton-classify-rules/1`, plus adapter `failure_signals`), in order:
 
 | Class | Typical signals | Goes to |
 |---|---|---|
 | `configuration` | Unknown profile, missing secret, invalid project config | Owner, with the exact fix |
 | `platform` | Executable not found (exit 127), auth/login failure, sandbox or permission denial on a gate command, network/DNS, disk full, killed by the OS, supervisor died | Platform SME; incident opened (§12.3) |
-| `subject` | Gate failed, schema invalid, worker reported `failed`/`blocked` | Recipe's normal path: retry, iterate, escalate |
+| `subject` | Gate failed, schema invalid, worker reported `failed`/`blocked`, timed out | Recipe's normal path: retry, iterate, escalate |
 | `unknown` | Nothing matched | Platform SME first, then owner |
 
 A platform failure gets at most one automatic retry, and only after the platform SME records a fix; otherwise the step waits on the incident.
 
-A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified` (from the adapter's failure line, exit code 127 as `executable_not_found`, otherwise `unknown`; messages redacted), then `step_escalated` with the class as its reason. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log`.
+A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified`, then `step_escalated` with the class as its reason. The class comes from, in order: the API runner's failure line; the adapter's `failure_signals`; the rules' output patterns (disk full, DNS, network, TLS, out of memory, sandbox and permission denials); the rules' exit codes (127 `executable_not_found`, 126 `not_executable`) and killing signals (SIGKILL as `killed`); otherwise `unknown` with the last output line. Messages are redacted. A **failed script gate** is classified by exit codes and signals only (a gate command that cannot be found or run is `platform` and escalates; output patterns are not applied, since a test suite may legitimately print them); any other gate failure is `subject`. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log` (the supervisor's own output beside it, `.supervisor.log`; hook output under `hooks/`).
 
 ### 8.9 Work items, concurrency and corrections
 
@@ -880,7 +881,7 @@ A lease is an event `lease_claimed {director_id, harness, host, branch, expires_
 
 1. Verify the hash chain and every CAS blob.
 2. Rebuild the cache.
-3. Reconcile live work with running markers (§8.7): still alive → left running; finished with a result → intake now; otherwise `orphaned` (retryable) and classified.
+3. Reconcile live work with running markers (§8.7): still alive → left running; finished with a result → intake now; otherwise `orphaned`, classified (`platform` / `supervisor_died`) and escalated for an owner decision (`decide <step> retry`).
 4. Check published deliverables for drift.
 5. Claim the lease, or report the holder.
 6. Return status.
@@ -1098,7 +1099,7 @@ Per machine and profile; silent when healthy (`baton doctor [--profile <name>] [
 - For each profile: build its exact environment, resolve its executable (§6.2), run a no-op task through its adapter; report auth mode, duration, env names present or denied.
 - **Effective auth mode**: what the worker would really use under its exact environment. Harness CLIs are asked (`claude auth status --json`, `codex login status`; a local query, run even with `--no-run`); API profiles report `api_key` with the resolved names; manual profiles `none`. A `cli_login` profile whose CLI would use an API key is a problem (billing would switch; add the key to `env_deny`); one that is not logged in is a problem naming the login command.
 - **Gate preflight** for write-capable profiles (harness profiles claiming `repo_workspace`): run `project.preflight` (or the test command) through the worker's own adapter and write-mode args, so a mode that would block gates is caught before a full run is wasted. The worker is asked to run `python -m baton.probe --marker <file> --nonce <n> -- <command>`, which runs the command and writes its exit code to a marker under `.baton/cache/`. The runtime also runs the command itself, as a script gate would. No marker: the mode blocked the command. A different exit code: the sandbox changed its outcome. Either is a problem. Both failing alike is a warning.
-- Supervisor can detach; hooks reachable; open platform incidents; steps with no eligible profile on this machine.
+- Supervisor can detach (a test supervisor must start in its own session); hooks reachable (valid `hooks.yaml`, `secret:` references resolve, each command's program is found; hooks are never fired); open platform incidents; steps with no eligible profile on this machine.
 - WSL repos on `/mnt/c` (warning).
 
 ### 13.5 `check`
@@ -1284,9 +1285,9 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 6. Automatic checkpoint commits on by default; commit to the current branch or a `baton/<run>` branch? [on; current branch] **Decided (2026-11-02):** as suggested (§10.1).
 7. Git LFS: required or optional, and size threshold. [optional; 5 MB] **Decided (2026-11-02):** as suggested; `baton init` notes when git-lfs is missing (§10.1).
 8. Triage approval: auto-accept at the lowest level, gate above? [yes; always part of the baseline at adoption] **Decided (2026-11-01):** yes, as suggested; `baton plan` shows the implicit approval gate above the lowest level.
-9. Effort bands and `extend_once`. [45 min / 2 h / 4 h; extend once]
+9. Effort bands and `extend_once`. [45 min / 2 h / 4 h; extend once] **Decided (2026-11-02):** as suggested; steps that declare no effort get the M band (`effort.default`); manual workers are never timed out; an extension is recorded as `deadline_extended` (§8.7). The effort scale stays the runtime's fixed `S`/`M`/`L` for now. A possible later change (not built): recipes declare their own ordered effort scale (default `[S, M, L]`), `project.yaml` maps the names to durations, and an unmapped name falls back by position. Effort stays independent of triage complexity levels: levels choose steps and gates, effort budgets one step's time.
 10. Worktree isolation for concurrent write-mode steps. [lock only at first]
-11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured]
+11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured] **Decided (2026-11-02):** as suggested; Baton invokes no SME itself. A `platform` failure fires `on_platform_failure` when configured, otherwise `on_complete` (§8.7).
 12. Who may set `fixed` and `rejected`: the next iteration's worker with evidence, or only the Director? [worker with evidence]
 13. SME transcript retention: full (redacted) or question and answer only. [full, redacted]
 14. Research scope limits before asking the owner to narrow. [10k files / 200 MB]

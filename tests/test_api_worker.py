@@ -215,7 +215,7 @@ def test_missing_secret_refuses_dispatch(tmp_path):
     (cli.home / "workers.yaml").write_text(api_profile("api", "acme", "acme/model-a", "absent", reply(GOOD_PROFILE)), encoding="utf-8")
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
     before = _events(project, run)
-    res = cli("dispatch", run, "describe", "--worker", "api", expect=1)
+    res = cli("dispatch", run, "describe", "--worker", "api", "--wait", expect=1)
     assert res.payload["error"] == "configuration.missing_secret" and "BATON_SECRET_ABSENT" in res.payload["message"]
     assert _events(project, run) == before
 
@@ -229,7 +229,7 @@ def test_inputs_too_large_refuses_dispatch(tmp_path):
     )
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
     before = _events(project, run)
-    res = cli("dispatch", run, "describe", "--worker", "api", expect=1)
+    res = cli("dispatch", run, "describe", "--worker", "api", "--wait", expect=1)
     assert res.payload["error"] == "dispatch.worker_cannot_take_packet" and "reads files" in res.payload["message"]
     assert _events(project, run) == before
     assert not (project / ".baton" / "runs" / run / "steps" / "describe" / "attempt-1").exists()
@@ -254,10 +254,10 @@ def test_two_vendors_complete_fit_check_and_secrets_stay_out(tmp_path):
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
     assert [e["profile"] for e in cli.run("eligible", run, "describe")["eligible"]] == ["acme-api", "zenith-api"]
 
-    d1 = cli.run("dispatch", run, "describe", "--worker", "acme-api")
+    d1 = cli.run("dispatch", run, "describe", "--worker", "acme-api", "--wait")
     assert d1["outcome"] == "passed", d1
     assert d1["worker_exit"]["exit_code"] == 0
-    d2 = cli("dispatch", run, "assess", "--worker", "zenith-api", expect=4).payload  # passes schema, waits on the human gate
+    d2 = cli("dispatch", run, "assess", "--worker", "zenith-api", "--wait", expect=4).payload  # passes schema, waits on the human gate
     assert d2["outcome"] == "needs_human", d2
     done = cli.run("decide", run, "assess", "approve", "--note", "Agreed.")
     assert done["run_completed"] is True
@@ -341,8 +341,8 @@ def test_live_two_vendors(tmp_path):
     )
     (cli.home / "workers.yaml").write_text(profiles, encoding="utf-8")
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
-    d1 = cli("dispatch", run, "describe", "--worker", f"{pairs[0][0]}-api", expect=None).payload
+    d1 = cli("dispatch", run, "describe", "--worker", f"{pairs[0][0]}-api", "--wait", expect=None).payload
     assert d1["outcome"] == "passed", d1
-    d2 = cli("dispatch", run, "assess", "--worker", f"{pairs[1][0]}-api", expect=None).payload
+    d2 = cli("dispatch", run, "assess", "--worker", f"{pairs[1][0]}-api", "--wait", expect=None).payload
     assert d2["outcome"] == "needs_human", d2
     assert cli.run("decide", run, "assess", "approve", "--note", "Live check.")["run_completed"] is True

@@ -29,6 +29,7 @@ EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LEASE, EXIT_OWNER = 0, 1, 2, 3, 4
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Baton process runtime.")
 
 JsonOpt = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
+WaitOpt = Annotated[bool, typer.Option("--wait", help="Block until the worker finishes and its result is recorded.")]
 
 
 class _Opts:
@@ -245,17 +246,23 @@ def dispatch(
     run: Annotated[str, typer.Argument(help="Run id.")],
     step: Annotated[str, typer.Argument(help="Step path.")],
     worker: Annotated[str, typer.Option("--worker", help="Worker profile name.")],
+    wait: WaitOpt = False,
     as_json: JsonOpt = False,
 ) -> None:
-    """Build the step's packet and hand it to the worker."""
-    out = _call(as_json, lambda: _api().dispatch(run, step, worker))
+    """Build the step's packet and hand it to the worker; returns once it has started (or, with --wait, finished)."""
+    out = _call(as_json, lambda: _api().dispatch(run, step, worker, wait=wait))
     _dispatched(out, as_json)
 
 
 def _dispatched(out: dict, as_json: bool) -> None:
     head = f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]"
-    if "outcome" not in out:  # a person does the work
+    if not as_json:
+        for w in out.get("warnings") or []:
+            typer.echo(f"WARNING: {w}", err=True)
+    if "outcome" not in out and out["adapter"] == "manual":  # a person does the work
         _done(out, as_json, f"{head}\n{out['handoff']}\nThen: baton submit {out['run_id']} {out['step_path']}")
+    if "outcome" not in out:  # running under its supervisor
+        _done(out, as_json, f"{head}\nRunning until {out['deadline']} (effort {out['effort']}); log: {out.get('log')}\nThen: baton wait {out['run_id']} --dispatch {out['dispatch_id']}")
     code = EXIT_PROBLEM if out["outcome"] == "retry" and not out["needs_owner"] else None
     _done(out, as_json, f"{head}\n{_outcome_text(out)}", code)
 
@@ -278,10 +285,11 @@ def retry(
     step: Annotated[str, typer.Argument(help="Step path.")],
     worker: Annotated[Optional[str], typer.Option("--worker", help="Worker profile (default: the previous attempt's).")] = None,
     guidance: Annotated[Optional[str], typer.Option("--guidance", help="Additive guidance for the new attempt.")] = None,
+    wait: WaitOpt = False,
     as_json: JsonOpt = False,
 ) -> None:
     """Start a new attempt of a step whose previous attempt was not accepted."""
-    out = _call(as_json, lambda: _api().retry(run, step, worker, guidance))
+    out = _call(as_json, lambda: _api().retry(run, step, worker, guidance, wait=wait))
     _dispatched(out, as_json)
 
 
@@ -293,6 +301,7 @@ def _outcome_text(out: dict) -> str:
         "retry": f"{out['step_path']} attempt {out['attempt']} was not accepted; the step is ready for another attempt",
         "escalated": f"{out['step_path']} escalated",
         "abandoned": f"{out['step_path']} abandoned",
+        "running": f"{out['step_path']} is still running",
     }[o]
     lines = [head] + [f"  - {r.splitlines()[0]}" for r in out["reasons"] if o != "needs_human"]
     if out["ready"]:
@@ -301,6 +310,28 @@ def _outcome_text(out: dict) -> str:
         lines.append(f"Run {out['run_id']} completed.")
     lines += _pending_lines(out)
     return "\n".join(lines)
+
+
+@app.command("wait")
+def wait_cmd(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    dispatch_id: Annotated[Optional[str], typer.Option("--dispatch", help="Dispatch id (default: all running work of the run).")] = None,
+    timeout: Annotated[Optional[float], typer.Option("--timeout", help="Give up after this many seconds (exit 1).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Block until dispatched work finishes and is recorded (for attached Directors)."""
+    out = _call(as_json, lambda: _api().wait(run, dispatch_id, timeout))
+    lines = []
+    for r in out["results"]:
+        lines.append(_outcome_text({**r, "run_id": run, "pending_decisions": []}) if r["outcome"] != "running" else f"{r['step_path']} attempt {r['attempt']} is still running")
+    for d in out["waiting_for_submit"]:
+        lines.append(f"{d} is done by a person: waiting for `baton submit`")
+    if not out["results"] and not out["waiting_for_submit"]:
+        lines.append(f"Nothing is running in {run}.")
+    lines += _pending_lines(out)
+    if out["timed_out"]:
+        _done(out, as_json, "\n".join(lines + ["Timed out waiting."]), EXIT_PROBLEM)
+    _done(out, as_json, "\n".join(lines))
 
 
 @app.command()

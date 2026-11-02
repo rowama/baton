@@ -32,6 +32,7 @@ packages = ["src/baton"]
 "vocab" = "baton/_data/vocab"
 "formats" = "baton/_data/formats"
 "defaults" = "baton/_data/defaults"
+"classify" = "baton/_data/classify"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

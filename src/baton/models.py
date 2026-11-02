@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator
 
 STEP_ID = r"^[a-z][a-z0-9_]*$"
 RECIPE_ID = r"^[a-z][a-z0-9-]*$"
@@ -384,7 +384,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
         "step_ready", "worker_selected", "packet_built", "dispatched", "step_running",
         "result_submitted", "verification_started", "result_rejected", "gate_passed",
         "gate_failed", "human_gate_opened", "step_passed", "step_escalated", "step_abandoned",
-        "step_timed_out", "attempt_orphaned", "failure_classified",
+        "step_timed_out", "attempt_orphaned", "failure_classified", "deadline_extended",
     ),
     "tailoring": ("complexity_set", "step_skipped", "step_unskipped", "retriage_requested", "retriage_applied"),
     "groups": ("group_expanded", "iteration_started", "iteration_limit_reached"),
@@ -478,6 +478,49 @@ class LfsConfig(_Strict):
     threshold_mb: float = Field(default=5, gt=0)  # §18 #7: optional, 5 MB
 
 
+EFFORTS: tuple[str, ...] = ("S", "M", "L")
+
+
+def duration_seconds(value: str | int | float) -> float:
+    """``"45m"``, ``"2h"``, ``"90s"`` or a bare number of seconds."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    import re
+
+    m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(s|m|h)?\s*$", value)
+    if not m:
+        raise ValueError(f"not a duration: {value!r} (use e.g. 90s, 45m, 2h)")
+    return float(m.group(1)) * {"s": 1, "m": 60, "h": 3600, None: 1}[m.group(2)]
+
+
+class EffortConfig(_Strict):
+    """Effort bands (§8.7; §18 #9): the time a worker gets per declared effort."""
+
+    bands: dict[Literal["S", "M", "L"], str | float] = Field(default_factory=dict, validate_default=True)
+    extend_once: bool = True
+    default: Literal["S", "M", "L"] = "M"  # steps that declare no effort
+
+    @field_validator("bands")
+    @classmethod
+    def _bands(cls, v: dict[str, str | float]) -> dict[str, str | float]:
+        out: dict[str, str | float] = {"S": "45m", "M": "2h", "L": "4h", **v}
+        for k, d in out.items():
+            if duration_seconds(d) <= 0:
+                raise ValueError(f"effort band {k} must be positive")
+        return out
+
+    def seconds(self, effort: str) -> float:
+        return duration_seconds(self.bands[effort])  # type: ignore[index]
+
+
+class HooksConfig(_Strict):
+    """Completion hooks (§8.7). Shell command lines; empty means not configured."""
+
+    on_complete: str = ""
+    on_needs_human: str = ""
+    on_platform_failure: str = ""
+
+
 class ProjectConfig(_Strict):
     paths: dict[str, str] = Field(default_factory=dict)
     project: dict[str, Any] = Field(default_factory=dict)
@@ -486,3 +529,5 @@ class ProjectConfig(_Strict):
     checkpoints: CheckpointConfig = Field(default_factory=CheckpointConfig)
     lfs: LfsConfig = Field(default_factory=LfsConfig)
     contacts: dict[str, str] = Field(default_factory=dict)
+    effort: EffortConfig = Field(default_factory=EffortConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)

@@ -117,6 +117,7 @@ RECORDS: Mapping[str, frozenset[str]] = {
     "gate_failed": frozenset({"verifying"}),
     "findings_recorded": frozenset({"verifying"}),
     "failure_classified": frozenset({"verifying", "timed_out", "orphaned", "escalated"}),
+    "deadline_extended": frozenset({"running"}),  # an overdue worker got one more band (§8.7)
 }
 
 #: Events that carry the next attempt number (current + 1).
@@ -137,6 +138,7 @@ ATTEMPT_CURRENT = frozenset(
         "attempt_orphaned",
         "failure_classified",
         "step_escalated",
+        "deadline_extended",
     }
 )
 

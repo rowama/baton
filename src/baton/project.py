@@ -52,6 +52,14 @@ leases: { minutes: 60 }       # renewed on activity
 checkpoints: { commit: true } # commit the run's record at checkpoints, on the current branch
 lfs: { threshold_mb: 5 }      # with git-lfs installed, larger stored blobs go to LFS
 contacts: { owner: owner }
+effort:                       # time a worker gets per step effort; overdue once -> one more band
+  bands: { S: 45m, M: 2h, L: 4h }
+  extend_once: true
+  default: M                  # steps that declare no effort
+hooks:                        # completion hooks (shell commands, non-secret); machine hooks: ~/.baton/hooks.yaml
+  on_complete: ""
+  on_needs_human: ""          # falls back to on_complete
+  on_platform_failure: ""     # falls back to on_complete
 """
 
 

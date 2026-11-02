@@ -21,13 +21,16 @@ gate that cannot be configured escalate at once.
 from __future__ import annotations
 
 import hashlib
-import re
+import json
+import socket
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
+from . import classify
 from .intake import read_result, run_script_gate
 from .models import EVENTS_FORMATS, Group, HumanGate, Plan, SchemaGate, ScriptGate, Step, WorkerProfile
 from .packet import (
@@ -50,6 +53,7 @@ from .supervisor import ChildResult
 __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
     "abandon_run", "begin_attempt", "decide", "escalate_no_worker", "finish_child", "open_run", "pending_decisions", "plan",
+    "resolve_effort",
     "refresh", "start", "submit",
 ]
 
@@ -179,6 +183,7 @@ def begin_attempt(
     guidance: str | None = None,
     preflight: Callable[[BuiltPacket], list[str]] | None = None,
     dispatch_data: dict[str, Any] | None = None,
+    effort: str | None = None,
 ) -> BuiltPacket:
     """Build the packet for the step's next attempt and mark the attempt dispatched and running.
 
@@ -186,7 +191,7 @@ def begin_attempt(
     large for an API model, §18 #1); the packet is then removed. Raises
     ``HandoffError`` or ``EngineError`` with nothing written.
     """
-    built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline, guidance=guidance)
+    built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline, guidance=guidance, effort=effort)
     if preflight is not None:
         problems = preflight(built)
         if problems:
@@ -219,7 +224,10 @@ def _step(ctx: RunContext, step_path: str) -> Step:
     return node
 
 
-def submit(ctx: RunContext, step_path: str, *, actor: str = "runtime", workspace_changes: list[str] | None = None) -> Outcome:
+def submit(
+    ctx: RunContext, step_path: str, *, actor: str = "runtime", workspace_changes: list[str] | None = None,
+    worker_exit: dict[str, Any] | None = None,
+) -> Outcome:
     """Run intake on the step's running attempt: read ``result/``, then run its gates in order.
 
     ``workspace_changes`` (from the runtime's tree check on ``read`` / ``none``
@@ -244,7 +252,7 @@ def submit(ctx: RunContext, step_path: str, *, actor: str = "runtime", workspace
         actor=actor,
         step_path=step_path,
         attempt=n,
-        data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered()},
+        data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **({"worker_exit": worker_exit} if worker_exit else {})},
     )
     log.append("verification_started", step_path=step_path, attempt=n)
     if workspace_changes:
@@ -296,6 +304,13 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
             if res.configuration_error:
                 log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "configuration", "reasons": res.reasons})
                 return Outcome(step_path, n, "escalated", res.reasons)
+            cls = classify.classify_gate(res.data.get("exit_code")) if not res.data.get("timed_out") else None
+            if cls is not None and cls["class"] != "subject":
+                # The gate command could not run here: the platform's problem, not the step's (§8.8).
+                log.append("failure_classified", step_path=step_path, attempt=n, data={**cls, "gate": i})
+                reasons = [f"{cls['class']} failure ({cls['code']}) running gate {i}: {cls['message']}", *res.reasons]
+                log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": cls["class"], "code": cls["code"], "reasons": reasons})
+                return Outcome(step_path, n, "escalated", reasons)
             return _failed(ctx, step_path, n, res.reasons)
         elif isinstance(gate, HumanGate):
             log.append("human_gate_opened", step_path=step_path, attempt=n, data={**base, "prompt": gate.prompt, "ref": step_path})
@@ -337,37 +352,9 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
     return Outcome(step_path, n, "escalated", reasons)
 
 
-FAILURE_LINE = re.compile(r"baton-worker: failure=(\w+) code=(\w+) message=(.*)")
-
-
 def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Failure class for a worker that exited without a result (§8.8; full rules arrive in Phase 7).
-
-    Order: the runner's failure line; the adapter's ``failure_signals``
-    (``pattern``, ``class``, ``code``; the matching line is the message); exit
-    127; otherwise ``unknown`` with the last output line.
-    """
-    tail = child.tail.decode("utf-8", errors="replace")
-    m = None
-    for m in FAILURE_LINE.finditer(tail):
-        pass
-    if m is not None:
-        return {"class": m.group(1), "code": m.group(2), "message": redact_text(m.group(3).strip())}
-    for sig in signals or []:
-        if "class" not in sig:
-            continue
-        hit = None
-        for hit in re.finditer(sig["pattern"], tail):
-            pass
-        if hit is not None:
-            line_start = tail.rfind("\n", 0, hit.start()) + 1
-            line_end = tail.find("\n", hit.end())
-            line = tail[line_start : line_end if line_end >= 0 else len(tail)].strip()
-            return {"class": sig["class"], "code": sig.get("code", "signal"), "message": redact_text(line[:300])}
-    if child.exit_code == 127:
-        return {"class": "platform", "code": "executable_not_found", "message": "the worker's command was not found (exit 127)"}
-    last = [ln for ln in tail.splitlines() if ln.strip()][-1:] or [""]
-    return {"class": "unknown", "code": f"exit_{child.exit_code}", "message": redact_text(last[0][:300])}
+    """Failure class for a worker that exited without a result (§8.8; rules in ``classify.py``)."""
+    return classify.classify_exit(child.exit_code, child.tail, signals)
 
 
 def finish_child(
@@ -393,11 +380,11 @@ def finish_child(
             reasons = _workspace_reasons(step_path, workspace_changes)
             log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
             return Outcome(step_path, n, "escalated", reasons)
-        reason = f"the worker did not finish within {child.duration_s:.0f} s"
-        log.append("failure_classified", step_path=step_path, attempt=n, data={"class": "subject", "code": "timeout", "message": reason})
-        return _failed(ctx, step_path, n, [reason])
+        cls = classify.timed_out(child.duration_s)
+        log.append("failure_classified", step_path=step_path, attempt=n, data=cls)
+        return _failed(ctx, step_path, n, [cls["message"]])
     if (ctx.attempt_dir(step_path, n) / "result" / "result.json").is_file():
-        return submit(ctx, step_path, actor=actor, workspace_changes=workspace_changes)
+        return submit(ctx, step_path, actor=actor, workspace_changes=workspace_changes, worker_exit=child.as_dict())
     cls = classify_exit(child, signals)
     log.append("attempt_orphaned", step_path=step_path, attempt=n, data=child.as_dict())
     log.append("failure_classified", step_path=step_path, attempt=n, data=cls)
@@ -408,6 +395,30 @@ def finish_child(
         esc["changed"] = workspace_changes
     log.append("step_escalated", step_path=step_path, attempt=n, data=esc)
     return Outcome(step_path, n, "escalated", reasons)
+
+
+def resolve_effort(ctx: RunContext, node: Any, config: Any) -> tuple[str, str]:
+    """The step's effort (``S`` | ``M`` | ``L``) and where it came from (§8.7).
+
+    ``effort`` on the step; else ``effort_from`` resolved from the record; else
+    (or when that does not resolve to a known effort) ``effort.default`` from
+    ``project.yaml`` (§18 #9: M).
+    """
+    from .models import EFFORTS
+    from .packet import _NotApplicable, _resolve, _Unresolvable
+
+    if getattr(node, "effort", None):
+        return node.effort, "step"
+    ref = getattr(node, "effort_from", None)
+    if ref:
+        try:
+            value = _resolve(ctx, ctx.record(), "effort", ref).inline
+        except (_Unresolvable, _NotApplicable, EngineError) as e:
+            return config.default, f"default ({ref} did not resolve: {e})"
+        if value in EFFORTS:
+            return value, "effort_from"
+        return config.default, f"default ({ref} is {value!r}, not one of {', '.join(EFFORTS)})"
+    return config.default, "default"
 
 
 def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str, Any]], *, actor: str = "runtime") -> Outcome:
@@ -583,15 +594,21 @@ class Api:
 
     def _mutate(self, run_id: str, body: Any, *, allow_closed: bool = False) -> dict[str, Any]:
         """Hold the lease, run ``body(ctx) -> dict``, then write records and checkpoint."""
-        ctx = self._ctx(run_id)
-        if not allow_closed and ctx.log.state().state != "active":
-            raise EngineError("run.closed", f"run {run_id} is {ctx.log.state().state}")
-        leases = self._leases(ctx)
-        leases.ensure()
-        before = ctx.log.state().last_seq
-        out = body(ctx) or {}
-        self._after(ctx, leases, before, out)
-        return out
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            if not allow_closed and ctx.log.state().state != "active":
+                raise EngineError("run.closed", f"run {run_id} is {ctx.log.state().state}")
+            leases = self._leases(ctx)
+            leases.ensure()
+            before = ctx.log.state().last_seq
+            out = body(ctx) or {}
+            self._after(ctx, leases, before, out)
+            return out
+
+    def _run_lock(self, run_id: str) -> Any:
+        from .locks import run_lock
+
+        return run_lock(self.project.baton, run_id)
 
     def _after(self, ctx: RunContext, leases: Any, before: int, out: dict[str, Any]) -> None:
         from . import docs
@@ -624,8 +641,11 @@ class Api:
         docs.write_records(ctx)
         if gitops.lfs_available(top):
             gitops.lfs_attributes(ctx.run_dir, int(self.project.config.lfs.threshold_mb * 1024 * 1024))
+        from .locks import project_lock
+
         try:
-            sha = gitops.commit(top, rels, subject, body)
+            with project_lock(self.project.baton):
+                sha = gitops.commit(top, rels, subject, body)
         except gitops.GitError as e:
             return gitops.Checkpoint(False, subject=subject, reason=str(e))
         return gitops.Checkpoint(sha is not None, sha, subject, None if sha else "nothing to commit")
@@ -678,7 +698,7 @@ class Api:
         return out
 
     def status(self, run_id: str) -> dict[str, Any]:
-        from . import gitops, locks
+        from . import gitops, locks, supervisor
 
         ctx = self._ctx(run_id)
         events = ctx.log.events()
@@ -693,13 +713,14 @@ class Api:
             if st.state in ("dispatched", "running"):
                 disp = _last_data(events, "dispatched", path, st.attempt)
                 adir = ctx.attempt_dir(path, st.attempt)
-                running.append(
-                    {
-                        "step_path": path, "attempt": st.attempt,
-                        "profile": disp.get("profile"), "adapter": disp.get("adapter"), "dispatch_id": disp.get("dispatch_id"),
-                        "packet": str(adir / "packet"), "result": str(adir / "result"),
-                    }
-                )
+                item = {
+                    "step_path": path, "attempt": st.attempt,
+                    "profile": disp.get("profile"), "adapter": disp.get("adapter"), "dispatch_id": disp.get("dispatch_id"),
+                    "packet": str(adir / "packet"), "result": str(adir / "result"), "deadline": disp.get("deadline"),
+                }
+                if disp.get("adapter") != "manual" and disp.get("dispatch_id"):
+                    item["liveness"] = supervisor.liveness(self.project.baton, disp["dispatch_id"]).as_dict()
+                running.append(item)
         lease = locks.current(events)
         now = ctx.log.clock()
         lease_info = None
@@ -759,18 +780,19 @@ class Api:
 
         return self._mutate(run_id, body)
 
-    def dispatch(self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None) -> dict[str, Any]:
-        """Build the packet and hand it to the worker's adapter.
+    def dispatch(self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None, wait: bool = False) -> dict[str, Any]:
+        """Build the packet and hand it to the worker's adapter (§8.7).
 
         The worker must be in the step's eligible set (§8.4). Manual workers
-        then ``submit``; process workers (API models) run attached here, and
-        intake runs when they exit, all in this one call.
+        then ``submit``. Process workers (API models, harness CLIs, commands)
+        run under a detached supervisor: this call returns once the worker has
+        started, with the dispatch id and deadline; the supervisor runs intake
+        when it ends. ``wait=True`` then blocks until that is recorded.
         """
         import secrets
 
-        from . import adapters, gitops
+        from . import adapters, supervisor
         from .profiles import SetupError, build_env
-        from .supervisor import run_child
 
         profiles = self.project.profiles()
         if worker not in profiles:
@@ -802,48 +824,347 @@ class Api:
                     )
             except SetupError as e:
                 raise EngineError(e.code, str(e)) from e
-            extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode}
+            effort, effort_source = resolve_effort(ctx, node, self.project.config.effort)
+            band_s = self.project.config.effort.seconds(effort)
+            deadline = supervisor.fmt(ctx.log.clock() + timedelta(seconds=band_s))
+            extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode, "effort": effort, "deadline": deadline}
+            if effort_source != "step":
+                extra["effort_source"] = effort_source
             if env is not None:
                 extra["env"] = env.describe()
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
+                deadline=deadline, effort=effort,
             )
             out: dict[str, Any] = {
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
                 "worker": worker, "adapter": adapter.name, "packet_sha256": built.sha256,
                 "packet": str(built.dir), "result": str(built.result_dir),
+                "effort": effort, "deadline": deadline,
                 "handoff": adapter.handoff(profile, built.dir, built.result_dir),
+                "warnings": [],
             }
             argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
-                return out  # a person does the work; the Director submits
+                return out  # a person does the work (no supervisor, no timeout); the Director submits
             if env.resolved is not None:
                 argv = [env.resolved.executable, *argv[1:]]
             # read / none steps may not change the tree; CLI flags cannot confine
             # writes to result/, so the runtime compares before and after (§6.3).
+            # The runtime's own run and project records are excluded: they change
+            # while the worker runs.
             check_tree = getattr(adapter, "touches_files", False) and mode != "write"
-            exclude = [built.dir.parent.resolve().relative_to(self.project.root.resolve()).as_posix()]
-            before = gitops.tree_snapshot(self.project.root, exclude) if check_tree else None
+            rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
             log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
-            child = run_child(argv, env=env.env, cwd=workspace or built.dir.parent, log_path=log_path)
-            changes = gitops.tree_changes(before, gitops.tree_snapshot(self.project.root, exclude)) if check_tree else []
-            outcome = finish_child(
-                ctx, step_path, built.attempt, child, actor=f"worker:{worker}",
-                signals=adapter.failure_signals, workspace_changes=changes,
-            )
-            out.update(_outcome_dict(outcome))
-            out["worker_exit"] = {**child.as_dict(), "log": str(log_path)}
+            spec = {
+                "root": str(self.project.root), "home": str(self.project.home), "director": self.director.id,
+                "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
+                "worker": worker, "adapter": adapter.name, "argv": argv, "env": env.env, "secret_names": env.secrets,
+                "cwd": str(workspace or built.dir.parent), "log_path": str(log_path),
+                "deadline": deadline, "band_s": band_s, "effort": effort, "extend_once": self.project.config.effort.extend_once,
+                "check_tree": check_tree, "exclude": [f"{rel_baton}/runs", f"{rel_baton}/project"],
+            }
+            proc = supervisor.spawn(spec, log_path.with_suffix(".supervisor.log"))
+            marker = supervisor.await_start(self.project.baton, dispatch_id, proc)
+            if marker is None:
+                # The supervisor never came up: nothing is running this attempt.
+                ctx.log.append("attempt_orphaned", step_path=step_path, attempt=built.attempt, data={"supervisor": "did not start"})
+                cls = {"class": "platform", "code": "supervisor_failed", "message": f"the supervisor did not start (see {log_path.with_suffix('.supervisor.log')})"}
+                ctx.log.append("failure_classified", step_path=step_path, attempt=built.attempt, data=cls)
+                reasons = [f"platform failure (supervisor_failed): {cls['message']}"]
+                ctx.log.append("step_escalated", step_path=step_path, attempt=built.attempt, data={"reason": "platform", "code": "supervisor_failed", "reasons": reasons})
+                out.update(_outcome_dict(Outcome(step_path, built.attempt, "escalated", reasons)))
+                return out
+            out["supervisor_pid"] = marker.get("supervisor_pid")
+            out["worker_pid"] = marker.get("worker_pid")
+            out["log"] = str(log_path)
+            if not wait and not supervisor.hooks_configured(self.project):
+                out["warnings"].append(
+                    "no completion hook is configured: nothing will wake you when this finishes; "
+                    f"check with `baton status {ctx.run_id}` or `baton wait {ctx.run_id}`"
+                )
             return out
 
-        return self._mutate(run_id, body)
+        out = self._mutate(run_id, body)
+        if wait and "outcome" not in out and out.get("supervisor_pid"):
+            waited = self.wait(run_id, out["dispatch_id"])
+            res = waited["results"][0] if waited["results"] else {}
+            for k in ("outcome", "reasons", "ready", "run_completed", "pending_decisions", "needs_owner", "worker_exit"):
+                if k in res or k in waited:
+                    out[k] = res.get(k, waited.get(k))
+        return out
+
+    # -- async: wait, reconcile, completion (§8.7) --------------------------
+
+    def _process_attempts(self, ctx: RunContext, dispatch_id: str | None = None) -> list[tuple[str, int, dict[str, Any]]]:
+        """``(step_path, attempt, dispatched data)`` for running attempts of process workers."""
+        out = []
+        events = ctx.log.events()
+        for path, st in sorted(ctx.log.state().steps.items()):
+            if st.state not in ("dispatched", "running"):
+                continue
+            d = _last_data(events, "dispatched", path, st.attempt)
+            if d.get("adapter") == "manual" or not d.get("dispatch_id"):
+                continue
+            if dispatch_id is None or d["dispatch_id"] == dispatch_id:
+                out.append((path, st.attempt, d))
+        return out
+
+    def wait(self, run_id: str, dispatch_id: str | None = None, timeout: float | None = None) -> dict[str, Any]:
+        """Block until the dispatch (default: every running process attempt of the run) is recorded.
+
+        Reconciles dead supervisors on the way (§10.3 step 3). Returns each
+        attempt's outcome as recorded; ``timed_out`` when ``timeout`` passed first.
+        """
+        import time as _time
+
+        from . import supervisor
+
+        ctx = self._ctx(run_id)
+        events = ctx.log.events()
+        targets: list[tuple[str, int, str]] = []
+        if dispatch_id is not None:
+            for ev in events:
+                if ev.type == "dispatched" and ev.data.get("dispatch_id") == dispatch_id:
+                    targets.append((ev.step_path, ev.attempt, dispatch_id))
+            if not targets:
+                raise EngineError("wait.unknown_dispatch", f"run {run_id} has no dispatch {dispatch_id}")
+        else:
+            targets = [(p, n, d["dispatch_id"]) for p, n, d in self._process_attempts(ctx)]
+        end = None if timeout is None else _time.monotonic() + timeout
+        manual = []
+        for path, n, did in targets:
+            if _last_data(events, "dispatched", path, n).get("adapter") == "manual":
+                manual.append(did)
+        while True:
+            self.reconcile(run_id)
+            ctx = self._ctx(run_id)
+            rs = ctx.log.state()
+            pending = [
+                (p, n, d) for p, n, d in targets
+                if d not in manual and ((rs.step(p).state in ("dispatched", "running") and rs.step(p).attempt == n)
+                                        or supervisor.read_marker(self.project.baton, d) is not None)
+            ]
+            if not pending or (end is not None and _time.monotonic() >= end):
+                break
+            _time.sleep(0.1)
+        results = [self._attempt_result(ctx, p, n) | {"dispatch_id": d} for p, n, d in targets]
+        pend = pending_decisions(ctx)
+        return {
+            "run_id": run_id, "results": results, "timed_out": bool(pending), "waiting_for_submit": manual,
+            "pending_decisions": pend, "needs_owner": bool(pend),
+        }
+
+    def _attempt_result(self, ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
+        """What happened to one attempt, from the record."""
+        record = ctx.record()
+        st = ctx.log.state().step(step_path)
+        mine = [e for e in ctx.log.events() if e.step_path == step_path and e.attempt == n]
+        types = [e.type for e in mine]
+        reasons: list[str] = []
+        for e in mine:
+            if e.type == "result_rejected" or (e.type == "gate_failed" and not e.data.get("advisory")):
+                reasons += e.data.get("reasons") or []
+            elif e.type == "step_escalated":
+                reasons += [r for r in e.data.get("reasons") or [] if r not in reasons]
+            elif e.type == "failure_classified" and not any(e.data.get("message", "") in r for r in reasons):
+                reasons.append(f"{e.data.get('class')} failure ({e.data.get('code')}): {e.data.get('message')}")
+        if st.attempt == n and st.state in ("dispatched", "running"):
+            outcome = "running"
+        elif "step_passed" in types:
+            outcome = "passed"
+        elif st.attempt == n and st.state == "awaiting_human":
+            outcome = "needs_human"
+            opened = record.last("human_gate_opened", step_path, n)
+            reasons = [opened.data.get("prompt", "")] if opened else []
+        elif "step_escalated" in types:
+            outcome = "escalated"
+        elif "step_abandoned" in types or st.state == "abandoned":
+            outcome = "abandoned"
+        else:
+            outcome = "retry"
+        exit_ev = next((e for e in reversed(mine) if e.type in ("attempt_orphaned", "step_timed_out")), None)
+        sub = next((e for e in reversed(mine) if e.type == "result_submitted" and "worker_exit" in e.data), None)
+        out = {
+            "step_path": step_path, "attempt": n, "outcome": outcome, "reasons": reasons,
+            "ready": [p for p, s in ctx.log.state().steps.items() if s.state == "ready"],
+            "run_completed": _completed(ctx),
+        }
+        if exit_ev is not None:
+            out["worker_exit"] = exit_ev.data
+        elif sub is not None:
+            out["worker_exit"] = sub.data["worker_exit"]
+        log = _last_data(ctx.log.events(), "dispatched", step_path, n)
+        if log.get("adapter") not in (None, "manual") and "worker_exit" in out:
+            out["worker_exit"] = {**out["worker_exit"], "log": str(self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{n}.log")}
+        return out
+
+    def reconcile(self, run_id: str) -> list[dict[str, Any]]:
+        """Apply the running-marker table (§8.7) to the run's in-flight process attempts.
+
+        Marker present and supervisor alive → left running (``overdue`` past the
+        deadline). Supervisor dead with a result written → intake now. Dead with
+        no result → ``attempt_orphaned``, classified ``platform`` /
+        ``supervisor_died``, escalated. No marker for a running attempt is
+        treated as a dead supervisor. A marker whose attempt is already recorded
+        is removed. Hooks fire for every outcome recorded here.
+        """
+        from . import supervisor
+
+        actions: list[dict[str, Any]] = []
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            live = {d["dispatch_id"] for _p, _n, d in self._process_attempts(ctx)}
+            for m in supervisor.markers(self.project.baton):
+                if m.get("run_id") == run_id and m.get("dispatch_id") not in live and m.get("host") == socket.gethostname():
+                    if not supervisor.pid_alive(m.get("supervisor_pid")):
+                        supervisor.remove_marker(self.project.baton, m["dispatch_id"])
+            if ctx.log.state().state != "active":
+                return actions
+            for path, n, d in self._process_attempts(ctx):
+                did = d["dispatch_id"]
+                lv = supervisor.liveness(self.project.baton, did)
+                if lv.elsewhere:
+                    actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": "running_elsewhere", "host": lv.marker.get("host")})
+                    continue
+                if lv.supervisor_alive:
+                    actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": "running", "overdue": lv.overdue, "deadline": lv.marker.get("deadline")})
+                    continue
+                if lv.worker_alive:
+                    supervisor.kill_tree_pid(lv.marker["worker_pid"])  # unsupervised: stop it before judging
+                has_result = (ctx.attempt_dir(path, n) / "result" / "result.json").is_file()
+                changes = self._reconcile_tree(did, d)
+                if has_result:
+                    outcome = submit(ctx, path, actor=f"worker:{d.get('profile')}", workspace_changes=changes)
+                    action = "intake"
+                else:
+                    cls = classify.supervisor_died()
+                    data: dict[str, Any] = {"supervisor": "dead", "marker": lv.marker is not None}
+                    ctx.log.append("attempt_orphaned", step_path=path, attempt=n, data=data)
+                    ctx.log.append("failure_classified", step_path=path, attempt=n, data=cls)
+                    reasons = [f"platform failure (supervisor_died): {cls['message']}"]
+                    esc: dict[str, Any] = {"reason": "platform", "code": "supervisor_died", "reasons": reasons}
+                    if changes:
+                        reasons += _workspace_reasons(path, changes)
+                        esc["changed"] = changes
+                    ctx.log.append("step_escalated", step_path=path, attempt=n, data=esc)
+                    outcome = Outcome(path, n, "escalated", reasons)
+                    action = "orphaned"
+                actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": action, "outcome": outcome.outcome})
+                before = ctx.log.state().last_seq
+                self._finish_records(ctx, before, {})
+                self._fire_and_record(ctx, path, n, did)
+                supervisor.remove_marker(self.project.baton, did)
+        return actions
+
+    def _reconcile_tree(self, dispatch_id: str, dispatched: dict[str, Any]) -> list[str]:
+        from . import gitops, supervisor
+
+        p = supervisor.tree_path(self.project.baton, dispatch_id)
+        if dispatched.get("workspace_mode") == "write" or not p.is_file():
+            return []
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
+        after = gitops.tree_snapshot(self.project.root, [f"{rel_baton}/runs", f"{rel_baton}/project"])
+        return gitops.tree_changes(gitops.TreeSnapshot(raw.get("head"), raw.get("files") or {}), after)
+
+    def _finish_records(self, ctx: RunContext, before: int, out: dict[str, Any]) -> None:
+        """Records, lease release on completion and the checkpoint, without requiring the lease (runtime work)."""
+        self._after(ctx, self._leases(ctx), before, out)
+
+    def complete(
+        self, run_id: str, step_path: str, attempt: int, dispatch_id: str, *, child: ChildResult,
+        workspace_changes: list[str], adapter: str, worker: str,
+    ) -> dict[str, Any] | None:
+        """The supervisor's end of a dispatch: intake, records, checkpoint, hooks (§8.7).
+
+        Returns None when the attempt was already recorded (e.g. reconciled by
+        a Director who judged this supervisor dead).
+        """
+        from . import adapters, docs
+
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            st = ctx.log.state().step(step_path)
+            if ctx.log.state().state != "active" or st.state not in ("dispatched", "running") or st.attempt != attempt:
+                return None
+            before = ctx.log.state().last_seq
+            signals = getattr(adapters.get(adapter), "failure_signals", None)
+            outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
+            out = _outcome_dict(outcome)
+            docs.write_records(ctx)  # so BATON_RECORD is current when the hooks run
+        self._fire_and_record(ctx, step_path, attempt, dispatch_id, before=before)
+        return out
+
+    def overdue(self, run_id: str, step_path: str, attempt: int, dispatch_id: str, previous: str, deadline: str, effort: str | None) -> None:
+        """An overdue worker got one more band: record it and fire the hook with outcome ``overdue``."""
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            st = ctx.log.state().step(step_path)
+            if st.state != "running" or st.attempt != attempt:
+                return
+            before = ctx.log.state().last_seq
+            ctx.log.append(
+                "deadline_extended", step_path=step_path, attempt=attempt,
+                data={"dispatch_id": dispatch_id, "previous_deadline": previous, "deadline": deadline, "band": effort},
+            )
+        self._fire_and_record(ctx, step_path, attempt, dispatch_id, before=before, outcome="overdue")
+
+    def _hook_info(self, ctx: RunContext, step_path: str, n: int, dispatch_id: str, outcome: str | None) -> dict[str, Any]:
+        mine = [e for e in ctx.log.events() if e.step_path == step_path and e.attempt == n]
+        types = {e.type for e in mine}
+        cls_ev = next((e for e in reversed(mine) if e.type == "failure_classified"), None)
+        esc = next((e for e in reversed(mine) if e.type == "step_escalated"), None)
+        st = ctx.log.state().step(step_path)
+        state = st.state if st.attempt == n else "ready"
+        if outcome is None:
+            if "step_passed" in types:
+                outcome = "passed"
+            elif "step_timed_out" in types:
+                outcome = "timed_out"
+            elif "attempt_orphaned" in types:
+                outcome = "failed"
+            elif state == "awaiting_human" or (esc is not None and esc.data.get("reason") == "blocked"):
+                outcome = "needs_human"
+            elif esc is not None and esc.data.get("reason") in ("platform", "configuration", "unknown"):
+                outcome = "failed"
+            else:
+                outcome = "gate_failed"
+        record = ctx.run_dir / "docs" / f"{step_path}.md"
+        return {
+            "run_id": ctx.run_id, "step_path": step_path, "attempt": n, "dispatch_id": dispatch_id, "outcome": outcome,
+            "classification": cls_ev.data.get("class") if cls_ev is not None else None,
+            "step_state": state, "needs_owner": state in ("awaiting_human", "escalated") and outcome != "overdue",
+            "record": str(record),
+        }
+
+    def _fire_and_record(self, ctx: RunContext, step_path: str, n: int, dispatch_id: str, *, before: int | None = None, outcome: str | None = None) -> None:
+        """Fire hooks outside the run lock, then record them, write records and checkpoint."""
+        from . import supervisor
+
+        info = self._hook_info(ctx, step_path, n, dispatch_id, outcome)
+        fired = supervisor.fire_hooks(self.project, info)
+        with self._run_lock(ctx.run_id):
+            ctx = self._ctx(ctx.run_id)
+            start = ctx.log.state().last_seq if before is None else before
+            for data in fired:
+                ctx.log.append(
+                    "completion_hook_fired" if data.get("ok") else "completion_hook_failed",
+                    step_path=step_path, attempt=n, data=data,
+                )
+            if before is not None or fired:
+                self._finish_records(ctx, start, {})
 
     def doctor(self, profile: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
         from .doctor import doctor
 
         return doctor(self.project, profile, run_noop=run_noop)
 
-    def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None) -> dict[str, Any]:
+    def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None, *, wait: bool = False) -> dict[str, Any]:
         """A new attempt of a step whose previous attempt was not accepted. Guidance is additive only."""
         ctx = self._ctx(run_id)
         st = ctx.log.state().step(step_path)
@@ -853,7 +1174,7 @@ class Api:
             raise EngineError("retry.not_retryable", f"{step_path} is {st.state} with {st.attempt} attempts; retry needs a ready step with a previous attempt")
         if worker is None:
             worker = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt).get("profile")
-        return self.dispatch(run_id, step_path, worker, guidance=guidance)
+        return self.dispatch(run_id, step_path, worker, guidance=guidance, wait=wait)
 
     def submit(self, run_id: str, step_path: str, result_dir: str | Path | None = None) -> dict[str, Any]:
         """Run intake on a running attempt. ``result_dir`` is copied into the attempt's ``result/`` first."""
@@ -911,13 +1232,15 @@ class Api:
         if problems:
             raise IntegrityError(run_id, problems)
         store.rebuild_run(run_id)
+        # Reconcile in-flight attempts with their running markers (§8.7, §10.3).
+        reconciled = self.reconcile(run_id)
         ctx = self._ctx(run_id)
-        # Reconcile in-flight attempts. Manual attempts wait for submit; git does
-        # not keep empty directories, so recreate their result directories.
-        reconciled = []
+        # Manual attempts wait for submit; git does not keep empty directories,
+        # so recreate their result directories.
         rs = ctx.log.state()
+        events = ctx.log.events()
         for path, st in sorted(rs.steps.items()):
-            if st.state == "running":
+            if st.state == "running" and _last_data(events, "dispatched", path, st.attempt).get("adapter") in ("manual", None):
                 (ctx.attempt_dir(path, st.attempt) / "result" / "artifacts").mkdir(parents=True, exist_ok=True)
                 reconciled.append({"step_path": path, "attempt": st.attempt, "action": "waiting_for_submit"})
         out: dict[str, Any] = {}

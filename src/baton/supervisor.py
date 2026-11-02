@@ -1,40 +1,136 @@
-"""Running worker child processes (§8.7).
+"""Running workers: the per-dispatch supervisor, running markers, hooks (§8.7).
 
-Phase 5 runs a worker *attached*: ``run_child`` starts the adapter's command
-in its own process group with the profile's constructed environment, waits up
-to a time limit, kills the whole process tree on overrun, and writes the raw,
-unredacted output to the machine-local log directory (``$BATON_HOME/logs/``),
-never into the project. The detached per-dispatch supervisor, running markers,
-heartbeats and completion hooks arrive with the async layer (Phase 7) and
-build on this.
+**No daemon.** ``dispatch`` starts one small supervisor per process worker,
+detached from the caller (POSIX: a new session; Windows: a detached process
+group **[VERIFY]**), so a Director's shell or session ending does not affect
+it. The supervisor:
+
+1. writes the **running marker** ``.baton/cache/running/<dispatch_id>.json``
+   (host, supervisor and worker PIDs, step path, attempt, started, deadline,
+   heartbeat every 30 s);
+2. snapshots the working tree for ``read`` / ``none`` steps (§6.3), kept next
+   to the marker so a later reconciliation can still compare;
+3. starts the worker in its own process group with the profile's constructed
+   environment (received on stdin, never written to disk), output only to the
+   machine-local log ``$BATON_HOME/logs/<run>/<step_path>/attempt-<n>.log``;
+4. enforces the deadline: when it passes and ``effort.extend_once`` is on, it
+   records ``deadline_extended``, fires the hook with outcome ``overdue`` and
+   extends by one band; at the next deadline it terminates the process tree
+   (``step_timed_out``, classified, retried while attempts remain);
+5. runs intake when the worker exits (under the run's file lock; no lease is
+   needed, the supervisor is the runtime finishing work a Director started),
+   fires the completion hooks, records them, writes records, makes the
+   checkpoint commit, and removes the marker.
+
+**Liveness** (``liveness``) reads a marker against the processes on this
+host; ``engine.Api.reconcile`` applies the table in §8.7.
+
+**Hooks** fire after intake on every outcome: project-level (non-secret)
+hooks from ``project.yaml`` and machine-level hooks from
+``$BATON_HOME/hooks.yaml``, which may reference ``secret:<name>`` (substituted
+at execution, shell-quoted, never logged). Both fire when both are configured.
+A hook is a shell command line, run with the caller's environment plus
+``BATON_RUN_ID``, ``BATON_STEP_PATH``, ``BATON_OUTCOME``,
+``BATON_CLASSIFICATION``, ``BATON_DISPATCH_ID``, ``BATON_REPO``,
+``BATON_RECORD`` and ``BATON_STEP_STATE``. ``BATON_OUTCOME`` is one of
+``passed``, ``gate_failed``, ``needs_human``, ``timed_out``, ``failed`` (the
+worker ended without a result) and ``overdue``. Which hook: a ``platform``
+classification uses ``on_platform_failure``; a step now waiting on the owner
+(human gate or escalation) uses ``on_needs_human``; each falls back to
+``on_complete`` (§18 #11: no SME is invoked otherwise). Hook failures are
+recorded and never change outcomes.
+
+``run_child`` runs a child *attached* (doctor's auth queries, no-op rounds and
+gate preflight).
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import shlex
+import socket
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
-#: Upper bound for an attached run until effort bands arrive (Phase 7): the S band.
+#: Upper bound for attached children that have no effort band (doctor).
 DEFAULT_TIMEOUT_S = 45 * 60
 #: How many trailing bytes of a child's output are kept for classification.
 TAIL_BYTES = 4096
+HEARTBEAT_S = float(os.environ.get("BATON_SUPERVISOR_HEARTBEAT_S") or 30)
+POLL_S = 0.2
+HOOK_TIMEOUT_S = 60
+#: How long ``dispatch`` waits for the supervisor to report the worker started.
+START_TIMEOUT_S = 60
+HOOK_NAMES = ("on_complete", "on_needs_human", "on_platform_failure")
+OUTCOMES = ("passed", "gate_failed", "needs_human", "timed_out", "failed", "overdue")
+
+
+# ---------------------------------------------------------------------------
+# Processes
+# ---------------------------------------------------------------------------
+
+
+def _new_group_kwargs() -> dict[str, Any]:
+    if os.name == "posix":
+        return {"start_new_session": True}
+    return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}  # pragma: no cover
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
     """Terminate a child and everything it started."""
+    kill_tree_pid(proc.pid)
+    if os.name != "posix":  # pragma: no cover - Windows
+        proc.kill()
+
+
+def kill_tree_pid(pid: int) -> None:
+    """Terminate the process group led by ``pid`` (workers are started as group leaders)."""
     if os.name == "posix":
         import signal
 
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
             pass
     else:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
-        proc.kill()
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+
+
+def pid_alive(pid: int | None) -> bool:
+    """Whether ``pid`` is a live process on this host (a zombie child counts as dead)."""
+    if not pid:
+        return False
+    if os.name == "posix":
+        try:
+            done, _ = os.waitpid(pid, os.WNOHANG)  # reap it if it is our own exited child
+            if done == pid:
+                return False
+        except ChildProcessError:
+            pass
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    import ctypes  # pragma: no cover - Windows [VERIFY]
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    code = ctypes.c_ulong()
+    kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+    kernel32.CloseHandle(handle)
+    return code.value == 259  # STILL_ACTIVE
 
 
 @dataclass
@@ -49,15 +145,24 @@ class ChildResult:
         return {"exit_code": self.exit_code, "duration_s": self.duration_s, "timed_out": self.timed_out}
 
 
+def _tail(log_path: Path) -> bytes:
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - TAIL_BYTES))
+            return f.read()
+    except OSError:
+        return b""
+
+
 def run_child(argv: list[str], *, env: dict[str, str], cwd: Path, log_path: Path, timeout_s: float = DEFAULT_TIMEOUT_S) -> ChildResult:
-    """Run ``argv`` to completion (or the time limit). Output goes to ``log_path`` only."""
+    """Run ``argv`` attached to completion (or the time limit). Output goes to ``log_path`` only."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    kwargs: dict = {"start_new_session": True} if os.name == "posix" else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
     timed_out = False
     with open(log_path, "wb") as log:
         try:
-            proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **kwargs)
+            proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **_new_group_kwargs())
         except FileNotFoundError as e:
             log.write(f"baton: cannot start {argv[0]!r}: {e}\n".encode())
             return ChildResult(127, 0.0, False, log_path, f"executable_not_found: {argv[0]}".encode())
@@ -67,5 +172,376 @@ def run_child(argv: list[str], *, env: dict[str, str], cwd: Path, log_path: Path
             timed_out = True
             kill_tree(proc)
             proc.wait()
-    data = log_path.read_bytes()
-    return ChildResult(proc.returncode, round(time.monotonic() - started, 3), timed_out, log_path, data[-TAIL_BYTES:])
+    return ChildResult(proc.returncode, round(time.monotonic() - started, 3), timed_out, log_path, _tail(log_path))
+
+
+# ---------------------------------------------------------------------------
+# Time
+# ---------------------------------------------------------------------------
+
+
+def fmt(dt: datetime) -> str:
+    """Event-log timestamp format (microseconds, UTC)."""
+    from .store import format_ts
+
+    return format_ts(dt)
+
+
+def parse(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Running markers
+# ---------------------------------------------------------------------------
+
+
+def running_dir(baton_dir: Path) -> Path:
+    return baton_dir / "cache" / "running"
+
+
+def marker_path(baton_dir: Path, dispatch_id: str) -> Path:
+    return running_dir(baton_dir) / f"{dispatch_id}.json"
+
+
+def tree_path(baton_dir: Path, dispatch_id: str) -> Path:
+    return running_dir(baton_dir) / f"{dispatch_id}.tree.json"
+
+
+def read_marker(baton_dir: Path, dispatch_id: str) -> dict[str, Any] | None:
+    try:
+        return json.loads(marker_path(baton_dir, dispatch_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def write_marker(baton_dir: Path, marker: dict[str, Any]) -> None:
+    p = marker_path(baton_dir, marker["dispatch_id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(marker, sort_keys=True, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def remove_marker(baton_dir: Path, dispatch_id: str) -> None:
+    for p in (marker_path(baton_dir, dispatch_id), tree_path(baton_dir, dispatch_id)):
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def markers(baton_dir: Path) -> list[dict[str, Any]]:
+    d = running_dir(baton_dir)
+    out = []
+    for p in sorted(d.glob("d_*.json")) if d.is_dir() else []:
+        if p.name.endswith(".tree.json"):
+            continue
+        try:
+            out.append(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+@dataclass
+class Liveness:
+    """One marker read against this host's processes (§8.7 table)."""
+
+    marker: dict[str, Any] | None
+    supervisor_alive: bool
+    worker_alive: bool
+    elsewhere: bool  # written by another host: cannot be judged here
+    overdue: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        m = self.marker or {}
+        return {
+            "marker": self.marker is not None, "supervisor_alive": self.supervisor_alive, "worker_alive": self.worker_alive,
+            "elsewhere": self.elsewhere, "overdue": self.overdue, "deadline": m.get("deadline"),
+            "heartbeat": m.get("heartbeat"), "extended": m.get("extended", False),
+        }
+
+
+def liveness(baton_dir: Path, dispatch_id: str | None) -> Liveness:
+    m = read_marker(baton_dir, dispatch_id) if dispatch_id else None
+    if m is None:
+        return Liveness(None, False, False, False, False)
+    if m.get("host") != socket.gethostname():
+        return Liveness(m, False, False, True, False)
+    sup = pid_alive(m.get("supervisor_pid"))
+    wk = pid_alive(m.get("worker_pid")) if isinstance(m.get("worker_pid"), int) else False
+    overdue = bool(m.get("deadline")) and now() > parse(m["deadline"])
+    return Liveness(m, sup, wk, False, overdue)
+
+
+# ---------------------------------------------------------------------------
+# Spawning the supervisor
+# ---------------------------------------------------------------------------
+
+
+def spawn(spec: dict[str, Any], supervisor_log: Path) -> subprocess.Popen:
+    """Start ``python -m baton.supervisor`` detached and hand it ``spec`` on stdin.
+
+    ``spec`` carries the worker's environment (it may hold resolved secrets),
+    so it travels through a pipe and is never written to disk.
+    """
+    supervisor_log.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        kwargs: dict[str, Any] = {"start_new_session": True}
+    else:  # pragma: no cover - Windows [VERIFY]
+        flags = 0
+        for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_BREAKAWAY_FROM_JOB"):
+            flags |= getattr(subprocess, name, 0)
+        kwargs = {"creationflags": flags}
+    with open(supervisor_log, "ab") as log:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "baton.supervisor"],
+            stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, cwd=spec["root"], close_fds=True, **kwargs,
+        )
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(spec).encode("utf-8"))
+    proc.stdin.close()
+    return proc
+
+
+def await_start(baton_dir: Path, dispatch_id: str, proc: subprocess.Popen, timeout_s: float = START_TIMEOUT_S) -> dict[str, Any] | None:
+    """Wait until the supervisor reports the worker started (or failed to); None if it died first."""
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
+        m = read_marker(baton_dir, dispatch_id)
+        if m is not None and "worker_pid" in m:
+            return m
+        if proc.poll() is not None:
+            return read_marker(baton_dir, dispatch_id)
+        time.sleep(0.02)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Hooks
+# ---------------------------------------------------------------------------
+
+
+def load_hooks(project: Any) -> list[tuple[str, dict[str, str]]]:
+    """``[(source, {hook_name: command})]`` for project and machine hooks that are configured."""
+    from .data import YamlError, load_yaml
+    from .models import HooksConfig
+
+    out: list[tuple[str, dict[str, str]]] = []
+    proj = {k: v for k, v in project.config.hooks.model_dump().items() if v}
+    if proj:
+        out.append(("project", proj))
+    p = project.home / "hooks.yaml"
+    if p.is_file():
+        try:
+            raw = load_yaml(p) or {}
+            machine = HooksConfig.model_validate((raw or {}).get("hooks") or {}).model_dump()
+        except (YamlError, ValueError, AttributeError) as e:
+            raise HookConfigError(f"{p}: {e}") from e
+        machine = {k: v for k, v in machine.items() if v}
+        if machine:
+            out.append(("machine", machine))
+    return out
+
+
+class HookConfigError(ValueError):
+    pass
+
+
+def hooks_configured(project: Any) -> bool:
+    try:
+        return bool(load_hooks(project))
+    except HookConfigError:
+        return True  # misconfigured, but configured: doctor reports it
+
+
+def choose_hook(hooks: dict[str, str], outcome: str, classification: str | None, needs_owner: bool) -> str | None:
+    """The hook name to run for this outcome, falling back to ``on_complete``."""
+    if classification == "platform" and hooks.get("on_platform_failure"):
+        return "on_platform_failure"
+    if needs_owner and hooks.get("on_needs_human"):
+        return "on_needs_human"
+    return "on_complete" if hooks.get("on_complete") else None
+
+
+_SECRET_TOKEN = re.compile(r"secret:([A-Za-z0-9_.-]+)")
+
+
+def render_hook(command: str, source: str, home: Path) -> tuple[str, list[str]]:
+    """Substitute ``secret:<name>`` (machine hooks only), shell-quoted; returns the command and secret values."""
+    if source != "machine":
+        return command, []
+    from .profiles import resolve_secret
+
+    values: list[str] = []
+
+    def sub(m: re.Match[str]) -> str:
+        v = resolve_secret(m.group(1), home)
+        values.append(v)
+        return shlex.quote(v) if os.name == "posix" else v
+
+    return _SECRET_TOKEN.sub(sub, command), values
+
+
+def run_hook(command: str, env: dict[str, str], cwd: Path, log_path: Path, timeout_s: float = HOOK_TIMEOUT_S) -> ChildResult:
+    shell = ["/bin/sh", "-c", command] if os.name == "posix" else ["cmd", "/c", command]
+    return run_child(shell, env=env, cwd=cwd, log_path=log_path, timeout_s=timeout_s)
+
+
+def fire_hooks(project: Any, info: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run the configured hooks for one outcome. Returns event data, one per hook run (never the command)."""
+    from .profiles import SetupError
+    from .redact import redact_text
+
+    results: list[dict[str, Any]] = []
+    try:
+        configured = load_hooks(project)
+    except HookConfigError as e:
+        return [{"hook": None, "source": "machine", "outcome": info["outcome"], "ok": False, "error": redact_text(str(e))[:300]}]
+    env = dict(os.environ)
+    env.update(
+        {
+            "BATON_RUN_ID": info["run_id"], "BATON_STEP_PATH": info["step_path"], "BATON_OUTCOME": info["outcome"],
+            "BATON_CLASSIFICATION": info.get("classification") or "", "BATON_DISPATCH_ID": info.get("dispatch_id") or "",
+            "BATON_REPO": str(project.root), "BATON_RECORD": info.get("record") or "", "BATON_STEP_STATE": info.get("step_state") or "",
+        }
+    )
+    for source, hooks in configured:
+        name = choose_hook(hooks, info["outcome"], info.get("classification"), info.get("needs_owner", False))
+        if name is None:
+            continue
+        base = {"hook": name, "source": source, "outcome": info["outcome"], "dispatch_id": info.get("dispatch_id")}
+        try:
+            command, _values = render_hook(hooks[name], source, project.home)
+        except SetupError as e:
+            results.append({**base, "ok": False, "error": redact_text(str(e))[:300]})
+            continue
+        log = project.home / "logs" / info["run_id"] / "hooks" / f"{info.get('dispatch_id') or 'x'}-{info['outcome']}-{source}.log"
+        child = run_hook(command, env, project.root, log)
+        ok = child.exit_code == 0 and not child.timed_out
+        data = {**base, "ok": ok, "exit_code": child.exit_code, "duration_s": child.duration_s}
+        if child.timed_out:
+            data["timed_out"] = True
+        if not ok:
+            last = [ln for ln in child.tail.decode("utf-8", "replace").splitlines() if ln.strip()][-1:] or [""]
+            data["message"] = redact_text(last[0])[:300]
+        results.append(data)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# The supervisor process
+# ---------------------------------------------------------------------------
+
+
+def supervise(spec: dict[str, Any]) -> int:
+    """Body of ``python -m baton.supervisor``: run one dispatched worker to its recorded end."""
+    from . import gitops
+    from .engine import Api
+    from .redact import register
+
+    for name in spec.get("secret_names") or []:
+        if name in spec["env"]:
+            register(spec["env"][name])
+    root = Path(spec["root"])
+    baton_dir = root / ".baton"
+    did = spec["dispatch_id"]
+    deadline = parse(spec["deadline"])
+    marker: dict[str, Any] = {
+        "dispatch_id": did, "run_id": spec["run_id"], "step_path": spec["step_path"], "attempt": spec["attempt"],
+        "host": socket.gethostname(), "supervisor_pid": os.getpid(), "started": fmt(now()),
+        "deadline": spec["deadline"], "extended": False, "heartbeat": fmt(now()), "log": spec["log_path"],
+    }
+    write_marker(baton_dir, marker)
+
+    before = None
+    if spec.get("check_tree"):
+        before = gitops.tree_snapshot(root, spec.get("exclude") or [])
+        if before is not None:
+            tree_path(baton_dir, did).write_text(json.dumps({"head": before.head, "files": before.files}), encoding="utf-8")
+
+    log_path = Path(spec["log_path"])
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    proc = None
+    with open(log_path, "wb") as log:
+        try:
+            proc = subprocess.Popen(
+                spec["argv"], cwd=spec["cwd"], env=spec["env"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                **_new_group_kwargs(),
+            )
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            log.write(f"baton: cannot start {spec['argv'][0]!r}: {e}\n".encode())
+    marker["worker_pid"] = proc.pid if proc is not None else None
+    write_marker(baton_dir, marker)
+
+    api = Api.open(root, director_id=spec.get("director"), home=spec["home"])
+    timed_out = False
+    if proc is None:
+        child = ChildResult(127, 0.0, False, log_path, f"executable_not_found: {spec['argv'][0]}".encode())
+    else:
+        last_beat = time.monotonic()
+        while True:
+            if proc.poll() is not None:
+                break
+            if now() >= deadline:
+                if spec.get("extend_once") and not marker["extended"]:
+                    previous = fmt(deadline)
+                    deadline = deadline + timedelta(seconds=spec["band_s"])
+                    marker.update(extended=True, deadline=fmt(deadline))
+                    write_marker(baton_dir, marker)
+                    api.overdue(spec["run_id"], spec["step_path"], spec["attempt"], did, previous, fmt(deadline), spec.get("effort"))
+                else:
+                    timed_out = True
+                    kill_tree(proc)
+                    proc.wait()
+                    break
+            if time.monotonic() - last_beat >= HEARTBEAT_S:
+                marker["heartbeat"] = fmt(now())
+                write_marker(baton_dir, marker)
+                last_beat = time.monotonic()
+            time.sleep(POLL_S)
+        child = ChildResult(proc.returncode, round(time.monotonic() - started, 3), timed_out, log_path, _tail(log_path))
+
+    changes: list[str] = []
+    if before is not None:
+        changes = gitops.tree_changes(before, gitops.tree_snapshot(root, spec.get("exclude") or []))
+    api.complete(spec["run_id"], spec["step_path"], spec["attempt"], did, child=child, workspace_changes=changes, adapter=spec["adapter"], worker=spec["worker"])
+    remove_marker(baton_dir, did)
+    api.close()
+    return 0
+
+
+def selftest_spawn(out_file: Path) -> subprocess.Popen:
+    """Start a detached supervisor that only writes its PID and session to ``out_file`` (doctor)."""
+    kwargs: dict[str, Any] = {"start_new_session": True} if os.name == "posix" else {
+        "creationflags": getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    }
+    return subprocess.Popen(
+        [sys.executable, "-m", "baton.supervisor", "--selftest", str(out_file)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kwargs,
+    )
+
+
+def main() -> int:  # pragma: no cover - exercised through subprocesses
+    if len(sys.argv) == 3 and sys.argv[1] == "--selftest":
+        info = {"pid": os.getpid(), "sid": os.getsid(0) if os.name == "posix" else None}
+        Path(sys.argv[2]).write_text(json.dumps(info), encoding="utf-8")
+        return 0
+    spec = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    try:
+        return supervise(spec)
+    except Exception:
+        import traceback
+
+        traceback.print_exc()  # to the supervisor log (machine-local)
+        return 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

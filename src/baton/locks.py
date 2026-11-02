@@ -173,3 +173,89 @@ class Leases:
             raise LeaseHeld(f"run {self.log.run_id} is leased to {lease.describe()}; only its holder can release it", lease)
         self.log.append("lease_released", actor=actor or self.director.actor, data={"director_id": lease.director_id})
         return True
+
+
+# ---------------------------------------------------------------------------
+# File locks (machinery, never configured): a short per-run lock serializes
+# appends between a Director's call and a background supervisor (§8.7); the
+# project lock serializes git operations (§8.9). Both live under
+# ``.baton/cache/locks/`` and are reentrant within a process.
+# ---------------------------------------------------------------------------
+
+import contextlib
+import threading
+from pathlib import Path
+from typing import Iterator
+
+_held: dict[str, list] = {}
+_held_guard = threading.Lock()
+
+
+def _os_lock(f: object) -> None:
+    if os.name == "posix":
+        import fcntl
+
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
+    else:  # pragma: no cover - Windows CI
+        import msvcrt
+        import time
+
+        while True:
+            try:
+                f.seek(0)  # type: ignore[attr-defined]
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+                return
+            except OSError:
+                time.sleep(0.05)
+
+
+def _os_unlock(f: object) -> None:
+    if os.name == "posix":
+        import fcntl
+
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
+    else:  # pragma: no cover - Windows CI
+        import msvcrt
+
+        f.seek(0)  # type: ignore[attr-defined]
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+
+
+@contextlib.contextmanager
+def file_lock(path: Path) -> Iterator[None]:
+    """An exclusive, process-reentrant lock on ``path`` (created if missing)."""
+    key = str(path.absolute())
+    with _held_guard:
+        entry = _held.get(key)
+        if entry is not None and entry[1] == threading.get_ident():
+            entry[2] += 1
+            mine = False
+        else:
+            entry = None
+            mine = True
+    if mine:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        f = open(path, "a+b")
+        _os_lock(f)
+        with _held_guard:
+            _held[key] = [f, threading.get_ident(), 1]
+    try:
+        yield
+    finally:
+        with _held_guard:
+            entry = _held[key]
+            entry[2] -= 1
+            done = entry[2] == 0
+            if done:
+                del _held[key]
+        if done:
+            _os_unlock(entry[0])
+            entry[0].close()
+
+
+def run_lock(baton_dir: Path, run_id: str) -> contextlib.AbstractContextManager[None]:
+    return file_lock(baton_dir / "cache" / "locks" / f"run-{run_id}.lock")
+
+
+def project_lock(baton_dir: Path) -> contextlib.AbstractContextManager[None]:
+    return file_lock(baton_dir / "cache" / "locks" / "project.lock")

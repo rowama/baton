@@ -18,11 +18,11 @@
 ## Timeline
 
 - 2026-11-01T12:00:01.000000Z: run started by director:alice@host1
-- 2026-11-01T12:00:15.000000Z `describe` attempt 1: result rejected: output (root): 'occurrence' is a required property
-- 2026-11-01T12:00:27.000000Z `describe` attempt 2: passed
-- 2026-11-01T12:00:41.000000Z `assess` attempt 1: owner decided **approve** — "Agreed; author the recipe."
-- 2026-11-01T12:00:43.000000Z `assess` attempt 1: passed
-- 2026-11-01T12:00:44.000000Z: run completed
+- 2026-11-01T12:00:16.000000Z `describe` attempt 1: result rejected: output (root): 'occurrence' is a required property
+- 2026-11-01T12:00:29.000000Z `describe` attempt 2: passed
+- 2026-11-01T12:00:44.000000Z `assess` attempt 1: owner decided **approve** — "Agreed; author the recipe."
+- 2026-11-01T12:00:46.000000Z `assess` attempt 1: passed
+- 2026-11-01T12:00:47.000000Z: run completed
 
 ## Escalations
 
@@ -31,4 +31,4 @@ None.
 ## Leases
 
 - 2026-11-01T12:00:05.000000Z claimed by alice@host1 until 2026-11-01T13:00:04.000000Z
-- 2026-11-01T12:00:45.000000Z released by runtime
+- 2026-11-01T12:00:48.000000Z released by runtime

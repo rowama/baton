@@ -1,0 +1,27 @@
+# Failure classification rules (§8.8), format baton-classify-rules/1.
+# Maintained by the runtime maintainer (§18 #4): changes are a new version
+# file in a PR to the runtime repo; published versions are never edited.
+#
+# Applied, in order, to a worker that ended without a result (after the API
+# runner's failure line and the adapter's own failure_signals), and to a
+# failed script gate (scope: gate). The first match wins; nothing matching is
+# `unknown`. Patterns are Python regular expressions searched in the last
+# 4 KiB of output; the matching line becomes the (redacted) message.
+id: baton-classify-rules/1
+patterns:
+  - { class: platform, code: disk_full, pattern: "No space left on device|Disk quota exceeded" }
+  - { class: platform, code: network_dns, pattern: "Could not resolve host|Temporary failure in name resolution|Name or service not known|getaddrinfo (ENOTFOUND|EAI_AGAIN)" }
+  - { class: platform, code: network, pattern: "Network is unreachable|Connection refused|Connection timed out|ECONNREFUSED|ECONNRESET|ETIMEDOUT" }
+  - { class: platform, code: tls, pattern: "certificate verify failed|SSL: CERTIFICATE_VERIFY_FAILED|unable to get local issuer certificate" }
+  - { class: platform, code: out_of_memory, pattern: "Out of memory|Cannot allocate memory|MemoryError|JavaScript heap out of memory" }
+  - { class: platform, code: sandbox_denied, pattern: "Operation not permitted|sandbox(-exec)?: .*denied|blocked by (the )?sandbox" }
+  - { class: platform, code: permission_denied, pattern: "Permission denied" }
+# Exit codes (POSIX shells and the runtime's own spawner). `scope: gate`
+# also applies to script gates: a gate command that cannot be found or run is
+# the platform's problem, not the step's.
+exit_codes:
+  127: { class: platform, code: executable_not_found, message: "the command was not found (exit 127)", scope: [worker, gate] }
+  126: { class: platform, code: not_executable, message: "the command could not be executed (exit 126)", scope: [worker, gate] }
+# Killed by a signal (a negative return code on POSIX; 128+n from a shell).
+signals:
+  9: { class: platform, code: killed, message: "killed by SIGKILL, often the OS out-of-memory killer", scope: [worker, gate] }
