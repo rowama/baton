@@ -30,9 +30,9 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import classify
+from . import classify, groups, refs
 from .intake import read_result, run_script_gate
-from .models import EVENTS_FORMATS, Group, HumanGate, Plan, SchemaGate, ScriptGate, Step, WorkerProfile
+from .models import EVENTS_FORMATS, FindingsGate, Group, HumanGate, Plan, SchemaGate, ScriptGate, Step, WorkerProfile
 from .packet import (
     PROTOCOL,
     BuiltPacket,
@@ -43,6 +43,7 @@ from .packet import (
     gate_included,
     node_for,
     remove_tree,
+    view_of,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
 from .redact import redact_text
@@ -54,7 +55,7 @@ __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
     "abandon_run", "begin_attempt", "decide", "escalate_no_worker", "finish_child", "open_run", "pending_decisions", "plan",
     "resolve_effort",
-    "refresh", "start", "submit",
+    "refresh", "revise", "start", "submit",
 ]
 
 
@@ -69,7 +70,7 @@ class Outcome:
 
     step_path: str
     attempt: int
-    outcome: str  # passed | needs_human | retry | escalated
+    outcome: str  # passed | needs_human | retry | escalated | abandoned | next_iteration | iteration_limit | revised
     reasons: list[str] = field(default_factory=list)
     ready: list[str] = field(default_factory=list)  # steps that became ready as a result
     run_completed: bool = False
@@ -136,29 +137,94 @@ def open_run(store: Store, run_id: str, recipe: LoadedRecipe, project: dict[str,
 
 
 def refresh(ctx: RunContext) -> list[str]:
-    """Ready every top-level step whose dependencies are satisfied; complete the run when all are.
+    """Move the run forward as far as the record allows; complete it when every top-level node is done.
 
-    Steps with ``applies_to`` wait until a complexity level is set (§5.5);
-    groups wait for the groups layer.
+    Readies every step (top level or inside a group's current iteration) whose
+    dependencies are satisfied, including ``stale`` steps (re-run, §8.9);
+    expands and re-expands groups; starts instances as ``concurrency`` allows;
+    ends iterations judged unmet and starts the next one, or escalates at
+    ``max_iterations`` (§8.5). Steps with ``applies_to`` wait until a
+    complexity level is set (§5.5). One event at a time, each from a fresh view.
     """
     log = ctx.log
-    rs = log.state()
-    if rs.state != "active":
+    if log.state().state != "active":
         return []
-    level = ctx.record().level()
-    readied = []
-    for node in ctx.recipe.recipe.steps:
-        if isinstance(node, Group) or rs.step(node.id).state != "blocked_on_deps":
-            continue
-        if node.applies_to is not None and (level is None or level not in node.applies_to):
-            continue
-        if all(rs.step(d).state in SATISFIES_DEPS for d in node.depends_on):
-            log.append("step_ready", step_path=node.id)
-            readied.append(node.id)
-    rs = log.state()
-    if all(rs.step(n.id).state in SATISFIES_DEPS for n in ctx.recipe.recipe.steps):
+    readied: list[str] = []
+    while _advance(ctx, view_of(ctx), ctx.recipe.recipe.steps, None, readied):
+        pass
+    view = view_of(ctx)
+    if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps):
         log.append("run_completed")
     return readied
+
+
+def _advance(ctx: RunContext, view: groups.View, nodes: list[Any], frame: groups.Frame | None, readied: list[str]) -> bool:
+    """Append the next event this scope calls for; ``True`` if one was appended."""
+    for node in nodes:
+        if node.applies_to is not None and (view.level is None or view.level not in node.applies_to):
+            continue
+        path = groups.child_path(frame, node.id)
+        if not view.deps_met(node, frame):
+            continue
+        if isinstance(node, Step):
+            state = view.rs.step(path).state
+            if state in ("blocked_on_deps", "stale"):
+                ctx.log.append("step_ready", step_path=path, data={"rerun": True} if state == "stale" else {})
+                readied.append(path)
+                return True
+        elif _advance_group(ctx, view, node, path, frame, readied):
+            return True
+    return False
+
+
+def _advance_group(ctx: RunContext, view: groups.View, group: Group, path: str, outer: groups.Frame | None, readied: list[str]) -> bool:
+    log = ctx.log
+    if view.needs_expansion(group, path, outer):
+        data = view.build_expansion(group, path, outer)
+        log.append("group_expanded", step_path=path, data=data)
+        if data.get("changed"):
+            # Same id, changed item: the instance's accepted work is stale and re-runs (§8.5).
+            fresh = view_of(ctx)
+            for inst in data["changed"]:
+                f = fresh.frame(group, path, inst)
+                for p in fresh.effective_paths(f) if f else []:
+                    if fresh.rs.step(p).state in ("passed", "imported"):
+                        log.append("step_stale", step_path=p, data={"cause": "item_changed", "instance": f"{path}/{inst}"})
+        return True
+    items = view.live_items(path)
+    active = sum(1 for i in items if view.instance_state(group, path, i["id"]) in ("active", "escalated"))
+    for item in items:
+        ipath = f"{path}/{item['id']}"
+        state = view.instance_state(group, path, item["id"])
+        if state == "not_started":
+            if active < group.concurrency:
+                log.append("iteration_started", step_path=ipath, data={"iteration": 1, "from": group.steps[0].id, "budget_base": 0})
+                return True
+            continue
+        if state in ("abandoned", "superseded", "escalated", "passed"):
+            continue
+        f = view.frame(group, path, item["id"])
+        assert f is not None
+        failed = view.judged_failed(f)
+        if failed is not None:
+            if view.limit_for(ipath, failed) is not None:
+                continue
+            cur, base = view.current_iteration(ipath) or (1, 0)
+            reasons = (failed.data.get("condition") or {}).get("reasons") or []
+            if group.max_iterations is not None and cur - base >= group.max_iterations:
+                log.append(
+                    "iteration_limit_reached", step_path=ipath,
+                    data={"iteration": cur, "max_iterations": group.max_iterations, "judged": failed.step_path, "judged_seq": failed.seq, "reasons": reasons},
+                )
+            else:
+                log.append(
+                    "iteration_started", step_path=ipath,
+                    data={"iteration": cur + 1, "from": group.repeat_from or group.steps[0].id, "budget_base": base, "after": failed.step_path},
+                )
+            return True
+        if _advance(ctx, view, group.steps, f, readied):
+            return True
+    return False
 
 
 def _completed(ctx: RunContext) -> bool:
@@ -246,6 +312,10 @@ def submit(
         raise EngineError("engine.no_packet", f"{step_path} attempt {n} has no recorded packet")
     adir = ctx.attempt_dir(step_path, n)
     sub = read_result(ctx, step, adir / "result", adir / "packet", built.data["packet_sha256"])
+    if sub.status == "completed" and not sub.problems:
+        loc = groups.locate(ctx.recipe, step_path)
+        assert loc is not None
+        sub.problems += view_of(ctx).foreach_id_problems(loc, sub.output)
 
     log.append(
         "result_submitted",
@@ -314,17 +384,79 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
                 reasons = [f"{cls['class']} failure ({cls['code']}) running gate {i}: {cls['message']}", *res.reasons]
                 log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": cls["class"], "code": cls["code"], "reasons": reasons})
                 return Outcome(step_path, n, "escalated", reasons)
-            return _failed(ctx, step_path, n, res.reasons)
+            return _gate_failed(ctx, step_path, n, i, res.reasons)
+        elif isinstance(gate, FindingsGate):
+            passed, data = _findings_gate(ctx, gate, step_path, n)
+            log.append("findings_recorded", step_path=step_path, attempt=n, data={"gate": i, **data["recorded"]})
+            log.append("gate_passed" if passed else "gate_failed", step_path=step_path, attempt=n, data={**base, **data["gate"]})
+            if passed or gate.advisory:
+                continue
+            return _gate_failed(ctx, step_path, n, i, data["gate"]["reasons"])
         elif isinstance(gate, HumanGate):
             log.append("human_gate_opened", step_path=step_path, attempt=n, data={**base, "prompt": gate.prompt, "ref": step_path})
             return Outcome(step_path, n, "needs_human", [gate.prompt])
         else:  # pragma: no cover - refused before the packet was built
             raise EngineError("engine.unsupported_gate", f"{gate.type} gates arrive with the reviews layer")
-    submitted = ctx.record().last("result_submitted", step_path, n)
-    registered = {k: submitted.data.get(k) for k in ("output_sha256", "artifacts")}
-    log.append("step_passed", step_path=step_path, attempt=n, data=registered)
+    data = _registered(ctx, step_path, n)
+    loc = groups.locate(ctx.recipe, step_path)
+    if loc is not None and groups.is_judge(loc):
+        data["condition"] = {"gates_passed": True}
+    log.append("step_passed", step_path=step_path, attempt=n, data=data)
     ready = refresh(ctx)
     return Outcome(step_path, n, "passed", [], ready, _completed(ctx))
+
+
+def _registered(ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
+    submitted = ctx.record().last("result_submitted", step_path, n)
+    return {k: submitted.data.get(k) for k in ("output_sha256", "artifacts")}
+
+
+def _findings_gate(ctx: RunContext, gate: FindingsGate, step_path: str, n: int) -> tuple[bool, dict[str, Any]]:
+    """Evaluate a ``findings`` gate on the step's own ``baton:findings`` output (§9.1, §9.2).
+
+    Every finding is open until dispositions exist (Phase 9). The gate fails
+    when an open finding has a ``block_on`` severity. ``coverage.complete:
+    false`` marks the result partial.
+    """
+    sha = _registered(ctx, step_path, n).get("output_sha256")
+    output = json.loads(ctx.log.cas.read(sha)) if sha else {}
+    findings = [f for f in output.get("findings") or [] if isinstance(f, dict)]
+    coverage = output.get("coverage") or {}
+    block = set(gate.block_on or [])
+    blocking = [f for f in findings if f.get("severity") in block]
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f.get("severity", "?")] = counts.get(f.get("severity", "?"), 0) + 1
+    partial = coverage.get("complete") is False
+    reasons = [
+        f"open {f.get('severity')} finding {f.get('id')}: {f.get('title')}" + (f" ({f['location']})" if f.get("location") else "")
+        for f in blocking
+    ]
+    recorded = {"counts": counts, "open": [f.get("id") for f in findings], "blocking": [f.get("id") for f in blocking], "partial": partial}
+    if coverage.get("notes"):
+        recorded["coverage_notes"] = coverage["notes"]
+    return not blocking, {"recorded": recorded, "gate": {"blocking": recorded["blocking"], "partial": partial, "reasons": reasons}}
+
+
+def _gate_failed(ctx: RunContext, step_path: str, n: int, gate: int, reasons: list[str]) -> Outcome:
+    """A declared blocking gate failed: retry the step, or, for an iteration's judge, end the iteration.
+
+    A judge (a step named in its group's ``repeat_until``) did its work; its
+    gate says the iteration's work is not done. Its result is kept and the
+    next iteration starts (or the instance escalates at ``max_iterations``).
+    """
+    loc = groups.locate(ctx.recipe, step_path)
+    if loc is None or not groups.is_judge(loc):
+        return _failed(ctx, step_path, n, reasons)
+    assert loc.frame is not None
+    data = {**_registered(ctx, step_path, n), "condition": {"gates_passed": False, "gate": gate, "reasons": reasons}}
+    ctx.log.append("step_passed", step_path=step_path, attempt=n, data=data)
+    ready = refresh(ctx)
+    ipath = loc.frame.instance_path
+    limit = ctx.record().last("iteration_limit_reached", ipath)
+    if limit is not None and limit.data.get("judged") == step_path and limit.data.get("judged_seq") == ctx.record().last("step_passed", step_path, n).seq:
+        return Outcome(step_path, n, "iteration_limit", [f"{ipath} reached {limit.data['max_iterations']} iterations", *reasons], ready, _completed(ctx))
+    return Outcome(step_path, n, "next_iteration", reasons, ready, _completed(ctx))
 
 
 def _workspace_reasons(step_path: str, changes: list[str]) -> list[str]:
@@ -400,7 +532,7 @@ def finish_child(
     return Outcome(step_path, n, "escalated", reasons)
 
 
-def resolve_effort(ctx: RunContext, node: Any, config: Any) -> tuple[str, str]:
+def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | None = None) -> tuple[str, str]:
     """The step's effort (``S`` | ``M`` | ``L``) and where it came from (§8.7).
 
     ``effort`` on the step; else ``effort_from`` resolved from the record; else
@@ -415,7 +547,8 @@ def resolve_effort(ctx: RunContext, node: Any, config: Any) -> tuple[str, str]:
     ref = getattr(node, "effort_from", None)
     if ref:
         try:
-            value = _resolve(ctx, ctx.record(), "effort", ref).inline
+            loc = groups.locate(ctx.recipe, step_path or node.id)
+            value = _resolve(ctx, ctx.record(), "effort", ref, loc).inline
         except (_Unresolvable, _NotApplicable, EngineError) as e:
             return config.default, f"default ({ref} did not resolve: {e})"
         if value in EFFORTS:
@@ -447,7 +580,10 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
     """
     out = []
     record = ctx.record()
+    view = view_of(ctx)
     for path, st in sorted(ctx.log.state().steps.items()):
+        if st.state in ("awaiting_human", "escalated") and "/" in path and view.live_reason(path, dispatch=False):
+            continue  # inside a superseded or abandoned instance, or an earlier iteration
         if st.state == "awaiting_human":
             opened = record.last("human_gate_opened", path, st.attempt)
             out.append(
@@ -466,6 +602,16 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
                     "options": list(ESCALATION_DECISIONS),
                 }
             )
+    for ipath, lim in view.pending_limits():
+        d = lim.data
+        out.append(
+            {
+                "ref": ipath, "step_path": ipath, "kind": "iteration_limit", "iteration": d.get("iteration"),
+                "max_iterations": d.get("max_iterations"), "reason": "iteration_limit",
+                "reasons": [f"{ipath} reached {d.get('max_iterations')} iterations without meeting its exit condition", *(d.get("reasons") or [])],
+                "options": list(ESCALATION_DECISIONS),
+            }
+        )
     return out
 
 
@@ -482,8 +628,10 @@ def decide(
     abandons the step.
     """
     log = ctx.log
-    current = log.state().step(ref)
     extra = {"recorded_by": recorded_by} if recorded_by else {}
+    if groups.locate_instance(ctx.recipe, ref) is not None:
+        return _decide_iteration_limit(ctx, ref, decision, note, actor, extra)
+    current = log.state().step(ref)
     if current.state == "escalated":
         return _decide_escalation(ctx, ref, decision, note, actor, extra)
     if decision not in GATE_DECISIONS:
@@ -509,7 +657,91 @@ def decide(
     log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
     if step.gates[gate_index].advisory:
         return _run_gates(ctx, step, ref, n, gate_index + 1)
-    return _failed(ctx, ref, n, reasons)
+    return _gate_failed(ctx, ref, n, gate_index, reasons)
+
+
+def _decide_iteration_limit(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    """The owner's answer to an instance at ``max_iterations`` (§8.5).
+
+    ``retry``: a fresh budget of ``max_iterations``; the next iteration starts at
+    ``repeat_from`` (the note reaches it with the open findings). ``abandon``:
+    the instance is abandoned and the group cannot pass.
+    """
+    if decision not in ESCALATION_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} reached its iteration limit; decision must be one of {ESCALATION_DECISIONS}, got {decision!r}")
+    hit = groups.locate_instance(ctx.recipe, ref)
+    assert hit is not None
+    loc, inst = hit
+    assert isinstance(loc.node, Group)
+    view = view_of(ctx)
+    lim = view.pending_limit(loc.node, loc.path, inst)
+    if lim is None:
+        raise EngineError("decide.nothing_pending", f"{ref} has no open owner decision")
+    cur = int(lim.data["iteration"])
+    ctx.log.append(
+        "human_decision", actor=actor, step_path=ref,
+        data={"ref": ref, "kind": "iteration_limit", "iteration": cur, "decision": decision, "note": note, **extra},
+    )
+    if decision == "retry":
+        data: dict[str, Any] = {"iteration": cur + 1, "from": loc.node.repeat_from or loc.node.steps[0].id, "budget_base": cur, "after_decision": True}
+        if note:
+            data["note"] = note
+        ctx.log.append("iteration_started", step_path=ref, data=data)
+    ready = refresh(ctx)
+    return Outcome(ref, cur, "next_iteration" if decision == "retry" else "abandoned", [note] if note else [], ready, _completed(ctx))
+
+
+def revise(ctx: RunContext, step_path: str, reason: str, *, actor: str = "director") -> Outcome:
+    """Correct an earlier step of this run (§8.9); the owner's approval is the director skill's rule.
+
+    The step's accepted result becomes ``superseded`` and the step is ready for
+    a new attempt whose packet holds the previous result and the reason. Every
+    accepted dependent in this run becomes ``stale`` (re-run once its
+    dependencies pass again), except the instances of a group whose ``foreach``
+    source is the revised step: re-expansion judges those item by item. Other
+    runs are never touched. Refused while a dependent attempt is in flight.
+    """
+    if not reason.strip():
+        raise EngineError("revise.reason_required", "revising a step needs a reason")
+    loc = groups.locate(ctx.recipe, step_path)
+    if loc is None or not isinstance(loc.node, Step):
+        raise EngineError("engine.unknown_step", f"{step_path} is not a step of {ctx.recipe.recipe.ref}")
+    if loc.frames:
+        raise EngineError("revise.inside_group", f"{step_path} is inside a group; revising steps inside groups is not supported yet (revise the group's source or an earlier step)")
+    log = ctx.log
+    rs = log.state()
+    st = rs.step(step_path)
+    if st.state not in ("passed", "imported"):
+        raise EngineError("revise.not_accepted", f"{step_path} is {st.state}; only an accepted (passed or imported) step can be revised")
+    top = ctx.recipe.recipe.steps
+    dependents: list[Any] = []
+    frontier = {step_path}
+    while frontier:
+        nxt = {n.id for n in top if n not in dependents and frontier & set(n.depends_on)}
+        dependents += [n for n in top if n.id in nxt]
+        frontier = nxt
+    dep_ids = {n.id for n in dependents}
+    busy = sorted(p for p, s in rs.steps.items() if s.state in groups.IN_FLIGHT and p.split("/", 1)[0] in dep_ids)
+    if busy:
+        raise EngineError("revise.in_flight", f"cannot revise {step_path} while dependent work is in flight: {', '.join(busy)}")
+    log.append("step_revised", actor=actor, step_path=step_path, attempt=None, data={"reason": reason})
+    log.append("step_ready", step_path=step_path, data={"revision": True})
+    view = view_of(ctx)
+    stale: list[str] = []
+    for node in dependents:
+        if isinstance(node, Step):
+            stale.append(node.id)
+            continue
+        if node.foreach and refs.parse(node.foreach).kind == "step_output" and refs.parse(node.foreach).step == step_path:
+            continue  # re-expansion decides, item by item (§8.5)
+        for item in view.live_items(node.id):
+            f = view.frame(node, node.id, item["id"])
+            stale += view.effective_paths(f) if f else []
+    for p in stale:
+        if view.rs.step(p).state in ("passed", "imported"):
+            log.append("step_stale", step_path=p, data={"cause": "revised", "revised": step_path})
+    return Outcome(step_path, st.attempt, "revised", [reason], [step_path], False)
+
 
 
 def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
@@ -544,7 +776,9 @@ def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> Non
 
 #: Events after which the run's record is committed (§10.1). ``lease_released``
 #: is included so a handoff travels through git.
-CHECKPOINT_TRIGGERS = ("human_decision", "step_passed", "step_escalated", "run_completed", "run_abandoned", "lease_released")
+CHECKPOINT_TRIGGERS = (
+    "human_decision", "step_passed", "step_escalated", "iteration_limit_reached", "run_completed", "run_abandoned", "lease_released",
+)
 
 
 class Api:
@@ -707,10 +941,18 @@ class Api:
         events = ctx.log.events()
         rs = ctx.log.state()
         started = events[0].data
-        steps = {}
+        view = view_of(ctx)
+        steps: dict[str, Any] = {}
+        group_info: dict[str, Any] = {}
         for node in ctx.recipe.recipe.steps:
-            st = rs.step(node.id)
-            steps[node.id] = {"state": st.state, "attempt": st.attempt}
+            if isinstance(node, Group):
+                info = groups.describe(view, node, node.id)
+                group_info[node.id] = {**info, "summary": groups.summary_line(info, node)}
+                steps[node.id] = {"state": info["state"], "group": True}
+            else:
+                st = rs.step(node.id)
+                steps[node.id] = {"state": st.state, "attempt": st.attempt}
+        ready = [p for p, st in sorted(rs.steps.items(), key=lambda kv: kv[1].last_seq) if st.state == "ready" and view.live_reason(p) is None]
         running = []
         for path, st in sorted(rs.steps.items()):
             if st.state in ("dispatched", "running"):
@@ -741,7 +983,8 @@ class Api:
             "state": rs.state,
             "level": ctx.record().level(),
             "steps": steps,
-            "ready": [p for p, s in steps.items() if s["state"] == "ready"],
+            "groups": group_info,
+            "ready": ready,
             "running": running,
             "pending_decisions": pending,
             "needs_owner": bool(pending),
@@ -760,8 +1003,12 @@ class Api:
             prefs = load_preferences(self.project.baton)
         except PreferencesError as e:
             raise EngineError("configuration.preferences", str(e)) from e
+        loc = groups.locate(ctx.recipe, step_path)
+        source = None
+        if node.independence is not None and loc is not None:
+            source = step_path if node.independence.from_step == node.id else groups.child_path(loc.frame, node.independence.from_step)
         return eligible_workers(
-            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=ctx.log.events(), preferences=prefs
+            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=ctx.log.events(), preferences=prefs, source_path=source
         )
 
     def eligible(self, run_id: str, step_path: str) -> dict[str, Any]:
@@ -827,7 +1074,7 @@ class Api:
                     )
             except SetupError as e:
                 raise EngineError(e.code, str(e)) from e
-            effort, effort_source = resolve_effort(ctx, node, self.project.config.effort)
+            effort, effort_source = resolve_effort(ctx, node, self.project.config.effort, step_path)
             band_s = self.project.config.effort.seconds(effort)
             deadline = supervisor.fmt(ctx.log.clock() + timedelta(seconds=band_s))
             extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode, "effort": effort, "deadline": deadline}
@@ -976,7 +1223,7 @@ class Api:
         if st.attempt == n and st.state in ("dispatched", "running"):
             outcome = "running"
         elif "step_passed" in types:
-            outcome = "passed"
+            outcome = _passed_outcome(ctx, next(e for e in reversed(mine) if e.type == "step_passed"))
         elif st.attempt == n and st.state == "awaiting_human":
             outcome = "needs_human"
             opened = record.last("human_gate_opened", step_path, n)
@@ -1124,8 +1371,14 @@ class Api:
         esc = next((e for e in reversed(mine) if e.type == "step_escalated"), None)
         st = ctx.log.state().step(step_path)
         state = st.state if st.attempt == n else "ready"
+        passed_ev = next((e for e in reversed(mine) if e.type == "step_passed"), None)
+        judged = _passed_outcome(ctx, passed_ev) if passed_ev is not None else None
         if outcome is None:
-            if "step_passed" in types:
+            if judged == "iteration_limit":
+                outcome = "needs_human"
+            elif judged == "next_iteration":
+                outcome = "gate_failed"
+            elif "step_passed" in types:
                 outcome = "passed"
             elif "step_timed_out" in types:
                 outcome = "timed_out"
@@ -1141,7 +1394,8 @@ class Api:
         return {
             "run_id": ctx.run_id, "step_path": step_path, "attempt": n, "dispatch_id": dispatch_id, "outcome": outcome,
             "classification": cls_ev.data.get("class") if cls_ev is not None else None,
-            "step_state": state, "needs_owner": state in ("awaiting_human", "escalated") and outcome != "overdue",
+            "step_state": state,
+            "needs_owner": (state in ("awaiting_human", "escalated") or judged == "iteration_limit") and outcome != "overdue",
             "record": str(record),
         }
 
@@ -1208,6 +1462,16 @@ class Api:
         def body(ctx: RunContext) -> dict[str, Any]:
             outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def revise(self, run_id: str, step_path: str, reason: str) -> dict[str, Any]:
+        """Correct an earlier step of this run (§8.9). Owner approval is the director skill's rule."""
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            outcome = revise(ctx, step_path, reason, actor=self.director.actor)
+            stale = [e.step_path for e in ctx.log.events() if e.type == "step_stale" and e.data.get("revised") == step_path and e.seq > ctx.record().last("step_revised", step_path).seq]
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome), "stale": stale}
 
         return self._mutate(run_id, body)
 
@@ -1319,6 +1583,19 @@ def _last_data(events: list[Any], etype: str, step_path: str, attempt: int) -> d
     return {}
 
 
+def _passed_outcome(ctx: RunContext, ev: Any) -> str:
+    """``passed``, or for a judge whose gate failed: ``next_iteration`` | ``iteration_limit``."""
+    cond = ev.data.get("condition") or {}
+    if cond.get("gates_passed") is not False:
+        return "passed"
+    loc = groups.locate(ctx.recipe, ev.step_path)
+    if loc is not None and loc.frame is not None:
+        for e in ctx.log.events():
+            if e.type == "iteration_limit_reached" and e.step_path == loc.frame.instance_path and e.data.get("judged_seq") == ev.seq:
+                return "iteration_limit"
+    return "next_iteration"
+
+
 def _outcome_dict(o: Outcome) -> dict[str, Any]:
     return {
         "step_path": o.step_path, "attempt": o.attempt, "outcome": o.outcome, "reasons": o.reasons,
@@ -1336,12 +1613,16 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
     phrases: list[str] = []
     ended = any(e.type in ("run_completed", "run_abandoned") for e in triggers)
     for e in triggers:
-        if e.type == "step_passed":
+        if e.type == "step_passed" and (e.data.get("condition") or {}).get("gates_passed") is False:
+            phrases.append(f"{e.step_path} judged not done [attempt {e.attempt}, {profile(e)}]")
+        elif e.type == "step_passed":
             phrases.append(f"{e.step_path} passed [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "step_escalated":
             phrases.append(f"{e.step_path} escalated ({e.data.get('reason')}) [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "human_decision":
             phrases.append(f"{e.step_path} decision {e.data.get('decision')}" + (f" [attempt {e.attempt}]" if e.attempt else ""))
+        elif e.type == "iteration_limit_reached":
+            phrases.append(f"{e.step_path} reached {e.data.get('max_iterations')} iterations")
         elif e.type == "run_completed":
             phrases.append("run completed")
         elif e.type == "run_abandoned":

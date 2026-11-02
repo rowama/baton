@@ -387,10 +387,10 @@ Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inp
 | `run.inputs.<key>` | Validated run input |
 | `steps.<id>.output[.<json.path>]` | Output of a passed or imported step |
 | `steps.<id>.artifacts.<name>` | CAS blob from a passed or imported step (never the published copy) |
-| `steps.<group>.outputs` | List of each instance's final outputs (from outside a group) |
-| `item[.<json.path>]` | Inside a `foreach` group: the current item |
-| `group.steps.<id>.output` / `.artifacts.<name>` | Inside a group: a sibling's result in the same instance and iteration |
-| `group.previous_iteration.findings` | Inside a `repeat_until` group: open findings and gate reasons from the previous iteration |
+| `steps.<group>.outputs` | From outside a group: one entry per live instance in item order, `{id, item, outputs: {<step_id>: output}}`, each step's accepted output in the instance's final iteration (superseded instances left out) |
+| `item[.<json.path>]` | Inside a `foreach` group: the current item of the innermost `foreach` instance, with its runtime `id` set (§5.8) |
+| `group.steps.<id>.output` / `.artifacts.<name>` | Inside a group: a sibling's result in the same instance and iteration (a sibling listed before `repeat_from` ran only in `i1`, and that result is used) |
+| `group.previous_iteration.findings` | Inside a `repeat_until` group: `{iteration, findings, gate_reasons, owner_note?}` from the previous iteration's judges (every finding they returned, each with its `step`; the reasons their gates failed; the owner's note when the iteration started after an iteration-limit `retry`). `not_applicable` in iteration 1 |
 | `static.<path>` | File shipped in the recipe |
 | `human.<decision_id>` | A recorded human decision |
 | `human_revision.<step>.<artifact>` | A human edit to a published artifact that was explicitly ingested (§10.5) |
@@ -407,7 +407,7 @@ The loader (`recipe.py`) rejects a recipe unless:
 - `publish.to` uses only `paths.*`, `run.*` and `project.*` variables.
 - Complexity: the triage step exists, has no `applies_to`, outputs `level` constrained to the declared levels; every `applies_to` uses declared levels; for each level, every included step is reachable (`baton plan <recipe>` prints the per-level step and gate table).
 - Ids: per §5.8 (unique, no positional ids; `foreach` items declare an optional `id`).
-- Groups: per §5.4; `item` and `group.*` appear only inside groups; `independence.from_step` names the step itself or an ancestor (in the same group if inside one); `protect` appears only on `workspace: write` steps.
+- Groups: per §5.4; `item` and `group.*` appear only inside groups; `independence.from_step` names the step itself or an ancestor (in the same group if inside one); `protect` appears only on `workspace: write` steps. With `repeat_from`, every step named in `repeat_until` must be at or after it (`group.judge_not_repeated`), and a step listed before it may not depend on one at or after it (`group.depends_on_repeated`).
 - **Neutrality:** no keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth`; no values matching the vocabulary's vendor denylist. Prompts and templates are scanned too, with warnings only (prose may mention a vendor).
 
 ### 5.4 Groups (sub-processes)
@@ -417,13 +417,17 @@ A step with its own `steps:` is a group.
 | Key | Meaning |
 |---|---|
 | `foreach` | Array in an ancestor's validated output; one **instance** per item; instance ids are runtime-assigned (§5.8) |
-| `foreach_if_source_skipped` | `once` (single instance, `item` = run inputs) or `skip` |
-| `concurrency` | Max instances active at once (WIP limit); default 1 |
-| `repeat_until` | Condition over gates of steps in the group; if false after an iteration, another starts |
-| `repeat_from` | Where a new iteration starts (default: first step) |
+| `foreach_if_source_skipped` | `once` (single instance, `item` = run inputs) or `skip` (the group is `skipped`). Required when the source can be skipped |
+| `concurrency` | Max instances active at once (WIP limit); default 1. An instance is active from its first iteration until it passes or is abandoned; one escalated at its iteration limit keeps its slot |
+| `repeat_until` | Condition over gates of steps in the group (`group.steps.<id>.gates.passed`, joined by `and`); the steps it names are the iteration's **judges** |
+| `repeat_from` | Where a new iteration starts (default: first step). An iteration after the first runs `repeat_from` and every step listed after it |
 | `max_iterations` | Required with `repeat_until` (1–10); reaching it escalates |
 
-Groups nest at most one level. `foreach` and `repeat_until` may be combined (the loop runs per instance). Runtime semantics: §8.5.
+A group without `foreach` has a single instance. Every instance, including that one and the `once` instance, gets a runtime-assigned id (§5.8).
+
+**Judges** (owner decision, 2026-11-02). When a judge's declared blocking gate (findings, review, human or script) fails, the judge did its work and the iteration's work is not done: its result is kept (`step_passed` with `condition.gates_passed: false`), the steps after it in that iteration never start, and the next iteration starts at `repeat_from` carrying the open findings and gate reasons. Rejected results, schema failures, failed workers and timeouts still retry the judge as attempts.
+
+Groups nest at most one level (supported with the same rules). `foreach` and `repeat_until` may be combined (the loop runs per instance). Runtime semantics: §8.5.
 
 **Attempts versus iterations.** An *attempt* retries one step after its own gate fails (tests failed). An *iteration* reruns part of a group because the group's exit condition isn't met (the independent review still has open high findings). Each is bounded separately.
 
@@ -498,7 +502,7 @@ Ids name **roles, never positions**. Recipes and plans change over time; an id t
 - **Step ids** are readable role names (`design`, `code_review`), unique across the whole recipe including groups. The loader rejects positional ids (`step.positional_id`): a positional word (`step`, `stage`, `phase`, `part`, `task`) followed by digits as the whole id or its first segment (`step1`, `phase_3`, `step01_design`); `s` or `p` followed by digits as the whole id (`s2`, `p_3`); or any id ending in `_<digits>` (`review_2`). Role names that merely contain digits (`oauth2_setup`, `s3_upload`) are fine. Readability matters because ids appear in references, step paths, records and the Director's explanations; opaque ids would make recipes hard to author and review.
 - **A retired id is never reused** for a different step in a later recipe version. The lockfile records, for every vendored recipe version, its step ids and a per-step signature (kind step/group, enclosing group, output schema hash, required capabilities). When a recipe is vendored or upgraded (§14.2), the runtime compares against all recorded versions and flags: a kept id whose signature changed; an id that was retired and now reappears. Each flag needs an owner decision, recorded with the vendoring.
 - **Anything aggregated across runs keys on the qualified id** `<recipe_id>@<version>/<step_path>`, never the bare id: review statistics (§9.2), process statistics and lessons (§12.4), crosswalk targets (§11.3). Inside a run, the run's pinned recipe version and hash (§14.2) qualify every id.
-- **`foreach` instance ids are assigned by the runtime**, never by workers. At first expansion each item gets an opaque random token (e.g. `x7f3a9c2`), recorded in `group_expanded`; it is not derived from order or content. The source step's item schema must declare `id` as an *optional* string property and must not require it (`group.foreach_items_need_id`, `group.foreach_id_required`). When the source step is revised, its packet includes the previous items with their ids; the worker echoes the id of every item it keeps (changed or not) and omits `id` on new items. Intake rejects an unknown or duplicated id. People see item titles; the board shows the title with the id.
+- **`foreach` instance ids are assigned by the runtime**, never by workers. At first expansion each item gets an opaque random token (e.g. `x7f3a9c2`), recorded in `group_expanded`; it is not derived from order or content. Groups without `foreach` get one too. The item stored for an instance (what `item` resolves to) carries its id; change detection compares items without it. The source step's item schema must declare `id` as an *optional* string property and must not require it (`group.foreach_items_need_id`, `group.foreach_id_required`). When the source step is revised, its packet includes the previous items with their ids; the worker echoes the id of every item it keeps (changed or not) and omits `id` on new items. Intake rejects an unknown or duplicated id (an id on the first expansion is unknown). People see item titles; the board shows the title with the id.
 - **Attempts and iterations** (`attempt-1`, `i1`) are ordinal by nature: append-only, never renumbered or reused, so their order is their meaning.
 
 ---
@@ -638,7 +642,7 @@ Adapters never interpret results; intake does.
 - `packet_sha256`: SHA-256 of `"baton-packet/1\n"`, then the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) and `"\n"`, then `"<path>\0<sha256>\n"` for every other packet file (inputs, `INSTRUCTIONS.md`, `output_schema.json`) sorted by POSIX path. Documented in `packet.py` and tested. The manifest holds no clock reading except `deadline`, which the caller supplies.
 - `workspace` is the step's mode (`none` | `read` | `write`); `optional_artifacts` lists declared artifacts that are not required.
 - Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event. Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
-- `prior_feedback`: gate reasons from the previous attempt, or the revision reason (§8.9).
+- `prior_feedback`: `{attempt, reasons, guidance?, revision?}`: gate reasons from the previous attempt and any retry guidance. While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
 
 `INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback.
 
@@ -685,7 +689,7 @@ superseded       → ready      (the revised step's new attempt)
 stale            → ready | passed (re-run, or confirmed by a human decision)
 ```
 
-- `skipped` and `imported` satisfy `depends_on`; `stale` and `superseded` do not.
+- `skipped` and `imported` satisfy `depends_on`; `stale` and `superseded` do not. A group's state is derived, never stored (§8.5).
 - `escalated` reasons: attempts exhausted, `blocked` result, no eligible worker, iteration limit, platform failure, a read or none step that changed the working tree (`workspace_modified`, §6.3).
 - Only `engine.py` performs transitions; each appends exactly one event. Illegal transitions raise. Test every edge.
 - A step with no events is `blocked_on_deps`. Attempt numbers are assigned at `dispatched` (previous + 1); `worker_selected` and `packet_built` carry that next number, events about the attempt in flight carry the current one. The attempt budget (`max_attempts`, recorded in `run_started`) restarts whenever a step becomes `ready` other than by retry.
@@ -716,7 +720,7 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Leases | `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released` |
 | Steps | `step_ready`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `verification_started`, `result_rejected`, `gate_passed`, `gate_failed`, `human_gate_opened`, `step_passed`, `step_escalated`, `step_abandoned`, `step_timed_out`, `attempt_orphaned`, `failure_classified`, `deadline_extended` |
 | Tailoring | `complexity_set`, `step_skipped`, `step_unskipped`, `retriage_requested`, `retriage_applied` |
-| Groups | `group_expanded`, `iteration_started`, `iteration_limit_reached` |
+| Groups | `group_expanded` (on the group path: `mode` `foreach`\|`once`\|`skip`\|`single`, `source`, `source_sha256`, `items` `[{id, sha256, content_sha256, title?}]`, and on re-expansion `kept`/`changed`/`added`/`superseded`), `iteration_started` (on the instance path: `iteration`, `from`, `budget_base`), `iteration_limit_reached` (on the instance path: `iteration`, `max_iterations`, `judged`, `judged_seq`, `reasons`) |
 | Corrections | `step_revised`, `step_stale` |
 | Reviews | `findings_recorded`, `finding_dispositioned`, `gate_waived`, `protected_path_modified` |
 | Human | `human_decision`, `human_revision_ingested` |
@@ -745,10 +749,13 @@ The worker of a result is read from the run's record, not from the current machi
 
 ### 8.5 Groups at runtime
 
-- **Expansion:** when the `foreach` source passes, the runtime creates one instance per item in array order (`group_expanded`, with item ids and content hashes). Instances start as `concurrency` allows.
-- **Re-expansion** after the source is revised, matched by the runtime-assigned ids the worker echoed (§5.8): same id and hash → kept; same id, changed → `stale`; id not echoed → `superseded`; item without an id → added with a new id. Unknown or duplicated ids are rejected at intake.
-- **Iteration:** after the group's steps finish, `repeat_until` is evaluated; if false and below `max_iterations`, a new iteration starts at `repeat_from` with `group.previous_iteration.findings`. Earlier iterations stay in the record.
-- **Aggregate state:** an instance is `passed` when its last iteration passed; the group is `passed` when all instances are `passed`, `superseded` or `skipped`. `explain` and the board describe it plainly ("3 slices: 2 accepted, 1 in review, iteration 2 of 3").
+Implemented in `groups.py` (derived view) and `engine.refresh` (events). Paths: `<group>/<instance>/i<n>/<step>`; an instance's own path is `<group>/<instance>`.
+
+- **Expansion:** when the group's dependencies are satisfied and the `foreach` source passes, the runtime creates one instance per item in array order (`group_expanded`, with item ids and content hashes; each item stored in CAS). A skipped source follows `foreach_if_source_skipped`. Instances start (`iteration_started`, iteration 1) in item order as `concurrency` allows.
+- **Re-expansion** whenever the source's accepted output differs from the one the last expansion was built from (after a revision), matched by the runtime-assigned ids the worker echoed (§5.8): same id and content → kept; same id, changed → the instance's accepted steps (as of its current iteration) become `stale` and re-run in place; id not echoed → `superseded` (its steps never run again and its decisions are no longer pending); item without an id → added with a new id. Unknown or duplicated ids are rejected at intake.
+- **Iteration:** when a judge's gate fails (§5.4), the iteration ends and, below `max_iterations`, `iteration_started` begins the next one at `repeat_from` with `group.previous_iteration.findings`. Earlier iterations stay in the record. At the limit, `iteration_limit_reached` escalates the instance: a pending decision with `ref` = the instance path and options `retry` (a fresh budget of `max_iterations`, starting at `repeat_from`; the note reaches the next iteration as `owner_note`) or `abandon` (the instance is abandoned, so the group cannot pass; the owner revises the plan or abandons the run). Accepting the work as is arrives with waivers (§9.3).
+- **Current work:** a step inside a group is dispatchable only when every enclosing instance is live and started, the path belongs to the instance's current iteration, each enclosing group's dependencies are met and its expansion is up to date, and the iteration has not been ended by a judge.
+- **Aggregate state:** an instance is `not_started`, `active`, `escalated` (iteration limit), `passed` (every step of its current iteration satisfied, no failed judge), `abandoned` or `superseded`. The group is `blocked_on_deps` until expanded, `skipped` (source skipped with `skip`), `passed` when every live instance is `passed` (an empty `foreach` passes at once), else `active`. Status and the run summary describe it plainly ("3 instances: 1 passed, 1 active, 1 not started; Logout: iteration 2 of 3").
 
 ### 8.6 Packet builder (the critical module)
 
@@ -802,16 +809,16 @@ A worker process that exits without writing `result.json` records `attempt_orpha
 
 - **Runs** are independent work items; `run_started` records `{title, kind, slug, recipe, recipe_sha256, versions, branch, max_attempts, inputs_sha256}` (the validated run inputs are a CAS blob). `baton board` lists all non-terminal runs (position including group progress, running work, pending decisions, lease holder; `--needs-me` filters to pending owner decisions).
 - **Locks:** leases are per run (a Director may hold several). Write-mode workspace steps take a project **workspace lock** (one writer per working tree; optional `workspace_isolation: worktree` **[VERIFY merge strategy]**). Git operations and project-level files use a short **project lock**. Checkpoint commits stage only the committing run's files and its own deliverables. Optional `limits.active_runs` in `project.yaml`.
-- **`revise(run, step_path, reason)`** (owner-approved): the step gets a new attempt whose packet includes the previous result and the reason; the old result becomes `superseded`; every dependent step in that run becomes `stale`; stale steps are re-run or confirmed unchanged by a human decision; the reason is recorded without blame. Other runs are never affected. Revising a `foreach` source re-expands its group (§8.5).
+- **`revise(run, step_path, reason)`** (owner-approved; like `take_over`, the runtime requires the reason and the director skill requires the owner's approval): the step gets a new attempt whose packet includes the previous result and the reason (§7.1); the old result becomes `superseded`; every accepted dependent step in that run becomes `stale` (`step_stale`); stale steps are re-run (readied again once their dependencies pass) or confirmed unchanged by a human decision (Phase 10); the reason is recorded without blame. Other runs are never affected. Revising a `foreach` source re-expands its group (§8.5): that group's instances are not marked stale at revision time, re-expansion judges each one. Refused while any dependent attempt is in flight. Built in Phase 8 for top-level steps; revising a step inside a group is refused for now.
 
 ### 8.10 Intake
 
-1. Check `protocol` and `packet_sha256`; validate `output` against the schema (Draft 2020-12, format checks on).
+1. Check `protocol` and `packet_sha256`; validate `output` against the schema (Draft 2020-12, format checks on). For a `foreach` source, echoed item ids must be current and unique (§5.8).
 2. Verify required artifacts; ingest into CAS. Check protected paths (§9.4).
 3. `blocked` → `escalated` with the questions. Otherwise run gates in order (blocking gates stop at the first failure; advisory gates always run and record).
 4. All blocking gates pass → `step_passed` → publish (§10.4) → record (§10.6) → checkpoint (§10.1) → dependents ready; group bookkeeping (§8.5); hooks fire.
 
-Recording: `result_submitted` carries the hashes of the stored `result.json`, the output and each registered artifact; the implicit provenance check is recorded as a `gate_passed` with `gate: "provenance"`; declared gates are recorded by index. `step_passed` repeats the output and artifact hashes, and is the only thing downstream packets resolve from. Envelope, hash, schema and artifact problems are one `result_rejected` listing every reason. A rejected result, a failed blocking gate, a `failed` worker or a rejected human gate returns the step to `ready` (its reasons become the next packet's `prior_feedback`) while attempts remain, else `escalated` (`attempts_exhausted`). A gate command that cannot be rendered or has a bad `cwd` escalates at once (`configuration`). A human gate's decision is referenced by the step path of the step awaiting it; `human_decision` records the owner's words verbatim, followed by the gate's `gate_passed` / `gate_failed`.
+Recording: `result_submitted` carries the hashes of the stored `result.json`, the output and each registered artifact; the implicit provenance check is recorded as a `gate_passed` with `gate: "provenance"`; declared gates are recorded by index. `step_passed` repeats the output and artifact hashes, and is the only thing downstream packets resolve from. Envelope, hash, schema and artifact problems are one `result_rejected` listing every reason. A rejected result, a failed blocking gate (except on a judge, §5.4), a `failed` worker or a rejected human gate returns the step to `ready` (its reasons become the next packet's `prior_feedback`) while attempts remain, else `escalated` (`attempts_exhausted`). A gate command that cannot be rendered or has a bad `cwd` escalates at once (`configuration`). A human gate's decision is referenced by the step path of the step awaiting it; `human_decision` records the owner's words verbatim, followed by the gate's `gate_passed` / `gate_failed`.
 
 ---
 
@@ -824,7 +831,7 @@ Recording: `result_submitted` carries the hashes of the stored `result.json`, th
 | `schema` | Recorded at intake | Output valid |
 | `script` | Runs a command (`cwd`, `timeout_s`) under a clean env; output redacted into CAS | Exit 0 |
 | `review` | Dispatches a review packet (inputs, result, rubric) to a reviewer chosen with `reviewer_requires` and `independence`; reviewer returns findings (§9.2) | No finding at a `block_on` severity is open |
-| `findings` | For a step whose own output is findings (e.g. a code-review step) | Same rule |
+| `findings` | For a step whose own output is findings (e.g. a code-review step). Records `findings_recorded` (`counts` by severity, `open`, `blocking`, `partial`) | Same rule. Until dispositions exist (Phase 9) every finding is open |
 | `human` | Step waits in `awaiting_human`; the Director records the owner's decision | Approved |
 | `provenance` | Implicit: every referenced artifact was registered through intake | Always enforced |
 | `workspace` | Implicit on `read` and `none` steps done by a worker that can touch files (§6.3) | The working tree is unchanged; otherwise the step escalates (`workspace_modified`) |
@@ -867,7 +874,7 @@ Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §
 
 ### 10.1 Checkpoint commits
 
-After `step_passed` (with publishing), `human_decision`, `step_escalated`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
+After `step_passed` (with publishing), `human_decision`, `step_escalated`, `iteration_limit_reached`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
 - Commit SHAs are read back from `git log` on resume, not written into the next event. This keeps commits self-contained. `checkpoint_committed` is appended just before the commit it belongs to (no SHA); if the commit then fails, the next checkpoint carries it.
 - Workspace steps commit their own code; their `commit_sha` is in the step output, and the checkpoint commit follows.
 - Never commit with unrelated uncommitted changes; refuse and report. The commit names its paths (`git commit --only`), so unstaged or untracked work elsewhere is never swept in; changes *staged* for other paths, a merge/rebase in progress or a missing git identity refuse the checkpoint, which is reported in the call's result and retried at the next trigger.
@@ -1021,7 +1028,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `dispatch(run, step_path, worker, wait=false)` | Build packet, start supervised worker; returns a dispatch id |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; later: questions, baseline items, confirmations of stale steps) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; later: questions, baseline items, confirmations of stale steps) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage; correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9) |
@@ -1236,7 +1243,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 7 — Async (L2).** Supervisor, running markers, completion hooks, effort timeouts, classification rules.
 ✅ A dispatch survives its caller's shell exiting; hooks fire for passed, gate failed, needs human, timed out and crashed; each liveness row in §8.7 is reproduced; an overdue S step is extended once, then terminated and classified; detaching with no hook prints the warning.
 
-**Phase 8 — Groups (L3).**
+**Phase 8 — Groups (L3).** Expansion, re-expansion, instances, concurrency, iterations with judges, iteration-limit escalation and decisions, group input references. Pulled forward (owner decision, 2026-11-02): the `findings` gate without dispositions (Phase 9 adds dispositions, waivers and `review` gates) and `revise` for top-level steps without confirming stale steps by decision (Phase 10).
 ✅ A three-slice plan expands to three instances run one at a time; a code review with an open high finding starts iteration 2 whose implement packet contains it; `max_iterations` escalates; revising the plan (one slice changed, one added) re-expands correctly; instance ids are runtime-assigned, and a revision echoing an unknown or duplicated id is rejected.
 
 **Phase 9 — Reviews (L4).** Review and findings gates, dispositions, waivers, protected files, independence.

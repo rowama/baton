@@ -732,6 +732,31 @@ class _Checker:
                 self.error("group.max_iterations_range", f"{w}.max_iterations", f"max_iterations must be 1-10, got {group.max_iterations}")
             if group.repeat_from is not None and group.repeat_from not in child_ids:
                 self.error("group.bad_repeat_from", f"{w}.repeat_from", f"{group.repeat_from!r} is not a step of this group")
+            elif group.repeat_from is not None:
+                # Iterations after the first rerun repeat_from and every step listed after it (§5.4).
+                ids = [s.id for s in group.steps]
+                repeated = set(ids[ids.index(group.repeat_from):])
+                try:
+                    judged = refs.parse_condition(group.repeat_until)
+                except refs.RefSyntaxError:
+                    judged = []
+                for sid in judged:
+                    if sid in child_ids and sid not in repeated:
+                        self.error(
+                            "group.judge_not_repeated",
+                            f"{w}.repeat_until",
+                            f"{sid!r} is listed before repeat_from {group.repeat_from!r}, so later iterations would never judge again",
+                        )
+                for s in group.steps:
+                    if s.id not in repeated:
+                        for dep in s.depends_on:
+                            if dep in repeated:
+                                self.error(
+                                    "group.depends_on_repeated",
+                                    f"{self.where(s)}.depends_on",
+                                    f"{s.id!r} runs only in the first iteration (it is listed before repeat_from "
+                                    f"{group.repeat_from!r}) but depends on {dep!r}, which repeats",
+                                )
         else:
             if group.max_iterations is not None:
                 self.error("group.option_without_repeat", f"{w}.max_iterations", "only valid with repeat_until")

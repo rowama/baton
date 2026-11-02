@@ -16,7 +16,7 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import locks
+from . import groups, locks
 from .data import read_text
 from .models import Event, Group
 from .packet import RunContext
@@ -42,8 +42,9 @@ def _cas_json(ctx: RunContext, sha: str | None) -> Any:
 
 
 def _title(ctx: RunContext, step_path: str) -> str:
-    node = next((n for n in ctx.recipe.recipe.steps if n.id == step_path), None)
-    return (node.title if node is not None and node.title else None) or step_path
+    loc = groups.locate(ctx.recipe, step_path)
+    node = loc.node if loc is not None else None
+    return (node.title if node is not None and node.title else None) or step_path.rsplit("/", 1)[-1]
 
 
 def _gate_line(ev: Event) -> str:
@@ -134,6 +135,12 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
             by = f", recorded by {d['recorded_by']}" if d.get("recorded_by") else ""
             indent = "  " if d.get("kind") == "gate" else ""
             lines.append(f"{indent}- Owner decision{by}: **{d.get('decision')}**{note}")
+        elif ev.type == "findings_recorded":
+            counts = ", ".join(f"{n} {sev}" for sev, n in sorted((d.get("counts") or {}).items())) or "none"
+            partial = " — **partial** coverage" if d.get("partial") else ""
+            lines.append(f"  - findings: {counts}{partial}")
+        elif ev.type == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:
+            lines.append(f"- Outcome: **result kept, iteration not done** (gate {d['condition'].get('gate')} failed) at {ev.ts}")
         elif ev.type == "step_passed":
             lines.append(f"- Outcome: **passed** at {ev.ts}")
         elif ev.type == "step_escalated":
@@ -170,7 +177,20 @@ def _inputs(ctx: RunContext, step_path: str, n: int) -> list[str]:
 _TIMELINE = {
     "run_started", "result_rejected", "gate_failed", "human_decision", "step_passed", "step_escalated",
     "step_abandoned", "run_completed", "run_abandoned", "lease_taken_over",
+    "group_expanded", "iteration_started", "iteration_limit_reached", "step_revised", "step_stale",
 }
+
+
+def _group_lines(group: Group, info: dict[str, Any]) -> list[str]:
+    lines = [f"### `{group.id}`: {group.title or group.id}", ""]
+    if not info["instances"]:
+        return lines + [f"- {info['state']}", ""]
+    for i in info["instances"]:
+        it = f", iteration {i['iteration']}" + (f" of {i['max_iterations']}" if i.get("max_iterations") else "") if i.get("iteration") else ""
+        name = f"{i['title']} (`{i['id']}`)" if i.get("title") else f"`{i['id']}`"
+        steps = ", ".join(f"{k} {v}" for k, v in (i.get("steps") or {}).items())
+        lines.append(f"- {name}: **{i['state'].replace('_', ' ')}**{it}" + (f" — {steps}" if steps else ""))
+    return lines + [""]
 
 
 def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
@@ -194,11 +214,19 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
         "| Step | Title | State | Attempts | Last worker |",
         "|---|---|---|---|---|",
     ]
+    view = groups.View(ctx.recipe, events, rs, ctx.log.cas)
+    group_lines: list[str] = []
     for node in ctx.recipe.recipe.steps:
+        if isinstance(node, Group):
+            info = groups.describe(view, node, node.id)
+            lines.append(f"| `{node.id}` (group) | {node.title or ''} | {groups.summary_line(info, node)} | – | – |")
+            group_lines += _group_lines(node, info)
+            continue
         st = rs.step(node.id)
         worker = next((e.data.get("profile") for e in reversed(events) if e.type == "dispatched" and e.step_path == node.id), None)
-        kind = " (group)" if isinstance(node, Group) else ""
-        lines.append(f"| `{node.id}`{kind} | {node.title or ''} | {st.state} | {st.attempt} | {worker or '–'} |")
+        lines.append(f"| `{node.id}` | {node.title or ''} | {st.state} | {st.attempt} | {worker or '–'} |")
+    if group_lines:
+        lines += ["", "## Groups", ""] + group_lines
     lines += ["", "## Timeline", ""]
     for ev in events:
         if ev.type not in _TIMELINE or (ev.type == "gate_failed" and ev.data.get("advisory")):
@@ -227,8 +255,23 @@ def _timeline_text(ev: Event) -> str:
     if t == "human_decision":
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"
+    if t == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:
+        return "judged not done; iteration ends"
     if t == "step_passed":
         return "passed"
+    if t == "group_expanded":
+        ids = [i["id"] for i in d.get("items") or []]
+        if "superseded" in d:
+            return f"re-expanded ({d.get('mode')}): kept {len(d.get('kept') or [])}, changed {len(d.get('changed') or [])}, added {len(d.get('added') or [])}, superseded {len(d.get('superseded') or [])}"
+        return f"expanded ({d.get('mode')}) into {len(ids)} instance{'s' if len(ids) != 1 else ''}"
+    if t == "iteration_started":
+        return f"iteration {d.get('iteration')} started at {d.get('from')}" + (" after the owner's decision" if d.get("after_decision") else "")
+    if t == "iteration_limit_reached":
+        return f"iteration limit reached ({d.get('max_iterations')}); waiting for the owner"
+    if t == "step_revised":
+        return f"revised: {d.get('reason')}"
+    if t == "step_stale":
+        return f"stale ({d.get('cause')})"
     if t == "step_escalated":
         return f"escalated ({d.get('reason')})"
     if t == "step_abandoned":
@@ -264,6 +307,9 @@ def write_records(ctx: RunContext) -> list[Path]:
     docs = ctx.run_dir / "docs"
     outputs: dict[Path, str] = {docs / "SUMMARY.md": summary(ctx, events)}
     for path in sorted({e.step_path for e in events if e.step_path}):
+        loc = groups.locate(ctx.recipe, path)
+        if loc is None or isinstance(loc.node, Group):
+            continue  # group and instance paths are described in the summary
         outputs[docs / PurePosixPath(path + ".md")] = step_record(ctx, path, events)
     changed = []
     for p, text in outputs.items():

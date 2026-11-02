@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import refs, versions
+from . import groups, refs, versions
 from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile
 from .recipe import FINDINGS_SCHEMA_REF, LoadedRecipe
@@ -149,10 +149,31 @@ class RunRecord:
 
 
 def node_for(recipe: LoadedRecipe, step_path: str) -> Step | Group | None:
-    """The recipe node for a top-level step path. Paths inside groups arrive with Phase 8."""
-    if "/" in step_path:
-        return None
-    return next((n for n in recipe.recipe.steps if n.id == step_path), None)
+    """The recipe node for a step or group path (``<group>/<instance>/i<n>/<step>`` inside groups)."""
+    loc = groups.locate(recipe, step_path)
+    return loc.node if loc is not None else None
+
+
+def view_of(ctx: RunContext) -> groups.View:
+    """The run's group view (§8.5), derived from its events."""
+    log = ctx.log
+    return groups.View(ctx.recipe, log.events(), log.state(), log.cas)
+
+
+def revision_of(record: RunRecord, step_path: str) -> tuple[Event, Event] | None:
+    """``(step_revised, the result it superseded)`` while a revision of the step is not yet accepted."""
+    revised = None
+    for ev in reversed(record.events):
+        if ev.step_path != step_path:
+            continue
+        if revised is None:
+            if ev.type in ("step_passed", "step_imported"):
+                return None
+            if ev.type == "step_revised":
+                revised = ev
+        elif ev.type in ("step_passed", "step_imported"):
+            return revised, ev
+    return None
 
 
 def gate_included(gate: Any, level: str | None) -> bool:
@@ -223,10 +244,55 @@ def _source(ctx: RunContext, record: RunRecord, step_id: str) -> dict[str, Any]:
     return reg
 
 
-def _resolve(ctx: RunContext, record: RunRecord, name: str, raw: str) -> _Resolved:
+def _artifact(ctx: RunContext, name: str, raw: str, reg: dict[str, Any], source: str, artifact: str | None) -> _Resolved:
+    art = (reg.get("artifacts") or {}).get(artifact)
+    if art is None:
+        raise _Unresolvable(f"step {source} registered no artifact {artifact!r}")
+    suffix = PurePosixPath(art.get("filename", "")).suffix
+    return _Resolved(name, raw, "file", f"{name}{suffix}", ctx.log.cas.read(art["sha256"]), art.get("media_type"))
+
+
+def _resolve(
+    ctx: RunContext, record: RunRecord, name: str, raw: str, loc: groups.Located | None = None, view: groups.View | None = None
+) -> _Resolved:
+    """Resolve one reference for the step at ``loc`` (needed for ``item`` and ``group.*``)."""
     ref = refs.parse(raw)
     cas = ctx.log.cas
-    if ref.kind == "run_input":
+    if ref.kind in refs.GROUP_ONLY or ref.kind == "group_outputs":
+        view = view or view_of(ctx)
+        if ref.kind != "group_outputs" and (loc is None or loc.frame is None):
+            raise _Unresolvable(f"{raw} is only available inside a group")
+    if ref.kind == "item":
+        assert view is not None and loc is not None
+        try:
+            value = _walk(view.item_value(loc), ref.path, raw)
+        except LookupError as e:
+            raise _Unresolvable(str(e)) from e
+    elif ref.kind in ("sibling_output", "sibling_artifact"):
+        assert loc is not None and loc.frame is not None
+        sib = groups.child_path(loc.frame, ref.step or "")
+        reg = _source(ctx, record, sib)
+        if ref.kind == "sibling_artifact":
+            return _artifact(ctx, name, raw, reg, sib, ref.name)
+        value = _walk(json.loads(cas.read(reg["output_sha256"])), ref.path, raw)
+    elif ref.kind == "previous_findings":
+        assert view is not None and loc is not None
+        try:
+            value = view.previous_findings(loc)
+        except LookupError as e:
+            raise _Unresolvable(str(e)) from e
+        if value is None:
+            raise _NotApplicable("this is the first iteration")
+    elif ref.kind == "group_outputs":
+        assert view is not None
+        node = groups.locate(ctx.recipe, ref.step or "")
+        state = view.state(ref.step or "")
+        if state == "skipped":
+            raise _NotApplicable(f"group {ref.step} is skipped")
+        if node is None or not isinstance(node.node, Group) or state != "passed":
+            raise _Unresolvable(f"group {ref.step} has not passed (it is {state})")
+        value = view.group_outputs(node.node, ref.step or "")
+    elif ref.kind == "run_input":
         sha = record.started.get("inputs_sha256")
         values = json.loads(cas.read(sha)) if sha else {}
         if ref.name not in values:
@@ -236,12 +302,7 @@ def _resolve(ctx: RunContext, record: RunRecord, name: str, raw: str) -> _Resolv
         reg = _source(ctx, record, ref.step)
         value = _walk(json.loads(cas.read(reg["output_sha256"])), ref.path, raw)
     elif ref.kind == "step_artifact":
-        reg = _source(ctx, record, ref.step)
-        art = (reg.get("artifacts") or {}).get(ref.name)
-        if art is None:
-            raise _Unresolvable(f"step {ref.step} registered no artifact {ref.name!r}")
-        suffix = PurePosixPath(art.get("filename", "")).suffix
-        return _Resolved(name, raw, "file", f"{name}{suffix}", cas.read(art["sha256"]), art.get("media_type"))
+        return _artifact(ctx, name, raw, _source(ctx, record, ref.step), ref.step or "", ref.name)
     elif ref.kind == "static":
         rel = PurePosixPath(ref.name)
         full = ctx.recipe.root / "static" / rel
@@ -259,26 +320,30 @@ def _resolve(ctx: RunContext, record: RunRecord, name: str, raw: str) -> _Resolv
             raise _Unresolvable("the project has no platform facts")
         return _Resolved(name, raw, "file", f"{name}.md", facts.read_bytes(), "text/markdown")
     else:
-        # item, group.*, human_revision.*, research.*: arrive with their layers.
+        # human_revision.*, research.*: arrive with their layers.
         raise _Unresolvable(f"{ref.kind} references are not supported by this runtime yet")
     return _Resolved(name, raw, "json", f"{name}.json", _json_bytes(value), "application/json", value)
 
 
-def resolve_inputs(ctx: RunContext, step: Step, record: RunRecord) -> tuple[list[_Resolved], list[dict[str, str]]]:
+def resolve_inputs(
+    ctx: RunContext, step: Step, record: RunRecord, step_path: str | None = None, view: groups.View | None = None
+) -> tuple[list[_Resolved], list[dict[str, str]]]:
     """(resolved inputs, not-applicable entries) or raise ``HandoffError`` listing all missing."""
     resolved: list[_Resolved] = []
     not_applicable: list[dict[str, str]] = []
     missing: list[tuple[str, str, str]] = []
+    step_path = step_path or step.id
+    loc = groups.locate(ctx.recipe, step_path)
     for inp in step.inputs:
         try:
-            resolved.append(_resolve(ctx, record, inp.name, inp.from_))
+            resolved.append(_resolve(ctx, record, inp.name, inp.from_, loc, view))
         except _NotApplicable as e:
             not_applicable.append({"name": inp.name, "from": inp.from_, "reason": str(e)})
         except (_Unresolvable, StoreError) as e:
             if inp.required:
                 missing.append((inp.name, inp.from_, str(e)))
     if missing:
-        raise HandoffError(step.id, missing)
+        raise HandoffError(step_path, missing)
     return resolved, not_applicable
 
 
@@ -346,14 +411,28 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
     lines.append("")
     if manifest["prior_feedback"]:
         pf = manifest["prior_feedback"]
-        lines += ["## Feedback on the previous attempt", ""]
+        if pf["reasons"] or pf.get("guidance"):
+            lines += ["## Feedback on the previous attempt", ""]
         if pf["reasons"]:
             lines += [f"Attempt {pf['attempt']} was not accepted:", ""]
             lines += [f"- {r}" for r in pf["reasons"]]
             lines.append("")
         if pf.get("guidance"):
             lines += ["Additional guidance for this attempt:", "", pf["guidance"], ""]
-        lines += ["Address every point above in this attempt.", ""]
+        if pf["reasons"] or pf.get("guidance"):
+            lines += ["Address every point above in this attempt.", ""]
+        rev = pf.get("revision")
+        if rev:
+            lines += ["## Revision", "", f"This step is being revised. The reason: {rev['reason']}", ""]
+            lines += [f"Your previous accepted result is in `{rev['output']}`" + (
+                " (artifacts: " + ", ".join(f"`{a['path']}`" for a in rev["artifacts"]) + ")" if rev["artifacts"] else ""
+            ) + ". Start from it and change only what the reason calls for.", ""]
+            if rev.get("items"):
+                lines += [
+                    f"Items under `{rev['items']}` carry their current `id`. Echo the `id` of every item you keep "
+                    "(changed or not); leave out items to drop; give new items no `id`.",
+                    "",
+                ]
     lines += [
         "## Protocol",
         "",
@@ -502,19 +581,29 @@ def output_schema_for(loaded: LoadedRecipe, step: Step) -> dict[str, Any]:
 def unsupported_reason(node: Step | Group | None) -> str | None:
     """Why this runtime cannot run the node yet, or ``None``."""
     if node is None:
-        return "not a top-level step of the recipe (steps inside groups arrive with the groups layer)"
+        return "not a step of the recipe (inside a group, a step path is <group>/<instance>/i<n>/<step>)"
     if isinstance(node, Group):
-        return "groups arrive with the groups layer"
+        return "a group is not dispatched itself; dispatch the steps of its instances"
     for g in node.gates:
-        if isinstance(g, (ReviewGate, FindingsGate)):
+        if isinstance(g, ReviewGate):
             return f"{g.type} gates arrive with the reviews layer"
     return None
 
 
-def prior_feedback(record: RunRecord, step_path: str, attempt: int, guidance: str | None = None) -> dict[str, Any] | None:
-    """Reasons the previous attempt was not accepted, from its events, plus any retry guidance."""
+def prior_feedback(
+    record: RunRecord, step_path: str, attempt: int, guidance: str | None = None, revision: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Reasons the previous attempt was not accepted, from its events, plus any retry guidance.
+
+    ``revision`` (§8.9) is the reason the step is being revised and where the
+    previous accepted result is in the packet; it stays until a revised result
+    is accepted.
+    """
     if attempt < 1:
         return None
+    if revision is not None:
+        base = prior_feedback(record, step_path, attempt, guidance) or {"attempt": attempt, "reasons": []}
+        return {**base, "revision": revision}
     reasons: list[str] = []
     for ev in record.attempt_events(step_path, attempt):
         if ev.type == "result_rejected" or (ev.type == "gate_failed" and not ev.data.get("advisory")):
@@ -559,15 +648,21 @@ def build_packet(
     current = rs.step(step_path)
     if current.state != "ready":
         raise EngineError("packet.not_ready", f"{step_path} is {current.state}, not ready")
-    unmet = [d for d in node.depends_on if rs.step(d).state not in SATISFIES_DEPS]
-    if unmet:
+    view = view_of(ctx)
+    loc = groups.locate(loaded, step_path)
+    assert loc is not None
+    why_not = view.live_reason(step_path)
+    if why_not:
+        raise EngineError("packet.not_current", f"{step_path}: {why_not}")
+    if not view.deps_met(node, loc.frame):
+        unmet = [d for d in node.depends_on if view.state(groups.child_path(loc.frame, d)) not in SATISFIES_DEPS]
         raise EngineError("packet.deps_unmet", f"{step_path}: dependencies not satisfied: {', '.join(unmet)}")
     gaps = requirement_gaps(node.requires, node.workspace, profile, loaded.vocab)
     if gaps:
         raise EngineError("packet.ineligible_profile", f"{profile_name} cannot do {step_path}: {'; '.join(gaps)}")
 
     record = ctx.record()
-    inputs, not_applicable = resolve_inputs(ctx, node, record)
+    inputs, not_applicable = resolve_inputs(ctx, node, record, step_path, view)
     attempt = current.attempt + 1
     level = record.level()
     schema = output_schema_for(loaded, node)
@@ -585,6 +680,22 @@ def build_packet(
             entry["media_type"] = r.media_type
         entries.append(entry)
     files["output_schema.json"] = (json.dumps(schema, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    revision = None
+    rev = revision_of(record, step_path)
+    if rev is not None:
+        revised, previous = rev
+        prev_output = json.loads(ctx.log.cas.read(previous.data["output_sha256"])) if previous.data.get("output_sha256") else None
+        prev_output = view.with_item_ids(loc, prev_output)
+        files["previous/output.json"] = _json_bytes(prev_output)
+        arts = []
+        for aname, a in sorted((previous.data.get("artifacts") or {}).items()):
+            rel = f"previous/artifacts/{aname}{PurePosixPath(a.get('filename', '')).suffix}"
+            files[rel] = ctx.log.cas.read(a["sha256"])
+            arts.append({"name": aname, "path": rel})
+        revision = {"reason": revised.data.get("reason", ""), "attempt": previous.attempt, "output": "previous/output.json", "artifacts": arts}
+        fed = view.fed_groups(loc)
+        if len(fed) == 1 and fed[0][2]:
+            revision["items"] = "output." + ".".join(fed[0][2])
 
     def art(a: Any) -> dict[str, Any]:
         return {"name": a.name, "media_type": a.media_type} if a.media_type else {"name": a.name}
@@ -607,7 +718,7 @@ def build_packet(
         "not_applicable": not_applicable,
         "required_artifacts": [art(a) for a in node.artifacts if a.required],
         "optional_artifacts": [art(a) for a in node.artifacts if not a.required],
-        "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance),
+        "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance, revision),
         "packet_sha256": None,
     }
     files["INSTRUCTIONS.md"] = render_instructions(node, prompt, manifest, inputs, schema).encode("utf-8")

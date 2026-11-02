@@ -173,16 +173,21 @@ def eligible_workers(
     *,
     events: list[Any] | None = None,
     preferences: Preferences | None = None,
+    source_path: str | None = None,
 ) -> Eligibility:
-    """The ordered eligible profiles with reasons, and every exclusion with its reasons."""
+    """The ordered eligible profiles with reasons, and every exclusion with its reasons.
+
+    ``source_path`` is the step path of ``independence.from_step`` (inside a
+    group: the sibling in the same instance and iteration); default: the id.
+    """
     prefs = preferences or Preferences()
     out = Eligibility(step_path)
     indep: Independence | None = step.independence
     other = None
     if indep is not None and events is not None:
         own = indep.from_step == step.id
-        source_path = step_path if own else indep.from_step
-        other = result_worker(events, source_path, own)
+        source = step_path if own else (source_path or indep.from_step)
+        other = result_worker(events, source, own)
 
     kept: dict[str, dict[str, Any]] = {}
     for name in sorted(profiles):

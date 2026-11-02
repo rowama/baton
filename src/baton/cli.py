@@ -215,6 +215,8 @@ def _status_text(s: dict) -> str:
         who = "you" if lease["yours"] else lease["director_id"]
         bits.append(f"lease: {who} until {lease['expires_at']}" + (" (expired)" if lease["expired"] else ""))
     lines = [" · ".join(bits)]
+    for gid, g in (s.get("groups") or {}).items():
+        lines.append(f"  {gid}: {g['summary']}")
     for r in s["running"]:
         lines.append(f"  {r['step_path']}#{r['attempt']}: packet {r['packet']}; result goes in {r['result']}")
     lines += _pending_lines(s)
@@ -300,6 +302,9 @@ def _outcome_text(out: dict) -> str:
         "needs_human": f"{out['step_path']} is waiting for the owner",
         "retry": f"{out['step_path']} attempt {out['attempt']} was not accepted; the step is ready for another attempt",
         "escalated": f"{out['step_path']} escalated",
+        "next_iteration": f"{out['step_path']}: the iteration's work is not done; the next iteration starts",
+        "iteration_limit": f"{out['step_path']}: the work is not done at the iteration limit; the owner decides",
+        "revised": f"{out['step_path']} is ready for a revised attempt",
         "abandoned": f"{out['step_path']} abandoned",
         "running": f"{out['step_path']} is still running",
     }[o]
@@ -350,7 +355,7 @@ def submit(
 @app.command()
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
-    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner.")],
+    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, or an instance path at its iteration limit.")],
     decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     as_json: JsonOpt = False,
@@ -358,6 +363,19 @@ def decide(
     """Record the owner's decision, verbatim."""
     out = _call(as_json, lambda: _api().decide(run, ref, decision, note))
     _done(out, as_json, _outcome_text(out))
+
+
+@app.command()
+def revise(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    step: Annotated[str, typer.Argument(help="Step path of an accepted step to correct.")],
+    reason: Annotated[str, typer.Option("--reason", help="Why the step is being revised (recorded, given to the worker).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Correct an earlier step of this run (owner-approved): new attempt, dependents become stale."""
+    out = _call(as_json, lambda: _api().revise(run, step, reason))
+    stale = f"\nStale: {', '.join(out['stale'])}" if out.get("stale") else ""
+    _done(out, as_json, _outcome_text({**out, "run_id": run}) + stale)
 
 
 @app.command()
