@@ -1116,6 +1116,14 @@ The runtime host may be Linux, macOS, native Windows or WSL.
 - Action permissions bound what the runtime and Director do to the repo and its remotes. The defaults never merge, deploy or force-push.
 - An SME (especially a platform SME) may hold its own credentials outside Baton. Baton gives it facts, incidents and redacted logs, never secrets.
 
+
+### 15.3 Future: guided process authoring (design implications now)
+
+A planned future use: an agent interviews the owner, finds gaps, and writes a new recipe; process diagrams help the owner review it. This needs no work now, but three implementation choices keep it cheap later:
+1. **Define the recipe format by models that emit a JSON Schema** (e.g. pydantic `model_json_schema()`), and publish it with each format version (`baton-recipe/N`), rather than encoding the rules only in loader code. Any agent can then author and pre-check recipes. Cross-reference rules the schema cannot express stay in the loader, with precise error messages.
+2. **Make `baton plan` build a structured plan object first, then render it.** Text output today; diagram output (e.g. Mermaid, per complexity level) later becomes a renderer, not a redesign.
+3. **Keep the fake adapter general enough to drive whole runs** (scripted outcomes per step, findings, timeouts). A future `baton simulate` (a dry run of any recipe through its branches, loops and levels) then reuses it.
+
 ---
 
 ## 16. Build Order
