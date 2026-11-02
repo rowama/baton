@@ -8,9 +8,9 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "title", "outcome", "criteria", "effort"],
+        "required": ["title", "outcome", "criteria", "effort"],
         "properties": {
-          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "id": {"type": "string", "description": "Runtime-assigned; echo it for kept items, omit it for new ones"},
           "title": {"type": "string"},
           "outcome": {"type": "string"},
           "criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},

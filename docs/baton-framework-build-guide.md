@@ -199,7 +199,7 @@ baton/
 ├── AGENTS.md                         # one-line pointer: "This repo uses Baton; see .agents/skills/baton-director"
 ├── .agents/skills/baton-director/  .agents/skills/baton-worker/   # vendored by baton init/upgrade
 ├── .baton/
-│   ├── baton.lock                    # runtime version, format versions, vocab version, recipe hashes
+│   ├── baton.lock                    # runtime version, format versions, vocab version, recipe hashes, step-id signatures (§5.8)
 │   ├── project.yaml                  # paths, project vars, permissions, hooks (non-secret), limits, contacts, sme, effort bands
 │   ├── communication.md              # owner communication contract (starts as the default)
 │   ├── preferences.yaml              # optional routing preferences (non-secret)
@@ -404,6 +404,7 @@ The loader (`recipe.py`) rejects a recipe unless:
 - Gate types are known; every capability used is in the declared vocabulary.
 - `publish.to` uses only `paths.*`, `run.*` and `project.*` variables.
 - Complexity: the triage step exists, has no `applies_to`, outputs `level` constrained to the declared levels; every `applies_to` uses declared levels; for each level, every included step is reachable (`baton plan <recipe>` prints the per-level step and gate table).
+- Ids: per §5.8 (unique, no positional ids; `foreach` items declare an optional `id`).
 - Groups: per §5.4; `item` and `group.*` appear only inside groups; `independence.from_step` names the step itself or an ancestor (in the same group if inside one); `protect` appears only on `workspace: write` steps.
 - **Neutrality:** no keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth`; no values matching the vocabulary's vendor denylist. Prompts and templates are scanned too, with warnings only (prose may mention a vendor).
 
@@ -413,7 +414,7 @@ A step with its own `steps:` is a group.
 
 | Key | Meaning |
 |---|---|
-| `foreach` | Array in an ancestor's validated output; one **instance** per item; items need unique `id`s |
+| `foreach` | Array in an ancestor's validated output; one **instance** per item; instance ids are runtime-assigned (§5.8) |
 | `foreach_if_source_skipped` | `once` (single instance, `item` = run inputs) or `skip` |
 | `concurrency` | Max instances active at once (WIP limit); default 1 |
 | `repeat_until` | Condition over gates of steps in the group; if false after an iteration, another starts |
@@ -487,6 +488,16 @@ Unknown names are load errors for recipes and profiles. New capabilities mean a 
    - `operations_engine`: start a `software-feature` run whose deliverable is that system, with the engine choice made in its design step.
 
 Because it is small, `fit-check` is also the builder's first end-to-end recipe: with the `manual` adapter it is the Phase 4 toy run, and with an API worker it is the first real run in Phase 5.
+
+### 5.8 Identifiers
+
+Ids name **roles, never positions**. Recipes and plans change over time; an id that encodes order or sequence gets renumbered or reused, and history then attaches to different work. Every rule below exists to keep provenance unambiguous across recipe versions and plan revisions.
+
+- **Step ids** are readable role names (`design`, `code_review`), unique across the whole recipe including groups. The loader rejects positional ids (`step.positional_id`): a positional word (`step`, `stage`, `phase`, `part`, `task`) followed by digits as the whole id or its first segment (`step1`, `phase_3`, `step01_design`); `s` or `p` followed by digits as the whole id (`s2`, `p_3`); or any id ending in `_<digits>` (`review_2`). Role names that merely contain digits (`oauth2_setup`, `s3_upload`) are fine. Readability matters because ids appear in references, step paths, records and the Director's explanations; opaque ids would make recipes hard to author and review.
+- **A retired id is never reused** for a different step in a later recipe version. The lockfile records, for every vendored recipe version, its step ids and a per-step signature (kind step/group, enclosing group, output schema hash, required capabilities). When a recipe is vendored or upgraded (§14.2), the runtime compares against all recorded versions and flags: a kept id whose signature changed; an id that was retired and now reappears. Each flag needs an owner decision, recorded with the vendoring.
+- **Anything aggregated across runs keys on the qualified id** `<recipe_id>@<version>/<step_path>`, never the bare id: review statistics (§9.2), process statistics and lessons (§12.4), crosswalk targets (§11.3). Inside a run, the run's pinned recipe version and hash (§14.2) qualify every id.
+- **`foreach` instance ids are assigned by the runtime**, never by workers. At first expansion each item gets an opaque random token (e.g. `x7f3a9c2`), recorded in `group_expanded`; it is not derived from order or content. The source step's item schema must declare `id` as an *optional* string property and must not require it (`group.foreach_items_need_id`, `group.foreach_id_required`). When the source step is revised, its packet includes the previous items with their ids; the worker echoes the id of every item it keeps (changed or not) and omits `id` on new items. Intake rejects an unknown or duplicated id. People see item titles; the board shows the title with the id.
+- **Attempts and iterations** (`attempt-1`, `i1`) are ordinal by nature: append-only, never renumbered or reused, so their order is their meaning.
 
 ---
 
@@ -596,7 +607,7 @@ Adapters never interpret results; intake does.
   "run_id": "r_20261101_ab12",
   "recipe": "software-feature@1",
   "recipe_sha256": "…",
-  "step_path": "slices/s2/i1/implement",
+  "step_path": "slices/x7f3a9c2/i1/implement",
   "attempt": 1,
   "effort": "M",
   "deadline": "2026-11-01T22:00:00Z",
@@ -612,7 +623,7 @@ Adapters never interpret results; intake does.
 }
 ```
 
-- `step_path` is `<step>` or, inside a group, `<group>/<instance>/<iteration>/<step>`.
+- `step_path` is `<step>` or, inside a group, `<group>/<instance>/<iteration>/<step>`, where `<instance>` is the runtime-assigned instance id (§5.8).
 - `exit_criteria` tells the worker what "done" means (its own DoD); `deadline` bounds its internal iteration.
 - `worker_profile_sha256` covers non-secret profile fields only.
 - `packet_sha256`: SHA-256 over the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) combined with the hashes of every input file, `INSTRUCTIONS.md` and `output_schema.json`. Document the algorithm in code and test it.
@@ -703,7 +714,7 @@ Every event: `seq`, `ts`, `run_id` (or `project`), `step_path`, `attempt`, `type
 ### 8.5 Groups at runtime
 
 - **Expansion:** when the `foreach` source passes, the runtime creates one instance per item in array order (`group_expanded`, with item ids and content hashes). Instances start as `concurrency` allows.
-- **Re-expansion** after the source is revised: same id and hash → kept; same id, changed → `stale`; removed → `superseded`; new → added.
+- **Re-expansion** after the source is revised, matched by the runtime-assigned ids the worker echoed (§5.8): same id and hash → kept; same id, changed → `stale`; id not echoed → `superseded`; item without an id → added with a new id. Unknown or duplicated ids are rejected at intake.
 - **Iteration:** after the group's steps finish, `repeat_until` is evaluated; if false and below `max_iterations`, a new iteration starts at `repeat_from` with `group.previous_iteration.findings`. Earlier iterations stay in the record.
 - **Aggregate state:** an instance is `passed` when its last iteration passed; the group is `passed` when all instances are `passed`, `superseded` or `skipped`. `explain` and the board describe it plainly ("3 slices: 2 accepted, 1 in review, iteration 2 of 3").
 
@@ -802,7 +813,7 @@ Severities: `critical | high | medium | low`. `coverage.complete: false` (e.g. a
 | `rejected` | Evidence: a `file:line` that exists at the reviewed commit, or a test reference (validated) |
 | `accepted-risk` | An owner decision id; nobody else can set it |
 
-Per reviewer profile and step, the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block.
+Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §5.8), the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block.
 
 ### 9.3 Waivers
 
@@ -890,7 +901,7 @@ Research gathers **evidence**, not judgment. It is a built-in first step of adop
 
 ### 11.3 Crosswalks
 
-For projects run under a known prior process, a crosswalk (shipped with a recipe or kept in the project) maps that process's artifacts and approval records to recipe steps, gates and instances. With one, research mostly confirms matches instead of interpreting. It is the single biggest friction reducer for adoption. Crosswalks pass the neutrality lint. (A crosswalk for the owner's `eng-process` is a separate guide.)
+For projects run under a known prior process, a crosswalk (shipped with a recipe or kept in the project) maps that process's artifacts and approval records to recipe steps (by qualified id, §5.8), gates and instances. With one, research mostly confirms matches instead of interpreting. It is the single biggest friction reducer for adoption. Crosswalks pass the neutrality lint. (A crosswalk for the owner's `eng-process` is a separate guide.)
 
 ### 11.4 Seeding
 
@@ -947,7 +958,7 @@ The Director relays answers faithfully and does not use them for routing. Since 
 ### 12.4 The process SME
 
 Process improvement is consultation with `subject=process`, not a separate subsystem.
-- **Inputs:** `process_feedback` (friction, skipped step with `informed_owner`, waste, confusing) from Directors, workers or the owner, plus statistics the runtime keeps anyway (attempts, iterations, timeouts and their classes, time per step, review statistics).
+- **Inputs:** `process_feedback` (friction, skipped step with `informed_owner`, waste, confusing) from Directors, workers or the owner, plus statistics the runtime keeps anyway (attempts, iterations, timeouts and their classes, time per step, review statistics), all keyed by qualified step id (§5.8).
 - **When:** on demand, at run completion if the recipe has a retrospective step, or on the owner's cadence.
 - **Outputs:** answers and process proposals, each approved by the owner. Project-level lessons go to `.baton/process/lessons.md` ("when X, do Y, because Z", with origin and confirmation count). Lessons confirmed across projects are promoted into the recipe by its maintainer.
 - **Immediate surfacing:** a skipped *blocking* gate or human approval is surfaced to the owner by the runtime at once, not left for a retrospective.
@@ -1111,6 +1122,7 @@ The runtime enforces these for its own git operations and records `permission_us
 
 - A runtime reads all older format versions it declares as supported, and continues runs started under them.
 - A run keeps its recipe version and hash for its whole life. Upgrading a recipe mid-run requires an owner decision and is recorded.
+- Vendoring or upgrading a recipe compares its step-id signatures with every version recorded in the lockfile; changed or reused ids need an owner decision (§5.8).
 - When a format cannot be read, the runtime refuses and names `baton migrate`. Migration is explicit, previewable (`--dry-run`), recorded (`migrated`), committed separately, and never rewrites earlier events: it appends a migration record and writes new-format files alongside.
 
 ### 14.3 Trying a new version on a real project
@@ -1161,7 +1173,7 @@ A planned future use: an agent interviews the owner, finds gaps, and writes a ne
 One order, core first, then layers in the order real use needs them. Every phase keeps all earlier tests green.
 
 **Phase 1 — Recipes.** Models, recipe loader, validation (§5.3), neutrality lint, vocabulary, complexity validation, group validation, `baton plan`. Formats carry version identifiers from day one.
-✅ A valid example loads; at least twelve broken recipes are each rejected with a specific error (including a `model:` key, an unknown capability, a vendor string, a bad `foreach` source, a missing `max_iterations`, an `item` reference outside a group). A profile claiming an unknown capability is rejected.
+✅ A valid example loads; at least twelve broken recipes are each rejected with a specific error (including a `model:` key, an unknown capability, a vendor string, a bad `foreach` source, a missing `max_iterations`, an `item` reference outside a group, a positional step id, a `foreach` item schema that requires `id`). A profile claiming an unknown capability is rejected.
 
 **Phase 2 — Event store and state.** Event logs (run and project), hash chains, CAS, the state machine (§8.1), cache rebuild.
 ✅ Every legal transition passes and every illegal one raises. Deleting the cache and rebuilding gives identical status. A tampered event fails the chain check.
@@ -1182,7 +1194,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 ✅ A dispatch survives its caller's shell exiting; hooks fire for passed, gate failed, needs human, timed out and crashed; each liveness row in §8.7 is reproduced; an overdue S step is extended once, then terminated and classified; detaching with no hook prints the warning.
 
 **Phase 8 — Groups (L3).**
-✅ A three-slice plan expands to three instances run one at a time; a code review with an open high finding starts iteration 2 whose implement packet contains it; `max_iterations` escalates; revising the plan (one slice changed, one added) re-expands correctly.
+✅ A three-slice plan expands to three instances run one at a time; a code review with an open high finding starts iteration 2 whose implement packet contains it; `max_iterations` escalates; revising the plan (one slice changed, one added) re-expands correctly; instance ids are runtime-assigned, and a revision echoing an unknown or duplicated id is rejected.
 
 **Phase 9 — Reviews (L4).** Review and findings gates, dispositions, waivers, protected files, independence.
 ✅ A rejection without valid evidence is refused; `accepted-risk` without an owner decision is refused; a waiver unblocks exactly one occurrence; protected-path changes are caught in `warn` and `fail` modes; a same-vendor code review is refused unless waived; a partial-coverage review shows as partial.
@@ -1203,7 +1215,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 ✅ The runtime refuses a push that permissions deny and records allowed ones; docs-only changes are recognized; Directors in two different harnesses complete the same recipe with different worker assignments using only CLI or MCP; transcript review shows no Director did step work or answered subject questions itself.
 
 **Phase 15 — Versioning.** Launcher, `upgrade`, `migrate`, compatibility rules.
-✅ Two worktrees of one project run two runtime versions side by side on one machine; an old run continues under a newer runtime; an unreadable format is refused with the migrate hint; `migrate --dry-run` changes nothing; the §14.3 trial workflow merges cleanly.
+✅ Two worktrees of one project run two runtime versions side by side on one machine; an old run continues under a newer runtime; an unreadable format is refused with the migrate hint; `migrate --dry-run` changes nothing; the §14.3 trial workflow merges cleanly; vendoring a recipe version that changes a kept step id's signature, or reuses a retired id, requires an owner decision.
 
 **Phase 16 — Real use.** Example recipes `fit-check`, `software-feature` and `backyard-project` (§5.7); a remote-Director scenario.
 ✅ All three recipes run end-to-end and pass the lint with zero runtime changes. A remote Director with only shell access completes a multi-slice work item across several of its own sessions, woken by hooks, with no owner action beyond the recipe's decisions. The full suite passes on Linux and native Windows CI.

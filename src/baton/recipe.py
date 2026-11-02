@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Iterator
@@ -49,6 +50,8 @@ PUBLISH_VARIABLES = frozenset({"paths", "run", "project"})
 MAX_GROUP_DEPTH = 2  # a group may contain a group, but no deeper (§5.4)
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 _TEXT_DIRS = ("prompts", "templates", "schemas", "static")
+# Ids name roles, never positions (§5.8): "step1", "s2", "phase_3", "step01_design", "review_2".
+POSITIONAL_ID = re.compile(r"^(?:step|stage|phase|part|task)_?\d+(?:_|$)|^[sp]_?\d+$|_\d+$")
 
 Node = Step | Group
 
@@ -329,6 +332,13 @@ class _Checker:
                 continue
             scope.nodes[node.id] = node
             self.places[node.id] = _Place(scope=scope, chain=chain)
+            if POSITIONAL_ID.search(node.id):
+                self.error(
+                    "step.positional_id",
+                    self.where(node),
+                    f"step id {node.id!r} looks positional; ids name a role (e.g. 'design', 'code_review') "
+                    "so that inserting or reordering steps never renumbers or reuses them (§5.8)",
+                )
         for node in nodes:
             if isinstance(node, Group):
                 inner = chain + (node,)
@@ -767,12 +777,23 @@ class _Checker:
                 + (f" (no property {key!r})" if key else ""),
             )
             return
-        items = sub.get("items") if isinstance(sub, dict) else None
-        if not (isinstance(items, dict) and "id" in (items.get("required") or [])):
+        # Instance ids are runtime-assigned; workers only echo them on revision (§5.8).
+        items = _resolve_local_ref(schema, sub.get("items")) if isinstance(sub, dict) else None
+        props = items.get("properties") if isinstance(items, dict) else None
+        id_schema = _resolve_local_ref(schema, props.get("id")) if isinstance(props, dict) else None
+        if not (isinstance(id_schema, dict) and id_schema.get("type") == "string"):
             self.error(
                 "group.foreach_items_need_id",
                 where,
-                f"items of {ref.raw!r} must require a unique 'id' (add it to items.required in {source.output_schema})",
+                f"items of {ref.raw!r} must be objects declaring an optional string 'id' property in "
+                f"{source.output_schema}; the runtime assigns it and workers echo it on revision (§5.8)",
+            )
+        elif "id" in (items.get("required") or []):
+            self.error(
+                "group.foreach_id_required",
+                where,
+                f"items of {ref.raw!r} must not require 'id' in {source.output_schema}: instance ids are "
+                "assigned by the runtime, and new items arrive without one (§5.8)",
             )
         # A source that can be skipped needs an explicit policy.
         if group.foreach_if_source_skipped is None and self._skippable(source):

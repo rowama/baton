@@ -136,7 +136,14 @@ def _unknown_tier(r, _):
 def _items_without_id(r, d: Path):
     p = d / "schemas" / "plan_out.json"
     s = json.loads(p.read_text(encoding="utf-8"))
-    s["properties"]["slices"]["items"]["required"].remove("id")
+    del s["properties"]["slices"]["items"]["properties"]["id"]
+    p.write_text(json.dumps(s), encoding="utf-8")
+
+
+def _items_require_id(r, d: Path):
+    p = d / "schemas" / "plan_out.json"
+    s = json.loads(p.read_text(encoding="utf-8"))
+    s["properties"]["slices"]["items"]["required"].append("id")
     p.write_text(json.dumps(s), encoding="utf-8")
 
 
@@ -225,6 +232,7 @@ CASES = [
     ("unknown dependency", _unknown_dependency, "graph.unknown_dependency"),
     ("unknown tier", _unknown_tier, "vocab.unknown_tier"),
     ("foreach items without id", _items_without_id, "group.foreach_items_need_id"),
+    ("foreach items requiring id", _items_require_id, "group.foreach_id_required"),
     ("unsupported format", _unsupported_format, "format.unsupported"),
     ("unknown vocabulary", _unknown_vocab, "vocab.unsupported"),
     ("unknown key", _unknown_key, "recipe.unknown_key"),
@@ -297,3 +305,16 @@ def test_error_locations_name_steps(make_recipe):
         load_recipe(make_recipe(_unknown_key))
     (issue,) = [i for i in exc.value.issues if i.code == "recipe.unknown_key"]
     assert issue.where == "steps/plan.colour"
+
+
+@pytest.mark.parametrize("bad", ["step1", "s2", "p_3", "phase_3", "step01_design", "task_10", "review_2"])
+def test_positional_step_id_rejected(make_recipe, bad):
+    root = make_recipe(lambda r, _: step(r, "slices/accept").update(id=bad))
+    with pytest.raises(RecipeError) as exc:
+        load_recipe(root)
+    assert exc.value.codes() == {"step.positional_id"}
+
+
+@pytest.mark.parametrize("good", ["accept", "oauth2_setup", "s3_upload_check", "phase_review", "sha256_verify"])
+def test_role_step_id_accepted(make_recipe, good):
+    load_recipe(make_recipe(lambda r, _: step(r, "slices/accept").update(id=good)))
