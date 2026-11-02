@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(sys.argv[0]).resolve().parent
-NAME = Path(sys.argv[0]).name
+NAME = Path(sys.argv[0]).name.split(".")[0]  # "claude" (POSIX) or "claude.fake.py" behind claude.cmd (Windows)
 ARGS = sys.argv[1:]
 
 
@@ -42,7 +42,7 @@ def auth():
     key = "ANTHROPIC_API_KEY" if NAME == "claude" else "OPENAI_API_KEY"
     if os.environ.get(key):
         return "api_key"
-    return "login" if os.environ.get("HOME") else None
+    return "login" if os.environ.get("HOME") or os.environ.get("USERPROFILE") else None  # where real CLIs keep logins
 
 
 def main():
@@ -71,7 +71,7 @@ def main():
     if "Reply with the single word OK" in prompt:
         print("OK")
         return 0
-    block = re.search(r"```\n(.*?)\n```", prompt, re.S)
+    block = re.search(r"`([^`]+)`", prompt)
     if block:  # gate preflight: run the command if this mode allows shell commands
         if not shell_ok:
             print("Permission to use Bash has been denied in this mode.")
@@ -82,7 +82,7 @@ def main():
 
     packet = Path(os.environ["BATON_PACKET_DIR"])
     result = Path(os.environ["BATON_RESULT_DIR"])
-    assert str(packet) in prompt and "INSTRUCTIONS.md" in prompt, prompt
+    assert packet.as_posix() in prompt and "INSTRUCTIONS.md" in prompt, prompt
     manifest = json.loads((packet / "manifest.json").read_text(encoding="utf-8"))
     spec = json.loads((HERE / "outputs.json").read_text(encoding="utf-8"))[manifest["step_path"]]
     if spec.get("touch"):

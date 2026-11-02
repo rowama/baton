@@ -224,6 +224,7 @@ def test_deleting_the_cache_and_rebuilding_gives_identical_status(store, tmp_pat
         assert {rid: fresh.status(rid) for rid in fresh.run_ids()} == before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows refuses to delete an open file; the cache can only be deleted between processes there")
 def test_cache_deleted_while_open(store):
     sample_run(store)
     before = store.status("r_20261101_ab12")

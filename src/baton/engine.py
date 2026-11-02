@@ -304,7 +304,10 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
             if res.configuration_error:
                 log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "configuration", "reasons": res.reasons})
                 return Outcome(step_path, n, "escalated", res.reasons)
-            cls = classify.classify_gate(res.data.get("exit_code")) if not res.data.get("timed_out") else None
+            cls = None
+            if not res.data.get("timed_out"):
+                sha = res.data.get("output_sha256")
+                cls = classify.classify_gate(res.data.get("exit_code"), ctx.log.cas.read(sha) if sha else b"")
             if cls is not None and cls["class"] != "subject":
                 # The gate command could not run here: the platform's problem, not the step's (§8.8).
                 log.append("failure_classified", step_path=step_path, attempt=n, data={**cls, "gate": i})

@@ -24,7 +24,7 @@ from baton.profiles import (
 from baton.vocab import load as load_vocab
 
 PARENT = {
-    "PATH": "/parent/bin:/usr/bin",
+    "PATH": os.pathsep.join(["/parent/bin", "/usr/bin"]),
     "HOME": "/home/me",
     "LANG": "C.UTF-8",
     "TERM": "xterm",
@@ -133,11 +133,21 @@ def test_describe_reports_names_never_values(tmp_path):
 
 
 def make_exe(d: Path, name: str) -> Path:
+    """An executable named ``name`` (POSIX: a shell script; Windows: ``name.cmd``, found through PATHEXT)."""
     d.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        p = d / f"{name}.cmd"
+        p.write_text("@echo hi\r\n", encoding="utf-8")
+        return p
     p = d / name
     p.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
     p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return p
+
+
+def same(a: str | Path, b: str | Path) -> bool:
+    """Same file path (Windows compares case-insensitively; PATHEXT matches may differ in case)."""
+    return os.path.normcase(str(a)) == os.path.normcase(str(b))
 
 
 @pytest.fixture
@@ -148,44 +158,40 @@ def nvm(tmp_path) -> Path:
     return root
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX executables")
 def test_cli_found_only_under_nvm_resolves(tmp_path, nvm):
     exe = make_exe(nvm / "versions" / "node" / "v18.20.1" / "bin", "fakecli")
     p = prof(adapter="codex", auth={"mode": "cli_login"}, executable="fakecli", path={"search": ["nvm"]})
     built = build_env(p, home=tmp_path / "home", environ={"NVM_DIR": str(nvm), "HOME": str(tmp_path / "home")})
-    assert built.resolved.executable == str(exe)
+    assert same(built.resolved.executable, exe)
     assert built.resolved.how == "search:nvm"
     assert built.env["PATH"].split(os.pathsep)[0] == str(exe.parent)  # its directory goes first
-    assert built.describe()["executable"] == str(exe)
+    assert same(built.describe()["executable"], exe)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX executables")
 def test_nvm_newest_version_wins(tmp_path, nvm):
     make_exe(nvm / "versions" / "node" / "v9.11.2" / "bin", "fakecli")
     newest = make_exe(nvm / "versions" / "node" / "v22.3.0" / "bin", "fakecli")
     p = prof(adapter="codex", executable="fakecli", path={"search": ["nvm"]})
     r = resolve_executable(p, [], home=tmp_path, environ={"NVM_DIR": str(nvm)})
-    assert r.executable == str(newest)  # numeric order: v22 > v18 > v9
+    assert same(r.executable, newest)  # numeric order: v22 > v18 > v9
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX executables")
 def test_home_nvm_and_explicit_dirs(tmp_path):
     home = tmp_path / "home"
     exe = make_exe(home / ".nvm" / "versions" / "node" / "v20.0.0" / "bin", "fromhome")
     p = prof(adapter="codex", executable="fromhome", path={"search": ["nvm"]})
     # ``~`` is the user's home (HOME), not the Baton home.
-    assert resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable == str(exe)
+    assert same(resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable, exe)
     tool = make_exe(home / "tools" / "bin", "explicit")
     p = prof(adapter="codex", executable="explicit", path={"search": ["~/tools/bin"]})
-    assert resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable == str(tool)
+    assert same(resolve_executable(p, [], home=tmp_path / "baton-home", environ={"HOME": str(home)}).executable, tool)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX executables")
 def test_base_path_and_absolute(tmp_path):
     exe = make_exe(tmp_path / "pre", "onpath")
     p = prof(adapter="codex", executable="onpath", path={"prepend": [str(tmp_path / "pre")]})
     built = build_env(p, home=tmp_path, environ={})
-    assert built.resolved.how == "base_path" and built.resolved.executable == str(exe)
+    assert built.resolved.how == "base_path" and same(built.resolved.executable, exe)
     p = prof(adapter="codex", executable=str(exe))
     assert resolve_executable(p, [], home=tmp_path, environ={}).how == "absolute"
 

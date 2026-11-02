@@ -42,6 +42,11 @@ LOCK_FILE = "baton.lock"
 LOCAL_PROFILES = "workers.local.yaml"
 MACHINE_PROFILES = "workers.yaml"
 GITIGNORE_LINES = (".baton/cache/", ".baton/workers.local.yaml")
+#: ``.baton/.gitattributes``: git must never rewrite line endings under .baton/
+#: (hash-chained logs, content-addressed blobs, hashed recipes), whatever a
+#: clone's ``core.autocrlf`` says (§15.1).
+GITATTRIBUTES_RULE = "* -text"
+GITATTRIBUTES = f"# Written by baton init: stored bytes are hashed; never convert line endings.\n{GITATTRIBUTES_RULE}\n"
 
 DEFAULT_PROJECT_YAML = """\
 # Baton project configuration (§4.3). Commit this file; never put secrets here.
@@ -279,6 +284,13 @@ def init(root: str | Path) -> dict[str, Any]:
     create(f"{BATON_DIR}/{COMM_FILE}", read_text(data.path("defaults") / COMM_FILE))
     create(f"{BATON_DIR}/{LOCK_FILE}", versions.dump_lock(versions.new_lock()))
     ensure_dir(baton / "recipes")
+    ga = baton / ".gitattributes"
+    if not ga.is_file():
+        create(f"{BATON_DIR}/.gitattributes", GITATTRIBUTES)
+    elif GITATTRIBUTES_RULE not in read_text(ga).splitlines():
+        text = read_text(ga)
+        ga.write_bytes((text + ("" if text.endswith("\n") or not text else "\n") + GITATTRIBUTES).encode("utf-8"))
+        created.append(f"{BATON_DIR}/.gitattributes (updated)")
 
     gi = r / ".gitignore"
     existing = read_text(gi).splitlines() if gi.is_file() else []

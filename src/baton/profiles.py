@@ -65,11 +65,26 @@ def executable_for(profile: WorkerProfile) -> str | None:
     if profile.adapter in DEFAULT_EXECUTABLES:
         return DEFAULT_EXECUTABLES[profile.adapter]
     if profile.adapter == "command" and profile.command:
-        import shlex
-
-        words = shlex.split(profile.command)
+        words = split_command(profile.command)
         return words[0] if words else None
     return None
+
+
+def split_command(line: str) -> list[str]:
+    """Split a command line into words like a shell would, without running one.
+
+    POSIX: ``shlex`` rules. Windows: the same quoting, but a backslash is an
+    ordinary character, so ``C:\\tools\\x.exe`` stays intact.
+    """
+    import shlex
+
+    if os.name != "nt":
+        return shlex.split(line)
+    lex = shlex.shlex(line, posix=True)
+    lex.whitespace_split = True
+    lex.escape = ""
+    lex.commenters = ""
+    return list(lex)
 
 
 class ProfileError(Exception):

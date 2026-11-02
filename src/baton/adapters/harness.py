@@ -28,12 +28,12 @@ Presets (flags checked against ``claude`` 2.1.316 and ``codex-cli`` 0.166.0):
 from __future__ import annotations
 
 import json
-import shlex
+import os
 from pathlib import Path
 from typing import Any
 
 from ..models import WorkerProfile
-from ..profiles import SetupError, executable_for
+from ..profiles import SetupError, executable_for, split_command
 
 MODES = ("none", "read", "write")
 
@@ -208,7 +208,7 @@ class CommandAdapter:
     failure_signals: list[dict[str, Any]] = []
 
     def check_profile(self, profile: WorkerProfile) -> None:
-        if not profile.command or not shlex.split(profile.command):
+        if not profile.command or not split_command(profile.command):
             raise SetupError("configuration.no_command", "a command profile needs `command` (e.g. \"mytool --in {packet} --out {result}\")", "configuration")
 
     def preflight(self, profile: WorkerProfile, packet_dir: Path) -> list[str]:
@@ -222,7 +222,7 @@ class CommandAdapter:
             "{result}": result_dir.as_posix(),
             "{workspace}": workspace.as_posix() if workspace else "",
         }
-        words = shlex.split(str(profile.command))
+        words = split_command(str(profile.command))
         out = []
         for w in words:
             for k, v in values.items():
@@ -236,4 +236,4 @@ class CommandAdapter:
         return None
 
     def handoff(self, profile: WorkerProfile, packet_dir: Path, result_dir: Path) -> str:
-        return f"Command worker `{shlex.split(str(profile.command))[0]}`; the runtime runs it and takes in the result."
+        return f"Command worker `{split_command(str(profile.command))[0]}`; the runtime runs it and takes in the result."

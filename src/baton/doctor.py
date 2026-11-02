@@ -119,11 +119,18 @@ def _gate_preflight(project: Any, name: str, profile: Any, adapter: Any, env: An
         direct = None
     nonce = secrets.token_hex(8)
     marker = project.baton / "cache" / "doctor" / f"preflight-{name}-{nonce}.json"  # gitignored, inside the workspace
-    probe = shlex.join([sys.executable, "-m", "baton.probe", "--marker", marker.as_posix(), "--nonce", nonce, "--", command])
+    probe_argv = [sys.executable, "-m", "baton.probe", "--marker", marker.as_posix(), "--nonce", nonce, "--", command]
+    if os.name == "nt":
+        # Workers' shells on Windows vary (cmd, PowerShell, Git Bash): forward slashes
+        # and double quotes only where needed read the same in all of them [VERIFY].
+        probe = subprocess.list2cmdline([Path(sys.executable).as_posix(), *probe_argv[1:]])
+    else:
+        probe = shlex.join(probe_argv)
+    # One line: on Windows, harness CLIs are often .cmd shims, and cmd.exe ends an argument at a newline.
     prompt = (
-        "This is a Baton readiness check, not a task. Using your shell tool, run exactly the command below "
-        f"from {root.as_posix()}, then reply with the single word DONE. Do not change any files yourself.\n\n"
-        f"```\n{probe}\n```\n"
+        "This is a Baton readiness check, not a task. Using your shell tool, run exactly the command between "
+        f"the backticks, from {root.as_posix()}, then reply with the single word DONE. Do not change any files yourself. "
+        f"`{probe}`"
     )
     args = adapter.mode_args(profile, "write")
     child = _run(adapter.task_command(profile, prompt, "write"), env, root, project.home / "logs" / "doctor" / f"{name}-preflight.log", PREFLIGHT_TIMEOUT_S)
@@ -283,10 +290,9 @@ def _supervisor_problems(project: Any) -> list[str]:
 
 def _hook_problems(project: Any) -> list[str]:
     """Configured hooks can run here: valid config, secrets resolve, programs found (never fired)."""
-    import shlex
     import shutil
 
-    from .profiles import SetupError
+    from .profiles import SetupError, split_command
     from .supervisor import HookConfigError, load_hooks, render_hook
 
     try:
@@ -303,7 +309,7 @@ def _hook_problems(project: Any) -> list[str]:
                 problems.append(f"{where}: {e}")
                 continue
             try:
-                words = shlex.split(rendered)
+                words = split_command(rendered)
             except ValueError as e:
                 problems.append(f"{where}: cannot parse the command: {e}")
                 continue

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from baton.store import Store
 from conftest import FIT_CHECK
 from runkit import PROFILE_OUT, VERDICT_OUT, WRITER, Clock, artifact_recipe, make_recipe, start, write_result
 
-PY = shlex.quote(sys.executable)
+PY = shlex.quote(sys.executable) if os.name == "posix" else subprocess.list2cmdline([sys.executable])  # for the platform shell
 
 
 @pytest.fixture

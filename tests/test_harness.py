@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,12 +24,13 @@ from baton.engine import classify_exit
 from baton.models import WorkerProfile
 from baton.supervisor import ChildResult
 
-from harnesskit import calls, harness_profile, install_fake, nvm_dir, set_outputs
+from harnesskit import calls, harness_profile, install_fake, nvm_dir, same, set_outputs
 from projectkit import FIT_INPUTS, GOOD_PROFILE, OWNER_PROFILE, VERDICT, git, setup_fit_check
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="the fake CLIs are POSIX executables")
 
 SENTINEL = "BATON-SENTINEL-harnessKey0003"
+#: This interpreter, quoted for the platform shell (script gates run under /bin/sh or cmd.exe).
+PY = shlex.quote(sys.executable) if os.name == "posix" else subprocess.list2cmdline([sys.executable])
 FIT_CAPS = ["structured_output", "long_form_writing", "technical_reasoning"]
 CODER_CAPS = FIT_CAPS + ["tool_use", "file_write", "shell", "code_exec", "repo_workspace", "workspace_read"]
 
@@ -114,7 +116,8 @@ def test_command_adapter_placeholders(tmp_path):
     a = ADAPTERS["command"]
     p = prof(adapter="command", command="relay --prompt {prompt_file} --in {packet} --out={result} --ws '{workspace}'")
     argv = a.command(p, tmp_path / "pk", tmp_path / "rs", None, "none")
-    assert argv == ["relay", "--prompt", f"{tmp_path}/pk/INSTRUCTIONS.md", "--in", f"{tmp_path}/pk", f"--out={tmp_path}/rs", "--ws", ""]
+    t = tmp_path.as_posix()  # placeholders are POSIX paths on every platform (§15.1)
+    assert argv == ["relay", "--prompt", f"{t}/pk/INSTRUCTIONS.md", "--in", f"{t}/pk", f"--out={t}/rs", "--ws", ""]
     from baton.profiles import SetupError, executable_for
 
     assert executable_for(p) == "relay"
@@ -176,7 +179,7 @@ def test_cli_login_and_api_key_steps_in_one_run(tmp_path, monkeypatch, litellm_o
     assert disp["describe"]["auth_mode"] == "cli_login" and disp["assess"]["auth_mode"] == "api_key"
     assert disp["describe"]["adapter"] == "claude_code" and disp["describe"]["env"]["env_mode"] == "allowlist"
     assert disp["describe"]["env"]["executable"] == str(claude)
-    assert "HOME" in disp["describe"]["env"]["names"] and disp["describe"]["env"]["secret_names"] == []
+    assert ("HOME" if os.name == "posix" else "USERPROFILE") in disp["describe"]["env"]["names"] and disp["describe"]["env"]["secret_names"] == []
     # It was in the parent environment, so env_deny removed it (allowlist would not have passed it anyway).
     assert "ANTHROPIC_API_KEY" not in disp["describe"]["env"]["names"]
     assert disp["assess"]["env"]["secret_names"] == ["ZENITH_KEY"]
@@ -194,7 +197,7 @@ def test_codex_found_only_under_nvm_runs_a_step(tmp_path, monkeypatch):
     cli, project = setup_fit_check(tmp_path)
     user_home = tmp_path / "user"
     bin_dir = nvm_dir(user_home)
-    install_fake(bin_dir, "codex", {"describe": {"output": GOOD_PROFILE}})
+    codex = install_fake(bin_dir, "codex", {"describe": {"output": GOOD_PROFILE}})
     monkeypatch.delenv("NVM_DIR", raising=False)
     monkeypatch.setenv("HOME", str(user_home))
     (cli.home / "workers.yaml").write_text(
@@ -205,7 +208,7 @@ def test_codex_found_only_under_nvm_runs_a_step(tmp_path, monkeypatch):
     d = cli.run("dispatch", run, "describe", "--worker", "codex-sub", "--wait")
     assert d["outcome"] == "passed", d
     disp = next(e["data"] for e in events(project, run) if e["type"] == "dispatched")
-    assert disp["env"]["resolved_by"] == "search:nvm" and disp["env"]["executable"] == str(bin_dir / "codex")
+    assert disp["env"]["resolved_by"] == "search:nvm" and same(disp["env"]["executable"], codex)
     (call,) = calls(bin_dir)
     assert call["argv"][:3] == ["exec", "--sandbox", "workspace-write"]
 
@@ -239,7 +242,7 @@ def test_command_adapter_runs_a_step(tmp_path):
         encoding="utf-8",
     )
     (cli.home / "workers.yaml").write_text(
-        f"relay:\n  adapter: command\n  vendor: other\n  command: \"{sys.executable} {tool} {{packet}} {{result}}\"\n"
+        f"relay:\n  adapter: command\n  vendor: other\n  command: {json.dumps(f'{sys.executable} {tool} {{packet}} {{result}}')}\n"
         f"  capabilities: {json.dumps(FIT_CAPS)}\n  tier: strong\n",
         encoding="utf-8",
     )
@@ -327,7 +330,7 @@ def _doctor_setup(tmp_path, monkeypatch, profiles: str):
     from test_api_worker import api_profile
 
     cli, project = setup_fit_check(tmp_path)
-    set_project(project, preflight="test -f marker-for-preflight || true")
+    set_project(project, preflight=f"{PY} -c \"print('preflight')\"")
     monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL)
     (cli.home / "secrets").mkdir()
     (cli.home / "secrets" / "k").write_text("key-value", encoding="utf-8")
@@ -387,10 +390,10 @@ def test_preflight_catches_a_sandbox_that_changes_the_outcome(tmp_path, monkeypa
         tmp_path, monkeypatch,
         harness_profile("claude-sub", "claude_code", "acme", executable=str(claude), capabilities=CODER_CAPS, env_deny=["ANTHROPIC_API_KEY"]),
     )
-    # TMPDIR reaches a script gate (the runtime's gate env) but not this worker (allowlist):
+    # LC_ALL reaches a script gate (the runtime's gate env) but not this worker (allowlist):
     # the same command passes for the runtime and fails inside the worker.
-    monkeypatch.setenv("TMPDIR", str(tmp_path))
-    set_project(project, preflight='test -n "$TMPDIR"')
+    monkeypatch.setenv("LC_ALL", "C.UTF-8")
+    set_project(project, preflight=f"{PY} -c \"import os, sys; sys.exit(0 if os.environ.get('LC_ALL') else 1)\"")
     rep = cli("doctor", "--profile", "claude-sub", expect=1).payload["profiles"]["claude-sub"]
     assert rep["preflight"]["runtime_exit"] == 0 and rep["preflight"]["worker_exit"] == 1
     assert "changes its outcome" in rep["preflight"]["problem"]

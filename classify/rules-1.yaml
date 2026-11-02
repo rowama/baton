@@ -4,7 +4,7 @@
 #
 # Applied, in order, to a worker that ended without a result (after the API
 # runner's failure line and the adapter's own failure_signals), and to a
-# failed script gate (scope: gate). The first match wins; nothing matching is
+# failed script gate (rules with scope: gate; patterns default to worker only). The first match wins; nothing matching is
 # `unknown`. Patterns are Python regular expressions searched in the last
 # 4 KiB of output; the matching line becomes the (redacted) message.
 id: baton-classify-rules/1
@@ -16,12 +16,16 @@ patterns:
   - { class: platform, code: out_of_memory, pattern: "Out of memory|Cannot allocate memory|MemoryError|JavaScript heap out of memory" }
   - { class: platform, code: sandbox_denied, pattern: "Operation not permitted|sandbox(-exec)?: .*denied|blocked by (the )?sandbox" }
   - { class: platform, code: permission_denied, pattern: "Permission denied" }
-# Exit codes (POSIX shells and the runtime's own spawner). `scope: gate`
+  # cmd.exe's own message for an unknown program (its exit code is then only 1):
+  # specific enough to apply to script gates too.
+  - { class: platform, code: executable_not_found, pattern: "is not recognized as an internal or external command", scope: [worker, gate] }
+# Exit codes (POSIX shells, cmd.exe and the runtime's own spawner). `scope: gate`
 # also applies to script gates: a gate command that cannot be found or run is
 # the platform's problem, not the step's.
 exit_codes:
   127: { class: platform, code: executable_not_found, message: "the command was not found (exit 127)", scope: [worker, gate] }
   126: { class: platform, code: not_executable, message: "the command could not be executed (exit 126)", scope: [worker, gate] }
+  9009: { class: platform, code: executable_not_found, message: "the command was not found (cmd.exe exit 9009)", scope: [worker, gate] }
 # Killed by a signal (a negative return code on POSIX; 128+n from a shell).
 signals:
   9: { class: platform, code: killed, message: "killed by SIGKILL, often the OS out-of-memory killer", scope: [worker, gate] }

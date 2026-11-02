@@ -13,10 +13,12 @@ A worker that **ended without a result** is classified by, in order:
    codes, then killing signals;
 4. otherwise ``unknown`` with the last output line.
 
-A **failed script gate** is classified by the rules' exit codes and signals
-with ``scope: gate`` only (a gate command that cannot be found or run is the
-platform's problem); anything else is ``subject``. Output patterns are not
-applied to gates: a test suite may legitimately print "Permission denied".
+A **failed script gate** is classified only by rules with ``scope: gate``
+(exit codes, signals, and the few output patterns specific enough to mean the
+command itself could not run, such as cmd.exe's "is not recognized as an
+internal or external command"); anything else is ``subject``. General
+patterns are not applied to gates: a test suite may legitimately print
+"Permission denied".
 
 Messages are redacted (§15.2) and cut to one line.
 """
@@ -98,9 +100,20 @@ def classify_exit(exit_code: int | None, tail: bytes | str, signals: list[dict[s
     return _verdict("unknown", f"exit_{exit_code}", last[0])
 
 
-def classify_gate(exit_code: int | None) -> dict[str, Any] | None:
+def classify_gate(exit_code: int | None, output: bytes | str = b"") -> dict[str, Any] | None:
     """A platform verdict for a failed script gate, or None (the step's own failure)."""
-    return _by_code(exit_code, "gate", load_rules())
+    rules = load_rules()
+    by_code = _by_code(exit_code, "gate", rules)
+    if by_code is not None:
+        return by_code
+    text = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output
+    text = text[-4096:]
+    for r in rules.get("patterns") or []:
+        if "gate" in (r.get("scope") or ["worker"]):
+            hit = _last_match(r["pattern"], text)
+            if hit is not None:
+                return _verdict(r["class"], r["code"], _line_of(text, hit.start(), hit.end()))
+    return None
 
 
 def supervisor_died() -> dict[str, Any]:

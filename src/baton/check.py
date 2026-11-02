@@ -27,7 +27,7 @@ from . import redact, versions
 from .data import read_text
 from .models import EVENTS_FORMATS, Event, Issue
 from .packet import PROTOCOL
-from .project import COMM_FILE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
+from .project import COMM_FILE, GITATTRIBUTES_RULE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
 from .recipe import RecipeError, load_recipe
 from .store import BATON_DIR, RunLog, Store
 from .vocab import load as load_vocab
@@ -89,6 +89,17 @@ def check(root: Path) -> list[Issue]:
         issues.append(Issue(code="project.no_communication", where=str(comm), message="communication.md is missing (run `baton init`)"))
     elif not read_text(comm).strip():
         issues.append(Issue(code="project.no_communication", where=str(comm), message="communication.md is empty"))
+
+    # line endings: git must store .baton/ byte for byte (§15.1)
+    ga = baton / ".gitattributes"
+    if not ga.is_file() or GITATTRIBUTES_RULE not in read_text(ga).splitlines():
+        issues.append(
+            Issue(
+                code="project.line_endings",
+                where=str(ga),
+                message=f"must contain `{GITATTRIBUTES_RULE}` so git never converts line endings in hashed files (run `baton init`)",
+            )
+        )
 
     # lockfile and vendored recipes
     lock: dict[str, Any] = {}

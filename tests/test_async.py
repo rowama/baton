@@ -20,14 +20,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baton import classify
+from baton import classify, supervisor
 from baton.engine import Api
 from baton.redact import SENTINEL_PREFIX
 from baton.state import IllegalTransition, StepState, next_step_state
 from conftest import FIT_CHECK
 from projectkit import FIT_INPUTS, GOOD_PROFILE, OWNER_PROFILE, VERDICT, Cli, git, make_git_project, make_home
-
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX process control; Windows paths run in Windows CI")
 
 WORKER = Path(__file__).resolve().parent / "fakes" / "scripted_worker.py"
 FIT_CAPS = ["structured_output", "long_form_writing", "technical_reasoning"]
@@ -63,7 +61,7 @@ class Setup:
         self.hook_py.write_text(HOOK, encoding="utf-8")
         bot = (
             f"bot:\n  adapter: command\n  vendor: other\n"
-            f"  command: \"{sys.executable} {WORKER} {{packet}} {{result}} {self.behavior}\"\n"
+            f"  command: {json.dumps(_cmdline([sys.executable, str(WORKER), '{packet}', '{result}', str(self.behavior)]))}\n"
             f"  capabilities: {json.dumps(FIT_CAPS)}\n  tier: strong\n"
         )
         self.project = make_git_project(tmp_path / "proj")
@@ -83,7 +81,7 @@ class Setup:
         self.run = self.cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
 
     def hook_cmd(self, tag: str) -> str:
-        return f"{sys.executable} {self.hook_py} {self.hook_log} {tag}"
+        return _cmdline([sys.executable, str(self.hook_py), str(self.hook_log)]) + f" {tag}"
 
     def behave(self, mode: str, **kw: object) -> None:
         self.behavior.write_text(json.dumps({"mode": mode, **kw}), encoding="utf-8")
@@ -122,23 +120,29 @@ def _until(cond, timeout: float = 30.0, every: float = 0.05):
     raise AssertionError("condition not met in time")
 
 
+def _cmdline(argv: list[str]) -> str:
+    """A command line for the platform shell (``/bin/sh`` or ``cmd.exe``)."""
+    import shlex
+
+    return shlex.join(argv) if os.name == "posix" else subprocess.list2cmdline(argv)
+
+
 def _dead(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    try:  # a zombie of this test process
-        return os.waitpid(pid, os.WNOHANG)[0] == pid
-    except ChildProcessError:
-        return False
+    return not supervisor.pid_alive(pid)
 
 
 def _kill(pid: int | None) -> None:
+    """Kill a worker and everything it started."""
     if pid:
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        supervisor.kill_tree_pid(pid)
+
+
+def _kill_one(pid: int) -> None:
+    """Kill one process (the supervisor), not its children."""
+    if os.name == "posix":
+        os.kill(pid, signal.SIGKILL)
+    else:
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
 
 
 # ---------------------------------------------------------------------------
@@ -172,23 +176,99 @@ def test_dispatch_returns_once_started_and_the_supervisor_finishes(tmp_path):
 
 
 def test_dispatch_survives_its_callers_shell_exiting(tmp_path):
+    """The Director's shell and everything it started end; the dispatched work does not.
+
+    POSIX: SIGKILL to the caller's whole session. Windows: the caller runs in a
+    kill-on-close job object (what terminals and CI runners use), which is closed.
+    """
     s = Setup(tmp_path)
     gate = tmp_path / "go"
     s.behave("gate", gate=str(gate), output=GOOD_PROFILE)
     out = tmp_path / "dispatch.json"
     env = {**os.environ, "BATON_HOME": str(s.home), "BATON_DIRECTOR": "alice@host1", "BATON_PROJECT": str(s.project)}
-    shell = subprocess.Popen(
-        ["/bin/sh", "-c", f"{sys.executable} -m baton dispatch {s.run} describe --worker bot --json > {out}; sleep 600"],
-        env=env, start_new_session=True,
-    )
-    d = _until(lambda: out.exists() and out.stat().st_size and json.loads(out.read_text()), 60)
-    os.killpg(shell.pid, signal.SIGKILL)  # the Director's shell and everything in its session
-    shell.wait()
+    if os.name == "posix":
+        shell = subprocess.Popen(
+            ["/bin/sh", "-c", f"{sys.executable} -m baton dispatch {s.run} describe --worker bot --json > {out}; sleep 600"],
+            env=env, start_new_session=True,
+        )
+        d = _until(lambda: out.exists() and out.stat().st_size and json.loads(out.read_text()), 60)
+        os.killpg(shell.pid, signal.SIGKILL)
+        shell.wait()
+    else:
+        caller = (
+            "import subprocess, sys, time; sys.stdin.readline(); "
+            f"f = open({str(out)!r}, 'w'); "
+            f"subprocess.run([sys.executable, '-m', 'baton', 'dispatch', {s.run!r}, 'describe', '--worker', 'bot', '--json'], stdout=f); "
+            "f.close(); time.sleep(600)"
+        )
+        shell = subprocess.Popen([sys.executable, "-c", caller], env=env, stdin=subprocess.PIPE)
+        job = _WinJob()
+        job.assign(shell)  # before it starts anything: it waits for a line on stdin
+        shell.stdin.write(b"go\n")
+        shell.stdin.flush()
+        d = _until(lambda: out.exists() and out.stat().st_size and json.loads(out.read_text()), 60)
+        if job.contains(d["supervisor_pid"]):
+            job.close()
+            pytest.skip("this environment's job objects forbid breaking away; the supervisor lives only as long as the caller's job")
+        job.close()  # kill-on-close: the caller and everything still in the job
+        shell.wait(timeout=30)
     assert not _dead(d["supervisor_pid"]) and not _dead(d["worker_pid"])
     gate.touch()
     w = s.cli.run("wait", s.run, "--timeout", "60")
     assert w["results"][0]["outcome"] == "passed" and not w["timed_out"], w
     assert s.types()[-1] == "step_passed"
+
+
+class _WinJob:
+    """A kill-on-close Windows job object that allows breaking away (ctypes)."""
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self.ct, self.wt = ctypes, wintypes
+        k = self.k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.OpenProcess.restype = wintypes.HANDLE
+        self.h = k.CreateJobObjectW(None, None)
+
+        class BASIC(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+        class IO(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in ("r", "w", "o", "rb", "wb", "ob")]
+
+        class EXT(ctypes.Structure):
+            _fields_ = [("Basic", BASIC), ("Io", IO), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        info = EXT()
+        info.Basic.LimitFlags = 0x2000 | 0x0800  # KILL_ON_JOB_CLOSE | BREAKAWAY_OK
+        assert k.SetInformationJobObject(wintypes.HANDLE(self.h), 9, ctypes.byref(info), ctypes.sizeof(info))
+
+    def _proc(self, pid: int):
+        return self.k.OpenProcess(0x1000 | 0x0100 | 0x0001, False, pid)  # query | set quota | terminate
+
+    def assign(self, proc: subprocess.Popen) -> None:
+        h = self._proc(proc.pid)
+        assert self.k.AssignProcessToJobObject(self.wt.HANDLE(self.h), self.wt.HANDLE(h)), self.ct.get_last_error()
+        self.k.CloseHandle(self.wt.HANDLE(h))
+
+    def contains(self, pid: int) -> bool:
+        h = self._proc(pid)
+        res = self.wt.BOOL()
+        self.k.IsProcessInJob(self.wt.HANDLE(h), self.wt.HANDLE(self.h), self.ct.byref(res))
+        self.k.CloseHandle(self.wt.HANDLE(h))
+        return bool(res.value)
+
+    def close(self) -> None:
+        if self.h:
+            self.k.CloseHandle(self.wt.HANDLE(self.h))
+            self.h = None
 
 
 def test_dispatch_with_wait_blocks_until_recorded_and_prints_no_warning(tmp_path):
@@ -203,7 +283,8 @@ def test_dispatch_with_wait_blocks_until_recorded_and_prints_no_warning(tmp_path
 
 
 def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp_path):
-    s = Setup(tmp_path, hooks={"on_complete": "complete"}, effort_cfg={"bands": {"M": "1s"}, "extend_once": False})
+    # 5 s: long enough for any worker to start under load, short enough for the hang to time out.
+    s = Setup(tmp_path, hooks={"on_complete": "complete"}, effort_cfg={"bands": {"M": "5s"}, "extend_once": False})
     bot = ("dispatch", s.run, "describe", "--worker", "bot", "--wait")
 
     s.behave("bad")
@@ -212,7 +293,7 @@ def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp
     assert s.cli(*bot, expect=4).payload["outcome"] == "escalated"  # crashed: no result
     s.cli.run("decide", s.run, "describe", "retry", "--note", "try again")
     s.behave("hang")
-    assert s.cli(*bot, expect=1).payload["outcome"] == "retry"  # timed out after the 1 s band
+    assert s.cli(*bot, expect=1).payload["outcome"] == "retry"  # timed out after the 5 s band
     s.behave("good", output=GOOD_PROFILE)
     assert s.cli.run(*bot)["outcome"] == "passed"
     s.behave("good", output=VERDICT)
@@ -286,9 +367,10 @@ def test_marker_present_process_alive_is_running_and_overdue_past_deadline(tmp_p
     api = s.api()
     try:
         assert api.reconcile(s.run) == [{"step_path": "describe", "attempt": 1, "dispatch_id": d["dispatch_id"], "action": "running", "overdue": False, "deadline": d["deadline"]}]
-        os.kill(d["supervisor_pid"], signal.SIGSTOP)  # alive, but not enforcing its deadline
+        # The supervisor holds its real deadline (2 h, the M band) in memory; the marker
+        # is what reconciliation reads, so backdating it shows a live, overdue worker.
         m = s.marker(d["dispatch_id"])
-        m["deadline"] = "2000-01-01T00:00:00Z"
+        m["deadline"] = "2000-01-01T00:00:00.000000Z"
         (s.baton / "cache" / "running" / f"{d['dispatch_id']}.json").write_text(json.dumps(m))
         acts = api.reconcile(s.run)
         assert acts[0]["action"] == "running" and acts[0]["overdue"] is True
@@ -296,7 +378,7 @@ def test_marker_present_process_alive_is_running_and_overdue_past_deadline(tmp_p
         assert s.types()[-1] == "step_running"
     finally:
         _kill(d["worker_pid"])
-        os.kill(d["supervisor_pid"], signal.SIGKILL)
+        _kill_one(d["supervisor_pid"])
         api.close()
 
 
@@ -305,7 +387,7 @@ def test_marker_present_process_dead_result_written_finishes_intake(tmp_path):
     s.behave("result_then_hang", output=GOOD_PROFILE)
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
     _until(lambda: (s.baton / "runs" / s.run / "steps" / "describe" / "attempt-1" / "result" / "result.json").exists())
-    os.kill(d["supervisor_pid"], signal.SIGKILL)  # the supervisor dies; the worker lingers
+    _kill_one(d["supervisor_pid"])  # the supervisor dies; the worker lingers
     _until(lambda: _dead(d["supervisor_pid"]))
     r = s.cli.run("resume", s.run)
     assert {"step_path": "describe", "attempt": 1, "dispatch_id": d["dispatch_id"], "action": "intake", "outcome": "passed"} in r["reconciled"]
@@ -319,7 +401,7 @@ def test_marker_present_process_dead_no_result_is_orphaned_and_classified(tmp_pa
     s = Setup(tmp_path)
     s.behave("hang")
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
-    os.kill(d["supervisor_pid"], signal.SIGKILL)
+    _kill_one(d["supervisor_pid"])
     _until(lambda: _dead(d["supervisor_pid"]))
     r = s.cli("resume", s.run, expect=4).payload
     assert r["reconciled"][0]["action"] == "orphaned"
@@ -345,7 +427,7 @@ def test_running_attempt_without_any_marker_counts_as_a_dead_supervisor(tmp_path
     s = Setup(tmp_path)
     s.behave("hang")
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
-    os.kill(d["supervisor_pid"], signal.SIGKILL)
+    _kill_one(d["supervisor_pid"])
     _kill(d["worker_pid"])
     _until(lambda: _dead(d["supervisor_pid"]))
     (s.baton / "cache" / "running" / f"{d['dispatch_id']}.json").unlink()
@@ -433,9 +515,13 @@ def test_classification_rules(exit_code, tail, signals, want):
     assert (got["class"], got["code"]) == want
 
 
-def test_gate_classification_uses_exit_codes_only():
+def test_gate_classification_uses_only_gate_scoped_rules():
     assert classify.classify_gate(127)["code"] == "executable_not_found"
     assert classify.classify_gate(126)["code"] == "not_executable"
+    assert classify.classify_gate(9009)["code"] == "executable_not_found"
+    cmd_msg = b"'pytest' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+    assert classify.classify_gate(1, cmd_msg)["code"] == "executable_not_found"
+    assert classify.classify_gate(1, b"test_perms: Permission denied\n2 failed\n") is None  # a failing test suite
     assert classify.classify_gate(1) is None
     assert classify.classify_gate(None) is None
 

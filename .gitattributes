@@ -1,0 +1,5 @@
+# Check out text with LF everywhere (including Windows CI): recipe files,
+# fixtures and golden records are hashed byte for byte (§15.1).
+* text=auto eol=lf
+*.png binary
+*.jpg binary

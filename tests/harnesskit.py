@@ -12,13 +12,27 @@ FAKE = Path(__file__).resolve().parent / "fakes" / "fake_harness.py"
 
 
 def install_fake(bin_dir: Path, name: str, outputs: dict | None = None) -> Path:
-    """An executable ``bin_dir/<name>`` running the fake under this interpreter."""
+    """An executable ``<name>`` in ``bin_dir`` running the fake under this interpreter.
+
+    POSIX: a script with a shebang. Windows: ``<name>.cmd`` (found through
+    PATHEXT, like the npm shims real CLIs install) calling ``<name>.fake.py``.
+    """
     bin_dir.mkdir(parents=True, exist_ok=True)
-    exe = bin_dir / name
-    exe.write_text(f"#!{sys.executable}\n" + FAKE.read_text(encoding="utf-8"), encoding="utf-8")
-    exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    if os.name == "nt":
+        (bin_dir / f"{name}.fake.py").write_text(FAKE.read_text(encoding="utf-8"), encoding="utf-8")
+        exe = bin_dir / f"{name}.cmd"
+        exe.write_text(f'@"{sys.executable}" "%~dp0{name}.fake.py" %*\r\n', encoding="utf-8")
+    else:
+        exe = bin_dir / name
+        exe.write_text(f"#!{sys.executable}\n" + FAKE.read_text(encoding="utf-8"), encoding="utf-8")
+        exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     set_outputs(bin_dir, outputs or {})
     return exe
+
+
+def same(a: str | Path, b: str | Path) -> bool:
+    """Same path (case-insensitive on Windows, where PATHEXT matches may differ in case)."""
+    return os.path.normcase(str(a)) == os.path.normcase(str(b))
 
 
 def set_outputs(bin_dir: Path, outputs: dict) -> None:

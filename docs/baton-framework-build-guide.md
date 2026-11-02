@@ -209,6 +209,7 @@ baton/
 │   ├── platform/facts.md             # platform facts
 │   ├── process/lessons.md            # project-level process lessons
 │   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, sme/, docs/
+│   ├── .gitattributes                # `* -text`: git never converts line endings in hashed files (§15.1)
 │   ├── workers.local.yaml            # GITIGNORED: project-specific profile overrides
 │   └── cache/                        # GITIGNORED: SQLite, running markers, locks
 ├── <published deliverables at the project's own paths>
@@ -590,7 +591,7 @@ class WorkerAdapter(Protocol):
   - **Built-in args per mode** (a profile's `args.<mode>` replaces one mode's default): `claude_code` write `--permission-mode bypassPermissions`, read and none `--permission-mode acceptEdits`; `codex` `--sandbox workspace-write` for every mode.
   - **Read and none steps are enforced by the runtime, not by flags.** The attempt's `result/` lies inside the project, so every mode must allow some writes and no CLI flag confines them to `result/`. For workers that can touch files (harness and `command` adapters), the runtime snapshots the working tree (HEAD, plus every changed or untracked path with its content hash, excluding the attempt directory; ignored files are not seen) before and after the worker runs. Any difference fails the implicit `workspace` gate and **escalates** the step (`workspace_modified`, listing the paths). The runtime never reverts the change; the owner inspects it. Write steps are not checked here (protected paths, §9.4, are).
   - **Failure signals**: lines such as "Not logged in" or "Invalid API key" classify an exit without a result as `platform` / `auth_failed`.
-- **`command`**: a configured command line with placeholders (`{prompt_file}`, `{packet}`, `{result}`, `{workspace}`), for other tools or for relaying to another agent. It is split like a POSIX shell would split it (no shell runs it); placeholders are substituted per word (`{workspace}` is empty for `none` steps); the first word is the executable, resolved per §6.2.
+- **`command`**: a configured command line with placeholders (`{prompt_file}`, `{packet}`, `{result}`, `{workspace}`), for other tools or for relaying to another agent. It is split like a POSIX shell would split it (no shell runs it; on Windows a backslash is an ordinary character, so `C:\tools\x.exe` stays intact); placeholders are substituted per word with POSIX-form paths (`{workspace}` is empty for `none` steps); the first word is the executable, resolved per §6.2.
 - **`manual`**: prints the packet path and waits for `submit`. Used for humans and physical-world work.
 
 Adapters never interpret results; intake does.
@@ -761,7 +762,7 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
 
 ### 8.7 Dispatch, supervision, completion and timeouts
 
-- **Dispatch** returns once the worker has started, with its dispatch id, effort and deadline (`dispatch(…, wait=true)` / `--wait` blocks until the outcome is recorded). A small **per-dispatch supervisor** (no daemon) is started detached from the caller (POSIX: new session; Windows: detached process group **[VERIFY]**), so a Director's shell ending does not affect it. It receives the worker's constructed environment through a pipe (never written to disk), starts the worker, keeps the running marker, enforces the deadline, runs intake when the worker exits, fires hooks, writes records, makes the checkpoint commit and exits. The supervisor is the runtime finishing work a Director started: it writes events as `runtime` / `worker:<profile>` under a short per-run file lock (`.baton/cache/locks/`) and needs no lease. `wait(run, dispatch_id?, timeout?)` lets an attached Director block until completion. **Manual workers** get no supervisor and no timeout; their packet deadline is informational.
+- **Dispatch** returns once the worker has started, with its dispatch id, effort and deadline (`dispatch(…, wait=true)` / `--wait` blocks until the outcome is recorded). A small **per-dispatch supervisor** (no daemon) is started detached from the caller (POSIX: new session; Windows: a detached process in its own group that breaks away from the caller's job object, falling back to staying in the job when the job forbids breaking away), so a Director's shell ending does not affect it. It receives the worker's constructed environment through a pipe (never written to disk), starts the worker, keeps the running marker, enforces the deadline, runs intake when the worker exits, fires hooks, writes records, makes the checkpoint commit and exits. The supervisor is the runtime finishing work a Director started: it writes events as `runtime` / `worker:<profile>` under a short per-run file lock (`.baton/cache/locks/`) and needs no lease. `wait(run, dispatch_id?, timeout?)` lets an attached Director block until completion. **Manual workers** get no supervisor and no timeout; their packet deadline is informational.
 - **Running marker** `.baton/cache/running/<dispatch_id>.json`: host, supervisor and worker PIDs, step path, attempt, started, deadline (and whether it was extended), heartbeat (every 30 s). For `read`/`none` steps the tree snapshot taken before the worker started is kept beside it. Removed after intake and hooks.
 
 | Marker | Process (supervisor) | Result | Meaning |
@@ -795,7 +796,7 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
 
 A platform failure gets at most one automatic retry, and only after the platform SME records a fix; otherwise the step waits on the incident.
 
-A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified`, then `step_escalated` with the class as its reason. The class comes from, in order: the API runner's failure line; the adapter's `failure_signals`; the rules' output patterns (disk full, DNS, network, TLS, out of memory, sandbox and permission denials); the rules' exit codes (127 `executable_not_found`, 126 `not_executable`) and killing signals (SIGKILL as `killed`); otherwise `unknown` with the last output line. Messages are redacted. A **failed script gate** is classified by exit codes and signals only (a gate command that cannot be found or run is `platform` and escalates; output patterns are not applied, since a test suite may legitimately print them); any other gate failure is `subject`. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log` (the supervisor's own output beside it, `.supervisor.log`; hook output under `hooks/`).
+A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified`, then `step_escalated` with the class as its reason. The class comes from, in order: the API runner's failure line; the adapter's `failure_signals`; the rules' output patterns (disk full, DNS, network, TLS, out of memory, sandbox and permission denials); the rules' exit codes (127 and cmd.exe's 9009 `executable_not_found`, 126 `not_executable`) and killing signals (SIGKILL as `killed`); otherwise `unknown` with the last output line. Messages are redacted. A **failed script gate** is classified only by rules marked `scope: gate`: exit codes, signals, and output patterns specific enough to mean the command itself could not run (cmd.exe's "is not recognized as an internal or external command", since `cmd /c` then exits 1). Such a gate is `platform` and escalates. General patterns are not applied to gates, since a test suite may legitimately print them. Any other gate failure is `subject`. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log` (the supervisor's own output beside it, `.supervisor.log`; hook output under `hooks/`).
 
 ### 8.9 Work items, concurrency and corrections
 
@@ -1111,6 +1112,7 @@ For pre-commit and CI; needs no network or profiles. Exit 0 when clean, otherwis
 - no secrets under `.baton/` (sentinels and patterns);
 - no impossible states;
 - `project.yaml` and `communication.md` present and valid;
+- `.baton/.gitattributes` holds `* -text` (§15.1);
 - format versions readable by this runtime.
 
 ### 13.6 Owner communication contract
@@ -1182,9 +1184,11 @@ Recipes are trialed the same way: vendor a new recipe version on a branch, start
 The runtime host may be Linux, macOS, native Windows or WSL.
 - Paths are stored and compared in POSIX form; backslashes are accepted on input.
 - Text is written as UTF-8 without BOM, with LF endings; a BOM is tolerated on read.
-- Git runs with explicit settings (`-c core.autocrlf=false`).
+- Git runs with explicit settings (`-c core.autocrlf=false`). Clones are made by other tools with their own settings (Git for Windows converts line endings by default), so `baton init` writes `.baton/.gitattributes` with `* -text`: hash-chained logs, CAS blobs and vendored recipes are checked out byte for byte everywhere, and `check` reports the rule missing.
+- On Windows, harness CLIs are often npm `.cmd` shims run through `cmd.exe`, which ends an argument at a newline and expands `%VAR%`. Prompts passed on a command line are therefore one line with no `%`, `^`, `&`, `|`, `<` or `>` (the task prompt, the no-op prompt and doctor's preflight prompt, which puts its command between backticks) **[VERIFY with the real CLIs on Windows]**.
+- Script gates and hooks run under the platform shell: `/bin/sh` on POSIX, `cmd.exe /d /s /c` on Windows. Recipe authors write gate commands for the shells their projects use.
 - No shebang reliance: entry points come from the package (`baton`, `python -m baton`, `py -m baton`).
-- Detaching and process-tree termination have POSIX and Windows code paths, both tested in CI.
+- Detaching, liveness, file locks and process-tree termination have POSIX and Windows code paths (Windows: detached process group with job break-away, `OpenProcess`/`GetExitCodeProcess`, `msvcrt.locking`, `taskkill /T`), all tested on native Windows in CI (`.github/workflows/tests.yml`: Ubuntu and Windows, the lowest and newest supported Python). The "survives its caller" test closes a kill-on-close job object holding the caller, as Windows terminals and CI runners do.
 - Directories are `0700` on POSIX, with user-only ACLs on Windows where possible.
 - In WSL, keep repos on the Linux filesystem.
 

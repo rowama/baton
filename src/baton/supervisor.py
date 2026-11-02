@@ -2,7 +2,7 @@
 
 **No daemon.** ``dispatch`` starts one small supervisor per process worker,
 detached from the caller (POSIX: a new session; Windows: a detached process
-group **[VERIFY]**), so a Director's shell or session ending does not affect
+group, breaking away from the caller's job when allowed), so a Director's shell or session ending does not affect
 it. The supervisor:
 
 1. writes the **running marker** ``.baton/cache/running/<dispatch_id>.json``
@@ -78,9 +78,11 @@ OUTCOMES = ("passed", "gate_failed", "needs_human", "timed_out", "failed", "over
 
 
 def _new_group_kwargs() -> dict[str, Any]:
+    """Start a child as the leader of its own process group, without a console window on Windows."""
     if os.name == "posix":
         return {"start_new_session": True}
-    return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}  # pragma: no cover
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return {"creationflags": flags}
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
@@ -121,16 +123,24 @@ def pid_alive(pid: int | None) -> bool:
         except PermissionError:
             return True
         return True
-    import ctypes  # pragma: no cover - Windows [VERIFY]
+    import ctypes
+    from ctypes import wintypes
 
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
     if not handle:
-        return False
-    code = ctypes.c_ulong()
-    kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-    kernel32.CloseHandle(handle)
-    return code.value == 259  # STILL_ACTIVE
+        return ctypes.get_last_error() == 5  # access denied: it exists, owned by someone else
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 @dataclass
@@ -155,7 +165,7 @@ def _tail(log_path: Path) -> bytes:
         return b""
 
 
-def run_child(argv: list[str], *, env: dict[str, str], cwd: Path, log_path: Path, timeout_s: float = DEFAULT_TIMEOUT_S) -> ChildResult:
+def run_child(argv: list[str] | str, *, env: dict[str, str], cwd: Path, log_path: Path, timeout_s: float = DEFAULT_TIMEOUT_S) -> ChildResult:
     """Run ``argv`` attached to completion (or the time limit). Output goes to ``log_path`` only."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -164,8 +174,9 @@ def run_child(argv: list[str], *, env: dict[str, str], cwd: Path, log_path: Path
         try:
             proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **_new_group_kwargs())
         except FileNotFoundError as e:
-            log.write(f"baton: cannot start {argv[0]!r}: {e}\n".encode())
-            return ChildResult(127, 0.0, False, log_path, f"executable_not_found: {argv[0]}".encode())
+            first = argv[0] if isinstance(argv, list) else argv
+            log.write(f"baton: cannot start {first!r}: {e}\n".encode())
+            return ChildResult(127, 0.0, False, log_path, f"executable_not_found: {first}".encode())
         try:
             proc.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
@@ -284,6 +295,25 @@ def liveness(baton_dir: Path, dispatch_id: str | None) -> Liveness:
 # ---------------------------------------------------------------------------
 
 
+def _detached(argv: list[str], **kw: Any) -> subprocess.Popen:
+    """Start a process that outlives its caller.
+
+    POSIX: a new session (no controlling terminal, its own process group).
+    Windows: a detached process in its own group, asking to break away from
+    the caller's job object so closing the caller's console or job does not
+    end it; when the job forbids breaking away (access denied), it starts
+    without that flag and survives as long as the job does.
+    """
+    if os.name == "posix":
+        return subprocess.Popen(argv, start_new_session=True, close_fds=True, **kw)
+    base = getattr(subprocess, "DETACHED_PROCESS", 0x8) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+    try:
+        return subprocess.Popen(argv, creationflags=base | breakaway, close_fds=True, **kw)
+    except PermissionError:
+        return subprocess.Popen(argv, creationflags=base, close_fds=True, **kw)
+
+
 def spawn(spec: dict[str, Any], supervisor_log: Path) -> subprocess.Popen:
     """Start ``python -m baton.supervisor`` detached and hand it ``spec`` on stdin.
 
@@ -291,18 +321,8 @@ def spawn(spec: dict[str, Any], supervisor_log: Path) -> subprocess.Popen:
     so it travels through a pipe and is never written to disk.
     """
     supervisor_log.parent.mkdir(parents=True, exist_ok=True)
-    if os.name == "posix":
-        kwargs: dict[str, Any] = {"start_new_session": True}
-    else:  # pragma: no cover - Windows [VERIFY]
-        flags = 0
-        for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_BREAKAWAY_FROM_JOB"):
-            flags |= getattr(subprocess, name, 0)
-        kwargs = {"creationflags": flags}
     with open(supervisor_log, "ab") as log:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "baton.supervisor"],
-            stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, cwd=spec["root"], close_fds=True, **kwargs,
-        )
+        proc = _detached([sys.executable, "-m", "baton.supervisor"], stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, cwd=spec["root"])
     assert proc.stdin is not None
     proc.stdin.write(json.dumps(spec).encode("utf-8"))
     proc.stdin.close()
@@ -389,7 +409,10 @@ def render_hook(command: str, source: str, home: Path) -> tuple[str, list[str]]:
 
 
 def run_hook(command: str, env: dict[str, str], cwd: Path, log_path: Path, timeout_s: float = HOOK_TIMEOUT_S) -> ChildResult:
-    shell = ["/bin/sh", "-c", command] if os.name == "posix" else ["cmd", "/c", command]
+    if os.name == "posix":
+        shell: Any = ["/bin/sh", "-c", command]
+    else:  # what subprocess's shell=True runs: the command line goes to cmd.exe verbatim
+        shell = f'"{env.get("COMSPEC") or os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{command}"'
     return run_child(shell, env=env, cwd=cwd, log_path=log_path, timeout_s=timeout_s)
 
 
@@ -519,12 +542,9 @@ def supervise(spec: dict[str, Any]) -> int:
 
 def selftest_spawn(out_file: Path) -> subprocess.Popen:
     """Start a detached supervisor that only writes its PID and session to ``out_file`` (doctor)."""
-    kwargs: dict[str, Any] = {"start_new_session": True} if os.name == "posix" else {
-        "creationflags": getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    }
-    return subprocess.Popen(
+    return _detached(
         [sys.executable, "-m", "baton.supervisor", "--selftest", str(out_file)],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kwargs,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
 
