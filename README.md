@@ -8,4 +8,5 @@
 - Drop in AI inference where you want it.
 - True capabilities-based, multi-vendor routing
 - Context efficiency by design, nothing arbitrary
+- Undistracted, focused process Director, the Baton expert.
 

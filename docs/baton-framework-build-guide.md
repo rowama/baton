@@ -46,7 +46,7 @@
 | **Long-running work** | Dispatch is asynchronous; the runtime supervises, times out, classifies failures and wakes the Director. |
 | **Expert routing** | Questions go to experts by subject (project, platform, process). The Director routes and never answers from its own inference. |
 | **Observability and continuity** | Append-only, hash-chained event logs and content-addressed artifacts live in the repo; any capable Director on any machine can resume. |
-| **Deliverables in the project** | Documents and drawings are published to real project paths; the run holds their provenance. |
+| **Deliverables in the project** | Documents, source code, drawings, etc. are published to real project paths; the run holds their provenance. |
 | **Low-friction adoption** | Existing projects are adopted in place; existing work is imported as attested results behind one owner decision. |
 
 ### 1.3 Non-goals
@@ -111,7 +111,7 @@ The runtime is built as a small **core** plus **layers**. A recipe or project th
 | **L5 Work items** | Concurrent runs, board, workspace lock, `revise` | Real projects |
 | **L6 Tailoring and adoption** | Complexity levels, triage, detect, research, crosswalks, seeding, baseline | Existing projects; varied formality |
 | **L7 Experts** | SME consultation (project, platform, process), platform facts and incidents, process feedback | Questions, platform issues, improvement |
-| **L8 Deliverables** | Publishing to project paths, drift detection | Documents and drawings |
+| **L8 Deliverables** | Publishing to project paths, drift detection | Documents, source code, drawings, etc. |
 
 ---
 
