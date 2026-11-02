@@ -176,7 +176,7 @@ baton/
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
 ├── defaults/communication.md        # default owner communication contract
-├── examples/recipes/software-feature/   examples/recipes/backyard-project/
+├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/
 └── tests/
 ```
 
@@ -457,6 +457,33 @@ vendor_denylist: ["openai/", "anthropic/", "gpt-", "claude-", "gemini", "grok", 
 ```
 
 Unknown names are load errors for recipes and profiles. New capabilities mean a new vocabulary version; the runtime supports several side by side.
+
+### 5.7 Shipped example recipes
+
+| Recipe | Purpose | Exercises |
+|---|---|---|
+| `fit-check` | Decide whether an idea suits Baton, before investing in it | A minimal recipe: one level, no groups, one human gate |
+| `software-feature` | The §5.1 example: a feature from request to accepted slices | Complexity levels, groups, reviews, publishing |
+| `backyard-project` | A non-software project (a flower bed vs a shed) | Manual workers, photo artifacts, human gates, levels |
+
+**`fit-check`** keeps itself to minutes, or it defeats its purpose:
+1. **`describe`:** a worker interviews the owner about the idea, mainly about *each occurrence*: how often it happens, how much judgment it needs, how long it takes, which agents and people are involved, whether a repo audit trail is a benefit. Output: a structured profile of the idea.
+2. **`assess`:** scores the profile against a fixed rubric (static file in the recipe):
+
+   | Fits Baton | Fits an operations engine |
+   |---|---|
+   | Few occurrences (at most daily) | Many (per order, ticket, event) |
+   | Judgment-heavy, mixed agents, human sign-offs | Mostly automated, predictable |
+   | Minutes to days per occurrence | Seconds; latency matters |
+   | Repo audit trail is a benefit | Needs live-system integration, uptime, scale |
+
+   Output: `verdict` (`fits` \| `fits_per_occurrence` \| `operations_engine`), reasons tied to rubric rows, and a suggested next step.
+3. **Human gate** on the verdict. Next steps by verdict:
+   - `fits`: an existing recipe, or recipe authoring (§15.3).
+   - `fits_per_occurrence`: a recipe plus an external scheduler that calls `baton start` for each occurrence.
+   - `operations_engine`: start a `software-feature` run whose deliverable is that system, with the engine choice made in its design step.
+
+Because it is small, `fit-check` is also the builder's first end-to-end recipe: with the `manual` adapter it is the Phase 4 toy run, and with an API worker it is the first real run in Phase 5.
 
 ---
 
@@ -1140,7 +1167,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 ✅ Deterministic `packet_sha256`; a missing required input raises `HandoffError` listing all missing inputs; hash mismatch and schema failure are rejected with reasons; a human gate blocks until decided; unregistered artifacts never satisfy a gate.
 
 **Phase 4 — Core CLI and continuity.** CLI (`--json`, exit codes), manual adapter, records, checkpoint commits, leases, resume, `check`.
-✅ A three-step toy recipe completes entirely by hand through the CLI, including a forced failure and retry; a fresh clone resumes it; `check` passes clean and fails on a tampered event, a missing blob and a planted secret sentinel.
+✅ The `fit-check` recipe (§5.7) completes entirely by hand through the CLI with the manual adapter, including a forced failure and retry; a fresh clone resumes it; `check` passes clean and fails on a tampered event, a missing blob and a planted secret sentinel.
 
 **Phase 5 — Routing and isolation (L1).** Profiles, env construction, PATH resolution, secrets, routing with preferences and independence, `litellm_api` adapter, `doctor` (no-op runs, executable resolution).
 ✅ `clean`/`allowlist`/`inherit` produce the expected variable *names*; `env_deny` always wins; a CLI found only under nvm resolves, and a missing one fails as `platform` listing every path searched; secrets never appear under `.baton/` or in git history; a step completes with two different vendors' API models.
@@ -1175,8 +1202,8 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 15 — Versioning.** Launcher, `upgrade`, `migrate`, compatibility rules.
 ✅ Two worktrees of one project run two runtime versions side by side on one machine; an old run continues under a newer runtime; an unreadable format is refused with the migrate hint; `migrate --dry-run` changes nothing; the §14.3 trial workflow merges cleanly.
 
-**Phase 16 — Real use.** Example recipes `software-feature` and `backyard-project`; a remote-Director scenario.
-✅ Both recipes run end-to-end and pass the lint with zero runtime changes. A remote Director with only shell access completes a multi-slice work item across several of its own sessions, woken by hooks, with no owner action beyond the recipe's decisions. The full suite passes on Linux and native Windows CI.
+**Phase 16 — Real use.** Example recipes `fit-check`, `software-feature` and `backyard-project` (§5.7); a remote-Director scenario.
+✅ All three recipes run end-to-end and pass the lint with zero runtime changes. A remote Director with only shell access completes a multi-slice work item across several of its own sessions, woken by hooks, with no owner action beyond the recipe's decisions. The full suite passes on Linux and native Windows CI.
 
 ---
 
@@ -1228,7 +1255,7 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
   - adopting an existing project;
   - resuming on a new machine;
   - trialing a new version on a branch.
-- Two example recipes ship (software and non-software).
+- Three example recipes ship (§5.7): `fit-check`, `software-feature` (software) and `backyard-project` (non-software).
 - Swapping the Director harness or any worker needs only machine-local configuration. New recipes need no runtime changes.
 - Principle checks, demonstrated in Phase 16:
   - after setup, a healthy project produces no routine owner prompts;
