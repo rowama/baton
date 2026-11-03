@@ -229,11 +229,60 @@ def establish_baseline(
     _done(out, as_json, "\n".join(lines))
 
 
+def _flag_text(f: dict) -> str:
+    if f["code"] == "signature_changed":
+        return f"step id {f['step']!r} keeps its id but changes {', '.join(f['changed'])} (vs version {', '.join(map(str, f['versions']))})"
+    return f"step id {f['step']!r} was retired in version {', '.join(map(str, f['retired_in']))} and is reused"
+
+
 @app.command()
-def vendor(recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory.")], as_json: JsonOpt = False) -> None:
-    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock."""
-    out = _call(as_json, lambda: _api().vendor(recipe_dir))
-    text = f"Vendored {out['recipe']} ({out['sha256'][:12]})" if out["changed"] else f"{out['recipe']} is already vendored"
+def vendor(
+    recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory.")],
+    approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes.")] = False,
+    note: Annotated[Optional[str], typer.Option("--note", help="With --approved: the owner's words, recorded verbatim.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids need the owner: exit 4)."""
+    out = _call(as_json, lambda: _api().vendor(recipe_dir, approved=approved, note=note))
+    if out["needs_owner"]:
+        text = "\n".join([out["message"], *(f"  - {_flag_text(f)}" for f in out["flags"])])
+    elif out["changed"]:
+        text = f"Vendored {out['recipe']} ({out['sha256'][:12]})" + (f"; owner decision {out['decision_id']}" if out.get("decision_id") else "")
+    else:
+        text = f"{out['recipe']} is already vendored"
+    _done(out, as_json, text)
+
+
+@app.command()
+def upgrade(
+    to: Annotated[Optional[str], typer.Option("--to", help="Runtime version (default: the launcher's own).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Pin a runtime version in baton.lock and re-vendor the skills; nothing else changes (§14.3)."""
+    out = _call(as_json, lambda: _api().upgrade(to))
+    if not out["changed"]:
+        text = f"Already on Baton {out['runtime']}"
+    else:
+        replaced = out["skills"]["replaced"] + out["skills"]["created"]
+        text = f"Upgraded {out['previous']} -> {out['runtime']}" + (f"; skills re-vendored: {', '.join(replaced)}" if replaced else "")
+    if out.get("message"):
+        text += f"\nNOTE: {out['message']}"
+    _done(out, as_json, text)
+
+
+@app.command()
+def migrate(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be migrated; change nothing.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Bring stored files in formats this runtime no longer reads directly to the current formats (§14.2)."""
+    out = _call(as_json, lambda: _api().migrate(dry_run=dry_run))
+    if not out["items"]:
+        text = out.get("message", "nothing to migrate")
+    else:
+        verb = "Would migrate" if dry_run else "Migrated"
+        text = "\n".join([f"{verb} {len(out['items'])} file(s):",
+                           *(f"  - {i.get('log') or i.get('recipe') or i['path']}: {', '.join(i['from'])} -> {i['to']} ({i['path']})" for i in out["items"])])
     _done(out, as_json, text)
 
 
@@ -924,7 +973,10 @@ def mcp(
 
 
 def main() -> None:
-    app()
+    """The ``baton`` command: the launcher picks the runtime version first (§14.1)."""
+    from . import launcher
+
+    launcher.main()
 
 
 if __name__ == "__main__":

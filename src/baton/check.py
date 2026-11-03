@@ -25,7 +25,7 @@ from typing import Any, Iterable
 
 from . import redact, versions
 from .data import read_text
-from .models import EVENTS_FORMATS, Event, Issue
+from .models import Event, Issue
 from .packet import PROTOCOL
 from .project import BUILTIN_RECIPES, builtin_recipe, COMM_FILE, GITATTRIBUTES_RULE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
 from .recipe import RecipeError, load_recipe
@@ -153,14 +153,20 @@ def check(root: Path, *, strict: bool = False) -> list[Issue]:
 def _check_lock(baton: Path, lock_path: Path, lock: dict[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
     where = str(lock_path)
-    if lock.get("format") != versions.LOCK_FORMAT:
-        issues.append(Issue(code="lock.unknown_format", where=where, message=f"lockfile format {lock.get('format')!r} is not readable by this runtime"))
-        return issues
+    problem = versions.format_problem("lock", lock.get("format"), "baton.lock")
+    if problem is not None:
+        issues.append(Issue(code=versions.issue_code("lock", problem[0]), where=where, message=problem[1]))
+        if problem[0] != "format.needs_migration":
+            return issues
+    if versions.classify("lock", lock.get("format")) in ("readable", "needs_migration"):
+        lock = versions.upcast("lock", lock)
     formats = lock.get("formats") or {}
-    readable = {"events": EVENTS_FORMATS, "packet": (PROTOCOL,), "recipe": versions.RECIPE_FORMATS}
-    for k, supported in readable.items():
-        if formats.get(k) not in supported:
-            issues.append(Issue(code="lock.unknown_format", where=where, message=f"{k} format {formats.get(k)!r} is not readable by this runtime"))
+    for k in ("events", "recipe"):
+        problem = versions.format_problem(k, formats.get(k), f"baton.lock's {k} format")
+        if problem is not None:
+            issues.append(Issue(code=versions.issue_code("lock", problem[0]), where=where, message=problem[1]))
+    if formats.get("packet") != PROTOCOL:
+        issues.append(Issue(code="lock.unknown_format", where=where, message=f"packet format {formats.get('packet')!r} is not readable by this runtime"))
     for v in lock.get("vocab") or []:
         try:
             load_vocab(v)

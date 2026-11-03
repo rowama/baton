@@ -277,14 +277,23 @@ def _ref_key(ref: str) -> tuple[str, int]:
 
 
 def read_lock(path: Path) -> dict[str, Any]:
+    """The lockfile in the current format (the previous one is upcast in memory, §14.2)."""
     import json
 
     if not path.is_file():
         raise EngineError("project.no_lock", f"{path} is missing (run `baton init`)")
     try:
-        return json.loads(read_text(path))
+        lock = json.loads(read_text(path))
     except json.JSONDecodeError as e:
         raise EngineError("project.bad_lock", f"{path} is not valid JSON: {e}") from e
+    if not isinstance(lock, dict):
+        raise EngineError("project.bad_lock", f"{path} is not a JSON object")
+    problem = versions.format_problem("lock", lock.get("format"), "baton.lock")
+    if problem is not None:
+        raise EngineError(problem[0], problem[1])
+    if versions.classify("lock", lock.get("format")) != "current":
+        lock = versions.upcast("lock", lock)
+    return lock
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +366,42 @@ def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
     return {"root": str(r), "created": created, "notes": notes}
 
 
-def vendor(project: Project, src: str | Path) -> dict[str, Any]:
+def signature_flags(lock: dict[str, Any], recipe_id: str, version: int, steps: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """What vendoring ``recipe_id@version`` would change about step ids the project has used (§5.8).
+
+    ``signature_changed``: a kept id whose signature differs from a recorded version's.
+    ``retired_id_reused``: an id an earlier version had, the recorded versions since then dropped,
+    and this (later) version brings back. Each needs an owner decision.
+    """
+    recorded: dict[int, dict[str, Any]] = {}
+    for ref, entry in (lock.get("recipes") or {}).items():
+        rid, _, ver = ref.partition("@")
+        if rid == recipe_id and ver.isdigit() and int(ver) != version:
+            recorded[int(ver)] = entry.get("steps") or {}
+    flags: list[dict[str, Any]] = []
+    for sid in sorted(steps):
+        sig = steps[sid]
+        differs = {v: sorted(k for k in set(sig) | set(old[sid]) if sig.get(k) != old[sid].get(k))
+                   for v, old in sorted(recorded.items()) if sid in old and old[sid] != sig}
+        if differs:
+            flags.append({"code": "signature_changed", "step": sid, "versions": sorted(differs),
+                          "changed": sorted({k for ks in differs.values() for k in ks})})
+        had = sorted(v for v, old in recorded.items() if sid in old and v < version)
+        # Retired: absent from every recorded version since it last appeared (before this one).
+        retired = sorted(v for v, old in recorded.items() if had and had[-1] < v < version and sid not in old)
+        if retired:
+            flags.append({"code": "retired_id_reused", "step": sid, "present_in": had, "retired_in": retired})
+    return flags
+
+
+def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None = None) -> dict[str, Any]:
     """Copy a recipe package into ``.baton/recipes/<id>@<version>/`` and record it in the lockfile.
 
     A vendored version is never edited in place: vendoring different content
-    under an existing ``id@version`` is refused.
+    under an existing ``id@version`` is refused. When the new version changes a kept
+    step id's signature or reuses a retired id (§5.8), nothing is copied and the result
+    carries ``needs_owner`` and the ``flags``, unless ``decision`` (the owner's recorded
+    decision: ``decision_id``, ``note``) is given; it is then kept in the lock entry.
     """
     try:
         loaded = load_recipe(src)
@@ -373,11 +413,17 @@ def vendor(project: Project, src: str | Path) -> dict[str, Any]:
     entry = lock.setdefault("recipes", {}).get(ref)
     if target.exists() or entry is not None:
         if target.exists() and entry is not None and package_sha256(target) == loaded.sha256 == entry.get("sha256"):
-            return {"recipe": ref, "sha256": loaded.sha256, "changed": False}
+            return {"recipe": ref, "sha256": loaded.sha256, "changed": False, "flags": [], "needs_owner": False}
         raise EngineError(
             "vendor.version_exists",
             f"{ref} is already vendored with different content; publish a new recipe version instead of editing one in place",
         )
+    steps = versions.step_signatures(loaded)
+    flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps)
+    if flags and decision is None:
+        return {"recipe": ref, "sha256": loaded.sha256, "changed": False, "flags": flags, "needs_owner": True,
+                "message": f"vendoring {ref} changes step ids this project has used; it needs the owner's decision: "
+                           "repeat with --approved --note \"<the owner's words>\""}
     tmp = project.recipes_dir / f".vendor-{ref}"
     if tmp.exists():
         shutil.rmtree(tmp)
@@ -389,9 +435,30 @@ def vendor(project: Project, src: str | Path) -> dict[str, Any]:
     lock["recipes"][ref] = {
         "sha256": loaded.sha256,
         "vocab": loaded.recipe.capabilities_vocab,
-        "steps": versions.step_signatures(loaded),
+        "steps": steps,
     }
+    if flags and decision is not None:
+        lock["recipes"][ref]["decision"] = {**decision, "flags": flags}
     if loaded.recipe.capabilities_vocab not in lock.setdefault("vocab", []):
         lock["vocab"].append(loaded.recipe.capabilities_vocab)
+    write_lock(project, lock)
+    return {"recipe": ref, "sha256": loaded.sha256, "changed": True, "flags": flags, "needs_owner": False}
+
+
+def write_lock(project: Project, lock: dict[str, Any]) -> None:
     atomic_write(project.baton / LOCK_FILE, versions.dump_lock(lock).encode("utf-8"))
-    return {"recipe": ref, "sha256": loaded.sha256, "changed": True}
+
+
+def vendor_skills(root: Path) -> dict[str, list[str]]:
+    """Write the shipped skills into ``.agents/skills/`` (``upgrade``, §14.3): replaced, created, unchanged."""
+    out: dict[str, list[str]] = {"created": [], "replaced": [], "unchanged": []}
+    for name in SKILLS:
+        rel = f"{SKILLS_DIR}/{name}/SKILL.md"
+        p = root / rel
+        shipped = read_text(data.path("skills") / name / "SKILL.md").encode("utf-8")
+        if p.is_file() and p.read_bytes() == shipped:
+            out["unchanged"].append(rel)
+            continue
+        out["replaced" if p.exists() else "created"].append(rel)
+        atomic_write(p, shipped)
+    return out

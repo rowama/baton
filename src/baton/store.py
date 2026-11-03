@@ -37,9 +37,9 @@ from typing import Any, Callable, Iterator
 
 from pydantic import ValidationError
 
+from . import versions
 from .models import (
     EVENT_TYPES,
-    EVENTS_FORMATS,
     PROJECT_EVENT_TYPES,
     RUN_EVENT_TYPES,
     Event,
@@ -52,6 +52,14 @@ from .state import IllegalTransition, RunState, StepState
 BATON_DIR = ".baton"
 EVENTS_FILE = "events.jsonl"
 CACHE_SCHEMA_VERSION = "1"
+
+
+def _cache_key() -> str:
+    """The cache is valid only for the runtime and event format that built it (§14.2): another
+    runtime on the same worktree (the launcher, ``BATON_VERSION``) replays the logs itself."""
+    from . import __version__
+
+    return f"{CACHE_SCHEMA_VERSION};{__version__};{versions.current_format('events')}"
 _CHUNK = 1 << 20
 
 Clock = Callable[[], datetime]
@@ -255,16 +263,20 @@ class EventLog:
         if tail:
             yield len(chunks) + 1, tail, False
 
-    def scan(self, fold: RunState | None = None) -> tuple[list[Event], list[Issue]]:
-        """Read and check every line. With ``fold``, also replay it through the state machine."""
-        events: list[Event] = []
+    def raw(self) -> tuple[list[tuple[int, dict[str, Any], bytes]], list[Issue]]:
+        """Every line as (line number, object, bytes), checked for the hash chain only.
+
+        The chain (``seq``, ``sha256``, ``prev_sha256``) does not depend on the event
+        format, so it verifies logs of any version, including ones this runtime cannot
+        interpret (§14.2). Stops at the first problem.
+        """
+        out: list[tuple[int, dict[str, Any], bytes]] = []
         issues: list[Issue] = []
         prev_sha: str | None = None
         expected_seq = 1
-        where_base = str(self.path)
 
         def err(line: int, code: str, message: str) -> None:
-            issues.append(Issue(code=code, where=f"{where_base}:{line}", message=message))
+            issues.append(Issue(code=code, where=f"{self.path}:{line}", message=message))
 
         for line, raw, complete in self._lines():
             if not complete:
@@ -278,22 +290,72 @@ class EventLog:
             if not isinstance(obj, dict):
                 err(line, "events.unparsable", "not a JSON object")
                 break
+            seq, sha = obj.get("seq"), obj.get("sha256")
+            if not isinstance(seq, int) or not isinstance(sha, str):
+                err(line, "events.invalid", "seq and sha256 are required")
+                break
+            if event_sha256(obj) != sha:
+                err(line, "events.hash_mismatch", f"event seq {seq} does not match its sha256")
+                break
+            if obj.get("prev_sha256") != prev_sha:
+                err(line, "events.chain_broken", f"prev_sha256 of seq {seq} does not match the previous event")
+                break
+            if seq != expected_seq:
+                err(line, "events.seq_gap", f"expected seq {expected_seq}, found {seq}")
+                break
+            out.append((line, obj, raw))
+            prev_sha = sha
+            expected_seq += 1
+        return out, issues
+
+    def translations(self, objs: list[dict[str, Any]]) -> tuple[dict[int, dict[str, Any]], Issue | None]:
+        """Upcast copies of earlier events from the latest ``migrated`` record, by seq (§14.2)."""
+        rec = next((o for o in reversed(objs) if o.get("type") == "migrated" and (o.get("data") or {}).get("family") == "events"), None)
+        if rec is None:
+            return {}, None
+        d = rec["data"]
+        p = self.path.parent / str(d.get("path", ""))
+        where = f"{self.path}:{rec['seq']}"
+        if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != d.get("sha256"):
+            return {}, Issue(code="events.migration_mismatch", where=where, message=f"the migrated copy {p.name} is missing or does not match its recorded sha256")
+        by_sha = {o["sha256"]: o["seq"] for o in objs}
+        out: dict[int, dict[str, Any]] = {}
+        for raw in p.read_bytes().splitlines():
+            t = json.loads(raw.decode("utf-8"))
+            if by_sha.get(t.get("sha256")) != t.get("seq"):
+                return {}, Issue(code="events.migration_mismatch", where=where, message=f"the migrated copy {p.name} holds an event that is not in the log")
+            out[t["seq"]] = t
+        return out, None
+
+    def scan(self, fold: RunState | None = None) -> tuple[list[Event], list[Issue]]:
+        """Read and check every line. With ``fold``, also replay it through the state machine.
+
+        Events in the previous format are upcast in memory; older ones are read from the
+        log's migrated copy, or refused naming ``baton migrate`` (§14.2).
+        """
+        events: list[Event] = []
+        rows, chain_issues = self.raw()
+        objs = [o for _, o, _ in rows]
+        translated, problem = self.translations(objs)
+        if problem is not None:
+            return [], [problem]
+        issues: list[Issue] = []
+
+        def err(line: int, code: str, message: str) -> None:
+            issues.append(Issue(code=code, where=f"{self.path}:{line}", message=message))
+
+        for line, obj, _ in rows:
+            obj = translated.get(obj["seq"], obj)
+            fmt_problem = versions.format_problem("events", obj.get("format"), f"event seq {obj['seq']}")
+            if fmt_problem is not None:
+                err(line, versions.issue_code("events", fmt_problem[0]), fmt_problem[1])
+                break
+            if versions.classify("events", obj.get("format")) != "current":
+                obj = versions.upcast("events", obj)
             try:
                 ev = Event.model_validate(obj)
             except ValidationError as e:
                 err(line, "events.invalid", "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()))
-                break
-            if event_sha256(obj) != ev.sha256:
-                err(line, "events.hash_mismatch", f"event seq {ev.seq} does not match its sha256")
-                break
-            if ev.prev_sha256 != prev_sha:
-                err(line, "events.chain_broken", f"prev_sha256 of seq {ev.seq} does not match the previous event")
-                break
-            if ev.seq != expected_seq:
-                err(line, "events.seq_gap", f"expected seq {expected_seq}, found {ev.seq}")
-                break
-            if ev.format not in EVENTS_FORMATS:
-                err(line, "events.unknown_format", f"format {ev.format!r} is not readable by this runtime")
                 break
             if ev.type not in self.allowed:
                 code = "events.unknown_type" if ev.type not in EVENT_TYPES else "events.wrong_log"
@@ -309,9 +371,9 @@ class EventLog:
                     err(line, "events.impossible_state", f"seq {ev.seq}: {e}")
                     break
             events.append(ev)
-            prev_sha = ev.sha256
-            expected_seq += 1
-        return events, issues
+        if issues:
+            return events, issues  # the first problem in line order; a chain problem would come later
+        return events, chain_issues
 
     def events(self) -> list[Event]:
         events, issues = self.scan()
@@ -343,7 +405,7 @@ class EventLog:
                 [Issue(code="events.wrong_log" if known else "events.unknown_type", message=etype)],
             )
         ev: dict[str, Any] = {
-            "format": EVENTS_FORMATS[-1],
+            "format": versions.current_format("events"),
             "seq": last_seq + 1,
             "ts": format_ts(self.clock()),
             "run_id": self.run_id,
@@ -371,6 +433,20 @@ class EventLog:
             f.write(line)
             f.flush()
             os.fsync(f.fileno())
+
+    def append_migration(self, data: dict[str, Any], *, actor: str = "runtime") -> dict[str, Any]:
+        """Append ``migrated`` to a log this runtime may not be able to interpret yet (§14.2).
+
+        Only the hash chain is checked: the record is what makes the log readable again.
+        ``migrated`` is a run-level fact, legal in any run state.
+        """
+        rows, issues = self.raw()
+        if issues:
+            raise StoreError(f"{self.path}: log is invalid", issues)
+        last = rows[-1][1] if rows else None
+        ev = self._build("migrated", actor, None, None, data, last["seq"] if last else 0, last["sha256"] if last else None)
+        self._write(ev, self.size())
+        return ev
 
     def append(
         self, etype: str, *, actor: str = "runtime", step_path: str | None = None, attempt: int | None = None, data: dict | None = None
@@ -441,11 +517,12 @@ class _Cache:
             self._conn = sqlite3.connect(self.path)
             self._conn.executescript(_SCHEMA)
             row = self._conn.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
-            if row is None or row[0] != CACHE_SCHEMA_VERSION:
+            key = _cache_key()
+            if row is None or row[0] != key:
                 with self._conn:
                     self._conn.execute("DELETE FROM runs")
                     self._conn.execute("DELETE FROM steps")
-                    self._conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (CACHE_SCHEMA_VERSION,))
+                    self._conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (key,))
         return self._conn
 
     def close(self) -> None:

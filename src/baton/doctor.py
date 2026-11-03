@@ -260,7 +260,8 @@ def _lock_problems(project: Any) -> list[str]:
     except EngineError as e:
         return [str(e)]
     if lock.get("runtime") != __version__:
-        problems.append(f"baton.lock pins runtime {lock.get('runtime')}; this is {__version__}")
+        problems.append(f"baton.lock pins runtime {lock.get('runtime')}; this is {__version__} "
+                        "(run Baton through the launcher, the `baton` command, or `baton upgrade` to pin this one)")
     problems += [i.message for i in _check_lock(project.baton, project.baton / "baton.lock", lock) if i.severity == "error"]
     return problems
 

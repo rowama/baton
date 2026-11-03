@@ -305,9 +305,19 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.establish_baseline(adoption, note))
 
     @tool
-    def vendor(recipe_dir: str) -> dict[str, Any]:
-        """Vendor a recipe package directory into .baton/recipes/ and pin it."""
-        return t.call(lambda api: api.vendor(recipe_dir))
+    def vendor(recipe_dir: str, approved: bool = False, note: str | None = None) -> dict[str, Any]:
+        """Vendor a recipe package directory into .baton/recipes/ and pin it; changed or reused step ids → needs_owner."""
+        return t.call(lambda api: api.vendor(recipe_dir, approved=approved, note=note))
+
+    @tool
+    def upgrade(to: str | None = None) -> dict[str, Any]:
+        """Pin this runtime's version in baton.lock and re-vendor the skills (another version: run the CLI launcher)."""
+        return t.call(lambda api: api.upgrade(to))
+
+    @tool
+    def migrate(dry_run: bool = False) -> dict[str, Any]:
+        """Bring stored files below the readable format window to the current formats; dry_run changes nothing."""
+        return t.call(lambda api: api.migrate(dry_run=dry_run))
 
     @tool
     def push(approved: bool = False, note: str | None = None) -> dict[str, Any]:

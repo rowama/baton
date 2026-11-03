@@ -30,9 +30,9 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import classify, groups, refs, reviews
+from . import __version__, classify, groups, refs, reviews, versions
 from .intake import read_result, run_script_gate
-from .models import EVENTS_FORMATS, FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile
+from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile
 from .packet import (
     PROTOCOL,
     BuiltPacket,
@@ -111,7 +111,8 @@ def start(
         "title": title if title is not None else inputs.get("title"),
         "recipe": recipe.recipe.ref,
         "recipe_sha256": recipe.sha256,
-        "formats": {"events": EVENTS_FORMATS[-1], "packet": PROTOCOL, "recipe": recipe.recipe.format},
+        "runtime": __version__,
+        "formats": {"events": versions.current_format("events"), "packet": PROTOCOL, "recipe": recipe.recipe.format},
         "capabilities_vocab": recipe.recipe.capabilities_vocab,
         "max_attempts": recipe.recipe.defaults.max_attempts,
         "inputs_sha256": hashlib.sha256(blob).hexdigest(),
@@ -1776,10 +1777,90 @@ class Api:
 
     # -- recipes ------------------------------------------------------------
 
-    def vendor(self, src: str | Path) -> dict[str, Any]:
+    def vendor(self, src: str | Path, *, approved: bool = False, note: str | None = None) -> dict[str, Any]:
+        """Vendor a recipe package. A version that changes a kept step id's signature or reuses a retired
+        id (§5.8) returns ``needs_owner`` with its flags; the owner's approval is the same call with
+        ``approved`` and their words, recorded as ``human_decision {kind: vendor}`` and in the lock entry."""
+        from . import sme
+        from .locks import project_lock
         from .project import vendor
 
-        return vendor(self.project, src)
+        out = vendor(self.project, src)
+        if not out["needs_owner"] or not approved:
+            return out
+        if not (note or "").strip():
+            raise EngineError("vendor.note", "an approval needs the owner's words (--note), recorded verbatim")
+        with project_lock(self.project.baton):
+            decision_id = f"d{len(self.project.store.project_log().events()) + 1}"
+        sme.project_append(self.project, "human_decision", {"kind": "vendor", "recipe": out["recipe"], "decision": "approve",
+                                                            "note": note, "decision_id": decision_id, "flags": out["flags"]}, actor="human")
+        out = vendor(self.project, src, decision={"decision_id": decision_id, "note": note})
+        out["decision_id"] = decision_id
+        cp = self._project_checkpoint(f"vendoring {out['recipe']} approved")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    # -- versioning (§14) -----------------------------------------------------
+
+    def _commit_paths(self, subject: str, paths: list[Path]) -> Any:
+        """One commit of exactly ``paths`` (outside any run's checkpoint), under the project lock."""
+        from . import gitops
+        from .locks import project_lock
+
+        if not self.project.config.checkpoints.commit:
+            return gitops.Checkpoint(False, reason="checkpoint commits are off in project.yaml")
+        with project_lock(self.project.baton):
+            pf = gitops.preflight(self.project.root, [p for p in paths if p.exists()])
+            if isinstance(pf, str):
+                return gitops.Checkpoint(False, reason=pf)
+            top, rels = pf
+            try:
+                sha = gitops.commit(top, rels, subject, [])
+            except gitops.GitError as e:
+                return gitops.Checkpoint(False, subject=subject, reason=str(e))
+        return gitops.Checkpoint(sha is not None, sha, subject, None if sha else "nothing to commit")
+
+    def upgrade(self, to: str | None = None) -> dict[str, Any]:
+        """Pin this runtime in baton.lock and re-vendor the skills, in one commit (§14.3).
+
+        ``to`` must be this runtime's version: the launcher runs ``upgrade --to <v>`` under ``<v>``.
+        """
+        from .project import LOCK_FILE, SKILLS, SKILLS_DIR
+
+        out = versions.upgrade_lock(self.project, to)
+        if out["changed"]:
+            paths = [self.project.baton / LOCK_FILE] + [self.project.root / SKILLS_DIR / n / "SKILL.md" for n in SKILLS]
+            cp = self._commit_paths(f"baton(project): upgrade runtime {out['previous']} -> {out['runtime']}", paths)
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    def migrate(self, *, dry_run: bool = False) -> dict[str, Any]:
+        """Bring stored files below the readable window to the current formats (§14.2).
+
+        Explicit and previewable: ``dry_run`` reports the plan and writes nothing. Never rewrites
+        an event; recorded as ``migrated``; committed on its own (``baton(migrate): …``).
+        """
+        from .locks import project_lock
+        from .supervisor import running_dir
+
+        plan = versions.migration_plan(self.project)
+        out: dict[str, Any] = {"dry_run": dry_run, **plan, "migrated": False}
+        if plan["problems"]:
+            raise EngineError("migrate.unreadable", "migration cannot help: " + "; ".join(plan["problems"]))
+        if dry_run or not plan["items"]:
+            if not plan["items"]:
+                out["message"] = "nothing to migrate: every stored file is readable by this runtime"
+            return out
+        rd = running_dir(self.project.baton)
+        if rd.is_dir() and any(rd.glob("*.json")):
+            raise EngineError("migrate.in_flight", "workers are running; migrate once they finish (`baton board` shows them)")
+        with project_lock(self.project.baton):
+            paths = versions.apply_migration(self.project, plan)
+        summary = ", ".join(sorted({i["family"] for i in plan["items"]}))
+        cp = self._commit_paths(f"baton(migrate): {len(plan['items'])} file(s) to current formats ({summary})", paths)
+        out.update(migrated=True, checkpoint=cp.as_dict())
+        return out
 
     def recipes(self) -> dict[str, Any]:
         out = []

@@ -145,6 +145,8 @@ class _Checker:
 
     def run(self) -> LoadedRecipe | None:
         raw = self._read()
+        if raw is not None:
+            raw = self._bring_current(raw)
         if raw is None or not self._check_versions(raw):
             return None
         stripped = self._lint_neutrality(raw, RECIPE_FILE)
@@ -195,16 +197,26 @@ class _Checker:
             return None
         return raw
 
+    def _bring_current(self, raw: dict) -> dict:
+        """The recipe in the current format: the previous one upcast in memory; an older one from its
+        migrated copy (``migrate``, §14.2). Anything else is left for ``_check_versions`` to refuse."""
+        status = versions.classify("recipe", raw.get("format"))
+        if status == "needs_migration":
+            copy_ = migrated_recipe(self.root)
+            if copy_ is not None:
+                raw, status = copy_, versions.classify("recipe", copy_.get("format"))
+        if status == "readable":
+            raw = versions.upcast("recipe", raw)
+        return raw
+
     def _check_versions(self, raw: dict) -> bool:
         ok = True
         fmt = raw.get("format")
-        if fmt not in versions.RECIPE_FORMATS:
-            self.error(
-                "format.unsupported",
-                "format",
-                f"recipe format {fmt!r} is not supported by this runtime "
-                f"(supported: {', '.join(versions.RECIPE_FORMATS)})",
-            )
+        problem = versions.format_problem("recipe", fmt, "this recipe")
+        if problem is not None:
+            code, message = problem
+            # Too new or unknown keeps its Phase 1 code (the message names the launcher); too old names migrate.
+            self.error(code if code == "format.needs_migration" else "format.unsupported", "format", message)
             ok = False
         vocab_id = raw.get("capabilities_vocab")
         try:
@@ -1037,6 +1049,29 @@ def _level_signature(recipe: Recipe, level: str) -> list:
 
     visit(recipe.steps, True)
     return sig
+
+
+def migrated_recipe_path(root: Path) -> Path:
+    """Where ``migrate`` writes a vendored recipe's upcast copy: beside the package, outside its hash."""
+    return root.parent / f"{root.name}.migrated.json"
+
+
+def migrated_recipe(root: Path) -> dict | None:
+    """The migrated copy of ``root``'s recipe.yaml, if one exists for exactly these bytes."""
+    import json
+
+    p = migrated_recipe_path(root)
+    if not p.is_file():
+        return None
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    src = root / RECIPE_FILE
+    if not src.is_file() or doc.get("source_sha256") != hashlib.sha256(src.read_bytes()).hexdigest():
+        return None  # stale: recipe.yaml is not the file that was migrated
+    rec = doc.get("recipe")
+    return rec if isinstance(rec, dict) else None
 
 
 def package_sha256(root: Path) -> str:

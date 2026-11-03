@@ -411,7 +411,7 @@ class Plan(BaseModel):
 # Events: baton-events/1 (§8.2). One envelope for run and project logs.
 # --------------------------------------------------------------------------
 
-EVENTS_FORMATS: tuple[str, ...] = ("baton-events/1",)
+# Format versions live in versions.FAMILIES (§14.2).
 
 #: Every event type, by area (§8.2). The single list.
 EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {

@@ -331,7 +331,7 @@ API_CALLS = {
     "detect", "board", "recipes", "plan", "start", "status", "explain", "eligible", "dispatch", "cancel", "wait", "submit", "decide",
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
-    "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission",
+    "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate",
 }
 
 

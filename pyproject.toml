@@ -23,7 +23,7 @@ mcp = ["mcp>=2.3,<3", "uvicorn>=0.30"]  # `baton mcp` (§13.2): stdio, or HTTP f
 dev = ["pytest>=8", "hypothesis>=6", "litellm>=1.70", "mcp>=2.3,<3", "uvicorn>=0.30"]  # hypothesis: property tests (§17)
 
 [project.scripts]
-baton = "baton.cli:main"
+baton = "baton.launcher:main"  # the launcher (§14.1), then the CLI
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/baton"]
