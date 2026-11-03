@@ -95,6 +95,8 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Lease** | Which Director may change a run right now. |
 | **Owner** | The human who makes the decisions. |
 
+Experts (§12) add none either: a *consultation* is a series of SME dispatches (turns); an *incident* is a platform record; a person is reached through a proxy SME, never directly.
+
 Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
 
 Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache.
@@ -209,11 +211,13 @@ baton/
 │   ├── communication.md              # owner communication contract (starts as the default)
 │   ├── preferences.yaml              # optional routing preferences (non-secret)
 │   ├── recipes/<id>@<version>/       # vendored, pinned recipes
-│   ├── project/events.jsonl          # project-level events (platform incidents, process feedback)
+│   ├── project/events.jsonl          # project-level events (platform incidents, facts, process feedback)
+│   ├── project/sme/<c_id>/  project/cas/   # consultations without a run (§12.1), and their blobs
 │   ├── adoption/<run_id>/baseline.yaml  # baseline proposal of an adoption (§11.5)
 │   ├── platform/facts.md             # platform facts
 │   ├── process/lessons.md            # project-level process lessons
-│   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, sme/, docs/
+│   ├── process/proposals/            # promoted process proposals (§12.2)
+│   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, sme/<c_id>/turn-<n>/ and handoff.md, docs/
 │   ├── .gitattributes                # `* -text`: git never converts line endings in hashed files (§15.1)
 │   ├── workers.local.yaml            # GITIGNORED: project-specific profile overrides
 │   └── cache/                        # GITIGNORED: SQLite, running markers, locks
@@ -397,7 +401,7 @@ Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inp
 | `group.steps.<id>.output` / `.artifacts.<name>` | Inside a group: a sibling's result in the same instance and iteration (a sibling listed before `repeat_from` ran only in `i1`, and that result is used) |
 | `group.previous_iteration.findings` | Inside a `repeat_until` group: `{iteration, findings, gate_reasons, owner_note?}` from the previous iteration's judges (every finding they returned, each with its `step`; the reasons their gates failed; the owner's note when the iteration started after an iteration-limit `retry`). `not_applicable` in iteration 1 |
 | `static.<path>` | File shipped in the recipe |
-| `human.<decision_id>` | A recorded human decision |
+| `human.<decision_id>` | A recorded human decision (including an expert answer the owner promoted as a decision, §12.2) |
 | `human_revision.<step>.<artifact>` | A human edit to a published artifact that was explicitly ingested (§10.5) |
 | `research.findings` | Adoption research result (§11.2) |
 | `platform.facts` | The project's platform facts (§12.3) |
@@ -585,7 +589,7 @@ CLI logins are usually files under the home directory; some platforms use an OS 
 3. Each `path.search` source (`~` is the user's home, `HOME`/`USERPROFILE`, never the Baton home) (`nvm` → `$NVM_DIR/versions/node/*/bin`, `~/.nvm/versions/node/*/bin`, newest version first by numeric order, and `$NVM_HOME/v*` for nvm-windows **[VERIFY]**; `pyenv` → `$PYENV_ROOT/versions/*/bin`, `~/.pyenv/versions/*/bin`; `asdf` → `$ASDF_DATA_DIR/shims` or `~/.asdf/shims`; explicit dirs, `~` allowed) → prepend the first dir that has it. Any other source name is a profile load error.
 4. Otherwise fail with `executable_not_found` (a **platform** failure, §8.8), listing every place searched (a source whose root does not exist is listed as its pattern).
 
-Resolved locations may be recorded as observed platform facts (§12.3).
+A location found through a `path.search` source is recorded once as an observed platform fact (§12.3).
 
 ### 6.3 Adapters
 
@@ -742,9 +746,9 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Human | `human_decision`, `human_revision_ingested` |
 | Deliverables | `artifact_published`, `drift_detected` |
 | Adoption | `situation_detected` (adoption run: the `detect` result, scope counts), `research_recorded` (§11.1), `step_imported` (§11.4), `baseline_established` (§11.5) |
-| Experts | `sme_requested`, `sme_answered`, `sme_promoted` |
+| Experts | `sme_requested` (`consultation`, `turn`, `subject`, `mode` `relay`\|`handoff`, `question`, `refs`/`auto`/`attachments` `[{ref, label, path, sha256}]`, `worker`, `vendor`, `model`, `packet_sha256`, `dispatch_id`, `contact?`; a handoff: `path`, `handoff_sha256`), `sme_answered` (`consultation`, `turn`, `status` `answered`\|`rejected`\|`failed`\|`blocked`, `answer_sha256`, `result_sha256`, `confidence`, `sources_used`, `requested_refs`, `suggests_retriage`, `awaiting?`, `artifacts?`, `reasons?`, `classification?`), `sme_promoted` (`consultation`, `turn`, `target`, `note`, `content_sha256`, `decision_id?`, `path?`) |
 | Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used`, `permission_requested`, `migrated` |
-| Project log | `platform_fact_recorded`, `platform_incident_opened`, `platform_incident_resolved`, `process_feedback`, `step_skip_recorded` |
+| Project log | `platform_fact_recorded` (`fact`, `source`, `observed?`), `platform_incident_opened` (`incident`, `run`, `step_path`, `attempt`, `class`, `code`, `message`, `refs`), `platform_incident_resolved` (`incident`, `fix`, `retried`), `process_feedback` (`kind`, `text`, `run?`, `step_path?`, `qualified?`, `gate?`, `informed_owner?`), `step_skip_recorded` (`feedback_seq`, `run`, `step_path`, `gate`, `blocking`, `surfaced`, `informed_owner`); expert events of consultations without a run (§12.1) |
 
 ### 8.3 Store
 
@@ -803,7 +807,7 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
     on_needs_human: ""         # optional; falls back to on_complete
     on_platform_failure: ""    # optional; e.g. wake the platform SME; falls back to on_complete
   ```
-  Which hook: a `platform` classification uses `on_platform_failure`; a step now waiting on the owner (human gate or escalation) uses `on_needs_human`; otherwise `on_complete` (§18 #11). Environment: the caller's, plus `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed` \| `gate_failed` \| `needs_human` \| `needs_review` (a review step is ready for the Director to dispatch) \| `timed_out` \| `failed` (ended without a result) \| `overdue` \| `not_started` (a queued dispatch was dropped, §8.9)), `BATON_CLASSIFICATION`, `BATON_STEP_STATE` (the step's state after the outcome), `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (the step record, already regenerated). Each run is recorded as `completion_hook_fired` or `completion_hook_failed` (hook name, source, outcome, exit code; never the command). Hook failures never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `status`/`board`, or `wait`).
+  Which hook: a `platform` classification uses `on_platform_failure`; a step now waiting on the owner (human gate or escalation) uses `on_needs_human`; otherwise `on_complete` (§18 #11). Environment: the caller's, plus `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed` \| `gate_failed` \| `needs_human` \| `needs_review` (a review step is ready for the Director to dispatch) \| `timed_out` \| `failed` (ended without a result) \| `overdue` \| `not_started` (a queued dispatch was dropped, §8.9) \| `answered` (an expert consultation turn, §12.1; `failed` when it has no answer)), `BATON_CLASSIFICATION`, `BATON_INCIDENT` (the platform incident the outcome opened, §12.3), `BATON_STEP_STATE` (the step's state after the outcome), `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (the step record, already regenerated). Each run is recorded as `completion_hook_fired` or `completion_hook_failed` (hook name, source, outcome, exit code; never the command). Hook failures never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `status`/`board`, or `wait`).
 - **Effort and timeouts:** steps declare `effort` (`S` / `M` / `L`) or `effort_from`; a step with neither, or whose `effort_from` does not resolve to one of them, gets `effort.default` (M). Bands come from `project.yaml` (`effort: { bands: {S: 45m, M: 2h, L: 4h}, extend_once: true, default: M }`; durations as `90s`, `45m`, `2h`). The deadline is dispatch time plus the band. At the deadline: if alive and `extend_once` is on (and not yet used), record `deadline_extended {previous_deadline, deadline, band}`, fire the hook with outcome `overdue` and extend by one band; otherwise terminate the worker's process tree, record `step_timed_out` and classify (`subject` / `timeout`; retried while attempts remain).
 
 ### 8.8 Failure classification
@@ -817,7 +821,7 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
 | `subject` | Gate failed, schema invalid, worker reported `failed`/`blocked`, timed out | Recipe's normal path: retry, iterate, escalate |
 | `unknown` | Nothing matched | Platform SME first, then owner |
 
-A platform failure gets at most one automatic retry, and only after the platform SME records a fix; otherwise the step waits on the incident.
+A platform failure gets at most one automatic retry, and only after the platform SME records a fix; otherwise the step waits on the incident. Every `platform` and `unknown` classification opens an incident; resolving it with the fix readies the step once (§12.3).
 
 A worker process that exits without writing `result.json` records `attempt_orphaned`, then `failure_classified`, then `step_escalated` with the class as its reason. The class comes from, in order: the API runner's failure line; the adapter's `failure_signals`; the rules' output patterns (disk full, DNS, network, TLS, out of memory, sandbox and permission denials); the rules' exit codes (127 and cmd.exe's 9009 `executable_not_found`, 126 `not_executable`) and killing signals (SIGKILL as `killed`); otherwise `unknown` with the last output line. Messages are redacted. A **failed script gate** is classified only by rules marked `scope: gate`: exit codes, signals, and output patterns specific enough to mean the command itself could not run (cmd.exe's "is not recognized as an internal or external command", since `cmd /c` then exits 1). Such a gate is `platform` and escalates. General patterns are not applied to gates, since a test suite may legitimately print them. Any other gate failure is `subject`. A worker over its time limit records `step_timed_out` and is retried like a failed gate while attempts remain. Raw worker output goes only to `~/.baton/logs/<run_id>/<step_path>/attempt-<n>.log` (the supervisor's own output beside it, `.supervisor.log`; hook output under `hooks/`).
 
@@ -883,7 +887,7 @@ Set by a worker (in `result.json`, §7.2) or by the Director relaying evidence (
 
 **Worker dispositions are provisional** (§18 #12). A worker may set `fixed` or `rejected` in its result with evidence, and intake checks that the evidence exists. That alone never closes a finding: an independent review must confirm it. If the next review re-reports the same finding id, the finding is open again, whatever the worker said. A worker disposition with no later review to confirm it does not close the finding; only the Director (relaying evidence) or the owner can close it there. A worker and a reviewer who keep disagreeing are settled only by the owner, with `accepted-risk` or a waiver; in a loop, the iteration limit escalates the disagreement. A disposition never makes a finding unconditionally closed on a worker's word alone. Mediating disputes is deliberately not built (§18 #18).
 
-Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §5.8), the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block. (Everything they need is in `findings_recorded` and `finding_dispositioned`; the statistics themselves are computed with the process SME, Phase 12.)
+Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §5.8), the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block. (Everything they need is in `findings_recorded` and `finding_dispositioned`; the statistics are derived on demand for the process SME, §12.4.)
 
 ### 9.3 Waivers
 
@@ -904,7 +908,7 @@ Owner decisions (2026-11-02):
 
 ### 10.1 Checkpoint commits
 
-After `step_passed` (with publishing), `human_decision`, `step_escalated`, `iteration_limit_reached`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
+After `step_passed` (with publishing), `human_decision`, `step_escalated`, `iteration_limit_reached`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. Changed project-level records (`.baton/project/`, `.baton/platform/`, `.baton/process/`) are committed with it; a call that touches no run commits them on their own (`baton(project): …`, §12.2). On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
 - Commit SHAs are read back from `git log` on resume, not written into the next event. This keeps commits self-contained. `checkpoint_committed` is appended just before the commit it belongs to (no SHA); if the commit then fails, the next checkpoint carries it.
 - Workspace steps commit their own code; their `commit_sha` is in the step output, and the checkpoint commit follows.
 - Never commit with unrelated uncommitted changes; refuse and report. The commit names its paths (`git commit --only`), so unstaged or untracked work elsewhere is never swept in; changes *staged* for other paths, a merge/rebase in progress or a missing git identity refuse the checkpoint, which is reported in the call's result and retried at the next trigger.
@@ -1037,39 +1041,55 @@ It is blameless: it records what exists, what is assumed and what is missing. Th
 
 ### 12.1 Consulting an expert
 
-`ask_sme(subject, question, refs, run?, mode)` consults an SME worker. Subjects:
+`ask_sme(subject, question, refs, run?, mode, worker?, contact?)` consults an SME worker. Subjects, and the references the runtime allows each one (anything else is refused, `sme.ref_not_allowed`):
 
-| Subject | Expert on | Packet scope the runtime allows |
+| Subject | Expert on | References the Director may select |
 |---|---|---|
-| `project` | The work's domain | Selected run records, published deliverables, `project:<path>` refs |
-| `platform` | Development and deployment infrastructure: hosts, CLIs, auth, networks, deployment | Platform facts, open incidents, `doctor` output, redacted run logs, non-secret profile config |
-| `process` | Baton and the recipe | Events, records, process feedback, review statistics, the recipe |
+| `project` | The work's domain | `step:<step_path>` (an accepted output and its artifacts), `record:<step_path>`, `summary`, `project:<file>` (a project file, outside `.git` and `.baton`; published deliverables are project files) |
+| `platform` | Development and deployment infrastructure: hosts, CLIs, auth, networks, deployment | `facts`, `incident:<id>`, `log:<run_id>:<step_path>[@<attempt>]` (the machine-local worker output, redacted, last 64 KiB), `profile:<name>` (non-secret fields), `doctor` (`--no-run`) |
+| `process` | Baton and the recipe | `events`, `record:<step_path>`, `summary`, `feedback`, `stats` (§12.4), `lessons`, `recipe` / `recipe:<id>@<version>` |
 
-- **The Director selects; the runtime assembles.** The Director picks references by name (step names, titles, the recipe) without reading their content. The runtime resolves them into a hashed packet, each item with a neutral provenance label ("approved design, attempt 2", "imported from prior process"), plus an index of everything else on record (titles only).
-- **Answer schema:** `{answer, confidence, sources_used[], requested_refs[], suggests_retriage}`. Requested refs lead to an approved follow-up (`sme_followup`) that includes them and the prior turns.
-- **Routing:** `eligible_workers` against the recipe's `sme.<subject>`, then `project.yaml` (`sme.<subject>.preferred_profiles`, e.g. a dedicated platform agent), then vocabulary defaults. Any adapter works, including `command` (relay to another agent) and `manual` (a human expert).
-- **Modes:** `relay` (default; the Director is the go-between) or `handoff` (the adapter opens a separate session the owner talks to directly; the transcript returns as the answer). A platform SME may need to work directly with a worker, the Director or the owner; it does so in handoff mode, and its conclusions return as a recorded answer.
+`step:`, `record:`, `summary` and `events` name the consultation's run (`--run`); without one they are refused.
+
+- **The Director selects; the runtime assembles.** The Director picks references by name without reading their content. The runtime resolves them into a hashed packet (`baton-packet/1`, `kind: sme`; the same `packet_sha256` formula as §7.1), each item with a neutral provenance label ("accepted Profile the idea, attempt 1: output", "…, imported from prior process", "project file README.md (working tree)"), plus `index.json`: everything else on record that the subject may ask for, by title only. **Platform packets always include** the facts and each open incident with its failed attempt's log ("included automatically"). Everything assembled is redacted (§15.2).
+- **Answer schema** (`baton:sme-answer/1`): `{answer, confidence (low|medium|high), sources_used[], requested_refs[], suggests_retriage, awaiting? {who, what}}`. The result envelope is §7.2's; the expert may return artifacts under any names (drafts, notes). A result that does not validate is recorded as `rejected`, a worker that ends without one as `failed` with its classification (§8.8); neither is an answer.
+- **Follow-ups:** `sme_followup(consultation, question?, refs?, attach?)` is the next turn, approved by the Director (no owner decision). Its packet carries the earlier turns (each question and answer, the expert's artifacts, earlier attachments) plus the new references and attachments. Requested refs reach the expert only this way.
+- **Routing:** the requirements are the recipe's `sme.<subject>` (a consultation about a run), else the vocabulary's `sme_defaults`. Eligible profiles meet them; `project.yaml` `sme.<subject>.preferred_profiles` (e.g. a dedicated platform agent) come first. `--worker` picks one; otherwise the first eligible (a follow-up keeps the previous turn's worker while it is eligible). `sme_eligible(subject, run?)` lists them. Any adapter works except `manual`: **an SME is never a person** (owner decision, 2026-11-03; see *People* below). The packet's workspace mode is `read` when the requirements include `workspace_read`, else `none`, and the working-tree check of §6.3 applies.
+- **Execution:** a turn is dispatched like a step: asynchronous under a supervisor (§8.7), with the default effort band as its time limit (never extended), `--wait` / `sme <consultation> --wait` to block, and the completion hook fired with outcome `answered` or `failed` (`BATON_STEP_PATH` is `sme/<consultation>`). It is outside the step state machine: events `sme_requested` and `sme_answered`, no step state.
+- **Where it lives:** with a run, `runs/<run_id>/sme/<consultation>/turn-<n>/{packet,result}/`, events in the run log, blobs in its CAS (holding the run's lease, as for any change to a run). Without a run, the same under `.baton/project/sme/`, events in the project log, blobs in `.baton/project/cas/`. Transcripts are kept in full, redacted (§18 #13).
+- **Modes** (§18 #17). `relay` (default) is the formal mode: the Director is the go-between and every turn's answer is recorded. `handoff`: when the owner would rather talk to the expert directly, `sme_handoff(consultation)` (or `ask_sme … mode=handoff` to start that way) renders one copy-and-paste prompt **generated by the runtime**, never written by the Director: the expert's role and rules, the assembled material, the questions and earlier turns. It is saved as `<consultation>/handoff.md` and recorded (`sme_requested {mode: handoff, handoff_sha256}`); that file is the whole record, and nothing from the conversation returns except through promotion. The runtime refuses a handoff, with the reason, when the expert relies on capabilities a pasted prompt cannot carry (`shell`, `code_exec`, `workspace_read`, `repo_workspace`, `file_write`: "A pastable handoff is impossible: this expert relies on shell to answer…"), unless the expert is a black box behind the `command` adapter, whose reliance Baton cannot know.
+- **People** (owner decision, 2026-11-03). Baton never engages a person as an SME. A person is consulted through a **proxy**: an ordinary expert consultation that names them (`--contact "<name, role, how to reach them>"`, given by the owner per consultation and kept only in that record). The proxy drafts what the owner needs for the exchange (an email, a letter, a talking-points sheet) as artifacts and sets `awaiting {who, what}`; the consultation then shows as `awaiting_reply`. **Proxies draft; they never send.** The person's reply comes back as the next turn: the owner attaches it (`sme-followup <consultation> --attach reply.eml`; stored verbatim, redacted, hashed, labeled "supplied by the owner; the reply of <contact>"), or a proxy with its own access reads it and includes it verbatim as an artifact. Later rounds are further follow-ups. Being a proxy is not a mode: any turn may return owner-facing artifacts and `awaiting`.
 - **Outside the step graph:** consultation cannot satisfy gates and needs no recipe change.
 
 ### 12.2 Isolation and promotion
 
-Answers are recorded (`sme_requested`, `sme_answered`; transcripts in `runs/<id>/sme/` or the project log) but **not referenceable** by steps. They affect the work only through `promote_sme` with the owner's agreement, into one of: a human decision, an artifact revision, a platform fact, or a **process proposal** (recipe or configuration change, applied as a new recipe version and re-vendored, never edited in place).
+Answers are recorded (`sme_requested`, `sme_answered`) but **not referenceable** by steps: no input reference reaches them. They affect the work only through `promote_sme(consultation, target, note, text?, turn?)`, with the owner's agreement in their own words (`--note`, recorded verbatim; the default content is the latest answer, `--text` replaces it, e.g. for something said in a handoff conversation). Targets:
+
+| Target | Records | Then |
+|---|---|---|
+| `decision` (a consultation about a run) | `human_decision {kind: sme, decision, note, decision_id}` and `sme_promoted` in the run | Steps may take it as `human.<decision_id>` |
+| `fact` | `platform_fact_recorded` in the project log, an entry in `.baton/platform/facts.md` | In every later platform packet |
+| `lesson` | An entry in `.baton/process/lessons.md` (origin, date, confirmations) | In process packets (`lessons`) |
+| `proposal` | `.baton/process/proposals/<consultation>-turn-<n>.md` | Applied by the recipe's maintainer as a new recipe version and re-vendored, never edited in place |
+
+Promoting into an artifact revision arrives with deliverables (Phase 13, §10.5). Project-level records written without a run are committed by a project checkpoint (`baton(project): …`); otherwise they ride along with the run's next checkpoint (§10.1).
 
 The Director relays answers faithfully and does not use them for routing. Since state lives in the record, it can resume in a fresh session afterwards; leakage is minimized, though the relayed answer passes through its context once.
 
 ### 12.3 The platform area
 
-- **Facts** (`.baton/platform/facts.md`): durable infrastructure knowledge, one entry each with source and date ("codex is under nvm v22 on the runtime host"; "the service listens on 8080 in the container"). Facts come from promotion, owner edits, or runtime observation (resolved executable paths, marked `observed`).
-- **Incidents** (project log): opened automatically for `platform`/`unknown` failures, with affected runs and steps, logs and resolution. A step blocked on an incident shows it on the board.
-- **Use:** steps may take `platform.facts` as input. Platform SME packets include facts and open incidents automatically. `doctor` reports open incidents. If `on_platform_failure` is configured, the hook can wake the platform SME directly.
+- **Facts** (`.baton/platform/facts.md`): durable infrastructure knowledge, one entry each with source and date ("codex is under nvm v22 on the runtime host"; "the service listens on 8080 in the container"). Facts come from promotion, from `platform_fact(text, source)` (the owner's words, recorded by the Director), or from runtime observation: an executable found only through `path.search` (§6.2) is recorded once, marked `observed`. Each is also a `platform_fact_recorded` event.
+- **Incidents** (project log): `platform_incident_opened {incident, run, step_path, attempt, class, code, message, refs}` is opened automatically for every `platform` or `unknown` classification of a step's attempt, and for a dispatch refused because the machine lacks something (e.g. `executable_not_found` at dispatch; `attempt: null`). `refs` preselects what the platform SME needs: `facts` and the failed attempt's `log:`. An escalated step whose incident is open shows it (`status`, `board`: "waits on platform incident inc_…"); `board` lists open incidents; `doctor` and `detect` report them as warnings. Hooks carry `BATON_INCIDENT`, so `on_platform_failure` can wake the platform SME directly with the incident.
+- **One automatic retry** (§8.8; owner decision, 2026-11-03): `platform_incident resolve <id> --fix "<what was fixed>"` records `platform_incident_resolved {fix, retried}` and readies each step that incident escalated (`step_ready {after_incident}`, a fresh attempt budget), once; the Director then dispatches it. A new failure opens a new incident. The owner's `decide <step> retry` still works while the incident is open.
+- **Use:** steps may take `platform.facts` as input. Platform SME packets include facts and open incidents automatically.
 
-### 12.4 The process SME
+### 12.4 The process SME and process feedback
 
 Process improvement is consultation with `subject=process`, not a separate subsystem.
-- **Inputs:** `process_feedback` (friction, skipped step with `informed_owner`, waste, confusing) from Directors, workers or the owner, plus statistics the runtime keeps anyway (attempts, iterations, timeouts and their classes, time per step, review statistics), all keyed by qualified step id (§5.8).
+- **Inputs:** `process_feedback` events in the project log (kinds `friction`, `skipped_step`, `waste`, `confusing`) from the Director (`feedback(kind, text, run?, step?, gate?, informed_owner?)`), from workers (`process_feedback` in `result.json`, recorded at intake with the qualified step id), or from the owner; plus statistics the runtime derives on demand from every run's events (the `stats` reference): per qualified step id `<recipe>@<v>/<step_path>` (instances and iterations dropped, §5.8) attempts, passes, rejections, gate failures, timeouts, escalations by reason, failure classes, mean and longest time per attempt; iterations per group instance; and per reviewer profile and findings line, findings by severity, dispositions by kind and evaluations to clean (§9.2). No command of its own.
 - **When:** on demand, at run completion if the recipe has a retrospective step, or on the owner's cadence.
 - **Outputs:** answers and process proposals, each approved by the owner. Project-level lessons go to `.baton/process/lessons.md` ("when X, do Y, because Z", with origin and confirmation count). Lessons confirmed across projects are promoted into the recipe by its maintainer.
-- **Immediate surfacing:** a skipped *blocking* gate or human approval is surfaced to the owner by the runtime at once, not left for a retrospective.
+- **Immediate surfacing** (owner decision, 2026-11-03). Baton enforces its own gates, so a skipped blocking gate or human approval can only happen outside it and be reported: `feedback skipped_step "<what happened>" --run <run> --step <step> [--gate <index or type>] [--informed-owner]`. It records `process_feedback` and `step_skip_recorded {feedback_seq, run, step_path, gate, blocking, surfaced}`. Unless the named gate is advisory, the runtime fires `on_needs_human` at once (outcome `needs_human`) and keeps an owner notice pending in `status` and `board --needs-me` until the owner acknowledges it: `decide <run> skip:<seq> acknowledge --note "<words>"`. The notice blocks nothing.
 
 ---
 
@@ -1091,13 +1111,13 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `cancel(run, step_path)` | Withdraw a queued dispatch |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); later: questions, baseline items) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); later: questions, baseline items) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage (§5.5; the new level waits on the owner's `decide <run> <triage step> approve\|reject`); correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
 | `ingest_revision(run, step_path, artifact)` | Accept a drifted published file (§10.5) |
-| `ask_sme(subject, question, refs, run?, mode)` / `sme_followup(…)` / `promote_sme(…)` | Experts (§12) |
-| `platform_fact(…)` / `platform_incident(…)` / `feedback(kind, text, run?)` | Project-level records |
+| `ask_sme(subject, question, refs, run?, mode, worker?, contact?, wait?)` / `sme_followup(consultation, question?, refs?, attach?)` / `sme_status(consultation, wait?)` (CLI `sme`) / `sme_handoff(consultation)` / `sme_eligible(subject, run?)` / `promote_sme(consultation, target, note, text?, turn?)` | Experts (§12): consult (relay or handoff), follow up, read the record, a runtime-made handoff prompt, eligible experts, promotion with the owner's words |
+| `platform_fact(text, source)` / `platform_incident(list\|show\|resolve, id?, fix?)` / `feedback(kind, text, run?, step?, gate?, informed_owner?)` | Project-level records (§12.3, §12.4) |
 | `adopt(recipe, crosswalk?, scope?)` / `establish_baseline(adoption, note)` | Adoption (§11): start an adoption run, or report the active one; apply the baseline proposal as the owner's one decision |
 | `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
 | `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
@@ -1155,6 +1175,8 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 - About the process (where things are, what's next): answer from `explain`/`status`/`board`, never from memory. If the record doesn't say, say so.
 - Subject matter → `ask_sme project`. Infrastructure, tools, accounts, deployment → `ask_sme platform`. How Baton or the recipe should work → `ask_sme process`.
 - Never answer these from your own inference. Say plainly that you'll ask an expert. Choose references by name; don't read subject content to choose them. Relay answers faithfully, labeled as the expert's. Promote only with the owner's agreement. Don't use expert content for routing; after a consultation, prefer resuming fresh.
+- If the owner would rather talk to the expert directly, run `sme-handoff` and give them the runtime's prompt unchanged; never write one yourself. If it is refused, relay the reason and continue in relay mode.
+- When a person's input is needed, consult a proxy (`--contact`, as the owner names them); the owner sends what it drafts. Never contact anyone yourself. Bring their reply back with `sme-followup --attach`.
 - Record process friction with `feedback`.
 
 ## Talking to the owner
@@ -1170,7 +1192,7 @@ Per machine and profile; silent when healthy (`baton doctor [--profile <name>] [
 - For each profile: build its exact environment, resolve its executable (§6.2), run a no-op task through its adapter; report auth mode, duration, env names present or denied.
 - **Effective auth mode**: what the worker would really use under its exact environment. Harness CLIs are asked (`claude auth status --json`, `codex login status`; a local query, run even with `--no-run`); API profiles report `api_key` with the resolved names; manual profiles `none`. A `cli_login` profile whose CLI would use an API key is a problem (billing would switch; add the key to `env_deny`); one that is not logged in is a problem naming the login command.
 - **Gate preflight** for write-capable profiles (harness profiles claiming `repo_workspace`): run `project.preflight` (or the test command) through the worker's own adapter and write-mode args, so a mode that would block gates is caught before a full run is wasted. The worker is asked to run `python -m baton.probe --marker <file> --nonce <n> -- <command>`, which runs the command and writes its exit code to a marker under `.baton/cache/`. The runtime also runs the command itself, as a script gate would. No marker: the mode blocked the command. A different exit code: the sandbox changed its outcome. Either is a problem. Both failing alike is a warning.
-- Supervisor can detach (a test supervisor must start in its own session); hooks reachable (valid `hooks.yaml`, `secret:` references resolve, each command's program is found; hooks are never fired); open platform incidents; steps with no eligible profile on this machine.
+- Supervisor can detach (a test supervisor must start in its own session); hooks reachable (valid `hooks.yaml`, `secret:` references resolve, each command's program is found; hooks are never fired); open platform incidents (warnings); steps with no eligible profile on this machine.
 - WSL repos on `/mnt/c` (warning).
 
 ### 13.5 `check`
@@ -1318,7 +1340,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 11 — Tailoring and adoption (L6).** Triage application, `applies_to`, re-triage, `detect`, research, crosswalks, seeding (including groups), baseline. Built (owner decisions, 2026-11-02): rejecting a triage level retries triage; re-triage always waits on the owner and reject keeps the old level; adoption is an adoption run of the built-in `baton-adopt` recipe, then one work-item run per in-flight item, triaged, then one baseline decision over `baseline.yaml`; crosswalk format `baton-crosswalk/1`; research scope 10k files / 200 MB (§18 #14); `backyard-project` has three levels.
 ✅ The backyard recipe at `minor` (flower bed) and `major` (shed) runs different, correct step sets; re-triage adds future steps only. Adoption of a fixture project from a different prior process, using a crosswalk, imports work at the right granularity (including a partly finished slice), refuses a nonconforming seed, and needs exactly **one** owner decision. `detect` on a healthy project prints one line.
 
-**Phase 12 — Experts (L7).** `ask_sme` for all three subjects, follow-ups, promotion, platform facts and incidents, process feedback and statistics.
+**Phase 12 — Experts (L7).** `ask_sme` for all three subjects, follow-ups, promotion, platform facts and incidents, process feedback and statistics. Built (owner decisions, 2026-11-03): relay turns dispatched like steps outside the state machine; a runtime-generated handoff prompt, refused for experts that rely on working on this machine (§18 #17); full redacted transcripts (§18 #13); no person as an SME, proxies that draft and never send, replies attached by the owner; references selected by name per subject (§12.1); Director-approved follow-ups; promotion to decision, fact, lesson or proposal (artifact revisions with Phase 13); resolving an incident readies its step once; statistics derived on demand; a skipped blocking gate reported via `feedback` fires `on_needs_human` and stays as an owner notice until acknowledged.
 ✅ Packets contain only Director-selected references plus the index, with hashes; a non-promoted answer is unreachable from any step; an `executable_not_found` failure opens an incident and preselects facts and logs for the platform SME; a promoted platform fact appears in the next platform packet; a skipped blocking gate is surfaced to the owner immediately.
 
 **Phase 13 — Deliverables (L8).** Publishing, conflicts, drift, revision ingestion.
@@ -1363,11 +1385,11 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 10. Worktree isolation for concurrent write-mode steps. [lock only at first] **Decided (2026-11-02):** lock only; worktree isolation is deferred (it needs a merge strategy). A write step dispatched while the tree is held is queued, first in first out, and started by the process that releases the lock (§8.9).
 11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured] **Decided (2026-11-02):** as suggested; Baton invokes no SME itself. A `platform` failure fires `on_platform_failure` when configured, otherwise `on_complete` (§8.7).
 12. Who may set `fixed` and `rejected`: the next iteration's worker with evidence, or only the Director? [worker with evidence] **Decided (2026-11-02):** worker with evidence, strengthened: a worker's `fixed`/`rejected` is provisional until an independent review confirms it (a re-reported finding id reopens it); with no later review it does not close the finding; persistent worker–reviewer disagreement goes to the owner (§9.2).
-13. SME transcript retention: full (redacted) or question and answer only. [full, redacted]
+13. SME transcript retention: full (redacted) or question and answer only. [full, redacted] **Decided (2026-11-03):** full, redacted: every turn's packet and result are kept under the consultation's `sme/` directory (§12.1).
 14. Research scope limits before asking the owner to narrow. [10k files / 200 MB] **Decided (2026-11-02):** as suggested. Counted over the non-ignored files in scope; above either limit `adopt` refuses with the counts and the `--scope` hint (no decision is recorded) (§11.2).
 15. Launcher installation mechanism and how many older format versions a runtime must read. [uv-managed; current and previous]
 16. Optional OpenTelemetry export of events. [off]
-17. SME handoff mode support per harness. [relay first; handoff per harness later]
+17. SME handoff mode support per harness. [relay first; handoff per harness later] **Decided (2026-11-03):** relay is the formal mode. Handoff needs nothing per harness: the runtime (never the Director) generates a copy-and-paste prompt from the consultation, saved as `handoff.md`, which is the whole record; nothing returns except through promotion. The runtime refuses it, with the reason, when the expert relies on `shell`, `code_exec`, `workspace_read`, `repo_workspace` or `file_write`, unless the expert is a `command` black box. SMEs are never people; a person is consulted through a proxy SME that drafts and never sends (§12.1).
 18. **Conditionally deferred risk: erroneous worker dispositions** (discussed 2026-11-02). *Risk:* a worker's `fixed` or `rejected` disposition is wrong but survives (e.g. the confirming review misses it), so a real problem slips through. *Mitigation today:* dispositions are provisional until an independent review confirms them, and persistent disagreement escalates to the owner (§18 #12). *Options discussed and set aside:* (a) the Director judges a dispute itself. The owner's view is that a well-presented dispute needs no subject expertise, the same as a juror or arbiter, but the Director's impartiality must remain sacrosanct, so the Director does not judge. (b) The Director mediates by routing: the runtime opens a pending dispute, and the Director sends it to an independent arbiter worker (a dispatch at `<step>~arbiter`, different vendor from worker and reviewer, returning uphold/reopen with reasons) or escalates it to the owner. The worker and the reviewer must present their evidence so that no subject expertise is needed to decide. This adds a "dispute" concept (§2). *Trigger to revisit:* the owner sees cases where problems slip through because of erroneous worker dispositions. Then reopen this item with these options; (b) is the leading candidate.
 
 ---

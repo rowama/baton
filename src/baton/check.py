@@ -41,7 +41,7 @@ def referenced_blobs(events: Iterable[Event]) -> set[str]:
     out: set[str] = set()
     for ev in events:
         d = ev.data
-        for key in ("inputs_sha256", "result_sha256", "output_sha256", "research_sha256", "baseline_sha256"):
+        for key in ("inputs_sha256", "result_sha256", "output_sha256", "research_sha256", "baseline_sha256", "answer_sha256"):
             if isinstance(d.get(key), str):
                 out.add(d[key])
         arts = d.get("artifacts")
@@ -118,6 +118,10 @@ def check(root: Path) -> list[Issue]:
     store = Store(root)
     try:
         issues += store.project_log().verify()
+        from .store import CAS
+
+        pevents, _ = store.project_log().scan()
+        issues += CAS(baton / "project" / "cas").verify(referenced_blobs(pevents))
         recipes = lock.get("recipes", {}) if lock else {}
         for rid in store.run_ids():
             issues += run_integrity(store, rid)

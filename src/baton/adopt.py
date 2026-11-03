@@ -141,6 +141,11 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
             mach = doctor(project, run_noop=False)
             problems += [f"doctor: {p}" for p in mach["problems"]]
             warnings += [f"doctor: {w}" for w in mach["warnings"]]
+        from .sme import incidents as _incidents
+
+        open_inc = [i for i in _incidents(project.store.project_log().events()).values() if i["status"] == "open"]
+        if mach is None:
+            warnings += [f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}" for i in open_inc]
         counts: dict[str, int] = {}
         for r in runs:
             counts[r["situation"]] = counts.get(r["situation"], 0) + 1
@@ -151,7 +156,8 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
             line += f"; adoption in progress ({', '.join(adopting)})"
         return {
             "ok": not problems, "project": {"situation": situation, "root": str(project.root), "git": is_repo(project.root), "branch": project.branch()},
-            "runs": runs, "machine": mach, "incidents": [], "problems": problems, "warnings": warnings, "line": line,
+            "runs": runs, "machine": mach, "incidents": [{k: i.get(k) for k in ("id", "run", "step_path", "class", "code", "message")} for i in open_inc],
+            "problems": problems, "warnings": warnings, "line": line,
         }
     finally:
         project.store.close()

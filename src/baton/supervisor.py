@@ -432,6 +432,7 @@ def fire_hooks(project: Any, info: dict[str, Any]) -> list[dict[str, Any]]:
             "BATON_RUN_ID": info["run_id"], "BATON_STEP_PATH": info["step_path"], "BATON_OUTCOME": info["outcome"],
             "BATON_CLASSIFICATION": info.get("classification") or "", "BATON_DISPATCH_ID": info.get("dispatch_id") or "",
             "BATON_REPO": str(project.root), "BATON_RECORD": info.get("record") or "", "BATON_STEP_STATE": info.get("step_state") or "",
+            "BATON_INCIDENT": info.get("incident") or "",
         }
     )
     for source, hooks in configured:
@@ -444,7 +445,7 @@ def fire_hooks(project: Any, info: dict[str, Any]) -> list[dict[str, Any]]:
         except SetupError as e:
             results.append({**base, "ok": False, "error": redact_text(str(e))[:300]})
             continue
-        log = project.home / "logs" / info["run_id"] / "hooks" / f"{info.get('dispatch_id') or 'x'}-{info['outcome']}-{source}.log"
+        log = project.home / "logs" / (info["run_id"] or "project") / "hooks" / f"{info.get('dispatch_id') or 'x'}-{info['outcome']}-{source}.log"
         child = run_hook(command, env, project.root, log)
         ok = child.exit_code == 0 and not child.timed_out
         data = {**base, "ok": ok, "exit_code": child.exit_code, "duration_s": child.duration_s}
@@ -518,7 +519,8 @@ def supervise(spec: dict[str, Any]) -> int:
                     deadline = deadline + timedelta(seconds=spec["band_s"])
                     marker.update(extended=True, deadline=fmt(deadline))
                     write_marker(baton_dir, marker)
-                    api.overdue(spec["run_id"], spec["step_path"], spec["attempt"], did, previous, fmt(deadline), spec.get("effort"))
+                    if not spec.get("sme"):
+                        api.overdue(spec["run_id"], spec["step_path"], spec["attempt"], did, previous, fmt(deadline), spec.get("effort"))
                 else:
                     timed_out = True
                     kill_tree(proc)
@@ -534,7 +536,10 @@ def supervise(spec: dict[str, Any]) -> int:
     changes: list[str] = []
     if before is not None:
         changes = gitops.tree_changes(before, gitops.tree_snapshot(root, spec.get("exclude") or []))
-    api.complete(spec["run_id"], spec["step_path"], spec["attempt"], did, child=child, workspace_changes=changes, adapter=spec["adapter"], worker=spec["worker"])
+    if spec.get("sme"):
+        api.sme_complete(spec, child, changes)  # an expert consultation turn (§12.1)
+    else:
+        api.complete(spec["run_id"], spec["step_path"], spec["attempt"], did, child=child, workspace_changes=changes, adapter=spec["adapter"], worker=spec["worker"])
     remove_marker(baton_dir, did)
     api.close()
     return 0

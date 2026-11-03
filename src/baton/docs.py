@@ -273,6 +273,7 @@ _TIMELINE = {
     "step_abandoned", "run_completed", "run_abandoned", "lease_taken_over",
     "group_expanded", "iteration_started", "iteration_limit_reached", "step_revised", "step_stale",
     "complexity_set", "retriage_requested", "retriage_applied", "step_imported", "research_recorded", "baseline_established",
+    "sme_requested", "sme_answered", "sme_promoted",
 }
 
 
@@ -349,7 +350,7 @@ def _timeline_text(ev: Event) -> str:
         return "result rejected: " + "; ".join(r.splitlines()[0] for r in d.get("reasons") or [])
     if t == "gate_failed":
         return f"gate {d.get('gate')} ({d.get('type')}) failed"
-    if t == "human_decision":
+    if t == "human_decision" and d.get("kind") != "sme":
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"
     if t == "complexity_set":
@@ -395,6 +396,16 @@ def _timeline_text(ev: Event) -> str:
         return "run completed"
     if t == "run_abandoned":
         return f"run abandoned: {d.get('reason') or ''}".rstrip(": ")
+    if t == "sme_requested" and d.get("mode") == "handoff":
+        return f"{d.get('subject')} expert consultation `{d.get('consultation')}` handed off to the owner"
+    if t == "sme_requested":
+        return f"{d.get('subject')} expert consulted (`{d.get('consultation')}` turn {d.get('turn')}, {d.get('worker')})"
+    if t == "sme_answered":
+        return f"expert consultation `{d.get('consultation')}` turn {d.get('turn')}: {d.get('status')}"
+    if t == "sme_promoted":
+        return f"expert answer `{d.get('consultation')}` promoted as a {d.get('target')} with the owner's agreement"
+    if t == "human_decision" and d.get("kind") == "sme":
+        return f"owner promoted an expert answer as decision `{d.get('decision_id')}`" + (f' — "{d.get("note")}"' if d.get("note") else "")
     if t == "lease_taken_over":
         return f"lease taken over by {d.get('director_id')} from {d.get('from_director_id')}: {d.get('reason')}"
     return t  # pragma: no cover

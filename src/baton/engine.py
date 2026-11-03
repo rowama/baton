@@ -631,6 +631,7 @@ def submit(
         attempt=n,
         data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **({"worker_exit": worker_exit} if worker_exit else {})},
     )
+    _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
     log.append("verification_started", step_path=step_path, attempt=n)
     if workspace_changes:
         return _workspace_modified(ctx, step_path, n, workspace_changes)
@@ -663,6 +664,26 @@ def submit(
         if held is not None:
             return held
     return _run_gates(ctx, step, step_path, n, 0)
+
+
+def _record_worker_feedback(ctx: RunContext, step_path: str, n: int, actor: str, items: list[Any]) -> None:
+    """A worker's ``process_feedback`` (§7.2) goes to the project log, keyed by qualified step id (§12.4)."""
+    if not items:
+        return
+    from . import sme
+    from .locks import project_lock
+    from .redact import redact_text
+
+    with project_lock(ctx.store.baton):
+        plog = ctx.store.project_log()
+        for it in items:
+            d = it if isinstance(it, dict) else {"text": str(it)}
+            kind = d.get("kind") if d.get("kind") in sme.FEEDBACK_KINDS and d.get("kind") != "skipped_step" else "friction"
+            text = redact_text(str(d.get("text") or json.dumps(d, sort_keys=True)))[:2000]
+            plog.append("process_feedback", actor=actor, data={
+                "kind": kind, "text": text, "run": ctx.run_id, "step_path": step_path, "attempt": n,
+                "qualified": sme.qualified(ctx.recipe.recipe.ref, step_path),
+            })
 
 
 def _protected_gate(ctx: RunContext, step: Step, step_path: str, n: int) -> Outcome | None:
@@ -1094,13 +1115,18 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
         elif st.state == "escalated":
             esc = record.last("step_escalated", path)
             d = esc.data if esc else {}
-            out.append(
-                {
-                    "ref": path, "step_path": path, "attempt": st.attempt, "kind": "escalation",
-                    "reason": d.get("reason"), "reasons": d.get("reasons") or [], "questions": d.get("questions") or [],
-                    "options": list(ESCALATION_DECISIONS),
-                }
-            )
+            entry = {
+                "ref": path, "step_path": path, "attempt": st.attempt, "kind": "escalation",
+                "reason": d.get("reason"), "reasons": d.get("reasons") or [], "questions": d.get("questions") or [],
+                "options": list(ESCALATION_DECISIONS),
+            }
+            if d.get("reason") in ("platform", "unknown"):
+                from .sme import incident_for
+
+                inc = incident_for(ctx.store.project_log().events(), ctx.run_id, path, st.attempt)
+                if inc is not None and inc["status"] == "open":
+                    entry["incident"] = inc["id"]  # the step waits on the incident (§8.8)
+            out.append(entry)
     if awaiting_baseline(ctx.log.events(), kind="adoption"):
         from .adopt import baseline_path
 
@@ -1121,6 +1147,7 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
                 "options": list(ESCALATION_DECISIONS),
             }
         )
+    out += skip_notices(ctx)
     return out
 
 
@@ -1138,6 +1165,8 @@ def decide(
     """
     log = ctx.log
     extra = {"recorded_by": recorded_by} if recorded_by else {}
+    if ref.startswith("skip:"):
+        return _decide_skip_notice(ctx, ref, decision, note, actor, extra)
     if "#" in ref:
         return _decide_finding(ctx, ref, decision, note, actor, extra)
     if groups.locate_instance(ctx.recipe, ref) is not None:
@@ -1184,6 +1213,49 @@ def decide(
 
 
 FINDING_DECISIONS = ("accept-risk",)
+SKIP_DECISIONS = ("acknowledge",)
+
+
+def skip_notices(ctx: RunContext) -> list[dict[str, Any]]:
+    """Reports of a blocking gate or approval skipped outside Baton (§12.4) not yet acknowledged by the owner."""
+    acked = {e.data.get("ref") for e in ctx.log.events() if e.type == "human_decision" and e.data.get("kind") == "skip_notice"}
+    plog = ctx.store.project_log().events()
+    texts = {e.seq: e.data for e in plog if e.type == "process_feedback"}
+    out = []
+    for e in plog:
+        if e.type == "step_skip_recorded" and e.data.get("run") == ctx.run_id and e.data.get("surfaced") and f"skip:{e.seq}" not in acked:
+            fb = texts.get(e.data.get("feedback_seq"), {})
+            gate = e.data.get("gate")
+            what = f"gate {gate} of {e.data.get('step_path')}" if gate is not None else f"step {e.data.get('step_path')}"
+            out.append({
+                "ref": f"skip:{e.seq}", "step_path": e.data.get("step_path"), "kind": "skip_notice",
+                "prompt": f"Reported: {what} was skipped outside Baton: {fb.get('text', '')}"
+                          + (" (the owner was told at the time)" if e.data.get("informed_owner") else ""),
+                "options": list(SKIP_DECISIONS),
+            })
+    return out
+
+
+def _gate_index(step: Step, spec: str) -> int:
+    """A declared gate named by index, or by type when the step declares exactly one of it."""
+    s = str(spec).strip()
+    if s.isdigit() and int(s) < len(step.gates):
+        return int(s)
+    hits = [i for i, g in enumerate(step.gates) if g.type == s]
+    if len(hits) != 1:
+        raise EngineError("feedback.unknown_gate", f"{step.id} has no single gate {s!r}; name it by index (0-{len(step.gates) - 1}) or a type it declares once")
+    return hits[0]
+
+
+def _decide_skip_notice(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    if decision not in SKIP_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} is a skip notice; decision must be one of {SKIP_DECISIONS}, got {decision!r}")
+    notice = next((n for n in skip_notices(ctx) if n["ref"] == ref), None)
+    if notice is None:
+        raise EngineError("decide.nothing_pending", f"{ref} is not a pending skip notice of run {ctx.run_id}")
+    ctx.log.append("human_decision", actor=actor, data={"ref": ref, "kind": "skip_notice", "decision": "acknowledge", "note": note,
+                                                         "step_path": notice["step_path"], **extra})
+    return Outcome(notice["step_path"] or ref, 0, "recorded", [f"{ref} acknowledged"])
 STALE_DECISIONS = ("confirm",)
 
 
@@ -1633,7 +1705,8 @@ class Api:
 
         if ctx.log.state().state in ("completed", "abandoned") and leases.current() is not None:
             leases.release(actor="runtime")
-        paths = list(extra or []) + self._adoption_progress(ctx)
+        self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
+        paths = list(extra or []) + self._adoption_progress(ctx) + self._project_paths()
         docs.write_records(ctx)
         new = [e for e in ctx.log.events() if e.seq > before]
         cp = self._checkpoint(ctx, new, paths)
@@ -1752,7 +1825,11 @@ class Api:
         holder = locks.workspace_holder(self.project.baton)
         ws = {"holder": {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id", "attempt") if k in holder} if holder else None,
               "queued": len(locks.read_queue(self.project.baton))}
-        return {"runs": runs, "workspace": ws, "needs_owner": any(r.get("needs_owner") for r in runs)}
+        from .sme import incidents
+
+        open_inc = [{k: i.get(k) for k in ("id", "run", "step_path", "attempt", "class", "code", "message")}
+                    for i in incidents(self.project.store.project_log().events()).values() if i["status"] == "open"]
+        return {"runs": runs, "workspace": ws, "incidents": open_inc, "needs_owner": any(r.get("needs_owner") for r in runs)}
 
     def status(self, run_id: str) -> dict[str, Any]:
         from . import gitops, locks, supervisor
@@ -1985,7 +2062,14 @@ class Api:
                         workspace=workspace, config_home_var=adapter.config_home_var, resolve=adapter.needs_executable,
                     )
             except SetupError as e:
+                if e.failure_class == "platform":
+                    # Nothing was dispatched; the step stays ready and the incident says why (§12.3).
+                    inc = self._open_incident({"run": ctx.run_id, "step_path": step_path, "attempt": None, "class": "platform",
+                                               "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": worker})
+                    raise EngineError(e.code, f"{e} (platform incident {inc} opened)") from e
                 raise EngineError(e.code, str(e)) from e
+            if env is not None:
+                self._observed_fact(worker, env.resolved)
             effort, effort_source = resolve_effort(ctx, node, self.project.config.effort, step_path)
             band_s = self.project.config.effort.seconds(effort)
             deadline = supervisor.fmt(ctx.log.clock() + timedelta(seconds=band_s))
@@ -2338,6 +2422,7 @@ class Api:
                     supervisor.kill_tree_pid(lv.marker["worker_pid"])  # unsupervised: stop it before judging
                 has_result = (ctx.attempt_dir(path, n) / "result" / "result.json").is_file()
                 changes = self._reconcile_tree(did, d)
+                before = ctx.log.state().last_seq
                 if has_result:
                     outcome = submit(ctx, path, actor=f"worker:{d.get('profile')}", workspace_changes=changes)
                     action = "intake"
@@ -2355,7 +2440,6 @@ class Api:
                     outcome = Outcome(path, n, "escalated", reasons)
                     action = "orphaned"
                 actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": action, "outcome": outcome.outcome})
-                before = ctx.log.state().last_seq
                 self._finish_records(ctx, before, {})
                 self._release_workspace(dispatch_id=did)
                 self._fire_and_record(ctx, path, n, did)
@@ -2414,6 +2498,8 @@ class Api:
             signals = getattr(adapters.get(adapter), "failure_signals", None)
             outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
             out = _outcome_dict(outcome)
+            # Before the hooks, so on_platform_failure can hand the incident to the platform expert (§12.3).
+            self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
             docs.write_records(ctx)  # so BATON_RECORD is current when the hooks run
         self._release_workspace(dispatch_id=dispatch_id)
         self._fire_and_record(ctx, step_path, attempt, dispatch_id, before=before)
@@ -2463,7 +2549,11 @@ class Api:
             else:
                 outcome = "gate_failed"
         record = ctx.run_dir / "docs" / f"{step_path}.md"
+        from .sme import incident_for
+
+        inc = incident_for(self.project.store.project_log().events(), ctx.run_id, step_path, n) if cls_ev is not None else None
         return {
+            "incident": inc["id"] if inc else None,
             "run_id": ctx.run_id, "step_path": step_path, "attempt": n, "dispatch_id": dispatch_id, "outcome": outcome,
             "classification": cls_ev.data.get("class") if cls_ev is not None else None,
             "step_state": state,
@@ -2598,6 +2688,591 @@ class Api:
         return out
 
     # -- adoption (§11) -----------------------------------------------------
+
+    # -- experts, platform area, process feedback (§12) ----------------------
+
+    def _project_paths(self) -> list[Path]:
+        """Project-level records (§4.3) that ride along with the next checkpoint when they changed."""
+        b = self.project.baton
+        return [p for p in (b / "project", b / "platform", b / "process") if p.exists()]
+
+    def _project_checkpoint(self, phrase: str) -> Any:
+        """Commit project-level records after a call that touches no run (§10.1)."""
+        from . import gitops
+        from .locks import project_lock
+
+        if not self.project.config.checkpoints.commit:
+            return gitops.Checkpoint(False, reason="checkpoint commits are off in project.yaml")
+        with project_lock(self.project.baton):
+            paths = self._project_paths()
+            if not paths:
+                return None
+            pf = gitops.preflight(self.project.root, paths)
+            if isinstance(pf, str):
+                return gitops.Checkpoint(False, reason=pf)
+            top, rels = pf
+            subject = f"baton(project): {phrase}"
+            self.project.store.project_log().append("checkpoint_committed", data={"subject": subject})
+            try:
+                sha = gitops.commit(top, rels, subject, [])
+            except gitops.GitError as e:
+                return gitops.Checkpoint(False, subject=subject, reason=str(e))
+        return gitops.Checkpoint(sha is not None, sha, subject, None if sha else "nothing to commit")
+
+    def _open_incident(self, data: dict[str, Any]) -> str:
+        import secrets
+
+        from . import sme
+
+        inc = f"inc_{secrets.token_hex(3)}"
+        run, path, n = data.get("run"), data.get("step_path"), data.get("attempt")
+        refs = ["facts"] + ([f"log:{run}:{path}@{n}"] if run and path and n else [])
+        sme.project_append(self.project, "platform_incident_opened", {"incident": inc, **data, "refs": refs})
+        return inc
+
+    def _open_incidents(self, ctx: RunContext, new: list[Any]) -> list[str]:
+        """Open a platform incident for every new ``platform`` / ``unknown`` classification (§12.3)."""
+        from . import sme
+
+        opened = []
+        for e in new:
+            if e.type != "failure_classified" or e.data.get("class") not in ("platform", "unknown"):
+                continue
+            if sme.incident_for(self.project.store.project_log().events(), ctx.run_id, e.step_path, e.attempt) is not None:
+                continue
+            data = {"run": ctx.run_id, "step_path": e.step_path, "attempt": e.attempt, "class": e.data.get("class"),
+                    "code": e.data.get("code"), "message": e.data.get("message")}
+            if "gate" in e.data:
+                data["gate"] = e.data["gate"]
+            opened.append(self._open_incident(data))
+        return opened
+
+    def platform_incident(self, action: str = "list", incident: str | None = None, fix: str | None = None) -> dict[str, Any]:
+        """``list`` incidents, ``show`` one, or ``resolve`` one with the fix (§12.3).
+
+        Resolving readies each step the incident escalated, once: the "one automatic
+        retry" of a platform failure (§8.8). The Director then dispatches it.
+        """
+        from . import sme
+
+        found = sme.incidents(self.project.store.project_log().events())
+        if action == "list":
+            return {"incidents": list(found.values()), "open": [i["id"] for i in found.values() if i["status"] == "open"]}
+        if incident not in found:
+            raise EngineError("incident.unknown", f"no platform incident {incident!r} (open: {', '.join(i for i, v in found.items() if v['status'] == 'open') or 'none'})")
+        inc = found[incident]
+        if action == "show":
+            return {"incident": inc}
+        if action != "resolve":
+            raise EngineError("incident.bad_action", f"action must be list, show or resolve, got {action!r}")
+        if inc["status"] != "open":
+            raise EngineError("incident.resolved", f"{incident} is already resolved")
+        if not (fix or "").strip():
+            raise EngineError("incident.no_fix", "resolving an incident needs the fix that was made (--fix)")
+        retry: list[dict[str, Any]] = []
+        run, path, n = inc.get("run"), inc.get("step_path"), inc.get("attempt")
+        if run and path and n:
+            try:
+                st = self.project.store.run(run).state()
+                if st.state == "active" and st.step(path).state == "escalated" and st.step(path).attempt == n:
+                    retry.append({"run": run, "step_path": path, "attempt": n})
+            except StoreError:
+                pass
+        sme.project_append(self.project, "platform_incident_resolved", {"incident": incident, "fix": redact_text(fix or ""), "retried": retry},
+                           actor=self.director.actor)
+        readied = []
+        for r in retry:
+            def body(ctx: RunContext, r: dict[str, Any] = r) -> dict[str, Any]:
+                st = ctx.log.state().step(r["step_path"])
+                if st.state == "escalated" and st.attempt == r["attempt"]:
+                    ctx.log.append("step_ready", step_path=r["step_path"], data={"after_incident": incident})
+                    return {"readied": True}
+                return {}
+            try:
+                if self._mutate(r["run"], body).get("readied"):
+                    readied.append(r)
+            except EngineError as e:
+                readied.append({**r, "not_readied": str(e)})
+        out: dict[str, Any] = {"incident": incident, "resolved": True, "readied": readied}
+        cp = self._project_checkpoint(f"incident {incident} resolved")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    def platform_fact(self, text: str, source: str = "owner") -> dict[str, Any]:
+        """Record a durable platform fact (§12.3) in the project log and ``.baton/platform/facts.md``."""
+        from . import sme
+
+        if not text.strip():
+            raise EngineError("fact.empty", "a platform fact needs text")
+        entry = sme.add_fact(self.project.baton, text, source, self.project.store.clock())
+        ev = sme.project_append(self.project, "platform_fact_recorded", {"fact": redact_text(text), "source": source}, actor=self.director.actor)
+        out: dict[str, Any] = {"recorded": True, "seq": ev.seq, "entry": entry}
+        cp = self._project_checkpoint("platform fact recorded")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    def _observed_fact(self, worker: str, resolved: Any) -> None:
+        """A harness CLI found only through ``path.search`` is an observed platform fact (§6.2, §12.3)."""
+        from . import sme
+
+        if resolved is None or not resolved.how.startswith("search:"):
+            return
+        text = f"{worker}: `{Path(resolved.executable).name}` resolves to {resolved.executable} via {resolved.how[7:]} on this host"
+        if sme.fact_known(self.project.baton, text):
+            return
+        sme.add_fact(self.project.baton, text, "runtime", self.project.store.clock(), observed=True)
+        sme.project_append(self.project, "platform_fact_recorded", {"fact": text, "source": "runtime", "observed": True})
+
+    def feedback(self, kind: str, text: str, run_id: str | None = None, step_path: str | None = None,
+                 gate: str | None = None, informed_owner: bool = False) -> dict[str, Any]:
+        """Record process feedback (§12.4). A report that a blocking gate or approval was skipped outside
+        Baton (``skipped_step``) is surfaced to the owner at once: ``on_needs_human`` fires and a notice
+        stays pending (``decide <run> skip:<seq> acknowledge``) until the owner acknowledges it.
+        """
+        from . import docs, sme, supervisor
+
+        if kind not in sme.FEEDBACK_KINDS:
+            raise EngineError("feedback.bad_kind", f"kind must be one of {', '.join(sme.FEEDBACK_KINDS)}, got {kind!r}")
+        if not text.strip():
+            raise EngineError("feedback.empty", "feedback needs text")
+        ctx = self._ctx(run_id) if run_id else None
+        blocking = None
+        if kind == "skipped_step":
+            if ctx is None or not step_path:
+                raise EngineError("feedback.needs_step", "a skipped_step report names the run and the step (--run, --step)")
+            node = node_for(ctx.recipe, step_path)
+            if not isinstance(node, Step):
+                raise EngineError("feedback.unknown_step", f"{step_path} is not a step of run {run_id}")
+            blocking = True
+            if gate is not None:
+                gi = _gate_index(node, gate)
+                blocking = not node.gates[gi].advisory
+        elif gate is not None:
+            raise EngineError("feedback.gate", "--gate applies only to skipped_step reports")
+        data: dict[str, Any] = {"kind": kind, "text": redact_text(text)}
+        if run_id:
+            data["run"] = run_id
+        if step_path:
+            data["step_path"] = step_path
+            if ctx is not None:
+                data["qualified"] = sme.qualified(ctx.recipe.recipe.ref, step_path)
+        if gate is not None:
+            data["gate"] = gate
+        if informed_owner:
+            data["informed_owner"] = True
+        fb = sme.project_append(self.project, "process_feedback", data, actor=self.director.actor)
+        out: dict[str, Any] = {"recorded": True, "seq": fb.seq}
+        if kind == "skipped_step":
+            assert ctx is not None
+            skip = sme.project_append(self.project, "step_skip_recorded", {
+                "feedback_seq": fb.seq, "run": run_id, "step_path": step_path, "gate": gate, "blocking": blocking,
+                "surfaced": blocking, "informed_owner": informed_owner,
+            })
+            if blocking:
+                ref = f"skip:{skip.seq}"
+                out["notice"] = ref
+                st = ctx.log.state().step(step_path or "")
+                fired = supervisor.fire_hooks(self.project, {
+                    "run_id": run_id, "step_path": step_path, "outcome": "needs_human", "needs_owner": True, "classification": None,
+                    "dispatch_id": None, "step_state": st.state, "record": str(ctx.run_dir / "docs" / f"{step_path}.md"),
+                })
+                with self._run_lock(ctx.run_id):
+                    for d in fired:
+                        ctx.log.append("completion_hook_fired" if d.get("ok") else "completion_hook_failed", data={**d, "notice": ref})
+                    docs.write_records(ctx)
+                out["hooks"] = fired
+                out["pending_decisions"] = pending_decisions(ctx)
+                out["needs_owner"] = True
+        cp = self._project_checkpoint(f"process feedback ({kind})")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    # consultations
+
+    def _sme_routing(self, subject: str, ctx: RunContext | None) -> tuple[Any, Any, list[dict[str, Any]], list[dict[str, Any]]]:
+        from . import sme
+        from .vocab import DEFAULT, load
+
+        recipe = ctx.recipe if ctx is not None else None
+        vocab = recipe.vocab if recipe is not None else load(DEFAULT)
+        req = sme.requirements(subject, recipe, vocab)
+        cfg = self.project.config.sme.get(subject)  # type: ignore[call-overload]
+        el, ex = sme.eligible(subject, req, self.project.profiles(), vocab, cfg.preferred_profiles if cfg else [])
+        return req, vocab, el, ex
+
+    def sme_eligible(self, subject: str, run_id: str | None = None) -> dict[str, Any]:
+        """The profiles that may answer as this subject's expert, in order, and those excluded with reasons."""
+        from . import sme
+
+        if subject not in sme.SUBJECTS:
+            raise EngineError("sme.bad_subject", f"subject must be one of {', '.join(sme.SUBJECTS)}")
+        req, _v, el, ex = self._sme_routing(subject, self._ctx(run_id) if run_id else None)
+        return {"subject": subject, "requires": req.model_dump(exclude_none=True), "eligible": el, "excluded": ex}
+
+    def _sme_locked(self, run_id: str | None, body: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """Run ``body`` holding the run's lease and lock (run consultations) or the project lock."""
+        from .locks import project_lock
+
+        if run_id is not None:
+            return self._mutate(run_id, lambda _ctx: body(), allow_closed=True)
+        with project_lock(self.project.baton):
+            return body()
+
+    def ask_sme(self, subject: str, question: str, refs: list[str] | None = None, *, run_id: str | None = None, mode: str = "relay",
+                worker: str | None = None, contact: str | None = None, wait: bool = False, timeout: float | None = None) -> dict[str, Any]:
+        """Consult an expert by subject (§12.1). ``relay`` dispatches a turn; ``handoff`` returns a prompt to paste elsewhere."""
+        from . import sme
+
+        if subject not in sme.SUBJECTS:
+            raise EngineError("sme.bad_subject", f"subject must be one of {', '.join(sme.SUBJECTS)}, got {subject!r}")
+        if mode not in sme.MODES:
+            raise EngineError("sme.bad_mode", f"mode must be relay or handoff, got {mode!r}")
+        if not question.strip():
+            raise EngineError("sme.no_question", "a consultation needs a question")
+        if run_id is not None:
+            self._ctx(run_id)  # the run must exist
+        c_id = sme.new_id()
+        try:
+            if mode == "handoff":
+                return self._sme_handoff(c_id, subject=subject, run_id=run_id, contact=contact, refs=list(refs or []), question=question)
+            return self._sme_turn(c_id, 1, subject=subject, run_id=run_id, question=question, refs=list(refs or []), contact=contact,
+                                  attach=[], worker=worker, wait=wait, timeout=timeout)
+        except sme.SmeError as e:
+            raise EngineError(e.code, str(e)) from e
+
+    def sme_followup(self, c_id: str, question: str | None = None, refs: list[str] | None = None, attach: list[str] | None = None,
+                     *, worker: str | None = None, wait: bool = False, timeout: float | None = None) -> dict[str, Any]:
+        """The next relay turn (§12.1): the prior turns plus new refs, a new question, or attachments (e.g. a person's reply)."""
+        from . import sme
+
+        try:
+            w = sme.locate(self.project, c_id)
+            cons = sme.consultation(w.log.events(), c_id)
+            if cons["turns"] and cons["turns"][-1]["answer"] is None:
+                raise sme.SmeError("sme.in_flight", f"{c_id} turn {cons['turns'][-1]['turn']} has no answer yet (wait for it)")
+            if not (question or refs or attach):
+                raise sme.SmeError("sme.empty_followup", "a follow-up needs a question, refs, or an attachment")
+            if worker is None and cons["turns"]:
+                worker = cons["turns"][-1]["requested"].get("worker")
+                req, _v, el, _x = self._sme_routing(cons["subject"], self._ctx(w.run_id) if w.run_id else None)
+                if worker not in [e["profile"] for e in el]:
+                    worker = None
+            turn = (cons["turns"][-1]["turn"] + 1) if cons["turns"] else 1
+            return self._sme_turn(c_id, turn, subject=cons["subject"], run_id=w.run_id, question=question, refs=list(refs or []),
+                                  contact=cons.get("contact"), attach=list(attach or []), worker=worker, wait=wait, timeout=timeout)
+        except sme.SmeError as e:
+            raise EngineError(e.code, str(e)) from e
+
+    def _sme_turn(self, c_id: str, turn: int, *, subject: str, run_id: str | None, question: str | None, refs: list[str],
+                  contact: str | None, attach: list[str], worker: str | None, wait: bool, timeout: float | None) -> dict[str, Any]:
+        import secrets
+
+        from . import adapters, sme, supervisor
+        from .profiles import SetupError, build_env
+
+        att_items = sme.attachments(attach, contact, self.project.root)  # read before any lock (paths are the caller's)
+
+        def body() -> dict[str, Any]:
+            ctx = self._ctx(run_id) if run_id else None
+            req, _vocab, el, ex = self._sme_routing(subject, ctx)
+            names = [e["profile"] for e in el]
+            chosen = worker or (names[0] if names else None)
+            if chosen is None:
+                why = "; ".join(f"{x['profile']}: {'; '.join(x['reasons'])}" for x in ex) or "no worker profiles on this machine"
+                raise sme.SmeError("sme.no_eligible_worker", f"no profile can answer as the {subject} expert ({why})")
+            if chosen not in names:
+                why = next(("; ".join(x["reasons"]) for x in ex if x["profile"] == chosen), "no such profile on this machine")
+                raise sme.SmeError("sme.ineligible", f"{chosen} cannot answer as the {subject} expert: {why}")
+            profile = self.project.profiles()[chosen]
+            adapter = adapters.get(profile.adapter)
+            src = sme.Sources(self.project, ctx)
+            items, auto = sme.assemble(src, subject, refs)
+            w = sme.where(self.project, c_id, run_id)
+            cons = sme.consultation(w.log.events(), c_id)
+            prior = sme.prior_items(w, cons, turn)
+            idx = sme.index(src, subject, set(refs) | set(auto))
+            mode = sme.workspace_mode(req)
+            workspace = self.project.root if mode != "none" else None
+            tdir = sme.turn_dir(w, turn)
+            try:
+                adapter.check_profile(profile)
+                env = build_env(profile, home=self.project.home, packet_dir=tdir / "packet", result_dir=tdir / "result",
+                                workspace=workspace, config_home_var=adapter.config_home_var, resolve=adapter.needs_executable)
+            except SetupError as e:
+                raise sme.SmeError(e.code, str(e)) from e
+            cfg = self.project.config.effort
+            band_s = cfg.seconds(cfg.default)
+            deadline = supervisor.fmt(self.project.store.clock() + timedelta(seconds=band_s))
+            sel = [i for i in items if i.ref in refs]
+            aut = [i for i in items if i.ref not in refs]
+            built = sme.build_packet(
+                w, consultation_id=c_id, turn=turn, subject=subject, question=question, contact=contact,
+                groups={"prior": prior, "attachments": att_items, "selected": sel, "auto": aut}, idx=idx, worker=chosen, profile=profile,
+                deadline=deadline, workspace=mode, recipe=ctx.recipe.recipe.ref if ctx else None,
+            )
+            dispatch_id = f"d_{secrets.token_hex(4)}"
+
+            def ents(group: str) -> list[dict[str, Any]]:
+                return [{k: e[k] for k in ("ref", "label", "path", "sha256")} for e in built.entries if e["group"] == group]
+
+            data: dict[str, Any] = {
+                "consultation": c_id, "turn": turn, "subject": subject, "mode": "relay", "question": redact_text(question or ""),
+                "refs": ents("selected"), "auto": ents("auto"), "attachments": ents("attachments"), "index": len(idx),
+                "worker": chosen, "vendor": profile.vendor, "model": profile.model, "adapter": profile.adapter,
+                "packet_sha256": built.sha256, "dispatch_id": dispatch_id, "deadline": deadline, "workspace": mode,
+                "env": env.describe(),
+            }
+            if run_id:
+                data["run"] = run_id
+            if contact:
+                data["contact"] = redact_text(contact)
+            w.log.append("sme_requested", actor=self.director.actor, data=data)
+            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
+            if env.resolved is not None:
+                argv = [env.resolved.executable, *argv[1:]]
+            rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
+            log_path = self.project.home / "logs" / (run_id or "project") / "sme" / c_id / f"turn-{turn}.log"
+            spec = {
+                "root": str(self.project.root), "home": str(self.project.home), "director": self.director.id,
+                "run_id": run_id or "", "step_path": f"sme/{c_id}", "attempt": turn, "dispatch_id": dispatch_id,
+                "worker": chosen, "adapter": adapter.name, "argv": argv, "env": env.env, "secret_names": env.secrets,
+                "cwd": str(workspace or tdir), "log_path": str(log_path), "deadline": deadline, "band_s": band_s, "effort": cfg.default,
+                "extend_once": False, "check_tree": getattr(adapter, "touches_files", False),
+                "exclude": [f"{rel_baton}/runs", f"{rel_baton}/project"],
+                "sme": {"consultation": c_id, "turn": turn, "run": run_id, "packet_sha256": built.sha256},
+            }
+            proc = supervisor.spawn(spec, log_path.with_suffix(".supervisor.log"))
+            marker = supervisor.await_start(self.project.baton, dispatch_id, proc)
+            out = {"consultation": c_id, "turn": turn, "subject": subject, "run_id": run_id, "worker": chosen, "dispatch_id": dispatch_id,
+                   "packet": str(built.dir), "packet_sha256": built.sha256, "deadline": deadline, "warnings": []}
+            if marker is None:
+                w.log.append("sme_answered", data={"consultation": c_id, "turn": turn, "status": "failed", "classification": "platform",
+                                                   "code": "supervisor_failed", "reasons": ["the supervisor did not start"]})
+                out["state"] = "failed"
+            elif not wait and not supervisor.hooks_configured(self.project):
+                out["warnings"].append(f"no completion hook is configured: check with `baton sme {c_id}` or `baton sme {c_id} --wait`")
+            return out
+
+        out = self._sme_locked(run_id, body)
+        if wait and out.get("state") != "failed":
+            return {**out, **self.sme_status(c_id, wait=True, timeout=timeout)}
+        return out
+
+    def sme_complete(self, spec: dict[str, Any], child: Any, changes: list[str]) -> dict[str, Any] | None:
+        """The supervisor's end of a consultation turn: record the answer (or why there is none), fire hooks."""
+        from . import adapters, sme, supervisor
+        from .locks import project_lock
+
+        info = spec["sme"]
+        c_id, turn, run_id = info["consultation"], info["turn"], info.get("run")
+        lock = self._run_lock(run_id) if run_id else project_lock(self.project.baton)
+        with lock:
+            w = sme.where(self.project, c_id, run_id)
+            cons = sme.consultation(w.log.events(), c_id)
+            t = next((x for x in cons["turns"] if x["turn"] == turn), None)
+            if t is None or t["answer"] is not None:
+                return None
+            signals = getattr(adapters.get(spec["adapter"]), "failure_signals", None)
+            data = self._sme_outcome(w, turn, info["packet_sha256"], child, changes, signals)
+            w.log.append("sme_answered", actor=f"worker:{spec['worker']}", data={"consultation": c_id, "turn": turn, **data})
+        outcome = "answered" if data["status"] == "answered" else "failed"
+        fired = supervisor.fire_hooks(self.project, {
+            "run_id": run_id or "", "step_path": f"sme/{c_id}", "outcome": outcome, "classification": data.get("classification"),
+            "dispatch_id": spec["dispatch_id"], "needs_owner": False, "step_state": data["status"], "record": str(sme.turn_dir(w, turn)),
+        })
+        lock = self._run_lock(run_id) if run_id else project_lock(self.project.baton)
+        with lock:
+            for d in fired:
+                w.log.append("completion_hook_fired" if d.get("ok") else "completion_hook_failed", data={**d, "consultation": c_id, "turn": turn})
+        return data
+
+    def _sme_outcome(self, w: Any, turn: int, packet_sha256: str, child: Any, changes: list[str], signals: Any) -> dict[str, Any]:
+        from . import sme
+
+        if changes:
+            return {"status": "failed", "code": "workspace_modified", "changed": changes,
+                    "reasons": [f"the expert changed the working tree ({', '.join(changes[:5])}); inspect it, Baton does not revert it"]}
+        if child is not None and child.timed_out:
+            return {"status": "failed", "classification": "subject", "code": "timeout", "reasons": [f"no answer within the time limit ({child.duration_s}s)"]}
+        if (sme.turn_dir(w, turn) / "result" / "result.json").is_file():
+            return sme.intake(w, turn, packet_sha256)
+        cls = classify.classify_exit(child.exit_code, child.tail, signals) if child is not None else classify.supervisor_died()
+        return {"status": "failed", "classification": cls["class"], "code": cls["code"], "reasons": [f"{cls['class']} failure ({cls['code']}): {cls['message']}"]}
+
+    def sme_status(self, c_id: str, *, wait: bool = False, timeout: float | None = None) -> dict[str, Any]:
+        """A consultation: turns, answers (text), the expert's artifacts, what it waits for. ``wait`` blocks for the latest answer."""
+        import time
+
+        from . import sme, supervisor
+        from .locks import project_lock
+
+        try:
+            w = sme.locate(self.project, c_id)
+        except sme.SmeError as e:
+            raise EngineError(e.code, str(e)) from e
+        end = None if timeout is None else time.monotonic() + timeout
+        while True:
+            cons = sme.consultation(w.log.events(), c_id)
+            last = cons["turns"][-1] if cons["turns"] else None
+            if last is None or last["answer"] is not None:
+                break
+            did = last["requested"].get("dispatch_id")
+            lv = supervisor.liveness(self.project.baton, did)
+            if not lv.elsewhere and not lv.supervisor_alive:
+                # The supervisor is gone without recording the turn (§8.7 table): finish it here.
+                if lv.worker_alive:
+                    supervisor.kill_tree_pid(lv.marker["worker_pid"])
+                lock = self._run_lock(w.run_id) if w.run_id else project_lock(self.project.baton)
+                with lock:
+                    cons2 = sme.consultation(w.log.events(), c_id)
+                    if cons2["turns"][-1]["answer"] is None:
+                        data = self._sme_outcome(w, last["turn"], last["requested"]["packet_sha256"], None, [], None)
+                        w.log.append("sme_answered", data={"consultation": c_id, "turn": last["turn"], **data})
+                supervisor.remove_marker(self.project.baton, did)
+                continue
+            if not wait or (end is not None and time.monotonic() >= end):
+                break
+            time.sleep(0.2)
+        turns = []
+        for t in cons["turns"]:
+            a = t["answer"]
+            entry: dict[str, Any] = {"turn": t["turn"], "question": t["requested"].get("question"), "worker": t["requested"].get("worker"),
+                                     "refs": [r["ref"] for r in t["requested"].get("refs") or []], "auto": [r["ref"] for r in t["requested"].get("auto") or []],
+                                     "attachments": [r["label"] for r in t["requested"].get("attachments") or []],
+                                     "packet": str(sme.turn_dir(w, t["turn"]) / "packet")}
+            if a is not None:
+                entry["status"] = a["status"]
+                if a.get("answer_sha256"):
+                    entry["answer"] = json.loads(w.cas.read(a["answer_sha256"]))
+                for k in ("reasons", "classification", "code", "awaiting"):
+                    if a.get(k):
+                        entry[k] = a[k]
+                if a.get("artifacts"):
+                    entry["artifacts"] = {n: str(sme.turn_dir(w, t["turn"]) / x["path"]) for n, x in a["artifacts"].items()}
+            else:
+                entry["status"] = "waiting_on_expert"
+            turns.append(entry)
+        return {"consultation": c_id, "subject": cons.get("subject"), "run_id": w.run_id, "contact": cons.get("contact"),
+                "state": cons["state"], "turns": turns, "handoffs": cons["handoffs"], "promotions": cons["promotions"]}
+
+    def sme_handoff(self, c_id: str) -> dict[str, Any]:
+        """A copy-and-paste prompt to continue this consultation with the expert directly (§18 #17)."""
+        from . import sme
+
+        try:
+            w = sme.locate(self.project, c_id)
+            cons = sme.consultation(w.log.events(), c_id)
+            refs: list[str] = []
+            for t in cons["turns"]:
+                refs += [r["ref"] for r in t["requested"].get("refs") or [] if r["ref"] not in refs]
+            adapter = cons["turns"][-1]["requested"].get("adapter") if cons["turns"] else None
+            return self._sme_handoff(c_id, subject=cons["subject"], run_id=w.run_id, contact=cons.get("contact"), refs=refs,
+                                     question=None, adapter=adapter)
+        except sme.SmeError as e:
+            raise EngineError(e.code, str(e)) from e
+
+    def _sme_handoff(self, c_id: str, *, subject: str, run_id: str | None, contact: str | None, refs: list[str],
+                     question: str | None, adapter: str | None = None) -> dict[str, Any]:
+        from . import sme
+
+        def body() -> dict[str, Any]:
+            ctx = self._ctx(run_id) if run_id else None
+            req, _v, _el, _ex = self._sme_routing(subject, ctx)
+            refusal = sme.handoff_refusal(req, adapter)
+            if refusal:
+                raise sme.SmeError("sme.handoff_refused", refusal)
+            w = sme.where(self.project, c_id, run_id)
+            cons = sme.consultation(w.log.events(), c_id)
+            if question:
+                cons["turns"] = [{"requested": {"question": question}}]
+            items, _auto = sme.assemble(sme.Sources(self.project, ctx), subject, refs)
+            prior = sme.prior_items(w, sme.consultation(w.log.events(), c_id), 10**9)
+            text = sme.render_handoff(cons, subject, contact, items, prior)
+            n = len(cons["handoffs"]) + 1
+            path = sme.ensure_dir(w.dir) / ("handoff.md" if n == 1 else f"handoff-{n}.md")
+            path.write_bytes(text.encode("utf-8"))
+            sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            data: dict[str, Any] = {"consultation": c_id, "mode": "handoff", "subject": subject, "question": redact_text(question or ""),
+                                    "refs": [{"ref": i.ref, "label": i.label, "sha256": i.sha256} for i in items],
+                                    "path": path.relative_to(self.project.root).as_posix(), "handoff_sha256": sha}
+            if run_id:
+                data["run"] = run_id
+            if contact:
+                data["contact"] = redact_text(contact)
+            w.log.append("sme_requested", actor=self.director.actor, data=data)
+            return {"consultation": c_id, "mode": "handoff", "path": str(path), "sha256": sha, "handoff": text}
+
+        return self._sme_locked(run_id, body)
+
+    def promote_sme(self, c_id: str, target: str, note: str, *, text: str | None = None, turn: int | None = None) -> dict[str, Any]:
+        """Bring an expert's answer into the work with the owner's agreement (§12.2), recorded verbatim.
+
+        ``decision``: a ``human_decision`` steps may reference as ``human.<decision_id>`` (needs a run);
+        ``fact``: a platform fact; ``lesson``: ``.baton/process/lessons.md``; ``proposal``: a process
+        proposal file under ``.baton/process/proposals/`` (applied as a new recipe version by its maintainer).
+        """
+        from . import sme
+
+        if target not in sme.PROMOTE_TARGETS:
+            raise EngineError("sme.bad_target", f"target must be one of {', '.join(sme.PROMOTE_TARGETS)}, got {target!r}")
+        if not note.strip():
+            raise EngineError("sme.no_note", "promotion needs the owner's agreement in their own words (--note)")
+        try:
+            w = sme.locate(self.project, c_id)
+        except sme.SmeError as e:
+            raise EngineError(e.code, str(e)) from e
+        cons = sme.consultation(w.log.events(), c_id)
+        answered = [t for t in cons["turns"] if t["answer"] and t["answer"]["status"] == "answered"]
+        chosen = next((t for t in answered if t["turn"] == turn), None) if turn is not None else (answered[-1] if answered else None)
+        if turn is not None and chosen is None:
+            raise EngineError("sme.no_answer", f"{c_id} has no answered turn {turn}")
+        if chosen is None and not (text or "").strip():
+            raise EngineError("sme.no_answer", f"{c_id} has no recorded answer; give the content to promote with --text")
+        content = text if (text or "").strip() else json.loads(w.cas.read(chosen["answer"]["answer_sha256"]))["answer"]
+        content = redact_text(content)
+        n = chosen["turn"] if chosen else None
+        now = self.project.store.clock()
+        promoted: dict[str, Any] = {"consultation": c_id, "turn": n, "target": target, "note": note,
+                                    "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(), "edited": bool((text or "").strip())}
+        out: dict[str, Any] = {"consultation": c_id, "target": target, "turn": n}
+        if target == "decision":
+            if w.run_id is None:
+                raise EngineError("sme.decision_needs_run", "only a consultation about a run can be promoted to a decision of that run")
+
+            def body(ctx: RunContext) -> dict[str, Any]:
+                decision_id = f"d{ctx.log.state().last_seq + 1}"
+                ctx.log.append("human_decision", actor="human", data={
+                    "ref": f"sme:{c_id}", "kind": "sme", "decision": content, "note": note, "decision_id": decision_id,
+                    "consultation": c_id, "turn": n, "recorded_by": self.director.actor,
+                })
+                ctx.log.append("sme_promoted", actor="human", data={**promoted, "decision_id": decision_id})
+                return {"decision_id": decision_id, "reference": f"human.{decision_id}"}
+
+            return {**out, **self._mutate(w.run_id, body, allow_closed=True)}
+        source = f"expert consultation {c_id}" + (f" turn {n}" if n else "") + f"; owner: \"{redact_text(note)}\""
+        if target == "fact":
+            out["entry"] = sme.add_fact(self.project.baton, content, source, now)
+            sme.project_append(self.project, "platform_fact_recorded", {"fact": content, "source": f"consultation {c_id}", "consultation": c_id,
+                                                                        "turn": n, "note": note}, actor="human")
+        elif target == "lesson":
+            out["entry"] = sme.add_lesson(self.project.baton, content, f"consultation {c_id}", now)
+        else:
+            p = sme.write_proposal(self.project.baton, c_id, n or 0, content, note, cons.get("subject") or "?", now)
+            out["path"] = str(p)
+            promoted["path"] = p.relative_to(self.project.root).as_posix()
+
+        def record() -> dict[str, Any]:
+            w.log.append("sme_promoted", actor="human", data=promoted)
+            return {}
+
+        self._sme_locked(w.run_id, record)
+        cp = self._project_checkpoint(f"expert answer {c_id} promoted ({target})")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
 
     def detect(self) -> dict[str, Any]:
         from .adopt import detect
@@ -2959,6 +3634,10 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
             phrases.append(f"{e.step_path} passed [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "step_escalated":
             phrases.append(f"{e.step_path} escalated ({e.data.get('reason')}) [attempt {e.attempt}, {profile(e)}]")
+        elif e.type == "human_decision" and e.data.get("kind") == "sme":
+            phrases.append(f"expert answer promoted ({e.data.get('consultation')}) as {e.data.get('decision_id')}")
+        elif e.type == "human_decision" and e.data.get("kind") == "skip_notice":
+            phrases.append(f"{e.data.get('ref')} acknowledged")
         elif e.type == "human_decision":
             phrases.append(f"{e.step_path} decision {e.data.get('decision')}" + (f" [attempt {e.attempt}]" if e.attempt else ""))
         elif e.type == "iteration_limit_reached":

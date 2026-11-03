@@ -119,9 +119,12 @@ def _pending_lines(payload: dict) -> list[str]:
             lines.append(f"Owner decision owed on {p['ref']} (attempt {p['attempt']}): {p['prompt']}  [{' | '.join(p['options'])}]")
         elif p["kind"] == "baseline":
             lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0]}]")
+        elif p["kind"] == "skip_notice":
+            lines.append(f"Owner notice {p['ref']}: {p['prompt']}  [acknowledge]")
         else:
             why = "; ".join(p.get("reasons") or p.get("questions") or []) or p.get("reason") or ""
-            lines.append(f"Escalated {p['ref']} ({p.get('reason')}): {why}  [{' | '.join(p['options'])}]")
+            inc = f" (waits on platform incident {p['incident']})" if p.get("incident") else ""
+            lines.append(f"Escalated {p['ref']} ({p.get('reason')}){inc}: {why}  [{' | '.join(p['options'])}]")
     return lines
 
 
@@ -325,6 +328,8 @@ def board(
         lines += ["  " + line for line in _pending_lines(r)]
     if not out["runs"]:
         lines.append("No runs need you." if needs_me else "No active runs.")
+    for i in out.get("incidents") or []:
+        lines.append(f"Open platform incident {i['id']}: {i['class']}/{i['code']} on {i['step_path']} of {i['run']}")
     ws = out["workspace"]
     if ws["holder"]:
         lines.append(f"Working tree: held by {ws['holder']['step_path']} of {ws['holder']['run_id']}" + (f"; {ws['queued']} queued" if ws["queued"] else ""))
@@ -645,6 +650,175 @@ def doctor(
     lines += [f"WARNING {w}" for w in out["warnings"]]
     _emit({**out}, as_json, "\n".join(lines))
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
+
+
+# ---------------------------------------------------------------------------
+# Experts, the platform area and process feedback (§12)
+# ---------------------------------------------------------------------------
+
+RefOpt = Annotated[Optional[list[str]], typer.Option("--ref", help="A reference the expert gets, by name (repeatable); see `baton sme-eligible`.")]
+
+
+def _sme_text(out: dict) -> str:
+    lines = [f"Consultation {out['consultation']} ({out.get('subject')}" + (f", run {out['run_id']}" if out.get("run_id") else "") + f"): {out.get('state')}"]
+    if out.get("contact"):
+        lines.append(f"Consulting through a proxy: {out['contact']}")
+    for t in out.get("turns") or []:
+        lines.append(f"Turn {t['turn']} ({t.get('worker')}): {t['status']}" + (f" — {t['question']}" if t.get("question") else ""))
+        a = t.get("answer")
+        if a:
+            lines.append(f"  Answer ({a['confidence']} confidence): {a['answer']}")
+            if a.get("requested_refs"):
+                lines.append("  Requests: " + ", ".join(a["requested_refs"]))
+            if a.get("suggests_retriage"):
+                lines.append("  The expert suggests re-triage.")
+        for name, path in (t.get("artifacts") or {}).items():
+            lines.append(f"  Artifact {name}: {path}")
+        if t.get("awaiting"):
+            lines.append(f"  Waiting on {t['awaiting']['who']}: {t['awaiting']['what']}")
+        if t.get("reasons"):
+            lines.append("  " + "; ".join(t["reasons"]))
+    for h in out.get("handoffs") or []:
+        lines.append(f"Handoff: {h['path']}")
+    return "\n".join(lines)
+
+
+def _sme_started(out: dict, as_json: bool) -> None:
+    if "turns" in out:
+        _done(out, as_json, _sme_text(out))
+    lines = [f"Asked the {out['subject']} expert ({out['worker']}): consultation {out['consultation']} turn {out['turn']}, due {out['deadline']}"]
+    lines += [f"WARNING: {w}" for w in out.get("warnings") or []]
+    _done(out, as_json, "\n".join(lines))
+
+
+@app.command("ask-sme")
+def ask_sme(
+    subject: Annotated[str, typer.Argument(help="project | platform | process")],
+    question: Annotated[str, typer.Argument(help="The question, as the owner asked it.")],
+    ref: RefOpt = None,
+    run: Annotated[Optional[str], typer.Option("--run", help="The run the question is about.")] = None,
+    mode: Annotated[str, typer.Option("--mode", help="relay (dispatch and record an answer) | handoff (a prompt to paste elsewhere).")] = "relay",
+    worker: Annotated[Optional[str], typer.Option("--worker", help="Expert profile (default: the first eligible).")] = None,
+    contact: Annotated[Optional[str], typer.Option("--contact", help="A person consulted through the expert (name, role, how to reach them).")] = None,
+    wait: WaitOpt = False,
+    timeout: Annotated[Optional[float], typer.Option("--timeout", help="With --wait: seconds to wait at most.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Consult an expert by subject; the runtime assembles what it sees (§12.1)."""
+    out = _call(as_json, lambda: _api().ask_sme(subject, question, ref or [], run_id=run, mode=mode, worker=worker, contact=contact, wait=wait, timeout=timeout))
+    if out.get("mode") == "handoff":
+        _done(out, as_json, out["handoff"] + f"\n\n(Saved to {out['path']}; consultation {out['consultation']}.)")
+    _sme_started(out, as_json)
+
+
+@app.command("sme-followup")
+def sme_followup(
+    consultation: Annotated[str, typer.Argument(help="Consultation id.")],
+    question: Annotated[Optional[str], typer.Option("--question", help="A follow-up question.")] = None,
+    ref: RefOpt = None,
+    attach: Annotated[Optional[list[str]], typer.Option("--attach", help="A file the owner supplies, e.g. a person's reply (repeatable).")] = None,
+    worker: Annotated[Optional[str], typer.Option("--worker", help="Expert profile (default: the previous turn's).")] = None,
+    wait: WaitOpt = False,
+    timeout: Annotated[Optional[float], typer.Option("--timeout", help="With --wait: seconds to wait at most.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """The next turn of a consultation: earlier turns plus new refs, a question or attachments."""
+    out = _call(as_json, lambda: _api().sme_followup(consultation, question, ref or [], attach or [], worker=worker, wait=wait, timeout=timeout))
+    _sme_started(out, as_json)
+
+
+@app.command("sme")
+def sme_cmd(
+    consultation: Annotated[str, typer.Argument(help="Consultation id.")],
+    wait: WaitOpt = False,
+    timeout: Annotated[Optional[float], typer.Option("--timeout", help="With --wait: seconds to wait at most.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """A consultation: its turns, the expert's answers and artifacts, and what it waits for."""
+    out = _call(as_json, lambda: _api().sme_status(consultation, wait=wait, timeout=timeout))
+    _done(out, as_json, _sme_text(out))
+
+
+@app.command("sme-handoff")
+def sme_handoff(consultation: Annotated[str, typer.Argument(help="Consultation id.")], as_json: JsonOpt = False) -> None:
+    """Print a copy-and-paste prompt to continue the consultation with the expert directly (refused when that cannot work)."""
+    out = _call(as_json, lambda: _api().sme_handoff(consultation))
+    _done(out, as_json, out["handoff"] + f"\n\n(Saved to {out['path']}.)")
+
+
+@app.command("sme-eligible")
+def sme_eligible(
+    subject: Annotated[str, typer.Argument(help="project | platform | process")],
+    run: Annotated[Optional[str], typer.Option("--run", help="The run (its recipe may set the expert's requirements).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Profiles that may answer as this subject's expert, in order."""
+    out = _call(as_json, lambda: _api().sme_eligible(subject, run))
+    lines = [f"{e['profile']} ({e['adapter']}, {e['vendor']}): {'; '.join(e['reasons'])}" for e in out["eligible"]] or ["No eligible profile."]
+    lines += [f"  excluded {x['profile']}: {'; '.join(x['reasons'])}" for x in out["excluded"]]
+    _done(out, as_json, "\n".join(lines))
+
+
+@app.command("promote-sme")
+def promote_sme(
+    consultation: Annotated[str, typer.Argument(help="Consultation id.")],
+    target: Annotated[str, typer.Argument(help="decision | fact | lesson | proposal")],
+    note: Annotated[str, typer.Option("--note", help="The owner's agreement, in their own words (recorded verbatim).")],
+    text: Annotated[Optional[str], typer.Option("--text", help="What to promote, if not the answer as given.")] = None,
+    turn: Annotated[Optional[int], typer.Option("--turn", help="Which turn's answer (default: the latest answered).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Bring an expert's answer into the work, with the owner's agreement (§12.2)."""
+    out = _call(as_json, lambda: _api().promote_sme(consultation, target, note, text=text, turn=turn))
+    where = out.get("reference") or out.get("path") or out.get("entry") or ""
+    _done(out, as_json, f"Promoted {consultation} as a {target}" + (f": {where}" if where else ""))
+
+
+@app.command("platform-fact")
+def platform_fact(
+    text: Annotated[str, typer.Argument(help="The fact, e.g. 'codex is under nvm v22 on the runtime host'.")],
+    source: Annotated[str, typer.Option("--source", help="Where it comes from.")] = "owner",
+    as_json: JsonOpt = False,
+) -> None:
+    """Record a durable platform fact (.baton/platform/facts.md)."""
+    out = _call(as_json, lambda: _api().platform_fact(text, source))
+    _done(out, as_json, f"Recorded: {out['entry']}")
+
+
+@app.command("platform-incident")
+def platform_incident(
+    action: Annotated[str, typer.Argument(help="list | show | resolve")] = "list",
+    incident: Annotated[Optional[str], typer.Argument(help="Incident id (show, resolve).")] = None,
+    fix: Annotated[Optional[str], typer.Option("--fix", help="With resolve: what was fixed.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Platform incidents: opened automatically for platform and unknown failures; resolving readies the step once."""
+    out = _call(as_json, lambda: _api().platform_incident(action, incident, fix))
+    if action == "list":
+        text = "\n".join(f"{i['id']} [{i['status']}] {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}"
+                         for i in out["incidents"]) or "No platform incidents."
+    elif action == "show":
+        text = json.dumps(out["incident"], indent=2)
+    else:
+        text = f"Resolved {out['incident']}" + "".join(f"\n  {r['step_path']} of {r['run']} is ready again" if "not_readied" not in r
+                                                      else f"\n  {r['step_path']} of {r['run']} not readied: {r['not_readied']}" for r in out["readied"])
+    _done(out, as_json, text)
+
+
+@app.command()
+def feedback(
+    kind: Annotated[str, typer.Argument(help="friction | skipped_step | waste | confusing")],
+    text: Annotated[str, typer.Argument(help="What happened.")],
+    run: Annotated[Optional[str], typer.Option("--run", help="The run it concerns.")] = None,
+    step: Annotated[Optional[str], typer.Option("--step", help="The step it concerns.")] = None,
+    gate: Annotated[Optional[str], typer.Option("--gate", help="skipped_step: the gate skipped (index or type).")] = None,
+    informed_owner: Annotated[bool, typer.Option("--informed-owner", help="skipped_step: the owner was told at the time.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Record process feedback; a skipped blocking gate or approval is surfaced to the owner at once."""
+    out = _call(as_json, lambda: _api().feedback(kind, text, run, step, gate, informed_owner))
+    lines = [f"Recorded feedback (seq {out['seq']})."] + _pending_lines(out)
+    _done(out, as_json, "\n".join(lines))
 
 
 def main() -> None:

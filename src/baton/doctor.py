@@ -342,6 +342,12 @@ def doctor(project: Any, only: str | None = None, *, run_noop: bool = True) -> d
         warnings += [f"{n}: {w}" for w in r.get("warnings", [])]
     healthy = {n: p for n, p in profiles.items() if not reports.get(n, {"problems": []})["problems"]}
     uncovered = _uncovered_steps(project, healthy) if only is None else []
+    if only is None:
+        from .sme import incidents
+
+        for i in incidents(project.store.project_log().events()).values():
+            if i["status"] == "open":
+                warnings.append(f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}")
     warnings += [f"no healthy profile on this machine can do {s}" for s in uncovered]
     if "microsoft" in platform.uname().release.lower() and str(project.root).startswith("/mnt/") and os.name == "posix":
         warnings.append(f"{project.root} is on a Windows drive under WSL; keep repos on the Linux filesystem for speed (§15.1)")

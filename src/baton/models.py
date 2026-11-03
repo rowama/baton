@@ -562,6 +562,12 @@ class LimitsConfig(_Strict):
     active_runs: int | None = Field(default=None, ge=1)  # §8.9: `start` refuses beyond this many active runs
 
 
+class SmeSubjectConfig(_Strict):
+    """``project.yaml`` ``sme.<subject>`` (§12.1): profiles tried first for this subject."""
+
+    preferred_profiles: list[str] = Field(default_factory=list)
+
+
 class ProjectConfig(_Strict):
     paths: dict[str, str] = Field(default_factory=dict)
     project: dict[str, Any] = Field(default_factory=dict)
@@ -573,3 +579,4 @@ class ProjectConfig(_Strict):
     effort: EffortConfig = Field(default_factory=EffortConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    sme: dict[Literal["project", "platform", "process"], SmeSubjectConfig] = Field(default_factory=dict)
