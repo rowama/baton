@@ -117,6 +117,8 @@ def _pending_lines(payload: dict) -> list[str]:
     for p in payload.get("pending_decisions") or []:
         if p["kind"] == "gate":
             lines.append(f"Owner decision owed on {p['ref']} (attempt {p['attempt']}): {p['prompt']}  [{' | '.join(p['options'])}]")
+        elif p["kind"] == "baseline":
+            lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0]}]")
         else:
             why = "; ".join(p.get("reasons") or p.get("questions") or []) or p.get("reason") or ""
             lines.append(f"Escalated {p['ref']} ({p.get('reason')}): {why}  [{' | '.join(p['options'])}]")
@@ -145,6 +147,70 @@ def init(
     """Create .baton/ with defaults in a project. Existing files are kept."""
     out = _call(as_json, lambda: engine.Api.init(path))
     lines = [f"Initialized Baton in {out['root']}"] + [f"  created {c}" for c in out["created"]] + [f"  note: {n}" for n in out["notes"]]
+    _done(out, as_json, "\n".join(lines))
+
+
+@app.command()
+def detect(as_json: JsonOpt = False) -> None:
+    """The project's situation, each active run's situation and machine readiness. One line when healthy."""
+    from .adopt import detect as run_detect
+
+    out = _call(as_json, lambda: run_detect(_opts.project, director=_director()))
+    lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
+    lines += [f"WARNING {w}" for w in out["warnings"]]
+    _emit(out, as_json, "\n".join(lines))
+    raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
+
+
+def _director() -> Any:
+    from .locks import Director
+
+    return Director.current(_opts.director)
+
+
+def _adoption_text(out: dict) -> str:
+    lines = [f"Adoption {out['adoption']} of {out['recipe']}" + (f" (crosswalk {out['crosswalk']})" if out.get("crosswalk") else "") + f": {out['state']}"]
+    lines.append(f"  research: {out['research']}")
+    for key, r in out["runs"].items():
+        lines.append(f"  {key}: run {r['run_id']} ({r['title']}), triage {r['triage'] or '-'}")
+    for g in out.get("gaps") or []:
+        lines.append(f"  gap: {g}")
+    if out.get("baseline"):
+        lines.append(f"  baseline proposal: {out['baseline']}")
+    lines.append(f"Next: {out['next']}")
+    return "\n".join(lines)
+
+
+@app.command()
+def adopt(
+    recipe: Annotated[str, typer.Argument(help="Recipe ref (vendored) or recipe directory (vendored first).")],
+    crosswalk: Annotated[Optional[str], typer.Option("--crosswalk", help="A crosswalk shipped with the recipe (by name) or a crosswalk file.")] = None,
+    scope: Annotated[Optional[list[str]], typer.Option("--scope", help="Limit research to this path (repeatable).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Adopt this project: start the adoption run (research, then triage per work item, then one baseline decision), or show its progress."""
+    from .project import find_root
+
+    root = _opts.project or Path.cwd()
+    try:
+        find_root(root)
+    except EngineError:
+        engine.Api.init(root)  # adoption starts with init when .baton/ is missing (§11.1)
+    out = _call(as_json, lambda: _api().adopt(recipe, crosswalk=crosswalk, scope=scope or None))
+    _done(out, as_json, _adoption_text(out))
+
+
+@app.command("establish-baseline")
+def establish_baseline(
+    adoption: Annotated[str, typer.Argument(help="The adoption run id.")],
+    note: Annotated[str, typer.Option("--note", help="The owner's decision, in their words (recorded verbatim).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Apply the reviewed baseline: the owner's one adoption decision."""
+    out = _call(as_json, lambda: _api().establish_baseline(adoption, note))
+    lines = [f"Baseline of {adoption} established ({out['decision_id']})."]
+    for key, r in out["runs"].items():
+        lines.append(f"  {key}: run {r['run_id']} {r['state']}" + (f"; ready: {', '.join(r['ready'])}" if r["ready"] else ""))
     _done(out, as_json, "\n".join(lines))
 
 
@@ -224,6 +290,8 @@ def _status_text(s: dict) -> str:
     for st in s.get("stale") or []:
         how = "dispatch it to re-run, or the owner may `decide ... confirm`" if st["runnable"] else st.get("waiting", "")
         lines.append(f"  {st['step_path']}: stale ({st.get('cause')}{', revised ' + st['revised'] if st.get('revised') else ''}); {how}")
+    if s.get("awaiting_baseline"):
+        lines.append(f"  waiting for the baseline of adoption {s['adoption']['run']} (only triage runs until then)")
     lines += _pending_lines(s)
     return "\n".join(lines)
 
@@ -367,6 +435,8 @@ def _outcome_text(out: dict) -> str:
         "abandoned": f"{out['step_path']} abandoned",
         "running": f"{out['step_path']} is still running",
         "confirmed": f"{out['step_path']} confirmed unchanged by the owner; its earlier result stands",
+        "retriage_requested": f"{out['step_path']} is ready to re-triage; the new level then waits on the owner",
+        "retriage_rejected": f"{out['step_path']}: the owner kept the current level; the earlier triage result stands",
     }[o]
     lines = [head] + [f"  - {r.splitlines()[0]}" for r in out["reasons"] if o != "needs_human"]
     if out["ready"]:
@@ -463,6 +533,17 @@ def revise(
     out = _call(as_json, lambda: _api().revise(run, step, reason))
     stale = f"\nStale: {', '.join(out['stale'])}" if out.get("stale") else ""
     _done(out, as_json, _outcome_text({**out, "run_id": run}) + stale)
+
+
+@app.command()
+def retriage(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    reason: Annotated[str, typer.Option("--reason", help="Why the work's complexity should be assessed again (recorded, given to the worker).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Rerun triage; the new level applies, once the owner approves it, only to work not yet started."""
+    out = _call(as_json, lambda: _api().retriage(run, reason))
+    _done(out, as_json, _outcome_text({**out, "run_id": run}))
 
 
 @app.command()

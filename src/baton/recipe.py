@@ -272,6 +272,8 @@ class _Checker:
                 continue
             if isinstance(data, (dict, list)):
                 self._lint_neutrality(data if isinstance(data, dict) else {"_": data}, rel)
+            for issue in crosswalk_issues(data, self.recipe, rel):
+                self.issues.append(issue)
 
     def _lint_text_files(self) -> None:
         for d in _TEXT_DIRS:
@@ -1240,3 +1242,74 @@ def _render_group(d: dict[str, Any]) -> str:
     if "repeat_until" in d:
         bits.append(f"repeat from {d['repeat_from']} until {d['repeat_until']}, max {d['max_iterations']}")
     return "group: " + "; ".join(bits) if bits else "group"
+
+
+# ---------------------------------------------------------------------------
+# Crosswalks (§11.3)
+# ---------------------------------------------------------------------------
+
+
+def _capture_count(glob: str) -> int:
+    return len(re.findall(r"\*\*|\*", glob))
+
+
+def crosswalk_issues(raw: Any, recipe: Recipe, where: str) -> list[Issue]:
+    """Validate a ``baton-crosswalk/1`` document against the recipe it maps into."""
+    from .models import CROSSWALK_FORMATS, Crosswalk
+
+    out: list[Issue] = []
+
+    def err(code: str, loc: str, msg: str) -> None:
+        out.append(Issue(code=code, where=f"{where}:{loc}" if loc else where, message=msg))
+
+    if not isinstance(raw, dict):
+        err("crosswalk.invalid", "", "a crosswalk must be a mapping")
+        return out
+    if raw.get("format") not in CROSSWALK_FORMATS:
+        err("crosswalk.unknown_format", "format", f"format must be one of {list(CROSSWALK_FORMATS)}, got {raw.get('format')!r}")
+        return out
+    try:
+        cw = Crosswalk.model_validate(raw)
+    except ValidationError as e:
+        for x in e.errors():
+            err("crosswalk.invalid", ".".join(str(p) for p in x["loc"]), x["msg"])
+        return out
+    for i, m in enumerate(cw.maps):
+        loc = f"maps[{i}]"
+        ref, _, path = m.step.partition("/")
+        if ref != recipe.ref:
+            err("crosswalk.other_recipe", f"{loc}.step", f"{m.step!r} names {ref}, not {recipe.ref}")
+            continue
+        parts = path.split("/")
+        nodes: list[Any] = recipe.steps
+        node: Any = None
+        group: Any = None
+        for k, part in enumerate(parts):
+            node = next((n for n in nodes if n.id == part), None)
+            if node is None:
+                break
+            if k < len(parts) - 1:
+                if not isinstance(node, Group):
+                    node = None
+                    break
+                group, nodes = node, node.steps
+        if node is None or isinstance(node, Group):
+            err("crosswalk.unknown_step", f"{loc}.step", f"{recipe.ref} has no step {path!r}")
+            continue
+        targets = [t for t in (m.artifact is not None, m.output, m.gate is not None) if t]
+        if len(targets) != 1:
+            err("crosswalk.target", loc, "give exactly one of artifact, output: true, or gate")
+        if m.artifact is not None and m.artifact not in {a.name for a in node.artifacts}:
+            err("crosswalk.unknown_artifact", f"{loc}.artifact", f"step {path!r} declares no artifact {m.artifact!r}")
+        if m.gate is not None and m.gate >= len(node.gates):
+            err("crosswalk.unknown_gate", f"{loc}.gate", f"step {path!r} has {len(node.gates)} gate(s); no gate {m.gate}")
+        n = _capture_count(m.match)
+        for tmpl, key in ((m.work_item, "work_item"), (m.item, "item")):
+            for ref_n in re.findall(r"\{(\d+)\}", tmpl or ""):
+                if not 1 <= int(ref_n) <= n:
+                    err("crosswalk.bad_capture", f"{loc}.{key}", f"{{{ref_n}}} but {m.match!r} has {n} capture(s)")
+        if m.item is not None and (group is None or not group.foreach):
+            err("crosswalk.item_outside_foreach", f"{loc}.item", f"step {path!r} is not inside a foreach group")
+        if group is not None and group.foreach and m.item is None:
+            err("crosswalk.item_missing", f"{loc}.item", f"step {path!r} is inside the foreach group {group.id!r}; name the item")
+    return out

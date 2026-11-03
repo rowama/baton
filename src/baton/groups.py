@@ -386,6 +386,8 @@ class View:
         return reg is not None and (exp is None or exp.get("source_sha256") != reg.data.get("output_sha256"))
 
     def _group_state(self, group: Group, group_path: str, outer: Frame | None) -> str:
+        if self.rs.step(group_path).state == "skipped":
+            return "skipped"  # excluded at the run's complexity level (§5.5)
         if not self.deps_met(group, outer):
             return "blocked_on_deps"
         exp = self.expansion(group_path)

@@ -1,0 +1,97 @@
+id: backyard-project
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Take a backyard project (a flower bed, a raised bed, a shed) from idea to finished, photographed work.
+
+run_inputs:
+  schema: schemas/run_inputs.json      # title, description, optional site notes
+
+complexity:                            # recipe-owned scale (criteria in prompts/triage.md)
+  levels: [minor, standard, major]
+  triage_step: triage
+
+steps:
+  - id: triage
+    title: Assess the project's size
+    requires: { capabilities: [structured_output, technical_reasoning], tier: standard }
+    prompt: prompts/triage.md
+    inputs:
+      - { name: description, from: run.inputs.description, required: true }
+      - { name: criteria,    from: static.levels.md,      required: true }
+      - { name: research,    from: research.findings,     required: false }   # present on adoption
+    output_schema: schemas/triage_out.json
+    gates: [ { type: schema } ]
+
+  - id: site_survey
+    title: Survey and photograph the site
+    depends_on: [triage]
+    applies_to: [standard, major]
+    requires: { capabilities: [human_judgment, vision, file_write] }      # someone on site
+    prompt: prompts/site_survey.md
+    inputs:
+      - { name: description, from: run.inputs.description, required: true }
+    output_schema: schemas/survey_out.json
+    artifacts:
+      - { name: site_photo, required: true, media_type: image/jpeg }
+    gates: [ { type: schema } ]
+
+  - id: design
+    title: Lay out the project
+    depends_on: [site_survey]
+    applies_to: [standard, major]
+    requires: { capabilities: [structured_output, long_form_writing, vision], tier: standard }
+    prompt: prompts/design.md
+    inputs:
+      - { name: description, from: run.inputs.description,               required: true }
+      - { name: survey,      from: steps.site_survey.output,              required: true }
+      - { name: site_photo,  from: steps.site_survey.artifacts.site_photo, required: true }
+    output_schema: schemas/design_out.json
+    artifacts:
+      - { name: layout_plan, required: true, media_type: text/markdown }
+    gates:
+      - { type: schema }
+      - { type: human, applies_to: [major], prompt: "Approve the layout before permits and materials?" }
+
+  - id: permits
+    title: Check permits and neighbours
+    depends_on: [design]
+    applies_to: [major]
+    requires: { capabilities: [human_judgment] }
+    prompt: prompts/permits.md
+    inputs:
+      - { name: description, from: run.inputs.description,          required: true }
+      - { name: layout_plan, from: steps.design.artifacts.layout_plan, required: true }
+    output_schema: schemas/permits_out.json
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Is the permit in hand, or confirmed not needed?" }
+
+  - id: materials
+    title: List materials and tools
+    depends_on: [triage, design, permits]          # skipped dependencies count as satisfied
+    requires: { capabilities: [structured_output, technical_reasoning], tier: standard }
+    prompt: prompts/materials.md
+    inputs:
+      - { name: description, from: run.inputs.description,          required: true }
+      - { name: layout_plan, from: steps.design.artifacts.layout_plan, required: true }   # not_applicable at minor
+    output_schema: schemas/materials_out.json
+    gates: [ { type: schema } ]
+
+  - id: build
+    title: Do the work
+    depends_on: [materials]
+    effort: L
+    requires: { capabilities: [human_judgment, file_write] }   # physical work: a person
+    prompt: prompts/build.md
+    inputs:
+      - { name: description, from: run.inputs.description,        required: true }
+      - { name: materials,   from: steps.materials.output,        required: true }
+      - { name: layout_plan, from: steps.design.artifacts.layout_plan, required: true }
+    output_schema: schemas/build_out.json
+    artifacts:
+      - { name: finished_photo, required: true, media_type: image/jpeg }
+    gates:
+      - { type: schema }
+      - { type: human, applies_to: [major], prompt: "Did the finished structure pass inspection?" }
+      - { type: human, prompt: "Accept the finished project as done?" }

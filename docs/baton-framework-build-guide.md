@@ -95,6 +95,8 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Lease** | Which Director may change a run right now. |
 | **Owner** | The human who makes the decisions. |
 
+Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
+
 Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache.
 
 ### 2.1 Core and layers
@@ -177,8 +179,9 @@ baton/
 │   ├── adapters/            # base, litellm_api, subprocess_harness, claude_code, codex, command, manual
 │   ├── cli.py   mcp_server.py   check.py   doctor.py
 ├── vocab/baton-capabilities-1.yaml
-├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   # generated from models (§15.3)
+├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   # generated from models (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
+├── builtin/baton-adopt/     # the built-in adoption recipe (§11.1): research step, baton-research/1 schema
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
 ├── defaults/communication.md        # default owner communication contract (written by `baton init`)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/
@@ -207,6 +210,7 @@ baton/
 │   ├── preferences.yaml              # optional routing preferences (non-secret)
 │   ├── recipes/<id>@<version>/       # vendored, pinned recipes
 │   ├── project/events.jsonl          # project-level events (platform incidents, process feedback)
+│   ├── adoption/<run_id>/baseline.yaml  # baseline proposal of an adoption (§11.5)
 │   ├── platform/facts.md             # platform facts
 │   ├── process/lessons.md            # project-level process lessons
 │   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, sme/, docs/
@@ -436,7 +440,9 @@ Groups nest at most one level (supported with the same rules). `foreach` and `re
 
 - The recipe owns its scale and criteria (in the triage prompt). The runtime only applies the result.
 - After triage passes (`complexity_set`), every step and gate whose `applies_to` excludes the level is marked `skipped`. Steps without `applies_to` always run. The Director has no say.
-- **Re-triage:** `retriage(run, reason)` reruns triage on the current record behind a human gate. On approval, not-yet-started steps are re-evaluated; passed and imported steps never change (their records are flagged "pre-retriage" if the new level would have treated them differently).
+- **Approval** (§18 #8): a triage result at the lowest level is applied at once (`complexity_set`, `approval: auto`). Above it, once the triage step's declared gates pass, an implicit human gate (`gate: "triage"`) asks the owner to approve the level; approving records `step_passed` then `complexity_set`. Rejecting fails the gate: triage gets another attempt with the owner's note as feedback (owner decision, 2026-11-02). In a run created by adoption the level is approved by the baseline instead (§11.5). `revise` is refused on the triage step; re-triage is the way to change a level.
+- **Skipping:** steps and groups excluded at the level are marked `skipped` as soon as the level is set (`step_skipped {level, cause}`; a group's own path carries it); steps inside groups are marked when their instance's iteration starts. A skipped group's steps never get events.
+- **Re-triage** (owner decision, 2026-11-02): `retriage(run, reason)` reruns triage behind a human gate. It records `retriage_requested {reason, previous_level}` and a `step_revised` of the triage step (`retriage: true`; no dependent is made stale), so triage gets a new attempt whose packet holds the previous result and the reason (§7.1); until it is decided, the triage step is not accepted, so nothing that depends on it can start. The new result always waits on the owner (implicit `triage` gate, whatever the level). **Approve:** `step_passed`, `retriage_applied {level, previous_level, decision_seq, skipped, unskipped, pre_retriage}`, then `step_skipped` / `step_unskipped` for every step that has not started: no attempt dispatched (`blocked_on_deps`, `ready` never dispatched, `skipped`), including steps of a live instance's current iteration; an unexpanded group is skipped or unskipped as one. Started, passed and imported steps never change; passed and imported steps the new level would have skipped or gated differently are listed in `pre_retriage` and flagged in their records. **Reject:** the old level stands and the triage step's earlier result is accepted again (`step_passed` repeating it, `retriage_rejected`). Refused while any attempt of the run is in flight, while another re-triage is pending, or before a level is set.
 - Keep levels few (three is a good default), each visibly different in steps or gates.
 
 ### 5.6 Capability vocabulary (`baton-capabilities/1`)
@@ -689,6 +695,7 @@ ready            → escalated  (no eligible worker, §8.4)
 escalated        → ready (after a decision) | abandoned | verifying (a waiver of the held failed gate, §9.3)
 verifying        ⇄ awaiting_human (human gate)
 blocked_on_deps  → skipped    (complexity level)        skipped → blocked_on_deps (approved re-triage)
+ready            → skipped    (approved re-triage; only a step never dispatched)
 blocked_on_deps  → imported   (adoption seed)
 passed|imported  → superseded (revised)                 passed|imported → stale (an upstream step was revised)
 superseded       → ready      (the revised step's new attempt)
@@ -728,13 +735,13 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Run | `run_started` (work item, recipe, versions, branch, `max_attempts`), `run_completed`, `run_abandoned` |
 | Leases | `lease_claimed`, `lease_renewed`, `lease_taken_over`, `lease_released` |
 | Steps | `step_ready`, `dispatch_queued`, `dispatch_dequeued`, `worker_selected`, `packet_built`, `dispatched`, `step_running`, `result_submitted`, `verification_started`, `result_rejected`, `gate_passed`, `gate_failed`, `human_gate_opened`, `step_passed`, `step_escalated`, `step_abandoned`, `step_timed_out`, `attempt_orphaned`, `failure_classified`, `deadline_extended` |
-| Tailoring | `complexity_set`, `step_skipped`, `step_unskipped`, `retriage_requested`, `retriage_applied` |
+| Tailoring | `complexity_set` (`level`, `approval` `auto`\|`owner`\|`baseline`, `reasons?`, `decision_seq?`), `step_skipped` / `step_unskipped` (`level`, `cause` `complexity`\|`retriage`), `retriage_requested` (`reason`, `previous_level`), `retriage_applied` (`level`, `previous_level`, `decision_seq`, `skipped`, `unskipped`, `pre_retriage`) |
 | Groups | `group_expanded` (on the group path: `mode` `foreach`\|`once`\|`skip`\|`single`, `source`, `source_sha256`, `items` `[{id, sha256, content_sha256, title?}]`, and on re-expansion `kept`/`changed`/`added`/`superseded`), `iteration_started` (on the instance path: `iteration`, `from`, `budget_base`), `iteration_limit_reached` (on the instance path: `iteration`, `max_iterations`, `judged`, `judged_seq`, `reasons`) |
 | Corrections | `step_revised`, `step_stale` |
 | Reviews | `findings_recorded` (on the recording step: `line`, `gate`, `findings` `[{id, severity, title, location?, status, reopened?, carried?}]`, `counts`, `open`, `blocking`, `partial`, `coverage_notes?`, `reviewed_commit?`, `previous_seq?`, `resolved?`, and for a review gate `review`, `review_attempt`, `reviewer`), `finding_dispositioned` (on the recording step: `line`, `finding`, `evaluation_seq`, `disposition`, `evidence?`, `decision_id?`, `by` `worker`\|`director`\|`owner`, `provisional?`), `gate_waived` (`gate`, `reason`, `decision_id`, `scope` `held`\|`next`, `attempt?`, `judged_seq?`), `protected_path_modified` (`changed`, `mode`) |
 | Human | `human_decision`, `human_revision_ingested` |
 | Deliverables | `artifact_published`, `drift_detected` |
-| Adoption | `situation_detected`, `research_recorded`, `step_imported`, `baseline_established` |
+| Adoption | `situation_detected` (adoption run: the `detect` result, scope counts), `research_recorded` (§11.1), `step_imported` (§11.4), `baseline_established` (§11.5) |
 | Experts | `sme_requested`, `sme_answered`, `sme_promoted` |
 | Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used`, `permission_requested`, `migrated` |
 | Project log | `platform_fact_recorded`, `platform_incident_opened`, `platform_incident_resolved`, `process_feedback`, `step_skip_recorded` |
@@ -960,37 +967,69 @@ detect (deterministic, silent) ─► doctor (silent if healthy)
    └─ project without Baton ─► research ─► triage (per in-flight work item) ─► baseline (ONE owner decision) ─► continue
 ```
 
-`detect()` inspects files, git and event logs and returns the project situation plus, per run, `idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`, along with machine readiness (`doctor`) and open platform incidents. Healthy situations print one line.
+`detect()` inspects files, git and event logs and returns the project situation (`no_baton`, `baton`, `adopting`) plus, per non-terminal run, `idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`, along with machine readiness (`doctor` without no-op runs) and open platform incidents. `diverged` is a run whose hash chain or CAS fails verification (e.g. two unsynced clones); `drift` arrives with publishing (Phase 13). It records nothing. Healthy situations print one line.
+
+**Mechanics** (owner decision, 2026-11-02). Adoption is ordinary Baton work, so it needs no new concept:
+1. `adopt(recipe, crosswalk?, scope?)` (`baton adopt <recipe ref or dir> [--crosswalk <name or path>] [--scope <path>…]`) runs `init` if `.baton/` is missing, vendors a recipe given as a directory, checks the research scope (§18 #14), and starts an **adoption run**: a run of the runtime's built-in recipe `baton-adopt@1` (shipped in `builtin/`, loaded like a vendored recipe but never vendored). Its run inputs are the target recipe's summary (steps, levels, schemas, artifacts, gates), the crosswalk, the candidate files the runtime matched from it, the scope and the `detect` result; `situation_detected` records the latter. While an adoption run is active, `adopt` returns its status instead of starting another.
+2. Its one step, `research` (§11.2), is dispatched by the Director like any step.
+3. When research passes, the runtime records it (`research_recorded {research_sha256, runs, gaps}` in the adoption run) and starts one **work-item run** of the target recipe per in-flight work item, with the run inputs research proposed (`run_started.adoption {run, work_item}`, then `research_recorded {research_sha256, work_item}`; `research.findings` resolves to that blob, the research output plus `work_item`). A proposed input that does not validate is a gap, not a run. Until the baseline, a work-item run readies only its triage step; triage applies no level there.
+4. The Director dispatches each run's triage. When none is left pending, the runtime writes the **baseline proposal** `.baton/adoption/<adoption run>/baseline.yaml` (§11.5) and the adoption run waits on the owner (pending decision `baseline`).
+5. The owner reads it, may edit it, and makes the one decision: `establish_baseline(adoption, note)` (`baton establish-baseline <adoption run> --note "<owner's words>"`).
+
+The adoption run completes when the baseline is established; it is never seeded or triaged itself.
 
 ### 11.2 Research
 
 Research gathers **evidence**, not judgment. It is a built-in first step of adoption and answers one question per recipe: *which of this recipe's step outputs already exist here, where, and in what state?* It also covers existing agent configuration, candidate path mappings and candidate commands.
 - It is read-only (`workspace: read`, `workspace_read` capability), with a deterministic check that the tree is unchanged.
-- Output (`research.findings`): `evidence[] {path, sha256, kind, maps_to?, confidence}`, `work_items[]` (finished, in flight, with positions), `proposed_seeds[]`, `agent_config`, `path_candidates`, `command_candidates`, `gaps[]`.
+- **Scope** (§18 #14): the non-ignored files under the scope paths (default: the whole project, never `.git` or `.baton`) are counted before the run starts; over 10,000 files or 200 MB, `adopt` refuses with the counts and asks for `--scope`.
+- Output (`research.findings`, runtime-owned schema `baton-research/1`): `evidence[] {path, sha256, kind, maps_to?, confidence}`, `work_items[] {key, title, status (finished | in_flight), position?, inputs?}` (in-flight items carry the proposed run inputs), `proposed_seeds[]` (§11.4), `agent_config[] {path, kind, note?}`, `path_candidates {key: path}`, `command_candidates {name: command}`, `gaps[]`.
 
 ### 11.3 Crosswalks
 
 For projects run under a known prior process, a crosswalk (shipped with a recipe or kept in the project) maps that process's artifacts and approval records to recipe steps (by qualified id, §5.8), gates and instances. With one, research mostly confirms matches instead of interpreting. It is the single biggest friction reducer for adoption. Crosswalks pass the neutrality lint. (A crosswalk for the owner's `eng-process` is a separate guide.)
 
+Format `baton-crosswalk/1` (owner decision, 2026-11-02), in `<recipe>/crosswalks/<id>.yaml` (validated when the recipe loads) or anywhere in the project (validated at `adopt`):
+
+```yaml
+format: baton-crosswalk/1
+id: eng-process
+prior_process: "eng-process (feature folders, slice folders, APPROVED files)"
+maps:
+  - match: "docs/features/*/request.md"        # glob relative to the project root; each * or ** is a capture
+    step: software-feature@1/requirements      # qualified step id; in a group: <recipe>@<v>/<group>/<step>
+    artifact: requirements_doc                 # or `output: true`, or `gate: <index>` (approval evidence)
+    work_item: "{1}"                           # template over the captures: the work item key
+  - match: "docs/features/*/slices/*/review.json"
+    step: software-feature@1/slices/code_review
+    output: true
+    work_item: "{1}"
+    item: "{2}"                                # in a foreach group: the item's key in the prior process
+```
+
+The runtime matches every rule (in scope) and gives research the **candidates**: `{path, sha256, rule, step, artifact | output | gate, work_item, item?}`. A rule naming an unknown step, artifact or gate, or another recipe, is an error.
+
 ### 11.4 Seeding
 
-- A seeded step becomes `imported` (`step_imported`, worker `human`, attested in the baseline).
-- Its artifacts enter CAS; its `output` must validate against the step's schema. A nonconforming seed is not imported; the baseline offers to rerun that step.
-- Gates that can run on a seed (schema, script) do run. Review and human gates passed outside Baton are imported with their evidence, including findings and dispositions.
+A **seed** (`proposed_seeds[]`) is `{work_item, step, item?, output?, artifacts? {name: path}, evidence? [path], gates? [{gate, evidence [path]}]}`: `step` is a top-level step id or `<group>/<step>`; `item` is the 0-based index of the instance's item in the seeded `foreach` source's output (resolved once, when the baseline is applied, to the runtime-assigned instance id).
+- A seeded step becomes `imported` (`step_imported`, actor `human`, attested by the baseline decision). Its data holds the output and artifact hashes (as `step_passed`), the evidence files with hashes and `attested {adoption, decision_id}`.
+- Its artifacts enter CAS; its `output` must validate against the step's schema. A nonconforming seed is not imported; the baseline offers to rerun that step. So is a seed whose step is excluded at the work item's level, whose dependencies are neither seeded nor skipped, whose files are missing, or whose item index is out of range.
+- Gates that can run on a seed (schema, script) do run, when the proposal is written (a failed script gate refuses the seed). Review, findings and human gates passed outside Baton are imported with their evidence. A script, review or findings gate without evidence gets a proposed waiver (applied as `gate_waived {scope: imported}` with the baseline's decision id). A human gate without evidence is listed as attested by the baseline itself (human gates are decided, never waived).
 - Steps approved before a gate existed get a proposed waiver (§9.3).
-- **Groups:** seeding works at the granularity actually reached. The plan is imported, the group is expanded from it, finished instances are imported whole, and a partly finished instance has its completed steps imported while the rest start normally. A pending owner approval stays a pending human gate.
-- **Work items:** finished ones stay as history (not seeded). Each in-flight one becomes its own run, triaged and seeded. New ones start normally.
+- **Groups:** seeding works at the granularity actually reached. The plan is imported, the group is expanded from it, finished instances are imported whole, and a partly finished instance has its completed steps imported while the rest start normally. The seeds are kept in the run's `baseline_established`, so an instance that starts later (under `concurrency`) still has its finished steps imported when it starts, in its first iteration only. Seeds reach one level of groups.
+- *Not built yet (Phase 11):* a pending owner approval staying a pending human gate. Today a human gate without evidence is listed under `attested` in the baseline, so the owner's baseline decision covers it; to have it asked separately, the owner drops that seed and the step runs normally.
+- **Work items:** finished ones stay as history (listed in the baseline, not seeded). Each in-flight one becomes its own run, triaged and seeded. New ones start normally.
 
 ### 11.5 The baseline
 
 One owner decision that ends adoption. It covers:
-- proposed `project.yaml` (paths, commands, permissions);
-- agent-config merges;
+- proposed `project.yaml` (paths, commands; permissions arrive in Phase 14);
+- agent-config merges (the `AGENTS.md` pointer line, §4.3, appended or created);
 - each in-flight work item with its complexity level and reasons, its seeds and its resulting plan (steps to run or skip);
 - proposed waivers;
 - known gaps.
 
-It is blameless: it records what exists, what is assumed and what is missing. The owner may edit any part. `establish_baseline` applies it, records the decision verbatim (`baseline_established`) and commits. From then on everything is ordinary Baton.
+It is blameless: it records what exists, what is assumed and what is missing. The proposal is `.baton/adoption/<adoption run>/baseline.yaml` (format `baton-baseline/1`): `adoption`, `recipe`, `research_sha256`, `project_yaml {paths, project}`, `agents_md {path, action: append | create | none}`, `history[]` (finished items), `work_items[] {key, run, title, level, level_reasons, create, seeds[] {step, item?, import, reasons?, output_sha256?, artifacts?, evidence?, gates?}, waivers[] {step, item?, gate, reason}, attested[], plan {run, skip, imported}}`, `gaps[]`, `files {path: sha256}` (every file a seed or evidence reads). The owner may edit any part: change a level (a declared one), drop a seed or waiver (the step then runs), set `create: false` (that run is abandoned), or change the proposed configuration. `establish_baseline` re-checks the file (format, levels, seeds against their schemas; a seed's file whose hash changed since the proposal refuses the whole baseline, naming `adopt` to regenerate it), then applies it in one call: `human_decision {kind: baseline}` with the owner's words verbatim and `baseline_established {baseline_sha256, runs, note}` in the adoption run (its baseline file stored in its CAS); in each work-item run, `baseline_established {adoption, decision_id, level}`, `complexity_set {approval: baseline}`, the skips, the imports in dependency order (group expansions and instance starts interleaved as the record calls for), the waivers; `project.yaml` and `AGENTS.md` updated; one checkpoint commit covering all of it. From then on everything is ordinary Baton.
 
 ---
 
@@ -1054,12 +1093,12 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `submit(run, step_path, result_dir)` | For manual/external workers |
 | `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); later: questions, baseline items) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
-| `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage; correct an earlier step in this run |
+| `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage (§5.5; the new level waits on the owner's `decide <run> <triage step> approve\|reject`); correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
 | `ingest_revision(run, step_path, artifact)` | Accept a drifted published file (§10.5) |
 | `ask_sme(subject, question, refs, run?, mode)` / `sme_followup(…)` / `promote_sme(…)` | Experts (§12) |
 | `platform_fact(…)` / `platform_incident(…)` / `feedback(kind, text, run?)` | Project-level records |
-| `adopt(recipe, crosswalk?)` / `establish_baseline(decision)` | Adoption (§11) |
+| `adopt(recipe, crosswalk?, scope?)` / `establish_baseline(adoption, note)` | Adoption (§11): start an adoption run, or report the active one; apply the baseline proposal as the owner's one decision |
 | `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
 | `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
 | `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
@@ -1276,7 +1315,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 10 — Work items (L5).** Concurrent runs, board, workspace and project locks, `revise`. Built (owner decisions, 2026-11-02): lock only (§18 #10); a busy workspace queues the dispatch and the releasing process starts the next one; stale steps stay stale until dispatched or confirmed; `revise` inside groups stays refused.
 ✅ Two runs of different recipes progress independently in one repo; two write-mode steps from different runs are serialized; checkpoint commits never include another run's files; `revise` on a design marks only that run's dependents stale, and a stale step can be confirmed by decision without rerunning.
 
-**Phase 11 — Tailoring and adoption (L6).** Triage application, `applies_to`, re-triage, `detect`, research, crosswalks, seeding (including groups), baseline.
+**Phase 11 — Tailoring and adoption (L6).** Triage application, `applies_to`, re-triage, `detect`, research, crosswalks, seeding (including groups), baseline. Built (owner decisions, 2026-11-02): rejecting a triage level retries triage; re-triage always waits on the owner and reject keeps the old level; adoption is an adoption run of the built-in `baton-adopt` recipe, then one work-item run per in-flight item, triaged, then one baseline decision over `baseline.yaml`; crosswalk format `baton-crosswalk/1`; research scope 10k files / 200 MB (§18 #14); `backyard-project` has three levels.
 ✅ The backyard recipe at `minor` (flower bed) and `major` (shed) runs different, correct step sets; re-triage adds future steps only. Adoption of a fixture project from a different prior process, using a crosswalk, imports work at the right granularity (including a partly finished slice), refuses a nonconforming seed, and needs exactly **one** owner decision. `detect` on a healthy project prints one line.
 
 **Phase 12 — Experts (L7).** `ask_sme` for all three subjects, follow-ups, promotion, platform facts and incidents, process feedback and statistics.
@@ -1325,7 +1364,7 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured] **Decided (2026-11-02):** as suggested; Baton invokes no SME itself. A `platform` failure fires `on_platform_failure` when configured, otherwise `on_complete` (§8.7).
 12. Who may set `fixed` and `rejected`: the next iteration's worker with evidence, or only the Director? [worker with evidence] **Decided (2026-11-02):** worker with evidence, strengthened: a worker's `fixed`/`rejected` is provisional until an independent review confirms it (a re-reported finding id reopens it); with no later review it does not close the finding; persistent worker–reviewer disagreement goes to the owner (§9.2).
 13. SME transcript retention: full (redacted) or question and answer only. [full, redacted]
-14. Research scope limits before asking the owner to narrow. [10k files / 200 MB]
+14. Research scope limits before asking the owner to narrow. [10k files / 200 MB] **Decided (2026-11-02):** as suggested. Counted over the non-ignored files in scope; above either limit `adopt` refuses with the counts and the `--scope` hint (no decision is recorded) (§11.2).
 15. Launcher installation mechanism and how many older format versions a runtime must read. [uv-managed; current and previous]
 16. Optional OpenTelemetry export of events. [off]
 17. SME handoff mode support per harness. [relay first; handoff per harness later]

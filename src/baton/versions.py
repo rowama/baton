@@ -43,11 +43,20 @@ def findings_json_schema() -> dict[str, Any]:
     return _with_header(Findings.model_json_schema(by_alias=True), FINDINGS_FORMAT)
 
 
+@cache
+def crosswalk_json_schema() -> dict[str, Any]:
+    """``baton-crosswalk/1`` (§11.3). Rules against the recipe are checked by the loader."""
+    from .models import CROSSWALK_FORMATS, Crosswalk
+
+    return _with_header(Crosswalk.model_json_schema(by_alias=True), CROSSWALK_FORMATS[-1])
+
+
 def published_schemas() -> dict[str, dict[str, Any]]:
     """File name under ``formats/`` -> schema."""
     return {
         "baton-recipe-1.schema.json": recipe_json_schema(),
         "baton-findings-1.schema.json": findings_json_schema(),
+        "baton-crosswalk-1.schema.json": crosswalk_json_schema(),
     }
 
 

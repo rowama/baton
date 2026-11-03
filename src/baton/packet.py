@@ -319,8 +319,13 @@ def _resolve(
         if not facts.is_file():
             raise _Unresolvable("the project has no platform facts")
         return _Resolved(name, raw, "file", f"{name}.md", facts.read_bytes(), "text/markdown")
+    elif ref.kind == "research":
+        ev = record.last("research_recorded")
+        if ev is None or not ev.data.get("research_sha256"):
+            raise _NotApplicable("this run was not started by an adoption")
+        value = json.loads(cas.read(ev.data["research_sha256"]))
     else:
-        # human_revision.*, research.*: arrive with their layers.
+        # human_revision.*: arrives with publishing (Phase 13).
         raise _Unresolvable(f"{ref.kind} references are not supported by this runtime yet")
     return _Resolved(name, raw, "json", f"{name}.json", _json_bytes(value), "application/json", value)
 

@@ -1,0 +1,24 @@
+# The runtime's built-in adoption recipe (§11.1). Loaded by the runtime, never vendored.
+id: baton-adopt
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Research an existing project for adoption - which of a recipe's step outputs already exist here, where, and in what state.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: research
+    title: Research the existing project
+    requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: standard }
+    workspace: read
+    prompt: prompts/research.md
+    inputs:
+      - { name: recipe,     from: run.inputs.recipe,     required: true }
+      - { name: candidates, from: run.inputs.candidates, required: true }
+      - { name: crosswalk,  from: run.inputs.crosswalk,  required: false }
+      - { name: scope,      from: run.inputs.scope,      required: true }
+      - { name: situation,  from: run.inputs.situation,  required: true }
+    output_schema: schemas/research.json
+    gates: [ { type: schema } ]

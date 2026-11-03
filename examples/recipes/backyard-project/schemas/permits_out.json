@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "permit_required",
+    "basis"
+  ],
+  "properties": {
+    "permit_required": {
+      "type": "boolean"
+    },
+    "basis": {
+      "type": "string",
+      "description": "Which rule or office the answer comes from"
+    },
+    "permit_ref": {
+      "type": "string"
+    },
+    "neighbours_informed": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "CrosswalkMap": {
+      "additionalProperties": false,
+      "description": "One rule: files matching ``match`` hold a step's artifact, output or gate evidence in the prior process.",
+      "properties": {
+        "artifact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact"
+        },
+        "gate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item"
+        },
+        "match": {
+          "minLength": 1,
+          "title": "Match",
+          "type": "string"
+        },
+        "output": {
+          "default": false,
+          "title": "Output",
+          "type": "boolean"
+        },
+        "step": {
+          "pattern": "^[a-z][a-z0-9-]*@[0-9]+/[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_]*)?$",
+          "title": "Step",
+          "type": "string"
+        },
+        "work_item": {
+          "minLength": 1,
+          "title": "Work Item",
+          "type": "string"
+        }
+      },
+      "required": [
+        "match",
+        "step",
+        "work_item"
+      ],
+      "title": "CrosswalkMap",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "format": {
+      "title": "Format",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "maps": {
+      "items": {
+        "$ref": "#/$defs/CrosswalkMap"
+      },
+      "minItems": 1,
+      "title": "Maps",
+      "type": "array"
+    },
+    "prior_process": {
+      "minLength": 1,
+      "title": "Prior Process",
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "prior_process",
+    "maps"
+  ],
+  "title": "baton-crosswalk/1",
+  "type": "object"
+}

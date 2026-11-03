@@ -112,11 +112,34 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
         lines += ["## Upstream waivers", ""]
         lines += [f"- `{e.step_path}` gate {e.data.get('gate')} ({e.data.get('scope')}, {e.data.get('decision_id')}): \"{e.data.get('reason')}\"" for e in upstream]
         lines.append("")
+    lines += _tailoring_lines(step_path, mine, events)
     other = [e for e in mine if e.attempt is None and e.type in ("step_escalated", "step_abandoned", "human_decision")]
     if other:
         lines += ["## Other events", ""]
         lines += [f"- {e.ts} {e.type} by {e.actor}: {_brief(e)}" for e in other] + [""]
     return "\n".join(lines)
+
+
+def _tailoring_lines(step_path: str, mine: list[Event], events: list[Event]) -> list[str]:
+    """Skips, imports and pre-retriage flags (§5.5, §11.4)."""
+    out: list[str] = []
+    for e in mine:
+        d = e.data
+        if e.type == "step_skipped":
+            out.append(f"- {e.ts} skipped at level **{d.get('level')}** ({d.get('cause')})")
+        elif e.type == "step_unskipped":
+            out.append(f"- {e.ts} included again at level **{d.get('level')}** ({d.get('cause')})")
+        elif e.type == "step_imported":
+            att = d.get("attested") or {}
+            out.append(f"- {e.ts} **imported** from existing work, attested by the baseline of adoption `{att.get('adoption')}` ({att.get('decision_id')})")
+            for f in d.get("evidence") or []:
+                out.append(f"  - evidence `{f.get('path')}` (`{f.get('sha256')}`)")
+            for g in d.get("gates") or []:
+                out.append(f"  - gate {g.get('gate')} ({g.get('type')}): {g.get('status')}")
+    for e in events:
+        if e.type == "retriage_applied" and step_path in (e.data.get("pre_retriage") or []):
+            out.append(f"- **pre-retriage:** accepted at level {e.data.get('previous_level')}; level {e.data.get('level')} (re-triaged {e.ts}) would have skipped or gated it differently")
+    return ["## Tailoring and adoption", "", *out, ""] if out else []
 
 
 def _upstream_waivers(ctx: RunContext, step_path: str, events: list[Event]) -> list[Event]:
@@ -249,6 +272,7 @@ _TIMELINE = {
     "run_started", "result_rejected", "gate_failed", "human_decision", "step_passed", "step_escalated",
     "step_abandoned", "run_completed", "run_abandoned", "lease_taken_over",
     "group_expanded", "iteration_started", "iteration_limit_reached", "step_revised", "step_stale",
+    "complexity_set", "retriage_requested", "retriage_applied", "step_imported", "research_recorded", "baseline_established",
 }
 
 
@@ -279,6 +303,8 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
         f"- Formats: {', '.join(f'{k} `{v}`' for k, v in sorted(formats.items()))}",
         f"- Max attempts per step: {started.get('max_attempts')}",
         f"- State: **{rs.state}**",
+        *([f"- Complexity level: **{level}**" if (level := ctx.record().level()) else "- Complexity level: not set yet"] if ctx.recipe.recipe.complexity else []),
+        *([f"- Adopted: from adoption run `{started['adoption']['run']}` (work item `{started['adoption']['work_item']}`)"] if started.get("adoption") else []),
         "",
         "## Steps",
         "",
@@ -326,6 +352,22 @@ def _timeline_text(ev: Event) -> str:
     if t == "human_decision":
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"
+    if t == "complexity_set":
+        how = {"auto": "applied at once (lowest level)", "owner": "approved by the owner", "baseline": "set by the adoption baseline"}.get(d.get("approval"), "")
+        return f"level **{d.get('level')}**" + (f", {how}" if how else "")
+    if t == "retriage_requested":
+        return f"re-triage requested (level {d.get('previous_level')}): {d.get('reason')}"
+    if t == "retriage_applied":
+        return f"re-triage applied: level {d.get('previous_level')} → **{d.get('level')}**"
+    if t == "step_passed" and d.get("retriage_rejected"):
+        return "re-triage rejected by the owner; the earlier level and result stand"
+    if t == "step_imported":
+        return "imported from existing work, attested by the adoption baseline"
+    if t == "research_recorded":
+        runs = d.get("runs") or {}
+        return "research recorded" + (f"; work-item runs started: {', '.join(f'{k} `{v}`' for k, v in sorted(runs.items()))}" if runs else "")
+    if t == "baseline_established":
+        return "adoption baseline established"
     if t == "step_passed" and d.get("confirmed"):
         return "confirmed unchanged (earlier result kept)"
     if t == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:

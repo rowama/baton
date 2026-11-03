@@ -228,6 +228,33 @@ class Recipe(_Strict):
 
 
 # --------------------------------------------------------------------------
+# Crosswalks: baton-crosswalk/1 (§11.3)
+# --------------------------------------------------------------------------
+
+CROSSWALK_FORMATS: tuple[str, ...] = ("baton-crosswalk/1",)
+
+
+class CrosswalkMap(_Strict):
+    """One rule: files matching ``match`` hold a step's artifact, output or gate evidence in the prior process."""
+
+    match: str = Field(min_length=1)  # glob relative to the project root; each * / ** is a capture
+    step: str = Field(pattern=r"^[a-z][a-z0-9-]*@[0-9]+/[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_]*)?$")  # qualified step id (§5.8)
+    artifact: str | None = None
+    output: bool = False
+    gate: int | None = Field(default=None, ge=0)
+    work_item: str = Field(min_length=1)  # template over the captures, e.g. "{1}"
+    item: str | None = None  # in a foreach group: the item's key in the prior process
+
+
+class Crosswalk(_Strict):
+    format: str
+    id: str = Field(pattern=RECIPE_ID)
+    prior_process: str = Field(min_length=1)
+    description: str | None = None
+    maps: list[CrosswalkMap] = Field(min_length=1)
+
+
+# --------------------------------------------------------------------------
 # Findings: the runtime-owned schema "baton:findings" (§9.2)
 # --------------------------------------------------------------------------
 

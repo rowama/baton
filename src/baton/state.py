@@ -101,7 +101,7 @@ TRANSITIONS: Mapping[str, Mapping[str, str]] = {
         "orphaned": "escalated",
     },
     "step_abandoned": {"escalated": "abandoned"},
-    "step_skipped": {"blocked_on_deps": "skipped"},
+    "step_skipped": {"blocked_on_deps": "skipped", "ready": "skipped"},  # ready: approved re-triage, never dispatched
     "step_unskipped": {"skipped": "blocked_on_deps"},  # approved re-triage
     "step_imported": {"blocked_on_deps": "imported"},
     "step_revised": {"passed": "superseded", "imported": "superseded"},
@@ -259,6 +259,8 @@ def next_step_state(current: StepState, etype: str, attempt: int | None, max_att
     elif attempt is not None and attempt != n:
         raise IllegalTransition(f"{etype} carries attempt {attempt}, but the step is at {n}", code="state.bad_attempt")
 
+    if etype == "step_skipped" and frm == "ready" and n != 0:
+        raise IllegalTransition("step_skipped from ready is only for a step never dispatched", code="state.started")
     new = replace(current, state=to)
     if etype == "dispatched":
         new = replace(new, attempt=n + 1)

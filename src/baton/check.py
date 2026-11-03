@@ -27,7 +27,7 @@ from . import redact, versions
 from .data import read_text
 from .models import EVENTS_FORMATS, Event, Issue
 from .packet import PROTOCOL
-from .project import COMM_FILE, GITATTRIBUTES_RULE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
+from .project import BUILTIN_RECIPES, builtin_recipe, COMM_FILE, GITATTRIBUTES_RULE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
 from .recipe import RecipeError, load_recipe
 from .store import BATON_DIR, RunLog, Store
 from .vocab import load as load_vocab
@@ -41,7 +41,7 @@ def referenced_blobs(events: Iterable[Event]) -> set[str]:
     out: set[str] = set()
     for ev in events:
         d = ev.data
-        for key in ("inputs_sha256", "result_sha256", "output_sha256"):
+        for key in ("inputs_sha256", "result_sha256", "output_sha256", "research_sha256", "baseline_sha256"):
             if isinstance(d.get(key), str):
                 out.add(d[key])
         arts = d.get("artifacts")
@@ -125,6 +125,8 @@ def check(root: Path) -> list[Issue]:
             if events and events[0].type == "run_started":
                 ref, sha = events[0].data.get("recipe"), events[0].data.get("recipe_sha256")
                 entry = recipes.get(ref)
+                if entry is None and ref in BUILTIN_RECIPES:
+                    entry = {"sha256": builtin_recipe(ref).sha256}  # the runtime's own (§11.1)
                 if entry is None or entry.get("sha256") != sha:
                     issues.append(
                         Issue(code="run.recipe_not_vendored", where=str(RunLog(store, rid).path), message=f"pinned recipe {ref} ({sha}) is not vendored with that hash")

@@ -68,6 +68,17 @@ hooks:                        # completion hooks (shell commands, non-secret); m
 """
 
 
+#: Recipes shipped with the runtime (§11.1): loaded from ``builtin/``, never vendored.
+BUILTIN_RECIPES: dict[str, str] = {"baton-adopt@1": "baton-adopt"}
+
+
+def builtin_recipe(ref: str) -> LoadedRecipe:
+    try:
+        return load_recipe(data.path("builtin") / BUILTIN_RECIPES[ref])
+    except RecipeError as e:  # pragma: no cover - shipped recipes are tested
+        raise EngineError("recipe.invalid", f"built-in recipe {ref} is invalid: {e}") from e
+
+
 def machine_home() -> Path:
     return Path(os.environ.get("BATON_HOME") or Path.home() / ".baton")
 
@@ -172,7 +183,11 @@ class Project:
         raise EngineError("recipe.not_vendored", f"recipe {ref!r} is not vendored in this project (vendored: {', '.join(known) or 'none'})")
 
     def recipe(self, ref: str) -> LoadedRecipe:
-        """A vendored recipe, verified against its lockfile hash."""
+        """A vendored recipe, verified against its lockfile hash (or a built-in one, §11.1)."""
+        if ref in BUILTIN_RECIPES:
+            if ref not in self._recipes:
+                self._recipes[ref] = builtin_recipe(ref)
+            return self._recipes[ref]
         ref = self.resolve_ref(ref)
         if ref not in self._recipes:
             entry = self.lock()["recipes"][ref]

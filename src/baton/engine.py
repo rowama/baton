@@ -25,7 +25,7 @@ import json
 import socket
 from dataclasses import dataclass, field
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
@@ -43,6 +43,7 @@ from .packet import (
     gate_included,
     node_for,
     remove_tree,
+    revision_of,
     view_of,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
@@ -55,7 +56,7 @@ __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
     "abandon_run", "begin_attempt", "decide", "disposition", "escalate_no_worker", "waive", "finish_child", "open_run", "pending_decisions", "plan",
     "resolve_effort",
-    "refresh", "revise", "start", "submit",
+    "refresh", "retriage", "revise", "start", "submit",
 ]
 
 
@@ -136,7 +137,27 @@ def open_run(store: Store, run_id: str, recipe: LoadedRecipe, project: dict[str,
     return ctx
 
 
-def refresh(ctx: RunContext) -> list[str]:
+def awaiting_baseline(events: list[Any], *, kind: str = "work_item") -> bool:
+    """Whether a run waits for its adoption's baseline (§11.1).
+
+    ``work_item``: a run created by adoption (it readies only its triage step
+    until then). ``adoption``: the adoption run itself (it completes only then).
+    """
+    if not events or events[0].type != "run_started":
+        return False
+    d = events[0].data
+    if kind == "adoption" and d.get("kind") != "adoption":
+        return False
+    if kind == "work_item" and not d.get("adoption"):
+        return False
+    return not any(e.type == "baseline_established" for e in events)
+
+
+#: ``importer(path, node, frame) -> step_imported data | None``: a seed for a step about to be readied (§11.4).
+Importer = Callable[[str, Step, "groups.Frame | None"], "dict[str, Any] | None"]
+
+
+def refresh(ctx: RunContext, importer: Importer | None = None) -> list[str]:
     """Move the run forward as far as the record allows; complete it when every top-level node is done.
 
     Readies every step (top level or inside a group's current iteration) whose
@@ -146,40 +167,104 @@ def refresh(ctx: RunContext) -> list[str]:
     expands and re-expands groups; starts instances as ``concurrency`` allows;
     ends iterations judged unmet and starts the next one, or escalates at
     ``max_iterations`` (§8.5). Steps with ``applies_to`` wait until a
-    complexity level is set (§5.5). One event at a time, each from a fresh view.
+    complexity level is set, and are then marked ``skipped`` when it excludes
+    them (§5.5). A run created by adoption readies only its triage step until
+    its baseline is established; an adoption run completes only then (§11.1).
+    ``importer`` turns a step about to be readied into ``step_imported`` (the
+    baseline's seeds, §11.4). One event at a time, each from a fresh view.
     """
     log = ctx.log
     if log.state().state != "active":
         return []
     readied: list[str] = []
-    while _advance(ctx, view_of(ctx), ctx.recipe.recipe.steps, None, readied):
+    events = log.events()
+    if importer is None:
+        importer = _baseline_importer(ctx, events)
+    hold = awaiting_baseline(events)
+    nodes = ctx.recipe.recipe.steps
+    if hold:
+        cx = ctx.recipe.recipe.complexity
+        nodes = [n for n in nodes if cx is not None and n.id == cx.triage_step]
+    while _advance(ctx, view_of(ctx), nodes, None, readied, importer):
         pass
+    if hold or awaiting_baseline(events, kind="adoption"):
+        return readied
     view = view_of(ctx)
     if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps):
         log.append("run_completed")
     return readied
 
 
-def _advance(ctx: RunContext, view: groups.View, nodes: list[Any], frame: groups.Frame | None, readied: list[str]) -> bool:
+def _baseline_importer(ctx: RunContext, events: list[Any]) -> Importer | None:
+    """Seeds the run's baseline holds, imported as their steps come due (§11.4).
+
+    The seeds are data in ``baseline_established``, so an instance that starts
+    later (``concurrency``) still has its finished steps imported, never re-run.
+    Only steps with no events of their own, and only in an instance's first
+    iteration, are imported.
+    """
+    ev = next((e for e in events if e.type == "baseline_established" and e.data.get("seeds")), None)
+    if ev is None:
+        return None
+    seeds = {(x["step"], x.get("item")): x["data"] for x in ev.data["seeds"]}
+
+    def imp(path: str, node: Step, frame: groups.Frame | None) -> dict[str, Any] | None:
+        if path in ctx.log.state().steps:
+            return None
+        if frame is None:
+            key: tuple[str, int | None] = (node.id, None)
+        else:
+            if "/" in frame.group_path or frame.iteration != 1:
+                return None  # seeds reach one level of groups, first iterations only
+            idx = None
+            if frame.group.foreach:
+                exp = view_of(ctx).expansion(frame.group_path) or {}
+                if exp.get("mode") == "foreach":
+                    idx = next((i for i, it in enumerate(exp.get("items") or []) if it["id"] == frame.instance), None)
+            key = (f"{frame.group.id}/{node.id}", idx)
+        data = seeds.get(key)
+        return dict(data) if data is not None else None
+
+    return imp
+
+
+def _advance(
+    ctx: RunContext, view: groups.View, nodes: list[Any], frame: groups.Frame | None, readied: list[str], importer: Importer | None = None,
+) -> bool:
     """Append the next event this scope calls for; ``True`` if one was appended."""
     for node in nodes:
-        if node.applies_to is not None and (view.level is None or view.level not in node.applies_to):
-            continue
         path = groups.child_path(frame, node.id)
+        if node.applies_to is not None:
+            if view.level is None:
+                continue  # waits for triage (§5.5)
+            if view.level not in node.applies_to:
+                if view.rs.step(path).state == "blocked_on_deps" and (isinstance(node, Step) or view.expansion(path) is None):
+                    ctx.log.append("step_skipped", step_path=path, data={"level": view.level, "cause": "complexity"})
+                    return True
+                continue
         if not view.deps_met(node, frame):
             continue
         if isinstance(node, Step):
             state = view.rs.step(path).state
             if state == "blocked_on_deps":
+                seed = importer(path, node, frame) if importer is not None else None
+                if seed is not None:
+                    waivers = seed.pop("waivers", [])
+                    ctx.log.append("step_imported", actor="human", step_path=path, data=seed)
+                    for w in waivers:  # proposed by the baseline: a gate passed outside Baton without evidence (§11.4)
+                        ctx.log.append("gate_waived", actor="human", step_path=path, data={**w, "scope": "imported"})
+                    return True
                 ctx.log.append("step_ready", step_path=path, data={})
                 readied.append(path)
                 return True
-        elif _advance_group(ctx, view, node, path, frame, readied):
+        elif _advance_group(ctx, view, node, path, frame, readied, importer):
             return True
     return False
 
 
-def _advance_group(ctx: RunContext, view: groups.View, group: Group, path: str, outer: groups.Frame | None, readied: list[str]) -> bool:
+def _advance_group(
+    ctx: RunContext, view: groups.View, group: Group, path: str, outer: groups.Frame | None, readied: list[str], importer: Importer | None = None,
+) -> bool:
     log = ctx.log
     if view.needs_expansion(group, path, outer):
         data = view.build_expansion(group, path, outer)
@@ -224,13 +309,218 @@ def _advance_group(ctx: RunContext, view: groups.View, group: Group, path: str, 
                     data={"iteration": cur + 1, "from": group.repeat_from or group.steps[0].id, "budget_base": base, "after": failed.step_path},
                 )
             return True
-        if _advance(ctx, view, group.steps, f, readied):
+        if _advance(ctx, view, group.steps, f, readied, importer):
             return True
     return False
 
 
 def _completed(ctx: RunContext) -> bool:
     return ctx.log.state().state == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Tailoring: triage, complexity levels, re-triage (§5.5)
+# ---------------------------------------------------------------------------
+
+
+def _is_triage(ctx: RunContext, step_path: str) -> bool:
+    cx = ctx.recipe.recipe.complexity
+    return cx is not None and step_path == cx.triage_step
+
+
+def _triage_output(ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
+    sha = _registered(ctx, step_path, n).get("output_sha256")
+    out = json.loads(ctx.log.cas.read(sha)) if sha else {}
+    return out if isinstance(out, dict) else {}
+
+
+def pending_retriage(events: list[Any]) -> Any:
+    """The open ``retriage_requested`` event, if a re-triage waits to be applied or rejected."""
+    req = None
+    for e in events:
+        if e.type == "retriage_requested":
+            req = e
+        elif req is not None and (e.type == "retriage_applied" or (e.type == "step_passed" and e.data.get("retriage_rejected"))):
+            req = None
+    return req
+
+
+def _reasons_of(out: dict[str, Any]) -> list[str]:
+    r = out.get("reasons")
+    if isinstance(r, list):
+        return [str(x) for x in r]
+    return [str(r)] if isinstance(r, str) and r else []
+
+
+def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
+    """The implicit approval of a triage result (§5.5, §18 #8); ``None`` when none is needed (or it passed)."""
+    if not _is_triage(ctx, step_path):
+        return None
+    log = ctx.log
+    events = log.events()
+    record = ctx.record()
+    if any(e.type == "gate_passed" and e.data.get("gate") == "triage" for e in record.attempt_events(step_path, n)):
+        return None
+    if awaiting_baseline(events):
+        return None  # the baseline approves the level (§11.5)
+    cx = ctx.recipe.recipe.complexity
+    assert cx is not None
+    out = _triage_output(ctx, step_path, n)
+    level = out.get("level")
+    req = pending_retriage(events)
+    if req is None and (level == cx.levels[0] or record.level() is not None):
+        return None
+    why = _reasons_of(out)
+    because = f" because: {'; '.join(why)}" if why else ""
+    if req is not None:
+        prev = req.data.get("previous_level")
+        prompt = (f"Re-triage ({req.data.get('reason')}): apply level {level!r} instead of {prev!r}{because}? "
+                  f"Approve applies it to steps not yet started; reject keeps {prev!r}.")
+    else:
+        prompt = f"Triage rated this work {level!r} (levels: {', '.join(cx.levels)}){because}. Approve this level? (Reject: triage is tried again with your note.)"
+    data = {"gate": "triage", "type": "triage", "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path, "level": level}
+    if req is not None:
+        data["retriage"] = True
+    log.append("human_gate_opened", step_path=step_path, attempt=n, data=data)
+    return Outcome(step_path, n, "needs_human", [prompt])
+
+
+def _apply_triage(ctx: RunContext, step_path: str, n: int) -> None:
+    """After the triage step passed: set the level, or apply a re-triage (§5.5)."""
+    if not _is_triage(ctx, step_path):
+        return
+    events = ctx.log.events()
+    if awaiting_baseline(events):
+        return
+    out = _triage_output(ctx, step_path, n)
+    level = out.get("level")
+    approved = next((e for e in ctx.record().attempt_events(step_path, n) if e.type == "human_decision" and e.data.get("gate") == "triage"), None)
+    req = pending_retriage(events)
+    if req is not None:
+        _apply_retriage(ctx, level, req, approved.seq if approved else None)
+        return
+    if ctx.record().level() is not None:
+        return
+    data: dict[str, Any] = {"level": level, "approval": "owner" if approved else "auto"}
+    if approved is not None:
+        data["decision_seq"] = approved.seq
+    if _reasons_of(out):
+        data["reasons"] = _reasons_of(out)
+    ctx.log.append("complexity_set", step_path=step_path, data=data)
+
+
+def _not_started(st: Any) -> bool:
+    return st.state == "blocked_on_deps" or (st.state == "ready" and st.attempt == 0)
+
+
+def _apply_retriage(ctx: RunContext, level: str, req: Any, decision_seq: int | None) -> None:
+    """Re-evaluate every step that has not started at the new level; flag accepted steps it would treat differently."""
+    log = ctx.log
+    old = ctx.record().level()
+    view = view_of(ctx)
+    rs = view.rs
+    skip: list[str] = []
+    unskip: list[str] = []
+    pre: list[str] = []
+
+    def included(node: Any, lv: str | None) -> bool:
+        return node.applies_to is None or lv in node.applies_to
+
+    def walk(nodes: list[Any], frame: groups.Frame | None) -> None:
+        for node in nodes:
+            path = groups.child_path(frame, node.id)
+            if frame is not None and path in seen:
+                continue  # a step before repeat_from, judged in its first iteration
+            seen.add(path)
+            st = rs.step(path)
+            new_in = included(node, level)
+            if st.state == "skipped":
+                if new_in:
+                    unskip.append(path)
+                continue
+            if isinstance(node, Step):
+                if not new_in and _not_started(st):
+                    skip.append(path)
+                elif st.state in ("passed", "imported"):
+                    differs = any(gate_included(g, old) != gate_included(g, level) for g in node.gates)
+                    if not new_in or differs:
+                        pre.append(path)
+                continue
+            if view.expansion(path) is None:
+                if not new_in and st.state == "blocked_on_deps":
+                    skip.append(path)
+                continue
+            for item in view.live_items(path):
+                f = view.frame(node, path, item["id"])
+                if f is not None and view.instance_state(node, path, item["id"]) not in ("abandoned", "superseded"):
+                    walk(node.steps, f)
+
+    seen: set[str] = set()
+    walk(ctx.recipe.recipe.steps, None)
+    log.append(
+        "retriage_applied", step_path=req.step_path,
+        data={"level": level, "previous_level": old, "reason": req.data.get("reason"), "decision_seq": decision_seq,
+              "skipped": skip, "unskipped": unskip, "pre_retriage": pre},
+    )
+    for p in skip:
+        log.append("step_skipped", step_path=p, data={"level": level, "cause": "retriage"})
+    for p in unskip:
+        log.append("step_unskipped", step_path=p, data={"level": level, "cause": "retriage"})
+
+
+def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcome:
+    """Rerun triage behind the owner's approval (§5.5): the new level applies only to work not yet started."""
+    if not reason.strip():
+        raise EngineError("retriage.reason_required", "re-triage needs a reason")
+    cx = ctx.recipe.recipe.complexity
+    if cx is None:
+        raise EngineError("retriage.no_levels", f"{ctx.recipe.recipe.ref} declares no complexity levels")
+    log = ctx.log
+    events = log.events()
+    if awaiting_baseline(events):
+        raise EngineError("retriage.awaiting_baseline", "this run's level is set by its adoption baseline; change it there")
+    record = ctx.record()
+    level = record.level()
+    if level is None:
+        raise EngineError("retriage.no_level", "triage has not set a level yet; finish triage first")
+    if pending_retriage(events) is not None:
+        raise EngineError("retriage.pending", "a re-triage is already waiting to be decided")
+    rs = log.state()
+    busy = sorted(p for p, st in rs.steps.items() if st.state in groups.IN_FLIGHT)
+    if busy:
+        raise EngineError("retriage.in_flight", f"cannot re-triage while work is in flight: {', '.join(busy)}")
+    tpath = cx.triage_step
+    st = rs.step(tpath)
+    if st.state not in ("passed", "imported"):
+        raise EngineError("retriage.triage_not_accepted", f"{tpath} is {st.state}; re-triage needs an accepted triage result")
+    log.append("retriage_requested", actor=actor, step_path=tpath, data={"reason": reason, "previous_level": level})
+    log.append("step_revised", actor=actor, step_path=tpath, data={"reason": reason, "retriage": True})
+    log.append("step_ready", step_path=tpath, data={"revision": True, "retriage": True})
+    return Outcome(tpath, st.attempt, "retriage_requested", [reason], [tpath])
+
+
+def _decide_triage(ctx: RunContext, step: Step, ref: str, n: int, decision: str, note: str) -> Outcome:
+    """The owner's answer at the implicit triage gate (§5.5)."""
+    log = ctx.log
+    opened = ctx.record().last("human_gate_opened", ref, n)
+    base: dict[str, Any] = {"gate": "triage", "type": "triage", "implicit": True, "level": opened.data.get("level") if opened else None}
+    if decision == "approve":
+        log.append("gate_passed", step_path=ref, attempt=n, data={**base, "approved": True})
+        return _run_gates(ctx, step, ref, n, len(step.gates))
+    reasons = [f"the owner did not approve the level: {note}" if note else "the owner did not approve the level"]
+    log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
+    req = pending_retriage(log.events())
+    if req is None:
+        return _failed(ctx, ref, n, reasons)
+    rev = revision_of(ctx.record(), ref)
+    assert rev is not None
+    revised, previous = rev
+    decision_ev = ctx.record().last("human_decision", ref, n)
+    data = {k: v for k, v in previous.data.items() if k not in ("confirmed", "retriage_rejected")}
+    data["retriage_rejected"] = {"decision_seq": decision_ev.seq if decision_ev else None, "previous_seq": previous.seq, "requested_seq": req.seq}
+    log.append("step_passed", step_path=ref, attempt=n, data=data)
+    ready = refresh(ctx)
+    return Outcome(ref, n, "retriage_rejected", reasons, ready, _completed(ctx))
 
 
 # ---------------------------------------------------------------------------
@@ -540,11 +830,15 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
             return Outcome(step_path, n, "needs_human", [gate.prompt])
         else:  # pragma: no cover - every gate type is handled above
             raise EngineError("engine.unsupported_gate", f"unknown gate type {gate.type}")
+    held = _triage_gate(ctx, step_path, n)
+    if held is not None:
+        return held
     data = _registered(ctx, step_path, n)
     loc = groups.locate(ctx.recipe, step_path)
     if loc is not None and groups.is_judge(loc):
         data["condition"] = {"gates_passed": True}
     log.append("step_passed", step_path=step_path, attempt=n, data=data)
+    _apply_triage(ctx, step_path, n)
     if reviews.review_target(step) is not None:
         return _review_finished(ctx, step, step_path, n)
     ready = refresh(ctx)
@@ -807,6 +1101,16 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
                     "options": list(ESCALATION_DECISIONS),
                 }
             )
+    if awaiting_baseline(ctx.log.events(), kind="adoption"):
+        from .adopt import baseline_path
+
+        bp = baseline_path(ctx.store.baton, ctx.run_id)
+        if bp.is_file():
+            out.append({
+                "ref": "baseline", "step_path": None, "kind": "baseline", "path": bp.relative_to(ctx.store.root).as_posix(),
+                "prompt": f"Review the adoption baseline ({bp.relative_to(ctx.store.root).as_posix()}), edit it if needed, then establish it",
+                "options": [f"baton establish-baseline {ctx.run_id} --note \"<your words>\""],
+            })
     for ipath, lim in view.pending_limits():
         d = lim.data
         out.append(
@@ -858,6 +1162,8 @@ def decide(
         attempt=n,
         data={"ref": ref, "kind": "gate", "gate": gate_index, "decision": decision, "note": note, **extra},
     )
+    if gate_index == "triage":  # the implicit approval of a triage result (§5.5)
+        return _decide_triage(ctx, step, ref, n, decision, note)
     if gate_index == "protected":  # the implicit protected gate in warn mode (§9.4)
         base: dict[str, Any] = {"gate": "protected", "type": "protected", "implicit": True}
         if decision == "approve":
@@ -1106,6 +1412,8 @@ def revise(ctx: RunContext, step_path: str, reason: str, *, actor: str = "direct
     loc = groups.locate(ctx.recipe, step_path)
     if loc is None or not isinstance(loc.node, Step):
         raise EngineError("engine.unknown_step", f"{step_path} is not a step of {ctx.recipe.recipe.ref}")
+    if _is_triage(ctx, step_path):
+        raise EngineError("revise.triage", f"{step_path} is the triage step; change the level with `retriage` instead")
     if loc.frames:
         raise EngineError("revise.inside_group", f"{step_path} is inside a group; revising steps inside groups is not supported yet (revise the group's source or an earlier step)")
     log = ctx.log
@@ -1174,6 +1482,65 @@ def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, acto
     return Outcome(ref, n, "abandoned", [note] if note else [])
 
 
+def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, decision_id: str) -> Outcome:
+    """Apply one work item of an established baseline to its run (§11.5).
+
+    Records ``baseline_established`` (with the seeds, stored in this run's CAS),
+    ``complexity_set`` at the baseline's level, then lets ``refresh`` skip,
+    import and ready steps in dependency order. ``create: false`` abandons the run.
+    """
+    from .adopt import _project_file
+
+    log = ctx.log
+    if not awaiting_baseline(log.events()):
+        raise EngineError("baseline.applied", f"run {ctx.run_id} has no pending baseline")
+    if not item.get("create", True):
+        log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "create": False})
+        log.append("run_abandoned", actor="human", data={"reason": f"left out by the adoption baseline ({adoption}, {decision_id})"})
+        return Outcome("", 0, "abandoned")
+    cas = log.cas
+    root = ctx.store.root
+    attested = {"adoption": adoption, "decision_id": decision_id}
+    waivers: dict[tuple[str, Any], list[dict[str, Any]]] = {}
+    for w in item.get("waivers") or []:
+        waivers.setdefault((w["step"], w.get("item")), []).append({"gate": w["gate"], "reason": w["reason"], "decision_id": decision_id})
+    seeds = []
+    for e in item.get("seeds") or []:
+        if not e.get("import"):
+            continue
+        node = node_for(ctx.recipe, e["step"].split("/", 1)[0])
+        if isinstance(node, Group):
+            node = next(n for n in node.steps if n.id == e["step"].split("/", 1)[1])
+        data: dict[str, Any] = {"output_sha256": cas.put(canonical_json(e.get("output")).encode("utf-8")) if "output" in e else None, "artifacts": {}}
+        for name, a in sorted((e.get("artifacts") or {}).items()):
+            p = _project_file(root, a["path"])
+            assert p is not None  # checked by check_baseline
+            decl = next((x for x in node.artifacts if x.name == name), None)
+            entry = {"sha256": cas.put_file(p), "filename": PurePosixPath(a["path"]).name, "source": a["path"]}
+            if decl is not None and decl.media_type:
+                entry["media_type"] = decl.media_type
+            data["artifacts"][name] = entry
+        evidence = []
+        for x in e.get("evidence") or []:
+            p = _project_file(root, x["path"])
+            evidence.append({"path": x["path"], "sha256": cas.put_file(p) if p is not None else x["sha256"]})
+        data.update(evidence=evidence, gates=e.get("gates") or [], attested=attested)
+        wv = waivers.get((e["step"], e.get("item")))
+        if wv:
+            data["waivers"] = wv
+        seeds.append({"step": e["step"], **({"item": e["item"]} if e.get("item") is not None else {}), "data": data})
+    level = item.get("level")
+    log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "level": level, "seeds": seeds})
+    if level is not None:
+        cs: dict[str, Any] = {"level": level, "approval": "baseline", "decision_id": decision_id}
+        if item.get("level_reasons"):
+            cs["reasons"] = list(item["level_reasons"])
+        cx = ctx.recipe.recipe.complexity
+        log.append("complexity_set", step_path=cx.triage_step if cx else None, data=cs)
+    ready = refresh(ctx)
+    return Outcome("", 0, "baseline_established", [], ready, _completed(ctx))
+
+
 def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> None:
     """End the run without completing it (§13.1 ``abandon``)."""
     if not reason.strip():
@@ -1240,8 +1607,11 @@ class Api:
     def _ctx(self, run_id: str) -> RunContext:
         return self.project.context(run_id)
 
-    def _mutate(self, run_id: str, body: Any, *, allow_closed: bool = False) -> dict[str, Any]:
-        """Hold the lease, run ``body(ctx) -> dict``, then write records and checkpoint."""
+    def _mutate(self, run_id: str, body: Any, *, allow_closed: bool = False, extra: list[Path] | None = None) -> dict[str, Any]:
+        """Hold the lease, run ``body(ctx) -> dict``, then write records and checkpoint.
+
+        ``extra``: further paths (filled in by ``body``) the checkpoint commits with this run's.
+        """
         with self._run_lock(run_id):
             ctx = self._ctx(run_id)
             if not allow_closed and ctx.log.state().state != "active":
@@ -1250,7 +1620,7 @@ class Api:
             leases.ensure()
             before = ctx.log.state().last_seq
             out = body(ctx) or {}
-            self._after(ctx, leases, before, out)
+            self._after(ctx, leases, before, out, extra)
             return out
 
     def _run_lock(self, run_id: str) -> Any:
@@ -1258,21 +1628,22 @@ class Api:
 
         return run_lock(self.project.baton, run_id)
 
-    def _after(self, ctx: RunContext, leases: Any, before: int, out: dict[str, Any]) -> None:
+    def _after(self, ctx: RunContext, leases: Any, before: int, out: dict[str, Any], extra: list[Path] | None = None) -> None:
         from . import docs
 
         if ctx.log.state().state in ("completed", "abandoned") and leases.current() is not None:
             leases.release(actor="runtime")
+        paths = list(extra or []) + self._adoption_progress(ctx)
         docs.write_records(ctx)
         new = [e for e in ctx.log.events() if e.seq > before]
-        cp = self._checkpoint(ctx, new)
+        cp = self._checkpoint(ctx, new, paths)
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
         pending = pending_decisions(ctx)
         out["pending_decisions"] = pending
         out["needs_owner"] = bool(pending)
 
-    def _checkpoint(self, ctx: RunContext, new: list[Any]) -> Any:
+    def _checkpoint(self, ctx: RunContext, new: list[Any], extra: list[Path] | None = None) -> Any:
         from . import docs, gitops
 
         triggers = [e for e in new if e.type in CHECKPOINT_TRIGGERS]
@@ -1285,7 +1656,7 @@ class Api:
         # Under the project lock: another run's checkpoint cannot stage its files
         # between this preflight and this commit (§8.9).
         with project_lock(self.project.baton):
-            pf = gitops.preflight(self.project.root, [ctx.run_dir])
+            pf = gitops.preflight(self.project.root, [ctx.run_dir, *(extra or [])])
             if isinstance(pf, str):
                 return gitops.Checkpoint(False, reason=pf)
             top, rels = pf
@@ -1416,8 +1787,14 @@ class Api:
                      "blocking": [i for i in e.data.get("blocking") or [] if i in now_open], "partial": bool(e.data.get("partial"))}
             if now_open or entry["partial"]:
                 findings.append(entry)
+        def deps_now(p: str) -> bool:
+            # A ready step whose dependencies are no longer met (a re-triage brought an
+            # upstream step back, or one is being re-triaged) waits; dispatch refuses it.
+            loc = groups.locate(ctx.recipe, p)
+            return loc is None or view.deps_met(loc.node, loc.frame)
+
         ready = [p for p, st in sorted(rs.steps.items(), key=lambda kv: kv[1].last_seq)
-                 if (st.state == "ready" and view.live_reason(p) is None) or (st.state == "stale" and stale_runnable(ctx, p, view) is None)]
+                 if (st.state == "ready" and view.live_reason(p) is None and deps_now(p)) or (st.state == "stale" and stale_runnable(ctx, p, view) is None)]
         stale = []
         for p, st in sorted(rs.steps.items()):
             if st.state == "stale" and (view.live_reason(p, dispatch=False) is None):
@@ -1464,6 +1841,7 @@ class Api:
             "pending_decisions": pending,
             "needs_owner": bool(pending),
             "lease": lease_info,
+            **({"adoption": started["adoption"], "awaiting_baseline": awaiting_baseline(events)} if started.get("adoption") else {}),
             "last_checkpoint": gitops.last_checkpoint(self.project.root, run_id),
             "last_seq": rs.last_seq,
         }
@@ -2200,6 +2578,15 @@ class Api:
 
         return self._mutate(run_id, body)
 
+    def retriage(self, run_id: str, reason: str) -> dict[str, Any]:
+        """Rerun triage (§5.5); the new level waits on the owner's decision at the triage step."""
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            outcome = retriage(ctx, reason, actor=self.director.actor)
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
     def abandon(self, run_id: str, reason: str) -> dict[str, Any]:
         def body(ctx: RunContext) -> dict[str, Any]:
             abandon_run(ctx, reason, actor=self.director.actor)
@@ -2209,6 +2596,215 @@ class Api:
         self._drop_run_entries(run_id, "the run was abandoned")
         self.start_queued()
         return out
+
+    # -- adoption (§11) -----------------------------------------------------
+
+    def detect(self) -> dict[str, Any]:
+        from .adopt import detect
+
+        return detect(self.project.root, home=self.project.home, director=self.director)
+
+    def _active_adoption(self) -> str | None:
+        for rid in self.project.store.run_ids():
+            log = self.project.store.run(rid)
+            ev = log.events()
+            if ev and ev[0].data.get("kind") == "adoption" and log.state().state == "active":
+                return rid
+        return None
+
+    def adopt(self, recipe: str, *, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
+        """Start an adoption run (§11.1), or report the one in progress."""
+        from . import adopt as ad
+
+        active = self._active_adoption()
+        if active is not None:
+            return {**self.adoption_status(active), "started": False}
+        ref = self.vendor(recipe)["recipe"] if Path(recipe).is_dir() else self.project.resolve_ref(recipe)
+        loaded = self.project.recipe(ref)
+        root = self.project.root
+        files = ad.scope_files(root, scope)
+        counts = ad.check_scope(files)
+        cw = ad.load_crosswalk(crosswalk, loaded, root) if crosswalk else None
+        situation = ad.detect(root, home=self.project.home, director=self.director, machine=False)
+        inputs: dict[str, Any] = {
+            "title": f"Adopt {root.name} into {ref}", "recipe": ad.recipe_summary(loaded), "candidates": ad.match_candidates(cw, files, root),
+            "scope": list(scope or ["."]), "situation": {"project": situation["project"], "runs": situation["runs"]},
+        }
+        if cw is not None:
+            inputs["crosswalk"] = cw
+        from .project import slugify
+
+        work_item = {"kind": "adoption", "slug": slugify(f"adopt-{ref}"), "branch": self.project.branch(), "adoption_of": ref}
+        if cw is not None:
+            work_item["crosswalk"] = cw["id"]
+        ctx = start(self.project.store, self.project.recipe(ad.ADOPT_RECIPE), inputs, title=inputs["title"], project=self.project.variables(),
+                    actor=self.director.actor, work_item=work_item)
+        ctx.log.append("situation_detected", data={"situation": inputs["situation"], "scope": {"paths": inputs["scope"], **counts}, "recipe": ref,
+                                                   **({"crosswalk": cw["id"]} if cw else {}), "candidates": len(inputs["candidates"])})
+        leases = self._leases(ctx)
+        leases.ensure()
+        self._after(ctx, leases, 0, {})
+        return {**self.adoption_status(ctx.run_id), "started": True}
+
+    def adoption_status(self, adoption: str) -> dict[str, Any]:
+        """Where an adoption stands: research, the work-item runs and their triage, the baseline."""
+        from .adopt import baseline_path
+
+        ctx = self._ctx(adoption)
+        started = ctx.record().started
+        if started.get("kind") != "adoption":
+            raise EngineError("adopt.not_adoption", f"run {adoption} is not an adoption run")
+        st = self.status(adoption)
+        rr = ctx.record().last("research_recorded")
+        items: dict[str, Any] = {}
+        pending_triage = []
+        for key, rid in sorted((rr.data.get("runs") if rr else {}).items()):
+            wst = self.status(rid)
+            cx = self.project.recipe_for_run(rid).recipe.complexity
+            tri = wst["steps"].get(cx.triage_step, {}).get("state") if cx else None
+            items[key] = {"run_id": rid, "title": wst["title"], "state": wst["state"], "triage": tri}
+            if cx and wst["state"] == "active" and tri != "passed":
+                pending_triage.append(f"{rid} {cx.triage_step}")
+        bp = baseline_path(self.project.baton, adoption)
+        research = st["steps"]["research"]["state"]
+        if st["state"] != "active":
+            nxt = "adoption finished"
+        elif research != "passed":
+            nxt = f"dispatch research (`baton eligible {adoption} research`)"
+        elif pending_triage:
+            nxt = "dispatch triage in each work-item run: " + ", ".join(pending_triage)
+        elif bp.is_file():
+            nxt = f"the owner reviews {bp.relative_to(self.project.root).as_posix()}, then `baton establish-baseline {adoption} --note \"<their words>\"`"
+        else:
+            nxt = "waiting for the baseline proposal"
+        return {
+            "adoption": adoption, "recipe": started.get("adoption_of"), "crosswalk": started.get("crosswalk"), "state": st["state"],
+            "research": research, "runs": items, "history": (rr.data.get("history") if rr else []) or [], "gaps": (rr.data.get("gaps") if rr else []) or [],
+            "baseline": bp.relative_to(self.project.root).as_posix() if bp.is_file() else None, "next": nxt,
+            "ready": st["ready"], "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"],
+        }
+
+    def _adoption_progress(self, ctx: RunContext) -> list[Path]:
+        """After a change to an adoption or work-item run: start the work-item runs, then write the baseline proposal (§11.1).
+
+        Returns the files and run directories the checkpoint must commit with this run.
+        """
+        from . import adopt as ad
+
+        started = ctx.record().started
+        if started.get("kind") == "adoption":
+            actx = ctx
+        elif started.get("adoption"):
+            actx = self._ctx(started["adoption"]["run"])
+        else:
+            return []
+        if actx.log.state().state != "active" or not awaiting_baseline(actx.log.events(), kind="adoption"):
+            return []
+        if actx.log.state().step("research").state != "passed":
+            return []
+        extra: list[Path] = []
+        rr = actx.record().last("research_recorded")
+        if rr is None:
+            if actx is not ctx:
+                return []
+            extra += self._start_work_items(actx)
+            rr = actx.record().last("research_recorded")
+        bp = ad.baseline_path(self.project.baton, actx.run_id)
+        if bp.is_file():
+            return extra
+        runs = {}
+        for key, rid in (rr.data.get("runs") or {}).items():
+            rctx = ctx if rid == ctx.run_id else self._ctx(rid)
+            if rctx.log.state().state != "active":
+                continue
+            cx = rctx.recipe.recipe.complexity
+            if cx is not None and rctx.log.state().step(cx.triage_step).state != "passed":
+                return extra  # still being triaged
+            runs[key] = rctx
+        research = json.loads(actx.log.cas.read(actx.record().registered("research")["output_sha256"]))
+        doc = ad.propose(self.project, actx, research, runs, rr.data.get("history") or [], rr.data.get("gaps") or [])
+        from .locks import project_lock
+
+        with project_lock(self.project.baton):
+            ad.write_baseline(bp, doc)
+        return [*extra, bp]
+
+    def _start_work_items(self, actx: RunContext) -> list[Path]:
+        """One run of the target recipe per in-flight work item research found (§11.1 step 3)."""
+        from . import adopt as ad, docs
+
+        reg = actx.record().registered("research")
+        research = json.loads(actx.log.cas.read(reg["output_sha256"]))
+        target = self.project.recipe(actx.record().started["adoption_of"])
+        items, history, gaps = ad.work_items(research, target)
+        runs: dict[str, str] = {}
+        paths: list[Path] = []
+        for w in items:
+            inputs = w["inputs"]
+            wctx = start(
+                self.project.store, target, inputs, title=w["title"], project=self.project.variables(), actor="runtime",
+                work_item={"kind": inputs.get("kind"), "slug": self.project.render_slug(inputs, w["title"]), "branch": self.project.branch(),
+                           "adoption": {"run": actx.run_id, "work_item": w["key"]}},
+            )
+            sha = wctx.log.cas.put(canonical_json({**research, "work_item": w["key"]}).encode("utf-8"))
+            wctx.log.append("research_recorded", data={"research_sha256": sha, "adoption": actx.run_id, "work_item": w["key"]})
+            docs.write_records(wctx)
+            runs[w["key"]] = wctx.run_id
+            paths.append(wctx.run_dir)
+        actx.log.append("research_recorded", data={"research_sha256": reg["output_sha256"], "runs": runs, "history": history, "gaps": gaps})
+        return paths
+
+    def establish_baseline(self, adoption: str, note: str) -> dict[str, Any]:
+        """Apply the (owner-reviewed) baseline proposal as the owner's one adoption decision (§11.5)."""
+        from . import adopt as ad, docs
+        from .project import PROJECT_FILE
+
+        if not note.strip():
+            raise EngineError("baseline.note_required", "establishing the baseline is the owner's decision; record their words with --note")
+        extra: list[Path] = []
+
+        def body(actx: RunContext) -> dict[str, Any]:
+            if actx.record().started.get("kind") != "adoption":
+                raise EngineError("adopt.not_adoption", f"run {adoption} is not an adoption run")
+            if not awaiting_baseline(actx.log.events(), kind="adoption"):
+                raise EngineError("baseline.not_pending", f"adoption {adoption} has no baseline waiting")
+            rr = actx.record().last("research_recorded")
+            bp = ad.baseline_path(self.project.baton, adoption)
+            if rr is None or not bp.is_file():
+                raise EngineError("baseline.not_ready", f"adoption {adoption} has no baseline proposal yet: {self.adoption_status(adoption)['next']}")
+            doc = ad.load_baseline(bp)
+            runs = {k: c for k, rid in (rr.data.get("runs") or {}).items() if (c := self._ctx(rid)).log.state().state == "active"}
+            problems = ad.check_baseline(self.project, actx, doc, runs, doc)
+            if problems:
+                raise EngineError("baseline.invalid", "the baseline cannot be applied: " + "; ".join(problems))
+            for wctx in runs.values():
+                self._leases(wctx).ensure()  # before anything is recorded: a run held elsewhere refuses the whole baseline
+            bsha = actx.log.cas.put(bp.read_bytes())
+            decision_id = f"d{actx.log.state().last_seq + 1}"
+            actx.log.append("human_decision", actor="human", data={
+                "ref": "baseline", "kind": "baseline", "decision": "establish", "note": note, "decision_id": decision_id,
+                "baseline_sha256": bsha, "recorded_by": self.director.actor,
+            })
+            applied: dict[str, Any] = {}
+            for key, wctx in runs.items():
+                item = next(w for w in doc["work_items"] if w.get("key") == key)
+                with self._run_lock(wctx.run_id):
+                    o = apply_baseline(wctx, item, adoption=adoption, decision_id=decision_id)
+                    docs.write_records(wctx)
+                applied[key] = {"run_id": wctx.run_id, "outcome": o.outcome, "ready": o.ready, "state": wctx.log.state().state}
+                extra.append(wctx.run_dir)
+            actx.log.append("baseline_established", actor="human", data={
+                "baseline_sha256": bsha, "decision_id": decision_id, "note": note, "runs": {k: c.run_id for k, c in runs.items()},
+            })
+            if ad.merge_project_yaml(self.project.baton / PROJECT_FILE, doc.get("project_yaml") or {}):
+                extra.append(self.project.baton / PROJECT_FILE)
+            if ad.apply_agents_md(self.project.root, doc.get("agents_md") or {}):
+                extra.append(self.project.root / ((doc.get("agents_md") or {}).get("path") or "AGENTS.md"))
+            extra.append(bp)
+            refresh(actx)
+            return {"adoption": adoption, "decision_id": decision_id, "runs": applied, "state": actx.log.state().state}
+
+        return self._mutate(adoption, body, extra=extra)
 
     # -- continuity ---------------------------------------------------------
 

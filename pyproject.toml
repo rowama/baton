@@ -33,6 +33,7 @@ packages = ["src/baton"]
 "formats" = "baton/_data/formats"
 "defaults" = "baton/_data/defaults"
 "classify" = "baton/_data/classify"
+"builtin" = "baton/_data/builtin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "area_m2",
+    "sun",
+    "ground"
+  ],
+  "properties": {
+    "area_m2": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sun": {
+      "enum": [
+        "full",
+        "partial",
+        "shade"
+      ]
+    },
+    "ground": {
+      "type": "string",
+      "description": "Soil, slope, drainage, existing surface"
+    },
+    "access": {
+      "type": "string"
+    },
+    "hazards": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Buried services, roots, overhead lines"
+    }
+  },
+  "additionalProperties": false
+}

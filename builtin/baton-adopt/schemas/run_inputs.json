@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "title",
+    "recipe",
+    "candidates",
+    "scope",
+    "situation"
+  ],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "recipe": {
+      "type": "object"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "crosswalk": {
+      "type": "object"
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "situation": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

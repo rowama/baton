@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "done",
+    "notes"
+  ],
+  "properties": {
+    "done": {
+      "type": "boolean",
+      "const": true
+    },
+    "notes": {
+      "type": "string"
+    },
+    "deviations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Where the work differs from the plan, and why"
+    }
+  },
+  "additionalProperties": false
+}
