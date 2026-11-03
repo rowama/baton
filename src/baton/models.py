@@ -261,6 +261,15 @@ class ResultArtifact(_Strict):
     path: str = Field(min_length=1)  # relative to the result directory
 
 
+class ResultDisposition(_Strict):
+    """A worker's claim about an earlier finding (§9.2, §18 #12): provisional until a review confirms it."""
+
+    step: str = Field(min_length=1)  # the step (id or path) whose review recorded the finding
+    finding: str = Field(min_length=1)
+    disposition: Literal["fixed", "rejected"]
+    evidence: str = ""
+
+
 class Result(_Strict):
     protocol: str
     packet_sha256: str
@@ -270,6 +279,7 @@ class Result(_Strict):
     notes: str = ""
     questions_for_human: list[str] = Field(default_factory=list)
     process_feedback: list[Any] = Field(default_factory=list)
+    dispositions: list[ResultDisposition] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------

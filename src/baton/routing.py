@@ -174,6 +174,8 @@ def eligible_workers(
     events: list[Any] | None = None,
     preferences: Preferences | None = None,
     source_path: str | None = None,
+    source_own: bool | None = None,
+    independence_waiver: str | None = None,
 ) -> Eligibility:
     """The ordered eligible profiles with reasons, and every exclusion with its reasons.
 
@@ -185,22 +187,30 @@ def eligible_workers(
     indep: Independence | None = step.independence
     other = None
     if indep is not None and events is not None:
-        own = indep.from_step == step.id
-        source = step_path if own else (source_path or indep.from_step)
+        own = indep.from_step == step.id if source_own is None else source_own
+        source = source_path or (step_path if own else indep.from_step)
         other = result_worker(events, source, own)
 
     kept: dict[str, dict[str, Any]] = {}
     for name in sorted(profiles):
         p = profiles[name]
         reasons = requirement_gaps(step.requires, step.workspace, p, vocab)
+        waived = False
         if other is not None and indep is not None and same_at(indep.level, identity_of(name, p), other):
-            reasons.append(f"independence: {indep.level} from {indep.from_step} (done by {other.profile}, vendor {other.vendor or '?'})")
+            if independence_waiver is None:
+                reasons.append(f"independence: {indep.level} from {indep.from_step} (done by {other.profile}, vendor {other.vendor or '?'})")
+            else:
+                waived = True
         if name in prefs.exclude:
             reasons.append("excluded by preferences.yaml")
         if reasons:
             out.excluded.append({"profile": name, "reasons": reasons})
             continue
-        why = ["meets requirements"] + ([f"independent of {indep.from_step} ({indep.level})"] if other is not None and indep else [])
+        why = ["meets requirements"]
+        if waived:
+            why.append(f"not independent of {indep.from_step} ({indep.level}), waived for one dispatch ({independence_waiver})")
+        elif other is not None and indep:
+            why.append(f"independent of {indep.from_step} ({indep.level})")
         kept[name] = {"profile": name, "adapter": p.adapter, "vendor": p.vendor, "reasons": why}
 
     ordered: list[str] = []

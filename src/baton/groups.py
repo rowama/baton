@@ -108,7 +108,20 @@ class Located:
 
 
 def locate(recipe: LoadedRecipe, path: str) -> Located | None:
-    """The recipe node for a step or group path, with its enclosing frames."""
+    """The recipe node for a step or group path, with its enclosing frames.
+
+    A review path (``<step path>~review``, §9.1) locates the runtime-made
+    review step, with its step's frames.
+    """
+    from . import reviews
+
+    split = reviews.split_review(path)
+    if split is not None:
+        parent = locate(recipe, split[0])
+        if parent is None or not isinstance(parent.node, Step):
+            return None
+        node = reviews.review_node(parent.node, split[1])
+        return Located(node, path, parent.frames) if node is not None else None
     parts = path.split("/")
     nodes: list[Any] = list(recipe.recipe.steps)
     frames: list[Frame] = []
@@ -159,7 +172,7 @@ def child_path(frame: Frame | None, child_id: str) -> str:
     """Path of a child of ``frame``'s group as seen from that iteration (top level when no frame)."""
     if frame is None:
         return child_id
-    if frame.iteration > 1 and child_id not in iterated_ids(frame.group):
+    if frame.iteration > 1 and child_id.split("~", 1)[0] not in iterated_ids(frame.group):
         return f"{frame.instance_path}/i1/{child_id}"
     return frame.prefix + child_id
 
@@ -217,6 +230,7 @@ class View:
         self.limits: dict[str, list[Event]] = {}
         self.decisions: dict[str, list[Event]] = {}
         self.accepted: dict[str, Event] = {}  # step path -> last step_passed / step_imported
+        self.waived: set[int] = set()  # seqs of judges' failed step_passed covered by a held waiver (§9.3)
         self.started = events[0].data if events and events[0].type == "run_started" else {}
         self.level: str | None = None
         for ev in events:
@@ -231,6 +245,8 @@ class View:
                 self.decisions.setdefault(ev.step_path, []).append(ev)
             elif t in ("step_passed", "step_imported"):
                 self.accepted[ev.step_path] = ev
+            elif t == "gate_waived" and isinstance(ev.data.get("judged_seq"), int):
+                self.waived.add(ev.data["judged_seq"])
             elif t in ("complexity_set", "retriage_applied") and "level" in ev.data:
                 self.level = ev.data["level"]
         self._memo: dict[tuple[str, str], str] = {}
@@ -298,7 +314,7 @@ class View:
             p = child_path(frame, j)
             if self.rs.step(p).state == "passed":
                 cond = self.condition(p)
-                if cond is not None and cond.get("gates_passed") is False:
+                if cond is not None and cond.get("gates_passed") is False and self.accepted[p].seq not in self.waived:
                     return self.accepted[p]
         return None
 

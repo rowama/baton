@@ -32,7 +32,10 @@ def _paths_to_every_state() -> dict[str, list[str]]:
         rs = drive(seq)
         for etype in sm.allowed_events(rs.step(P)):
             nxt = seq + [etype]
-            to = drive(nxt).step(P).state
+            try:
+                to = drive(nxt).step(P).state
+            except IllegalTransition:
+                continue  # a guarded edge (e.g. escalated -> verifying needs a held attempt)
             if to not in found:
                 found[to] = nxt
                 queue.append(nxt)
@@ -62,7 +65,23 @@ def test_tables_use_known_states_and_event_types():
         assert states <= set(sm.STEP_STATES)
 
 
-LEGAL_EDGES = [(etype, frm, to) for etype, edges in sm.TRANSITIONS.items() for frm, to in edges.items()]
+#: Edges legal only after an attempt: tested separately below.
+GUARDED = {("verification_started", "escalated")}
+LEGAL_EDGES = [(etype, frm, to) for etype, edges in sm.TRANSITIONS.items() for frm, to in edges.items() if (etype, frm) not in GUARDED]
+
+
+def test_a_waiver_resumes_verification_of_the_held_attempt_only():
+    rs = drive(["step_ready", "step_escalated"])  # escalated before any attempt (no eligible worker)
+    with pytest.raises(IllegalTransition) as e:
+        rs.apply(ev(rs, "verification_started"))
+    assert e.value.code == "state.bad_attempt"
+    rs = drive(["step_ready", "dispatched", "step_running", "result_submitted", "verification_started", "gate_failed", "step_escalated"],
+               started(max_attempts=1))
+    assert rs.step(P).state == "escalated"
+    with pytest.raises(IllegalTransition):
+        rs.apply({"type": "verification_started", "step_path": P, "attempt": None})
+    rs.apply(ev(rs, "verification_started"))
+    assert rs.step(P).state == "verifying" and rs.step(P).attempt == 1
 
 
 @pytest.mark.parametrize("etype,frm,to", LEGAL_EDGES, ids=[f"{f}-{e}-{t}" for e, f, t in LEGAL_EDGES])

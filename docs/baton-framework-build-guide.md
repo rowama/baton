@@ -159,6 +159,7 @@ baton/
 │   ├── groups.py            # foreach / repeat_until expansion and aggregate state
 │   ├── packet.py            # packet builder (the critical module)
 │   ├── intake.py            # result validation, gates, findings
+│   ├── reviews.py           # review steps, findings lines and statuses, evidence, waivers, protected files
 │   ├── supervisor.py        # detached per-dispatch supervisor, markers, deadlines, hooks
 │   ├── classify.py          # failure classification rules (data-driven)
 │   ├── project.py           # project root, project.yaml, lockfile access, vendoring, profile loading
@@ -642,9 +643,11 @@ Adapters never interpret results; intake does.
 - `packet_sha256`: SHA-256 of `"baton-packet/1\n"`, then the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) and `"\n"`, then `"<path>\0<sha256>\n"` for every other packet file (inputs, `INSTRUCTIONS.md`, `output_schema.json`) sorted by POSIX path. Documented in `packet.py` and tested. The manifest holds no clock reading except `deadline`, which the caller supplies.
 - `workspace` is the step's mode (`none` | `read` | `write`); `optional_artifacts` lists declared artifacts that are not required.
 - Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event. Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
-- `prior_feedback`: `{attempt, reasons, guidance?, revision?}`: gate reasons from the previous attempt and any retry guidance. While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
+- `prior_feedback`: `{attempt, reasons, findings?, guidance?, revision?}`: gate reasons from the previous attempt and any retry guidance; `findings` lists the open findings of a failed findings or review gate, each with its `step`, so the worker can address and disposition them (§9.2). While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
 
-`INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback.
+- **Reviewer packets** (steps whose output is `baton:findings`, and review steps, §9.1) also carry `prior_findings`: `null` at the first review, else `{evaluated_at, attempt, findings}`, the previous evaluation of the same findings line with each finding's status and disposition. A review step's inputs are the reviewed step's declared inputs plus the result under review: `reviewed_output` (JSON) and `reviewed_<artifact>` for each registered artifact, from the reviewed attempt's `result_submitted`.
+
+`INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback; for reviewers, the earlier findings with the rule "reuse an id you still see, leave out a resolved one, check each disposition's evidence"; for steps shown findings, how to write `dispositions`.
 
 ### 7.2 Result (worker → runtime)
 
@@ -661,9 +664,12 @@ attempt-<n>/result/  result.json  artifacts/<name>.<ext>
   "artifacts": [ {"name": "design_doc", "path": "artifacts/design_doc.md"} ],
   "notes": "",
   "questions_for_human": [],
-  "process_feedback": []
+  "process_feedback": [],
+  "dispositions": []
 }
 ```
+
+`dispositions` (optional): `[{step, finding, disposition, evidence}]`, a worker's `fixed` or `rejected` claims about findings it was shown (its own gates' findings, or the judges' findings of an enclosing loop; `step` is the recording step's id or path). Intake checks the evidence (§9.2); an invalid entry rejects the result. `accepted-risk` is not allowed here.
 
 `status` is `completed`, `blocked` (needs an owner answer) or `failed`. Workers write only inside `result/`, except `workspace: write` steps, whose changes are checked by gates and recorded through `commit_sha` in `output`. `process_feedback` lets workers report friction (§12.4).
 
@@ -680,7 +686,7 @@ blocked_on_deps → ready → dispatched → running → submitted → verifying
                     └── retry (attempt+1) ◄──────────────────────┤ gate failed, attempts < max
                                                                  └→ escalated
 ready            → escalated  (no eligible worker, §8.4)
-escalated        → ready (after a decision) | abandoned
+escalated        → ready (after a decision) | abandoned | verifying (a waiver of the held failed gate, §9.3)
 verifying        ⇄ awaiting_human (human gate)
 blocked_on_deps  → skipped    (complexity level)        skipped → blocked_on_deps (approved re-triage)
 blocked_on_deps  → imported   (adoption seed)
@@ -689,6 +695,8 @@ superseded       → ready      (the revised step's new attempt)
 stale            → ready | passed (re-run, or confirmed by a human decision)
 ```
 
+- **Review steps** (§9.1) have the path `<step_path>~review` (`~review.<gate index>` when the step has several review gates) and follow the same machine. While one runs, the reviewed step stays `verifying`. Each attempt of the reviewed step gets its own review: a passed review is marked `stale` and readied again.
+- `escalated → verifying` (`verification_started`) is legal only for a step holding an attempt (attempt ≥ 1, carried on the event).
 - `skipped` and `imported` satisfy `depends_on`; `stale` and `superseded` do not. A group's state is derived, never stored (§8.5).
 - `escalated` reasons: attempts exhausted, `blocked` result, no eligible worker, iteration limit, platform failure, a read or none step that changed the working tree (`workspace_modified`, §6.3).
 - Only `engine.py` performs transitions; each appends exactly one event. Illegal transitions raise. Test every edge.
@@ -706,7 +714,7 @@ stale            → ready | passed (re-run, or confirmed by a human decision)
 | → `skipped` / `blocked_on_deps` (from `skipped`) / `imported` | `step_skipped`, `step_unskipped`, `step_imported` |
 | → `superseded` / `stale` | `step_revised`, `step_stale` |
 
-Some step events record facts without a transition but are legal only in certain states (`worker_selected`, `packet_built` in `ready`; `deadline_extended` in `running`; `gate_*`, `result_rejected`, `findings_recorded` in `verifying`; `failure_classified` after an attempt ends). Run level: `run_started` is first and once; after `run_completed` or `run_abandoned` no step event is accepted.
+Some step events record facts without a transition but are legal only in certain states (`worker_selected`, `packet_built` in `ready`; `deadline_extended` in `running`; `gate_passed`, `gate_failed`, `result_rejected`, `findings_recorded`, `protected_path_modified` in `verifying`; `gate_waived` and `finding_dispositioned` are facts recorded in any state; `failure_classified` after an attempt ends). Run level: `run_started` is first and once; after `run_completed` or `run_abandoned` no step event is accepted.
 
 ### 8.2 Events (the single list)
 
@@ -722,7 +730,7 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Tailoring | `complexity_set`, `step_skipped`, `step_unskipped`, `retriage_requested`, `retriage_applied` |
 | Groups | `group_expanded` (on the group path: `mode` `foreach`\|`once`\|`skip`\|`single`, `source`, `source_sha256`, `items` `[{id, sha256, content_sha256, title?}]`, and on re-expansion `kept`/`changed`/`added`/`superseded`), `iteration_started` (on the instance path: `iteration`, `from`, `budget_base`), `iteration_limit_reached` (on the instance path: `iteration`, `max_iterations`, `judged`, `judged_seq`, `reasons`) |
 | Corrections | `step_revised`, `step_stale` |
-| Reviews | `findings_recorded`, `finding_dispositioned`, `gate_waived`, `protected_path_modified` |
+| Reviews | `findings_recorded` (on the recording step: `line`, `gate`, `findings` `[{id, severity, title, location?, status, reopened?, carried?}]`, `counts`, `open`, `blocking`, `partial`, `coverage_notes?`, `reviewed_commit?`, `previous_seq?`, `resolved?`, and for a review gate `review`, `review_attempt`, `reviewer`), `finding_dispositioned` (on the recording step: `line`, `finding`, `evaluation_seq`, `disposition`, `evidence?`, `decision_id?`, `by` `worker`\|`director`\|`owner`, `provisional?`), `gate_waived` (`gate`, `reason`, `decision_id`, `scope` `held`\|`next`, `attempt?`, `judged_seq?`), `protected_path_modified` (`changed`, `mode`) |
 | Human | `human_decision`, `human_revision_ingested` |
 | Deliverables | `artifact_published`, `drift_detected` |
 | Adoption | `situation_detected`, `research_recorded`, `step_imported`, `baseline_established` |
@@ -787,7 +795,7 @@ Property tests: same state + same profile ⇒ same `packet_sha256`; removing any
     on_needs_human: ""         # optional; falls back to on_complete
     on_platform_failure: ""    # optional; e.g. wake the platform SME; falls back to on_complete
   ```
-  Which hook: a `platform` classification uses `on_platform_failure`; a step now waiting on the owner (human gate or escalation) uses `on_needs_human`; otherwise `on_complete` (§18 #11). Environment: the caller's, plus `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed` \| `gate_failed` \| `needs_human` \| `timed_out` \| `failed` (ended without a result) \| `overdue`), `BATON_CLASSIFICATION`, `BATON_STEP_STATE` (the step's state after the outcome), `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (the step record, already regenerated). Each run is recorded as `completion_hook_fired` or `completion_hook_failed` (hook name, source, outcome, exit code; never the command). Hook failures never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `status`/`board`, or `wait`).
+  Which hook: a `platform` classification uses `on_platform_failure`; a step now waiting on the owner (human gate or escalation) uses `on_needs_human`; otherwise `on_complete` (§18 #11). Environment: the caller's, plus `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed` \| `gate_failed` \| `needs_human` \| `needs_review` (a review step is ready for the Director to dispatch) \| `timed_out` \| `failed` (ended without a result) \| `overdue`), `BATON_CLASSIFICATION`, `BATON_STEP_STATE` (the step's state after the outcome), `BATON_DISPATCH_ID`, `BATON_REPO`, `BATON_RECORD` (the step record, already regenerated). Each run is recorded as `completion_hook_fired` or `completion_hook_failed` (hook name, source, outcome, exit code; never the command). Hook failures never change outcomes. Detaching with no hook configured prints a warning (the result appears at the next `status`/`board`, or `wait`).
 - **Effort and timeouts:** steps declare `effort` (`S` / `M` / `L`) or `effort_from`; a step with neither, or whose `effort_from` does not resolve to one of them, gets `effort.default` (M). Bands come from `project.yaml` (`effort: { bands: {S: 45m, M: 2h, L: 4h}, extend_once: true, default: M }`; durations as `90s`, `45m`, `2h`). The deadline is dispatch time plus the band. At the deadline: if alive and `extend_once` is on (and not yet used), record `deadline_extended {previous_deadline, deadline, band}`, fire the hook with outcome `overdue` and extend by one band; otherwise terminate the worker's process tree, record `step_timed_out` and classify (`subject` / `timeout`; retried while attempts remain).
 
 ### 8.8 Failure classification
@@ -814,7 +822,7 @@ A worker process that exits without writing `result.json` records `attempt_orpha
 ### 8.10 Intake
 
 1. Check `protocol` and `packet_sha256`; validate `output` against the schema (Draft 2020-12, format checks on). For a `foreach` source, echoed item ids must be current and unique (§5.8).
-2. Verify required artifacts; ingest into CAS. Check protected paths (§9.4).
+2. Verify required artifacts; ingest into CAS. Check a worker's `dispositions` (§7.2, §9.2). Check protected paths (§9.4).
 3. `blocked` → `escalated` with the questions. Otherwise run gates in order (blocking gates stop at the first failure; advisory gates always run and record).
 4. All blocking gates pass → `step_passed` → publish (§10.4) → record (§10.6) → checkpoint (§10.1) → dependents ready; group bookkeeping (§8.5); hooks fire.
 
@@ -830,14 +838,14 @@ Recording: `result_submitted` carries the hashes of the stored `result.json`, th
 |---|---|---|
 | `schema` | Recorded at intake | Output valid |
 | `script` | Runs a command (`cwd`, `timeout_s`) under a clean env; output redacted into CAS | Exit 0 |
-| `review` | Dispatches a review packet (inputs, result, rubric) to a reviewer chosen with `reviewer_requires` and `independence`; reviewer returns findings (§9.2) | No finding at a `block_on` severity is open |
-| `findings` | For a step whose own output is findings (e.g. a code-review step). Records `findings_recorded` (`counts` by severity, `open`, `blocking`, `partial`) | Same rule. Until dispositions exist (Phase 9) every finding is open |
+| `review` | The runtime readies a **review step** `<step_path>~review` and the step waits in `verifying`. The Director picks a reviewer from `eligible` (`reviewer_requires`, `independence`) and dispatches it like any step; its packet holds the step's inputs, the result under review and the rubric (§7.1); it returns `baton:findings`. A rejected reviewer result is retried as the review's own attempt; abandoning an escalated review fails this gate | No finding at a `block_on` severity is open (§9.2) |
+| `findings` | For a step whose own output is findings (e.g. a code-review step). Records `findings_recorded` | Same rule |
 | `human` | Step waits in `awaiting_human`; the Director records the owner's decision | Approved |
 | `provenance` | Implicit: every referenced artifact was registered through intake | Always enforced |
 | `workspace` | Implicit on `read` and `none` steps done by a worker that can touch files (§6.3) | The working tree is unchanged; otherwise the step escalates (`workspace_modified`) |
-| `protected` | Implicit on steps with `protect` (§9.4) | No change, or `warn` mode |
+| `protected` | Implicit on steps with `protect` (§9.4) | No change; in `warn` mode, the owner approves the change |
 
-Common options: `advisory: true` (records, never blocks); `applies_to: [levels]`; any blocking gate occurrence can be waived (§9.3). Gate reasons and open findings become `prior_feedback` on retry or `group.previous_iteration.findings` in a loop.
+Common options: `advisory: true` (records, never blocks); `applies_to: [levels]`; any blocking `script`, `review`, `findings`, `independence` or `protected` occurrence can be waived (§9.3). Gate reasons and open findings become `prior_feedback` on retry or `group.previous_iteration.findings` in a loop.
 
 ### 9.2 Findings and dispositions
 
@@ -852,21 +860,34 @@ Runtime-owned findings schema (`baton:findings`); reviewers must return it, so n
 
 Severities: `critical | high | medium | low`. `coverage.complete: false` (e.g. a reviewer that could not run socket tests) marks the result "partial" in every record.
 
+**Lines and ids.** The repeated evaluations of one review form a *line*: `<step_path>#<gate>` at top level, `<instance path>/<step id>#<gate>` inside a group (the same across iterations). A finding is its line plus the id the reviewer gave it; each reviewer gets the previous evaluation with its dispositions (`prior_findings`, §7.1) and reuses the id of a finding it still sees.
+
+**Statuses.** At each evaluation a reported finding is `open`, except one the owner accepted as a risk at the previous evaluation, which stays `accepted-risk` while it is reported again. A previous finding the new review does not report is `resolved` (a `fixed` or `rejected` claim on it is thereby *confirmed*). A disposition takes effect only at the next evaluation (owner decision, 2026-11-02): nothing waits for dispositions, a failed gate retries or ends the iteration at once, and accepting the current failure as is takes a waiver (§9.3). Only the latest evaluation of a line can be dispositioned.
+
 | Disposition | Requirement |
 |---|---|
-| `fixed` | A reference (commit or `file:line`); in a loop, confirmed by the next review iteration |
-| `rejected` | Evidence: a `file:line` that exists at the reviewed commit, or a test reference (validated) |
-| `accepted-risk` | An owner decision id; nobody else can set it |
+| `fixed` | A commit that exists, or a `file:line` in the current tree; confirmed by the next review not reporting it |
+| `rejected` | A `file:line` that exists at the reviewed commit (the git HEAD recorded when the review was dispatched; the working tree outside git), or a test reference `path::name` whose file exists now and contains the name |
+| `accepted-risk` | An owner decision id: `decide <step_path>#<finding> accept-risk --note "<owner's words>"` records the decision and the disposition; `disposition … accepted-risk --evidence <decision id>` cites it. Nobody else can set it |
 
-Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §5.8), the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block.
+Set by a worker (in `result.json`, §7.2) or by the Director relaying evidence (`disposition`). A Director's `fixed`/`rejected` closes the finding in the record until a later review reports it again.
+
+**Worker dispositions are provisional** (§18 #12). A worker may set `fixed` or `rejected` in its result with evidence, and intake checks that the evidence exists. That alone never closes a finding: an independent review must confirm it. If the next review re-reports the same finding id, the finding is open again, whatever the worker said. A worker disposition with no later review to confirm it does not close the finding; only the Director (relaying evidence) or the owner can close it there. A worker and a reviewer who keep disagreeing are settled only by the owner, with `accepted-risk` or a waiver; in a loop, the iteration limit escalates the disagreement. A disposition never makes a finding unconditionally closed on a worker's word alone. Mediating disputes is deliberately not built (§18 #18).
+
+Per reviewer profile and qualified step (`<recipe_id>@<version>/<step_path>`, §5.8), the runtime keeps counts by severity and disposition, plus iterations to clean. These feed the process SME and never block. (Everything they need is in `findings_recorded` and `finding_dispositioned`; the statistics themselves are computed with the process SME, Phase 12.)
 
 ### 9.3 Waivers
 
 `waive(run, step_path, gate, reason)` needs an owner decision and covers one gate occurrence only (e.g. grandfathering a step approved before a gate existed, or allowing one self-review). It never changes the recipe; waivers show in every dependent record.
 
+Owner decisions (2026-11-02):
+- **Naming.** `gate` is a declared gate's index, its type when the step declares exactly one of that type, `independence` (the step's own; a review gate's reviewer independence is waived on the review step `<step>~review`) or `protected`. Waivable: `script`, `review` and `findings` gates, `independence`, `protected`. Human gates are decided, not waived; schema failures are rejections.
+- **Decision.** As with `revise`, the runtime requires the reason, recorded verbatim as a `human_decision` (`kind: waiver`) followed by `gate_waived`; the director skill requires the owner's approval first.
+- **Which occurrence.** The failed occurrence the step still holds, if any (`scope: held`): an escalated step whose last attempt failed this gate (`attempts_exhausted`) resumes verification of that attempt with its later gates; a judge at its iteration limit counts as passed and the iteration goes on (refused when later blocking gates of that judge never ran). Otherwise the next occurrence (`scope: next`): consumed by the next evaluation of that gate whatever its outcome (a would-be failure is recorded as `gate_passed` with `waived` and the reasons; a pass with `waiver_unused`), or for `independence` by the next dispatch of the step, whichever worker is chosen. One pending waiver per step path and gate.
+
 ### 9.4 Protected files
 
-`protect: [globs]` with `on_violation: warn | fail` (default `warn`). The runtime hashes matching files before and after the worker runs. A change records `protected_path_modified`. In `warn` mode the instance cannot pass until the owner approves or reverts; in `fail` mode the gate fails. An approval gate may record the protected hash set at approval time (e.g. locked acceptance specs), and later steps must preserve it.
+`protect: [globs]` (warn) or `protect: {paths: [globs], on_violation: warn | fail}` (default `warn`). Globs use `*`, `?` and `**`, relative to the project root. The runtime hashes matching files (outside `.git` and `.baton`) when the attempt is dispatched (recorded in `dispatched`) and again at intake. A change records `protected_path_modified`. In `warn` mode the step waits on the owner like a human gate (owner decision, 2026-11-02): `approve` keeps the change and the step goes on; `reject` fails the gate (the owner or the next attempt reverts it). In `fail` mode the gate fails. A pending `protected` waiver lets one change through. *Deferred:* an approval gate that records the protected hash set at approval time (e.g. locked acceptance specs) for later steps to preserve.
 
 ---
 
@@ -1028,10 +1049,10 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `dispatch(run, step_path, worker, wait=false)` | Build packet, start supervised worker; returns a dispatch id |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; later: questions, baseline items, confirmations of stale steps) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; later: questions, baseline items, confirmations of stale steps) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage; correct an earlier step in this run |
-| `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9) |
+| `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
 | `ingest_revision(run, step_path, artifact)` | Accept a drifted published file (§10.5) |
 | `ask_sme(subject, question, refs, run?, mode)` / `sme_followup(…)` / `promote_sme(…)` | Experts (§12) |
 | `platform_fact(…)` / `platform_incident(…)` / `feedback(kind, text, run?)` | Project-level records |
@@ -1246,7 +1267,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 8 — Groups (L3).** Expansion, re-expansion, instances, concurrency, iterations with judges, iteration-limit escalation and decisions, group input references. Pulled forward (owner decision, 2026-11-02): the `findings` gate without dispositions (Phase 9 adds dispositions, waivers and `review` gates) and `revise` for top-level steps without confirming stale steps by decision (Phase 10).
 ✅ A three-slice plan expands to three instances run one at a time; a code review with an open high finding starts iteration 2 whose implement packet contains it; `max_iterations` escalates; revising the plan (one slice changed, one added) re-expands correctly; instance ids are runtime-assigned, and a revision echoing an unknown or duplicated id is rejected.
 
-**Phase 9 — Reviews (L4).** Review and findings gates, dispositions, waivers, protected files, independence.
+**Phase 9 — Reviews (L4).** Review and findings gates, dispositions, waivers, protected files, independence. Built (owner decisions, 2026-11-02): `review` gates as runtime-made review steps; worker dispositions provisional until a review confirms them (§18 #12); dispositions effective at the next evaluation; waivers for the held failure, else the next occurrence; `warn` protection waits on the owner. Review statistics are derivable from the record and computed in Phase 12.
 ✅ A rejection without valid evidence is refused; `accepted-risk` without an owner decision is refused; a waiver unblocks exactly one occurrence; protected-path changes are caught in `warn` and `fail` modes; a same-vendor code review is refused unless waived; a partial-coverage review shows as partial.
 
 **Phase 10 — Work items (L5).** Concurrent runs, board, workspace and project locks, `revise`.
@@ -1299,12 +1320,13 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 9. Effort bands and `extend_once`. [45 min / 2 h / 4 h; extend once] **Decided (2026-11-02):** as suggested; steps that declare no effort get the M band (`effort.default`); manual workers are never timed out; an extension is recorded as `deadline_extended` (§8.7). The effort scale stays the runtime's fixed `S`/`M`/`L` for now. A possible later change (not built): recipes declare their own ordered effort scale (default `[S, M, L]`), `project.yaml` maps the names to durations, and an unmapped name falls back by position. Effort stays independent of triage complexity levels: levels choose steps and gates, effort budgets one step's time.
 10. Worktree isolation for concurrent write-mode steps. [lock only at first]
 11. Automatic platform-SME invocation on platform failures. [only when `on_platform_failure` is configured] **Decided (2026-11-02):** as suggested; Baton invokes no SME itself. A `platform` failure fires `on_platform_failure` when configured, otherwise `on_complete` (§8.7).
-12. Who may set `fixed` and `rejected`: the next iteration's worker with evidence, or only the Director? [worker with evidence]
+12. Who may set `fixed` and `rejected`: the next iteration's worker with evidence, or only the Director? [worker with evidence] **Decided (2026-11-02):** worker with evidence, strengthened: a worker's `fixed`/`rejected` is provisional until an independent review confirms it (a re-reported finding id reopens it); with no later review it does not close the finding; persistent worker–reviewer disagreement goes to the owner (§9.2).
 13. SME transcript retention: full (redacted) or question and answer only. [full, redacted]
 14. Research scope limits before asking the owner to narrow. [10k files / 200 MB]
 15. Launcher installation mechanism and how many older format versions a runtime must read. [uv-managed; current and previous]
 16. Optional OpenTelemetry export of events. [off]
 17. SME handoff mode support per harness. [relay first; handoff per harness later]
+18. **Conditionally deferred risk: erroneous worker dispositions** (discussed 2026-11-02). *Risk:* a worker's `fixed` or `rejected` disposition is wrong but survives (e.g. the confirming review misses it), so a real problem slips through. *Mitigation today:* dispositions are provisional until an independent review confirms them, and persistent disagreement escalates to the owner (§18 #12). *Options discussed and set aside:* (a) the Director judges a dispute itself. The owner's view is that a well-presented dispute needs no subject expertise, the same as a juror or arbiter, but the Director's impartiality must remain sacrosanct, so the Director does not judge. (b) The Director mediates by routing: the runtime opens a pending dispute, and the Director sends it to an independent arbiter worker (a dispatch at `<step>~arbiter`, different vendor from worker and reviewer, returning uphold/reopen with reasons) or escalates it to the owner. The worker and the reviewer must present their evidence so that no subject expertise is needed to decide. This adds a "dispute" concept (§2). *Trigger to revisit:* the owner sees cases where problems slip through because of erroneous worker dispositions. Then reopen this item with these options; (b) is the leading candidate.
 
 ---
 

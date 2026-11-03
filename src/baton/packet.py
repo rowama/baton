@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import groups, refs, versions
+from . import groups, refs, reviews, versions
 from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile
 from .recipe import FINDINGS_SCHEMA_REF, LoadedRecipe
@@ -433,6 +433,43 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
                     "(changed or not); leave out items to drop; give new items no `id`.",
                     "",
                 ]
+    disposable = bool((manifest["prior_feedback"] or {}).get("findings")) or any(
+        i.get("from") == "group.previous_iteration.findings" for i in manifest["inputs"]
+    )
+    pf_find = (manifest["prior_feedback"] or {}).get("findings")
+    if pf_find:
+        lines += ["Open findings of that attempt's review:", ""]
+        lines += [f"- `{f['id']}` ({f.get('severity')}): {f.get('title')}" + (f" at `{f['location']}`" if f.get("location") else "") for f in pf_find]
+        lines.append("")
+    if disposable:
+        lines += [
+            "## Dispositions",
+            "",
+            "For each earlier finding you fixed or believe is wrong, you may add an entry to `dispositions` in",
+            "`result.json`: `{\"step\": <the step that recorded it>, \"finding\": <its id>, \"disposition\": \"fixed\" | \"rejected\",",
+            "\"evidence\": ...}`. `fixed` needs a commit SHA or `file:line`; `rejected` needs a `file:line` that exists at the",
+            "reviewed commit, or a test reference `path::name`. Evidence is checked; a disposition is only a claim until",
+            "the next review confirms it (a finding reported again stays open). Present evidence so that someone without",
+            "subject expertise can check it.",
+            "",
+        ]
+    prior = manifest.get("prior_findings")
+    if "prior_findings" in manifest:
+        lines += ["## Earlier findings", ""]
+        if prior and prior.get("findings"):
+            lines += [
+                f"An earlier review of this work ({prior['evaluated_at']}, attempt {prior['attempt']}) reported the findings below.",
+                "Reuse a finding's `id` when you still see the problem, even if it is marked fixed or rejected; leave out a",
+                "finding that is resolved. Check each disposition's evidence yourself. Give new findings new ids.",
+                "",
+            ]
+            for f in prior["findings"]:
+                d = f.get("disposition") or {}
+                claim = f" — marked **{d['disposition']}**" + (f" by {d.get('by')}" if d.get("by") else "") + (f": {d['evidence']}" if d.get("evidence") else "") if d else ""
+                lines.append(f"- `{f['id']}` ({f.get('severity')}, {f.get('status')}): {f.get('title')}" + (f" at `{f['location']}`" if f.get("location") else "") + claim)
+            lines.append("")
+        else:
+            lines += ["This is the first review of this work.", ""]
     lines += [
         "## Protocol",
         "",
@@ -462,6 +499,7 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
                 "notes": "",
                 "questions_for_human": [],
                 "process_feedback": [],
+                **({"dispositions": [{"step": "<step>", "finding": "<id>", "disposition": "fixed | rejected", "evidence": "<commit | file:line | path::test>"}]} if disposable else {}),
             },
             indent=2,
         ),
@@ -584,9 +622,6 @@ def unsupported_reason(node: Step | Group | None) -> str | None:
         return "not a step of the recipe (inside a group, a step path is <group>/<instance>/i<n>/<step>)"
     if isinstance(node, Group):
         return "a group is not dispatched itself; dispatch the steps of its instances"
-    for g in node.gates:
-        if isinstance(g, ReviewGate):
-            return f"{g.type} gates arrive with the reviews layer"
     return None
 
 
@@ -605,16 +640,64 @@ def prior_feedback(
         base = prior_feedback(record, step_path, attempt, guidance) or {"attempt": attempt, "reasons": []}
         return {**base, "revision": revision}
     reasons: list[str] = []
+    findings: list[dict[str, Any]] = []
     for ev in record.attempt_events(step_path, attempt):
+        if ev.type == "findings_recorded" and ev.data.get("blocking"):
+            findings += [{"step": step_path, **f} for f in ev.data.get("findings") or [] if f.get("status") == "open"]
         if ev.type == "result_rejected" or (ev.type == "gate_failed" and not ev.data.get("advisory")):
             reasons += ev.data.get("reasons") or []
         elif ev.type == "step_escalated" and ev.data.get("questions"):
             reasons += [f"you asked the owner: {q}" for q in ev.data["questions"]]
         elif ev.type == "human_decision" and ev.data.get("kind") == "escalation" and ev.data.get("note"):
             reasons.append(f"the owner answered: {ev.data['note']}")
+    out: dict[str, Any] = {"attempt": attempt, "reasons": reasons}
+    if findings:
+        out["findings"] = findings
     if guidance:
-        return {"attempt": attempt, "reasons": reasons, "guidance": guidance}
-    return {"attempt": attempt, "reasons": reasons} if reasons else None
+        out["guidance"] = guidance
+        return out
+    return out if reasons else None
+
+
+def _reviewed_result(ctx: RunContext, record: RunRecord, review_path: str) -> list[_Resolved]:
+    """The result under review (§9.1): the reviewed step's current attempt, as intake registered it."""
+    ready = None
+    for ev in reversed(record.events):
+        if ev.type == "step_ready" and ev.step_path == review_path and "review_of" in ev.data:
+            ready = ev
+            break
+    if ready is None:
+        raise EngineError("packet.no_review_request", f"{review_path} was not readied for a review")
+    ppath, pn = ready.data["review_of"], ready.data["attempt"]
+    sub = record.last("result_submitted", ppath, pn)
+    if sub is None:  # pragma: no cover - a review is readied only after intake
+        raise EngineError("packet.no_review_request", f"{ppath} attempt {pn} has no submitted result")
+    out = []
+    if sub.data.get("output_sha256"):
+        value = json.loads(ctx.log.cas.read(sub.data["output_sha256"]))
+        out.append(_Resolved("reviewed_output", f"review.{ppath}.attempt-{pn}.output", "json", "reviewed_output.json", _json_bytes(value), "application/json", value))
+    for aname, a in sorted((sub.data.get("artifacts") or {}).items()):
+        suffix = PurePosixPath(a.get("filename", "")).suffix
+        out.append(_Resolved(f"reviewed_{aname}", f"review.{ppath}.attempt-{pn}.artifacts.{aname}", "file", f"reviewed_{aname}{suffix}", ctx.log.cas.read(a["sha256"]), a.get("media_type")))
+    return out
+
+
+def _prior_findings(ctx: RunContext, record: RunRecord, node: Step, loc: groups.Located) -> dict[str, Any] | None:
+    """The previous evaluation of the reviewer's line, with dispositions (what the reviewer re-checks)."""
+    target = reviews.review_target(node)
+    if target is not None:
+        parent, gi = target
+        split = reviews.split_review(loc.path)
+        assert split is not None
+        ploc = groups.locate(ctx.recipe, split[0])
+        assert ploc is not None
+        line = reviews.line_of(ploc, gi)
+    else:
+        idx = [i for i, g in enumerate(node.gates) if isinstance(g, FindingsGate)]
+        if not idx:
+            return None
+        line = reviews.line_of(loc, idx[0])
+    return reviews.prior_findings(record.events, line)
 
 
 def build_packet(
@@ -663,6 +746,9 @@ def build_packet(
 
     record = ctx.record()
     inputs, not_applicable = resolve_inputs(ctx, node, record, step_path, view)
+    target = reviews.review_target(node)
+    if target is not None:
+        inputs += _reviewed_result(ctx, record, step_path)
     attempt = current.attempt + 1
     level = record.level()
     schema = output_schema_for(loaded, node)
@@ -721,6 +807,8 @@ def build_packet(
         "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance, revision),
         "packet_sha256": None,
     }
+    if reviews.is_reviewer(node):
+        manifest["prior_findings"] = _prior_findings(ctx, record, node, loc)
     files["INSTRUCTIONS.md"] = render_instructions(node, prompt, manifest, inputs, schema).encode("utf-8")
     manifest["packet_sha256"] = packet_digest(manifest, {k: hashlib.sha256(v).hexdigest() for k, v in files.items()})
 

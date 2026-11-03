@@ -53,6 +53,10 @@ def _gate_line(ev: Event) -> str:
     label = "provenance" if gate == "provenance" else f"{gate} {d.get('type', '')}".strip()
     adv = " (advisory)" if d.get("advisory") else ""
     verdict = "passed" if ev.type == "gate_passed" else "failed"
+    if d.get("waived"):
+        verdict = f"**waived** (waiver seq {d.get('waiver_seq')}; would have failed: {'; '.join(r.splitlines()[0] for r in d.get('waived_reasons') or [])})"
+    elif d.get("approved"):
+        verdict = "passed (the owner approved the change)"
     line = f"  - {label}{adv}: {verdict}"
     if d.get("command"):
         line += f" — `{d['command']}` exit {d.get('exit_code')}"
@@ -90,11 +94,64 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
                 mt = f" ({a['media_type']})" if a.get("media_type") else ""
                 lines.append(f"- `{name}`{mt}: CAS `{a['sha256']}`")
             lines.append("")
+    reviews_ = [e for e in mine if e.type in ("finding_dispositioned", "gate_waived")]
+    if reviews_:
+        lines += ["## Dispositions and waivers", ""]
+        for e in reviews_:
+            d = e.data
+            if e.type == "finding_dispositioned":
+                ev_ = f" — evidence `{d['evidence']}`" if d.get("evidence") else ""
+                dec = f" — owner decision {d['decision_id']}" if d.get("decision_id") else ""
+                prov = " (provisional until the next review)" if d.get("provisional") else ""
+                lines.append(f"- {e.ts} `{d.get('finding')}` **{d.get('disposition')}** by {d.get('by')}{prov}{ev_}{dec}")
+            else:
+                lines.append(f"- {e.ts} gate {d.get('gate')} waived ({d.get('scope')}, {d.get('decision_id')}): \"{d.get('reason')}\"")
+        lines.append("")
+    upstream = _upstream_waivers(ctx, step_path, events)
+    if upstream:
+        lines += ["## Upstream waivers", ""]
+        lines += [f"- `{e.step_path}` gate {e.data.get('gate')} ({e.data.get('scope')}, {e.data.get('decision_id')}): \"{e.data.get('reason')}\"" for e in upstream]
+        lines.append("")
     other = [e for e in mine if e.attempt is None and e.type in ("step_escalated", "step_abandoned", "human_decision")]
     if other:
         lines += ["## Other events", ""]
         lines += [f"- {e.ts} {e.type} by {e.actor}: {_brief(e)}" for e in other] + [""]
     return "\n".join(lines)
+
+
+def _upstream_waivers(ctx: RunContext, step_path: str, events: list[Event]) -> list[Event]:
+    """Waivers on steps this step depends on (§9.3: waivers show in every dependent record)."""
+    loc = groups.locate(ctx.recipe, step_path)
+    if loc is None:
+        return []
+
+    def closure(nodes: list, start: str) -> set[str]:
+        by_id = {n.id: n for n in nodes}
+        out: set[str] = set()
+        todo = list(by_id[start].depends_on) if start in by_id else []
+        while todo:
+            d = todo.pop()
+            if d not in out and d in by_id:
+                out.add(d)
+                todo += by_id[d].depends_on
+        return out
+
+    top_id = step_path.split("/", 1)[0].split("~", 1)[0]
+    top = closure(ctx.recipe.recipe.steps, top_id)
+    inner: set[str] = set()
+    prefix = ""
+    if loc.frame is not None:
+        inner = closure(loc.frame.group.steps, loc.node.id.split("~", 1)[0])
+        prefix = loc.frame.instance_path + "/"
+    out = []
+    for e in events:
+        if e.type != "gate_waived" or e.step_path == step_path:
+            continue
+        if e.step_path.split("/", 1)[0].split("~", 1)[0] in top:
+            out.append(e)
+        elif prefix and e.step_path.startswith(prefix) and e.step_path.rsplit("/", 1)[-1].split("~", 1)[0] in inner:
+            out.append(e)
+    return out
 
 
 def _brief(ev: Event) -> str:
@@ -138,7 +195,19 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
         elif ev.type == "findings_recorded":
             counts = ", ".join(f"{n} {sev}" for sev, n in sorted((d.get("counts") or {}).items())) or "none"
             partial = " — **partial** coverage" if d.get("partial") else ""
-            lines.append(f"  - findings: {counts}{partial}")
+            by = f" by review `{d['review']}` ({d.get('reviewer')})" if d.get("review") else ""
+            lines.append(f"  - findings{by}: {counts}{partial}")
+            if d.get("coverage_notes"):
+                lines.append(f"    - coverage notes: {d['coverage_notes']}")
+            for f in d.get("findings") or []:
+                extra = " (reported again after it was marked " + f["reopened"] + ")" if f.get("reopened") else ""
+                loc = f" at `{f['location']}`" if f.get("location") else ""
+                lines.append(f"    - `{f['id']}` {f.get('severity')} **{f.get('status')}**: {f.get('title')}{loc}{extra}")
+            for r in d.get("resolved") or []:
+                how = f"; {r['disposition']}" + (" confirmed" if r.get("confirmed") else "") if r.get("disposition") else ""
+                lines.append(f"    - `{r['id']}` not reported again (resolved{how})")
+        elif ev.type == "protected_path_modified":
+            lines.append(f"- Protected paths modified ({d.get('mode')}): {', '.join(d.get('changed') or [])}")
         elif ev.type == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:
             lines.append(f"- Outcome: **result kept, iteration not done** (gate {d['condition'].get('gate')} failed) at {ev.ts}")
         elif ev.type == "step_passed":

@@ -87,7 +87,7 @@ TRANSITIONS: Mapping[str, Mapping[str, str]] = {
     "dispatched": {"ready": "dispatched"},
     "step_running": {"dispatched": "running"},
     "result_submitted": {"running": "submitted"},
-    "verification_started": {"submitted": "verifying"},
+    "verification_started": {"submitted": "verifying", "escalated": "verifying"},  # escalated: a waiver of the failed gate (§9.3)
     "human_gate_opened": {"verifying": "awaiting_human"},
     "gate_passed": {"awaiting_human": "verifying"},  # the human gate's outcome
     "gate_failed": {"awaiting_human": "verifying"},
@@ -116,6 +116,7 @@ RECORDS: Mapping[str, frozenset[str]] = {
     "gate_passed": frozenset({"verifying"}),
     "gate_failed": frozenset({"verifying"}),
     "findings_recorded": frozenset({"verifying"}),
+    "protected_path_modified": frozenset({"verifying"}),
     "failure_classified": frozenset({"verifying", "timed_out", "orphaned", "escalated"}),
     "deadline_extended": frozenset({"running"}),  # an overdue worker got one more band (§8.7)
 }
@@ -133,6 +134,7 @@ ATTEMPT_CURRENT = frozenset(
         "gate_passed",
         "gate_failed",
         "findings_recorded",
+        "protected_path_modified",
         "step_passed",
         "step_timed_out",
         "attempt_orphaned",
@@ -151,7 +153,7 @@ RUN_TRANSITIONS: Mapping[str, Mapping[str | None, str]] = {
     "run_abandoned": {"active": "abandoned"},
 }
 
-_STEP_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:/[A-Za-z0-9_-]+)*$")
+_STEP_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:/[A-Za-z0-9_-]+)*(?:~review(?:\.[0-9]+)?)?$")
 
 
 class IllegalTransition(ValueError):
@@ -245,6 +247,9 @@ def next_step_state(current: StepState, etype: str, attempt: int | None, max_att
 
     # Attempt numbering.
     n = current.attempt
+    if etype == "verification_started" and frm == "escalated" and (n == 0 or attempt != n):
+        # A waiver resumes the verification of the attempt the step holds (§9.3).
+        raise IllegalTransition(f"verification_started from escalated must carry the held attempt {n}" if n else "verification_started from escalated needs an attempt", code="state.bad_attempt")
     if etype in ATTEMPT_NEXT:
         if attempt != n + 1:
             raise IllegalTransition(f"{etype} must carry attempt {n + 1}, got {attempt}", code="state.bad_attempt")
@@ -282,4 +287,6 @@ def attempt_for(current: StepState, etype: str) -> int | None:
         return current.attempt + 1
     if etype in ATTEMPT_CURRENT and current.state in ATTEMPT_STATES:
         return current.attempt
+    if etype == "verification_started" and current.state == "escalated":
+        return current.attempt  # a waiver resumes the held attempt (§9.3)
     return None

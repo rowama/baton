@@ -59,6 +59,7 @@ class Submission:
     notes: str = ""
     questions: list[str] = field(default_factory=list)
     process_feedback: list[Any] = field(default_factory=list)
+    dispositions: list[Any] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
 
     def registered(self) -> dict[str, Any]:
@@ -104,6 +105,7 @@ def read_result(ctx: RunContext, step: Step, result_dir: Path, packet_dir: Path,
     sub.notes = result.notes
     sub.questions = list(result.questions_for_human)
     sub.process_feedback = list(result.process_feedback)
+    sub.dispositions = list(result.dispositions)
     if result.protocol != PROTOCOL:
         sub.problems.append(f"protocol is {result.protocol!r}; expected {PROTOCOL!r}")
     if result.packet_sha256 != expected_packet_sha256:

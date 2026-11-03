@@ -253,7 +253,11 @@ def test_open_high_finding_starts_iteration_two_with_the_finding(store, tmp_path
     assert out.outcome == "next_iteration"
     assert out.reasons == ["open high finding F1: token never expires (src/auth.py:42)"]
     rec = [e.data for e in ctx.log.events() if e.type == "findings_recorded"]
-    assert rec == [{"gate": 0, "counts": {"high": 1, "low": 1}, "open": ["F1", "F2"], "blocking": ["F1"], "partial": False}]
+    assert len(rec) == 1
+    assert {k: rec[0][k] for k in ("gate", "counts", "open", "blocking", "partial")} == {
+        "gate": 0, "counts": {"high": 1, "low": 1}, "open": ["F1", "F2"], "blocking": ["F1"], "partial": False,
+    }
+    assert rec[0]["line"] == f"{base}/review#0"
     # The judge's result is kept; accept never starts in iteration 1; iteration 2 starts at implement.
     assert ctx.log.state().step(f"{base}/i1/review").state == "passed"
     assert ctx.log.state().step(f"{base}/i1/accept").state == "blocked_on_deps"

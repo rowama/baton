@@ -30,9 +30,9 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import classify, groups, refs
+from . import classify, groups, refs, reviews
 from .intake import read_result, run_script_gate
-from .models import EVENTS_FORMATS, FindingsGate, Group, HumanGate, Plan, SchemaGate, ScriptGate, Step, WorkerProfile
+from .models import EVENTS_FORMATS, FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile
 from .packet import (
     PROTOCOL,
     BuiltPacket,
@@ -53,7 +53,7 @@ from .supervisor import ChildResult
 
 __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
-    "abandon_run", "begin_attempt", "decide", "escalate_no_worker", "finish_child", "open_run", "pending_decisions", "plan",
+    "abandon_run", "begin_attempt", "decide", "disposition", "escalate_no_worker", "waive", "finish_child", "open_run", "pending_decisions", "plan",
     "resolve_effort",
     "refresh", "revise", "start", "submit",
 ]
@@ -70,7 +70,7 @@ class Outcome:
 
     step_path: str
     attempt: int
-    outcome: str  # passed | needs_human | retry | escalated | abandoned | next_iteration | iteration_limit | revised
+    outcome: str  # passed | needs_human | needs_review | retry | escalated | abandoned | next_iteration | iteration_limit | revised | recorded | waived | waiver_pending
     reasons: list[str] = field(default_factory=list)
     ready: list[str] = field(default_factory=list)  # steps that became ready as a result
     run_completed: bool = False
@@ -264,6 +264,15 @@ def begin_attempt(
             remove_tree(built.dir.parent)
             raise EngineError("dispatch.worker_cannot_take_packet", f"{profile_name} cannot take {step_path}: " + "; ".join(problems))
     log, n = ctx.log, built.attempt
+    node = node_for(ctx.recipe, step_path)
+    dispatch_data = dict(dispatch_data or {})
+    if isinstance(node, Step) and node.protect is not None and "protected" not in dispatch_data:
+        # Protected paths are hashed before the worker starts and compared at intake (§9.4).
+        dispatch_data["protected"] = reviews.protected_snapshot(ctx.store.root, node.protect_paths())
+    if reviews.is_reviewer(node):
+        head = reviews.repo_head(ctx.store.root)
+        if head:
+            dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it)
     selected: dict[str, Any] = {"profile": profile_name, "vendor": profile.vendor}  # recorded for independence (§8.4)
     if profile.model:
         selected["model"] = profile.model
@@ -277,7 +286,7 @@ def begin_attempt(
         disp["dispatch_id"] = dispatch_id
     if adapter:
         disp["adapter"] = adapter
-    disp.update(dispatch_data or {})
+    disp.update(dispatch_data)
     log.append("dispatched", actor=actor, step_path=step_path, attempt=n, data=disp)
     log.append("step_running", step_path=step_path, attempt=n)
     return built
@@ -312,10 +321,14 @@ def submit(
         raise EngineError("engine.no_packet", f"{step_path} attempt {n} has no recorded packet")
     adir = ctx.attempt_dir(step_path, n)
     sub = read_result(ctx, step, adir / "result", adir / "packet", built.data["packet_sha256"])
+    claims: list[dict[str, Any]] = []
     if sub.status == "completed" and not sub.problems:
         loc = groups.locate(ctx.recipe, step_path)
         assert loc is not None
         sub.problems += view_of(ctx).foreach_id_problems(loc, sub.output)
+        if sub.dispositions:
+            claims, problems = _worker_dispositions(ctx, loc, sub.dispositions)
+            sub.problems += problems
 
     log.append(
         "result_submitted",
@@ -343,13 +356,134 @@ def submit(
         reasons = [f"the worker reported failure: {sub.notes}" if sub.notes else "the worker reported failure"]
         log.append("result_rejected", step_path=step_path, attempt=n, data={"reasons": reasons, "worker_status": "failed"})
         return _failed(ctx, step_path, n, reasons)
+    for c in claims:
+        log.append("finding_dispositioned", actor=actor, step_path=c.pop("step_path"), data=c)
     log.append(
         "gate_passed",
         step_path=step_path,
         attempt=n,
         data={"gate": "provenance", "type": "provenance", "implicit": True, "artifacts": sorted(sub.artifacts)},
     )
+    if step.protect is not None:
+        held = _protected_gate(ctx, step, step_path, n)
+        if held is not None:
+            return held
     return _run_gates(ctx, step, step_path, n, 0)
+
+
+def _protected_gate(ctx: RunContext, step: Step, step_path: str, n: int) -> Outcome | None:
+    """The implicit ``protected`` gate (§9.4): ``None`` to go on with the declared gates.
+
+    Protected files are hashed when the attempt is dispatched and again now. A
+    change records ``protected_path_modified``. ``fail``: the gate fails.
+    ``warn``: the step waits on the owner like a human gate (approve keeps the
+    change; reject fails the gate). A pending waiver lets one change through.
+    """
+    log = ctx.log
+    before = _last_data(log.events(), "dispatched", step_path, n).get("protected")
+    if before is None:
+        return None
+    changed = reviews.protected_changes(before, reviews.protected_snapshot(ctx.store.root, step.protect_paths()))
+    base = {"gate": "protected", "type": "protected", "implicit": True}
+    if not changed:
+        log.append("gate_passed", step_path=step_path, attempt=n, data=base)
+        return None
+    mode = step.protect.on_violation if isinstance(step.protect, Protect) else "warn"
+    log.append("protected_path_modified", step_path=step_path, attempt=n, data={"changed": changed, "mode": mode})
+    shown = ", ".join(changed[:20]) + (f" and {len(changed) - 20} more" if len(changed) > 20 else "")
+    reasons = [f"protected paths were modified: {shown}"]
+    w = reviews.pending_waiver(log.events(), step_path, "protected")
+    if w is not None:
+        log.append("gate_passed", step_path=step_path, attempt=n, data={**base, "changed": changed, "waived": True, "waiver_seq": w.seq, "waived_reasons": reasons})
+        return None
+    if mode == "fail":
+        log.append("gate_failed", step_path=step_path, attempt=n, data={**base, "changed": changed, "reasons": reasons})
+        return _gate_failed(ctx, step_path, n, "protected", reasons)
+    prompt = f"{step_path} modified protected paths: {shown}. Approve keeping the change (reject: the attempt fails and the step is retried)?"
+    log.append("human_gate_opened", step_path=step_path, attempt=n, data={**base, "advisory": False, "prompt": prompt, "ref": step_path, "changed": changed})
+    return Outcome(step_path, n, "needs_human", [prompt])
+
+
+def _worker_dispositions(ctx: RunContext, loc: groups.Located, items: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Check a worker's ``dispositions`` (§9.2, §18 #12): ``(events to record, problems)``.
+
+    A worker may mark ``fixed`` or ``rejected``, with evidence, only findings it
+    was shown: those of its own review and findings gates, and those of the
+    judges of an enclosing loop. Its claims are provisional until a review
+    confirms them.
+    """
+    events = ctx.log.events()
+    lines = _visible_lines(loc)
+    head = reviews.repo_head(ctx.store.root)
+    out: list[dict[str, Any]] = []
+    problems: list[str] = []
+    for k, d in enumerate(items):
+        where = f"dispositions[{k}]"
+        cands = [ln for ln in lines if _line_matches(ctx, ln, d.step)]
+        hits = []
+        for ln in cands:
+            ev = reviews.latest_evaluation(events, ln)
+            if ev is not None and any(f["id"] == d.finding for f in ev.data.get("findings") or []):
+                hits.append((ln, ev))
+        if not hits:
+            problems.append(f"{where}: no finding {d.finding!r} of {d.step!r} was shown to this step")
+            continue
+        if len(hits) > 1:
+            problems.append(f"{where}: finding {d.finding!r} of {d.step!r} is ambiguous ({', '.join(h[0] for h in hits)}); give the step path")
+            continue
+        ln, ev = hits[0]
+        bad = reviews.check_evidence(ctx.store.root, d.disposition, d.evidence, reviewed_commit=ev.data.get("reviewed_commit"), head=head)
+        if bad:
+            problems += [f"{where} ({d.disposition} {d.finding}): {b}" for b in bad]
+            continue
+        out.append({
+            "step_path": ev.step_path, "line": ln, "finding": d.finding, "evaluation_seq": ev.seq, "disposition": d.disposition,
+            "evidence": d.evidence, "by": "worker", "provisional": True,
+        })
+    return out, problems
+
+
+def _visible_lines(loc: groups.Located) -> list[str]:
+    """Findings lines a step at ``loc`` was shown: its own gates', and its enclosing loops' judges'."""
+    node = loc.node
+    lines = [reviews.line_of(loc, i) for i, g in enumerate(node.gates) if isinstance(g, (FindingsGate, ReviewGate))]
+    for f in loc.frames:
+        if not f.group.repeat_until:
+            continue
+        for j in groups.judges(f.group):
+            judge = next((c for c in f.group.steps if c.id == j), None)
+            if isinstance(judge, Step):
+                lines += [f"{f.instance_path}/{j}#{i}" for i, g in enumerate(judge.gates) if isinstance(g, (FindingsGate, ReviewGate))]
+    return lines
+
+
+def _line_matches(ctx: RunContext, line: str, spec: str) -> bool:
+    """Whether a step named as an id or a step path recorded findings on ``line``."""
+    base = line.split("#", 1)[0]
+    if spec == base or spec == base.rsplit("/", 1)[-1]:
+        return True
+    loc = groups.locate(ctx.recipe, spec)
+    return loc is not None and isinstance(loc.node, Step) and reviews.line_of(loc, int(line.rsplit("#", 1)[1])) == line
+
+
+def _gate_result(ctx: RunContext, step_path: str, n: int, gate: int | str, passed: bool, data: dict[str, Any], advisory: bool) -> bool:
+    """Record a gate's outcome, applying a pending waiver (§9.3); ``True`` when it counts as passed.
+
+    A waiver covers the next evaluation of the gate whatever its outcome: a
+    failure is recorded as ``gate_passed`` with ``waived`` (and the reasons it
+    would have failed for), a pass with ``waiver_unused``.
+    """
+    log = ctx.log
+    w = None if advisory else reviews.pending_waiver(log.events(), step_path, gate)
+    if w is None:
+        log.append("gate_passed" if passed else "gate_failed", step_path=step_path, attempt=n, data=data)
+        return passed
+    if passed:
+        log.append("gate_passed", step_path=step_path, attempt=n, data={**data, "waiver_seq": w.seq, "waiver_unused": True})
+    else:
+        body = {k: v for k, v in data.items() if k != "reasons"}
+        log.append("gate_passed", step_path=step_path, attempt=n, data={**body, "waived": True, "waiver_seq": w.seq, "waived_reasons": data.get("reasons") or []})
+    return True
 
 
 def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) -> Outcome:
@@ -363,15 +497,12 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
             log.append("gate_passed", step_path=step_path, attempt=n, data=base)  # validated at intake
         elif isinstance(gate, ScriptGate):
             res = run_script_gate(ctx, gate, step_path)
-            log.append(
-                "gate_passed" if res.passed else "gate_failed",
-                step_path=step_path,
-                attempt=n,
-                data={**base, **res.data, "reasons": res.reasons},
-            )
+            data = {**base, **res.data, "reasons": res.reasons}
             if res.passed or gate.advisory:
+                log.append("gate_passed" if res.passed else "gate_failed", step_path=step_path, attempt=n, data=data)
                 continue
             if res.configuration_error:
+                log.append("gate_failed", step_path=step_path, attempt=n, data=data)
                 log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "configuration", "reasons": res.reasons})
                 return Outcome(step_path, n, "escalated", res.reasons)
             cls = None
@@ -380,30 +511,123 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
                 cls = classify.classify_gate(res.data.get("exit_code"), ctx.log.cas.read(sha) if sha else b"")
             if cls is not None and cls["class"] != "subject":
                 # The gate command could not run here: the platform's problem, not the step's (§8.8).
+                log.append("gate_failed", step_path=step_path, attempt=n, data=data)
                 log.append("failure_classified", step_path=step_path, attempt=n, data={**cls, "gate": i})
                 reasons = [f"{cls['class']} failure ({cls['code']}) running gate {i}: {cls['message']}", *res.reasons]
                 log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": cls["class"], "code": cls["code"], "reasons": reasons})
                 return Outcome(step_path, n, "escalated", reasons)
+            if _gate_result(ctx, step_path, n, i, False, data, False):
+                continue
             return _gate_failed(ctx, step_path, n, i, res.reasons)
         elif isinstance(gate, FindingsGate):
-            passed, data = _findings_gate(ctx, gate, step_path, n)
-            log.append("findings_recorded", step_path=step_path, attempt=n, data={"gate": i, **data["recorded"]})
-            log.append("gate_passed" if passed else "gate_failed", step_path=step_path, attempt=n, data={**base, **data["gate"]})
-            if passed or gate.advisory:
+            loc = groups.locate(ctx.recipe, step_path)
+            assert loc is not None
+            sha = _registered(ctx, step_path, n).get("output_sha256")
+            output = json.loads(ctx.log.cas.read(sha)) if sha else {}
+            out = _evaluate(ctx, step_path, n, reviews.line_of(loc, i), gate, output if isinstance(output, dict) else {}, i,
+                            _last_data(log.events(), "dispatched", step_path, n).get("head"))
+            if out is None:
                 continue
-            return _gate_failed(ctx, step_path, n, i, data["gate"]["reasons"])
+            return out
+        elif isinstance(gate, ReviewGate):
+            return _open_review(ctx, step, step_path, n, i)
         elif isinstance(gate, HumanGate):
             log.append("human_gate_opened", step_path=step_path, attempt=n, data={**base, "prompt": gate.prompt, "ref": step_path})
             return Outcome(step_path, n, "needs_human", [gate.prompt])
-        else:  # pragma: no cover - refused before the packet was built
-            raise EngineError("engine.unsupported_gate", f"{gate.type} gates arrive with the reviews layer")
+        else:  # pragma: no cover - every gate type is handled above
+            raise EngineError("engine.unsupported_gate", f"unknown gate type {gate.type}")
     data = _registered(ctx, step_path, n)
     loc = groups.locate(ctx.recipe, step_path)
     if loc is not None and groups.is_judge(loc):
         data["condition"] = {"gates_passed": True}
     log.append("step_passed", step_path=step_path, attempt=n, data=data)
+    if reviews.review_target(step) is not None:
+        return _review_finished(ctx, step, step_path, n)
     ready = refresh(ctx)
     return Outcome(step_path, n, "passed", [], ready, _completed(ctx))
+
+
+def _evaluate(
+    ctx: RunContext, step_path: str, n: int, line: str, gate: FindingsGate | ReviewGate, output: dict[str, Any], i: int,
+    reviewed_commit: str | None, extra: dict[str, Any] | None = None,
+) -> Outcome | None:
+    """Record one evaluation of a findings line and the gate's outcome; ``None`` to go on with later gates.
+
+    A finding is open unless the owner accepted it as a risk at the previous
+    evaluation and it is reported again (§9.2). The gate fails when an open
+    finding has a ``block_on`` severity. ``coverage.complete: false`` marks
+    the evaluation partial.
+    """
+    log = ctx.log
+    data = reviews.evaluate(log.events(), line, output, gate.block_on)
+    data["gate"] = i
+    if reviewed_commit:
+        data["reviewed_commit"] = reviewed_commit
+    data.update(extra or {})
+    log.append("findings_recorded", step_path=step_path, attempt=n, data=data)
+    reasons = reviews.blocking_reasons(data)
+    gdata = {"gate": i, "type": gate.type, "advisory": gate.advisory, "blocking": data["blocking"], "partial": data["partial"], "reasons": reasons}
+    if _gate_result(ctx, step_path, n, i, not data["blocking"], gdata, gate.advisory) or gate.advisory:
+        return None
+    return _gate_failed(ctx, step_path, n, i, reasons)
+
+
+def _open_review(ctx: RunContext, step: Step, step_path: str, n: int, i: int) -> Outcome:
+    """A ``review`` gate (§9.1): the step waits in ``verifying`` while its review step is done.
+
+    The review path (``<step_path>~review``) becomes ready; the Director picks
+    a reviewer from ``eligible`` and dispatches it. A review left from an
+    earlier attempt is marked stale first, so each attempt gets its own review.
+    """
+    log = ctx.log
+    rpath = reviews.review_path(step_path, step, i)
+    st = log.state().step(rpath).state
+    if st in ("passed", "imported"):
+        log.append("step_stale", step_path=rpath, data={"cause": "new_attempt", "review_of": step_path})
+    elif st not in ("blocked_on_deps", "stale", "escalated"):
+        raise EngineError("engine.review_busy", f"{rpath} is {st}; it cannot start a review of {step_path} attempt {n}")
+    log.append("step_ready", step_path=rpath, data={"review_of": step_path, "attempt": n, "gate": i})
+    return Outcome(step_path, n, "needs_review", [f"{rpath} is ready: dispatch a reviewer (see `baton eligible {ctx.run_id} {rpath}`)"], [rpath])
+
+
+def _review_request(ctx: RunContext, rpath: str) -> tuple[str, int, int] | None:
+    """``(step path, attempt, gate)`` the review at ``rpath`` was readied for."""
+    ev = ctx.record().last("step_ready", rpath)
+    while ev is not None and "review_of" not in ev.data:
+        prior = [e for e in ctx.log.events() if e.type == "step_ready" and e.step_path == rpath and e.seq < ev.seq]
+        ev = prior[-1] if prior else None
+    if ev is None:
+        return None
+    return ev.data["review_of"], int(ev.data["attempt"]), int(ev.data["gate"])
+
+
+def _review_finished(ctx: RunContext, review: Step, rpath: str, rn: int) -> Outcome:
+    """The review step passed: its findings decide the reviewed step's gate, then that step goes on."""
+    req = _review_request(ctx, rpath)
+    target = reviews.review_target(review)
+    assert target is not None
+    parent, gi = target
+    if req is None:  # pragma: no cover - a review is only readied by _open_review
+        return Outcome(rpath, rn, "passed")
+    ppath, pn, _ = req
+    st = ctx.log.state().step(ppath)
+    if st.state != "verifying" or st.attempt != pn:
+        return Outcome(rpath, rn, "passed", [f"{ppath} attempt {pn} is no longer waiting for this review"])
+    passed = ctx.record().last("step_passed", rpath, rn)
+    output = json.loads(ctx.log.cas.read(passed.data["output_sha256"])) if passed and passed.data.get("output_sha256") else {}
+    loc = groups.locate(ctx.recipe, ppath)
+    assert loc is not None
+    gate = parent.gates[gi]
+    assert isinstance(gate, ReviewGate)
+    events = ctx.log.events()
+    reviewer = _last_data(events, "dispatched", rpath, rn).get("profile")
+    out = _evaluate(
+        ctx, ppath, pn, reviews.line_of(loc, gi), gate, output if isinstance(output, dict) else {}, gi,
+        _last_data(events, "dispatched", rpath, rn).get("head"), {"review": rpath, "review_attempt": rn, "reviewer": reviewer},
+    )
+    if out is None:
+        return _run_gates(ctx, parent, ppath, pn, gi + 1)
+    return out
 
 
 def _registered(ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
@@ -411,34 +635,7 @@ def _registered(ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
     return {k: submitted.data.get(k) for k in ("output_sha256", "artifacts")}
 
 
-def _findings_gate(ctx: RunContext, gate: FindingsGate, step_path: str, n: int) -> tuple[bool, dict[str, Any]]:
-    """Evaluate a ``findings`` gate on the step's own ``baton:findings`` output (§9.1, §9.2).
-
-    Every finding is open until dispositions exist (Phase 9). The gate fails
-    when an open finding has a ``block_on`` severity. ``coverage.complete:
-    false`` marks the result partial.
-    """
-    sha = _registered(ctx, step_path, n).get("output_sha256")
-    output = json.loads(ctx.log.cas.read(sha)) if sha else {}
-    findings = [f for f in output.get("findings") or [] if isinstance(f, dict)]
-    coverage = output.get("coverage") or {}
-    block = set(gate.block_on or [])
-    blocking = [f for f in findings if f.get("severity") in block]
-    counts: dict[str, int] = {}
-    for f in findings:
-        counts[f.get("severity", "?")] = counts.get(f.get("severity", "?"), 0) + 1
-    partial = coverage.get("complete") is False
-    reasons = [
-        f"open {f.get('severity')} finding {f.get('id')}: {f.get('title')}" + (f" ({f['location']})" if f.get("location") else "")
-        for f in blocking
-    ]
-    recorded = {"counts": counts, "open": [f.get("id") for f in findings], "blocking": [f.get("id") for f in blocking], "partial": partial}
-    if coverage.get("notes"):
-        recorded["coverage_notes"] = coverage["notes"]
-    return not blocking, {"recorded": recorded, "gate": {"blocking": recorded["blocking"], "partial": partial, "reasons": reasons}}
-
-
-def _gate_failed(ctx: RunContext, step_path: str, n: int, gate: int, reasons: list[str]) -> Outcome:
+def _gate_failed(ctx: RunContext, step_path: str, n: int, gate: int | str, reasons: list[str]) -> Outcome:
     """A declared blocking gate failed: retry the step, or, for an iteration's judge, end the iteration.
 
     A judge (a step named in its group's ``repeat_until``) did its work; its
@@ -584,6 +781,10 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
     for path, st in sorted(ctx.log.state().steps.items()):
         if st.state in ("awaiting_human", "escalated") and "/" in path and view.live_reason(path, dispatch=False):
             continue  # inside a superseded or abandoned instance, or an earlier iteration
+        if st.state == "escalated" and reviews.split_review(path):
+            req = _review_request(ctx, path)
+            if req is None or ctx.log.state().step(req[0]).state != "verifying" or ctx.log.state().step(req[0]).attempt != req[1]:
+                continue  # its step has moved on; the next attempt readies the review again
         if st.state == "awaiting_human":
             opened = record.last("human_gate_opened", path, st.attempt)
             out.append(
@@ -629,6 +830,8 @@ def decide(
     """
     log = ctx.log
     extra = {"recorded_by": recorded_by} if recorded_by else {}
+    if "#" in ref:
+        return _decide_finding(ctx, ref, decision, note, actor, extra)
     if groups.locate_instance(ctx.recipe, ref) is not None:
         return _decide_iteration_limit(ctx, ref, decision, note, actor, extra)
     current = log.state().step(ref)
@@ -649,6 +852,14 @@ def decide(
         attempt=n,
         data={"ref": ref, "kind": "gate", "gate": gate_index, "decision": decision, "note": note, **extra},
     )
+    if gate_index == "protected":  # the implicit protected gate in warn mode (§9.4)
+        base: dict[str, Any] = {"gate": "protected", "type": "protected", "implicit": True}
+        if decision == "approve":
+            log.append("gate_passed", step_path=ref, attempt=n, data={**base, "approved": True})
+            return _run_gates(ctx, step, ref, n, 0)
+        reasons = [f"the owner did not accept the change to protected paths: {note}" if note else "the owner did not accept the change to protected paths"]
+        log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
+        return _gate_failed(ctx, ref, n, "protected", reasons)
     base = {"gate": gate_index, "type": "human", "advisory": step.gates[gate_index].advisory}
     if decision == "approve":
         log.append("gate_passed", step_path=ref, attempt=n, data=base)
@@ -658,6 +869,150 @@ def decide(
     if step.gates[gate_index].advisory:
         return _run_gates(ctx, step, ref, n, gate_index + 1)
     return _gate_failed(ctx, ref, n, gate_index, reasons)
+
+
+FINDING_DECISIONS = ("accept-risk",)
+
+
+def _finding_ref(ctx: RunContext, step_path: str, finding: str) -> tuple[Any, dict[str, Any]]:
+    """``(findings_recorded event, finding)`` for a finding recorded on ``step_path`` (``F1`` or ``<gate>:F1``).
+
+    Only the latest evaluation of a line can be dispositioned: a later review
+    has superseded an earlier one.
+    """
+    gate = None
+    fid = finding
+    if ":" in finding and finding.split(":", 1)[0].isdigit():
+        g, fid = finding.split(":", 1)
+        gate = int(g)
+    events = ctx.log.events()
+    evs = [e for e in events if e.type == "findings_recorded" and e.step_path == step_path and (gate is None or e.data.get("gate") == gate)
+           and any(f["id"] == fid for f in e.data.get("findings") or [])]
+    if not evs:
+        raise EngineError("disposition.unknown_finding", f"no finding {fid!r} was recorded on {step_path}" + (f" by gate {gate}" if gate is not None else ""))
+    lines = {e.data["line"] for e in evs}
+    if len(lines) > 1:
+        raise EngineError("disposition.ambiguous_finding", f"{fid!r} was recorded on {step_path} by several gates; name it as <gate>:{fid}")
+    ev = evs[-1]
+    latest = reviews.latest_evaluation(events, ev.data["line"])
+    if latest is not None and latest.seq != ev.seq:
+        raise EngineError("disposition.superseded", f"finding {fid!r} of {step_path} was reviewed again since (at {latest.step_path}); disposition the latest review's findings")
+    return ev, next(f for f in ev.data["findings"] if f["id"] == fid)
+
+
+def _decide_finding(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    """The owner accepts a finding as a risk (``<step_path>#<finding>``, decision ``accept-risk``, §9.2)."""
+    step_path, finding = ref.split("#", 1)
+    if decision not in FINDING_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} is a finding; decision must be one of {FINDING_DECISIONS}, got {decision!r}")
+    ev, f = _finding_ref(ctx, step_path, finding)
+    log = ctx.log
+    decision_id = f"d{log.state().last_seq + 1}"
+    log.append(
+        "human_decision", actor=actor, step_path=step_path,
+        data={"ref": ref, "kind": "finding", "decision": "accepted-risk", "note": note, "decision_id": decision_id, "finding": f["id"], **extra},
+    )
+    log.append(
+        "finding_dispositioned", actor=actor, step_path=step_path,
+        data={"line": ev.data["line"], "finding": f["id"], "evaluation_seq": ev.seq, "disposition": "accepted-risk", "decision_id": decision_id, "by": "owner"},
+    )
+    return Outcome(step_path, ev.attempt or 0, "recorded", [f"{f['id']} accepted as a risk ({decision_id})"])
+
+
+def disposition(
+    ctx: RunContext, step_path: str, finding: str, value: str, evidence: str | None = None, *, actor: str = "director"
+) -> Outcome:
+    """Record a disposition of a finding (§9.2): the Director relaying evidence, or an owner decision.
+
+    ``fixed`` needs a commit or ``file:line``; ``rejected`` a ``file:line`` at the
+    reviewed commit or a test reference; ``accepted-risk`` the id of the owner's
+    decision accepting that finding (``decide <step>#<finding> accept-risk``).
+    A disposition takes effect at the next evaluation of the finding's line:
+    the next review re-reporting a ``fixed`` or ``rejected`` finding reopens it.
+    """
+    if value not in reviews.DISPOSITIONS:
+        raise EngineError("disposition.bad_value", f"disposition must be one of {reviews.DISPOSITIONS}, got {value!r}")
+    ev, f = _finding_ref(ctx, step_path, finding)
+    data: dict[str, Any] = {"line": ev.data["line"], "finding": f["id"], "evaluation_seq": ev.seq, "disposition": value}
+    if value == "accepted-risk":
+        dec = ctx.record().decision((evidence or "").strip())
+        if dec is None or dec.data.get("kind") != "finding" or dec.step_path != step_path or dec.data.get("finding") != f["id"]:
+            raise EngineError(
+                "disposition.needs_owner_decision",
+                f"accepted-risk needs the owner's decision on this finding: record it with `baton decide {ctx.run_id} '{step_path}#{f['id']}' accept-risk --note \"<the owner's words>\"`",
+            )
+        data.update(decision_id=dec.data["decision_id"], by="owner")
+    else:
+        bad = reviews.check_evidence(ctx.store.root, value, evidence, reviewed_commit=ev.data.get("reviewed_commit"), head=reviews.repo_head(ctx.store.root))
+        if bad:
+            raise EngineError("disposition.bad_evidence", f"{value} {f['id']} refused: " + "; ".join(bad))
+        data.update(evidence=evidence, by="director", provisional=False)
+    ctx.log.append("finding_dispositioned", actor=actor, step_path=step_path, data=data)
+    return Outcome(step_path, ev.attempt or 0, "recorded", [f"{f['id']} {value}"])
+
+
+def waive(ctx: RunContext, step_path: str, gate: str, reason: str, *, actor: str = "human", recorded_by: str | None = None) -> Outcome:
+    """Waive one occurrence of a gate on one step (§9.3); the reason is the owner's decision, verbatim.
+
+    Covers the failed occurrence the step still holds (an escalated step whose
+    last attempt failed this gate: the step goes on with its later gates; a
+    judge at its iteration limit: the iteration goes on as if the judge had
+    passed), else the next occurrence (a pending waiver, consumed by the next
+    evaluation of the gate, or for ``independence`` by the next dispatch).
+    """
+    if not reason.strip():
+        raise EngineError("waive.reason_required", "a waiver needs the owner's reason")
+    loc = groups.locate(ctx.recipe, step_path)
+    if loc is None or not isinstance(loc.node, Step):
+        raise EngineError("engine.unknown_step", f"{step_path} is not a step of {ctx.recipe.recipe.ref}")
+    step = loc.node
+    g = reviews.resolve_gate(step, gate)
+    log = ctx.log
+    rs = log.state()
+    st = rs.step(step_path)
+    record = ctx.record()
+    held = None
+    if g != "independence" and st.state == "escalated":
+        esc = record.last("step_escalated", step_path, st.attempt)
+        failed = [e for e in record.attempt_events(step_path, st.attempt) if e.type == "gate_failed" and not e.data.get("advisory")]
+        if esc is not None and esc.data.get("reason") == "attempts_exhausted" and failed and failed[-1].data.get("gate") == g:
+            held = "escalated"
+    elif g != "independence" and st.state == "passed" and groups.is_judge(loc):
+        cond = groups.View(ctx.recipe, log.events(), rs, log.cas).condition(step_path) or {}
+        lim = None
+        if cond.get("gates_passed") is False and cond.get("gate") == g:
+            assert loc.frame is not None
+            f = loc.frame
+            lim = view_of(ctx).pending_limit(f.group, f.group_path, f.instance)
+        if lim is not None and lim.data.get("judged") == step_path:
+            level = record.level()
+            later = [i for i, x in enumerate(step.gates) if isinstance(g, int) and i > g and gate_included(x, level) and not x.advisory and not isinstance(x, SchemaGate)]
+            if later:
+                raise EngineError("waive.later_gates", f"gates {later} of {step_path} never ran after gate {g} failed; decide {f.instance_path} retry instead")
+            held = "judge"
+    if held is None and reviews.pending_waiver(log.events(), step_path, g) is not None:
+        raise EngineError("waive.already_pending", f"{step_path} already has a pending waiver of gate {g}")
+    decision_id = f"d{rs.last_seq + 1}"
+    log.append(
+        "human_decision", actor=actor, step_path=step_path,
+        data={"ref": step_path, "kind": "waiver", "gate": g, "decision": "waive", "note": reason, "decision_id": decision_id, **({"recorded_by": recorded_by} if recorded_by else {})},
+    )
+    base = {"gate": g, "reason": reason, "decision_id": decision_id}
+    if held == "escalated":
+        n = st.attempt
+        log.append("gate_waived", actor=actor, step_path=step_path, data={**base, "scope": "held", "attempt": n})
+        log.append("verification_started", step_path=step_path, attempt=n, data={"after_waiver": decision_id})
+        if g == "protected":
+            return _run_gates(ctx, step, step_path, n, 0)
+        assert isinstance(g, int)
+        return _run_gates(ctx, step, step_path, n, g + 1)
+    if held == "judge":
+        judged = ctx.record().last("step_passed", step_path)
+        log.append("gate_waived", actor=actor, step_path=step_path, data={**base, "scope": "held", "attempt": st.attempt, "judged_seq": judged.seq})
+        ready = refresh(ctx)
+        return Outcome(step_path, st.attempt, "waived", [reason], ready, _completed(ctx))
+    log.append("gate_waived", actor=actor, step_path=step_path, data={**base, "scope": "next"})
+    return Outcome(step_path, st.attempt, "waiver_pending", [f"the next {g if isinstance(g, str) else f'evaluation of gate {g}'} of {step_path} is waived"])
 
 
 def _decide_iteration_limit(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
@@ -759,6 +1114,17 @@ def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, acto
     if decision == "retry":
         log.append("step_ready", step_path=ref, data={"after_decision": True})
         return Outcome(ref, n, "retry", [note] if note else [])
+    req = _review_request(ctx, ref) if reviews.split_review(ref) else None
+    if req is not None and log.state().step(req[0]).state == "verifying" and log.state().step(req[0]).attempt == req[1]:
+        # Abandoning a review fails the reviewed step's gate; the review stays escalated
+        # (it is readied again by the step's next attempt).
+        ppath, pn, gi = req
+        reasons = [f"the owner abandoned the review {ref}" + (f": {note}" if note else "")]
+        node = _step(ctx, ppath)
+        log.append("gate_failed", step_path=ppath, attempt=pn, data={"gate": gi, "type": "review", "advisory": node.gates[gi].advisory, "reasons": reasons})
+        if node.gates[gi].advisory:
+            return _run_gates(ctx, node, ppath, pn, gi + 1)
+        return _gate_failed(ctx, ppath, pn, gi, reasons)
     log.append("step_abandoned", step_path=ref, data={"note": note})
     return Outcome(ref, n, "abandoned", [note] if note else [])
 
@@ -952,6 +1318,21 @@ class Api:
             else:
                 st = rs.step(node.id)
                 steps[node.id] = {"state": st.state, "attempt": st.attempt}
+                for gi in reviews.review_gate_indices(node):
+                    rpath = reviews.review_path(node.id, node, gi)
+                    if rpath in rs.steps:
+                        steps[rpath] = {"state": rs.steps[rpath].state, "attempt": rs.steps[rpath].attempt, "review_of": node.id}
+        latest: dict[str, Any] = {}
+        for e in events:
+            if e.type == "findings_recorded":
+                latest[e.data.get("line")] = e
+        findings = []
+        for ln, e in sorted(latest.items(), key=lambda kv: kv[1].seq):
+            now_open = [f["id"] for f in reviews.effective(events, e) if f.get("status") == "open"]
+            entry = {"line": ln, "step_path": e.step_path, "attempt": e.attempt, "open": now_open,
+                     "blocking": [i for i in e.data.get("blocking") or [] if i in now_open], "partial": bool(e.data.get("partial"))}
+            if now_open or entry["partial"]:
+                findings.append(entry)
         ready = [p for p, st in sorted(rs.steps.items(), key=lambda kv: kv[1].last_seq) if st.state == "ready" and view.live_reason(p) is None]
         running = []
         for path, st in sorted(rs.steps.items()):
@@ -984,6 +1365,7 @@ class Api:
             "level": ctx.record().level(),
             "steps": steps,
             "groups": group_info,
+            "findings": findings,
             "ready": ready,
             "running": running,
             "pending_decisions": pending,
@@ -1004,12 +1386,20 @@ class Api:
         except PreferencesError as e:
             raise EngineError("configuration.preferences", str(e)) from e
         loc = groups.locate(ctx.recipe, step_path)
-        source = None
+        source, own = None, None
         if node.independence is not None and loc is not None:
-            source = step_path if node.independence.from_step == node.id else groups.child_path(loc.frame, node.independence.from_step)
+            split = reviews.split_review(step_path)
+            parent = reviews.review_target(node)
+            if split is not None and parent is not None and node.independence.from_step == parent[0].id:
+                source, own = split[0], True  # the reviewed step's attempt under review
+            else:
+                source = step_path if node.independence.from_step == node.id else groups.child_path(loc.frame, node.independence.from_step)
+        events = ctx.log.events()
+        waiver = reviews.pending_waiver(events, step_path, "independence") if node.independence is not None else None
         return eligible_workers(
-            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=ctx.log.events(), preferences=prefs, source_path=source
-        )
+            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=events, preferences=prefs, source_path=source,
+            source_own=own, independence_waiver=waiver.data.get("decision_id") if waiver is not None else None,
+        ), waiver
 
     def eligible(self, run_id: str, step_path: str) -> dict[str, Any]:
         """Ordered eligible profiles with reasons, and every exclusion (§8.4).
@@ -1018,7 +1408,7 @@ class Api:
         ``decide <step> retry`` readies it again once a worker exists.
         """
         ctx = self._ctx(run_id)
-        result = self._routing(ctx, step_path)
+        result, _w = self._routing(ctx, step_path)
         out: dict[str, Any] = {"run_id": run_id, **result.as_dict()}
         if result.eligible or ctx.log.state().step(step_path).state != "ready":
             out["escalated"] = False
@@ -1052,7 +1442,7 @@ class Api:
         if profile.isolation != "none":
             raise EngineError("configuration.isolation_unsupported", f"{worker}: isolation {profile.isolation!r} is not supported by this runtime yet; use none")
         ctx0 = self._ctx(run_id)
-        routing = self._routing(ctx0, step_path)
+        routing, waiver = self._routing(ctx0, step_path)
         if worker not in routing.names():
             why = "; ".join(routing.reasons_for(worker)) or "not eligible"
             raise EngineError("routing.ineligible", f"{worker} is not eligible for {step_path}: {why} (see `baton eligible {run_id} {step_path}`)")
@@ -1078,6 +1468,9 @@ class Api:
             band_s = self.project.config.effort.seconds(effort)
             deadline = supervisor.fmt(ctx.log.clock() + timedelta(seconds=band_s))
             extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode, "effort": effort, "deadline": deadline}
+            if waiver is not None:
+                # One waiver covers one dispatch (§9.3), whichever worker is chosen.
+                extra.update(waiver_seq=waiver.seq, independence_waived=waiver.data.get("decision_id"))
             if effort_source != "step":
                 extra["effort_source"] = effort_source
             if env is not None:
@@ -1224,6 +1617,9 @@ class Api:
             outcome = "running"
         elif "step_passed" in types:
             outcome = _passed_outcome(ctx, next(e for e in reversed(mine) if e.type == "step_passed"))
+        elif st.attempt == n and st.state == "verifying" and any(e.type == "step_ready" and e.data.get("review_of") == step_path and e.data.get("attempt") == n for e in ctx.log.events()):
+            outcome = "needs_review"
+            reasons = [f"{e.step_path} is ready for a reviewer" for e in ctx.log.events() if e.type == "step_ready" and e.data.get("review_of") == step_path and e.data.get("attempt") == n][-1:]
         elif st.attempt == n and st.state == "awaiting_human":
             outcome = "needs_human"
             opened = record.last("human_gate_opened", step_path, n)
@@ -1384,6 +1780,8 @@ class Api:
                 outcome = "timed_out"
             elif "attempt_orphaned" in types:
                 outcome = "failed"
+            elif state == "verifying" and any(e.type == "step_ready" and e.data.get("review_of") == step_path and e.data.get("attempt") == n for e in ctx.log.events()):
+                outcome = "needs_review"  # the Director dispatches a reviewer (§9.1)
             elif state == "awaiting_human" or (esc is not None and esc.data.get("reason") == "blocked"):
                 outcome = "needs_human"
             elif esc is not None and esc.data.get("reason") in ("platform", "configuration", "unknown"):
@@ -1395,9 +1793,17 @@ class Api:
             "run_id": ctx.run_id, "step_path": step_path, "attempt": n, "dispatch_id": dispatch_id, "outcome": outcome,
             "classification": cls_ev.data.get("class") if cls_ev is not None else None,
             "step_state": state,
-            "needs_owner": (state in ("awaiting_human", "escalated") or judged == "iteration_limit") and outcome != "overdue",
+            "needs_owner": (state in ("awaiting_human", "escalated") or judged == "iteration_limit" or self._review_needs_owner(ctx, step_path)) and outcome != "overdue",
             "record": str(record),
         }
+
+    @staticmethod
+    def _review_needs_owner(ctx: RunContext, step_path: str) -> bool:
+        """After a review: whether the reviewed step now waits on the owner."""
+        if reviews.split_review(step_path) is None:
+            return False
+        req = _review_request(ctx, step_path)
+        return req is not None and ctx.log.state().step(req[0]).state in ("awaiting_human", "escalated")
 
     def _fire_and_record(self, ctx: RunContext, step_path: str, n: int, dispatch_id: str, *, before: int | None = None, outcome: str | None = None) -> None:
         """Fire hooks outside the run lock, then record them, write records and checkpoint."""
@@ -1461,6 +1867,24 @@ class Api:
 
         def body(ctx: RunContext) -> dict[str, Any]:
             outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor)
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def waive(self, run_id: str, step_path: str, gate: str, reason: str) -> dict[str, Any]:
+        """Waive one gate occurrence (§9.3). The reason is the owner's decision; the director skill requires it."""
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            outcome = waive(ctx, step_path, gate, reason, actor="human", recorded_by=self.director.actor)
+            return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def disposition(self, run_id: str, step_path: str, finding: str, value: str, evidence: str | None = None) -> dict[str, Any]:
+        """Record a finding's disposition (§9.2): fixed / rejected with evidence, or accepted-risk with the owner's decision id."""
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            outcome = disposition(ctx, step_path, finding, value, evidence, actor=self.director.actor)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
         return self._mutate(run_id, body)

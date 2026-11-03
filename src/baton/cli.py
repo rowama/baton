@@ -305,6 +305,10 @@ def _outcome_text(out: dict) -> str:
         "next_iteration": f"{out['step_path']}: the iteration's work is not done; the next iteration starts",
         "iteration_limit": f"{out['step_path']}: the work is not done at the iteration limit; the owner decides",
         "revised": f"{out['step_path']} is ready for a revised attempt",
+        "needs_review": f"{out['step_path']} is waiting for its review",
+        "recorded": f"{out['step_path']}: recorded",
+        "waived": f"{out['step_path']}: the failed gate is waived; the work goes on",
+        "waiver_pending": f"{out['step_path']}: waiver recorded",
         "abandoned": f"{out['step_path']} abandoned",
         "running": f"{out['step_path']} is still running",
     }[o]
@@ -355,14 +359,41 @@ def submit(
 @app.command()
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
-    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, or an instance path at its iteration limit.")],
-    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations).")],
+    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, or <step>#<finding>.")],
+    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     as_json: JsonOpt = False,
 ) -> None:
     """Record the owner's decision, verbatim."""
     out = _call(as_json, lambda: _api().decide(run, ref, decision, note))
     _done(out, as_json, _outcome_text(out))
+
+
+@app.command()
+def waive(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    step: Annotated[str, typer.Argument(help="Step path.")],
+    gate: Annotated[str, typer.Argument(help="Gate index, gate type (when the step has one), independence or protected.")],
+    reason: Annotated[str, typer.Option("--reason", help="The owner's decision, recorded verbatim.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Waive one gate occurrence (owner decision): the failed one the step holds, else the next."""
+    out = _call(as_json, lambda: _api().waive(run, step, gate, reason))
+    _done(out, as_json, _outcome_text({**out, "run_id": run}))
+
+
+@app.command()
+def disposition(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    step: Annotated[str, typer.Argument(help="Step path whose review recorded the finding.")],
+    finding: Annotated[str, typer.Argument(help="Finding id (or <gate>:<id>).")],
+    value: Annotated[str, typer.Argument(help="fixed | rejected | accepted-risk")],
+    evidence: Annotated[Optional[str], typer.Option("--evidence", help="fixed: commit or file:line; rejected: file:line or path::test; accepted-risk: the owner's decision id.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Record a finding's disposition; it takes effect at the next review of that finding."""
+    out = _call(as_json, lambda: _api().disposition(run, step, finding, value, evidence))
+    _done(out, as_json, _outcome_text({**out, "run_id": run}))
 
 
 @app.command()

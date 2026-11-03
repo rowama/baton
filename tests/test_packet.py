@@ -241,11 +241,11 @@ def test_ineligible_profile_refused(store):
     assert not (ctx.run_dir / "steps").exists()
 
 
-def test_layers_not_built_yet_are_refused(store):
-    """Steps with review gates and groups wait for their layers rather than half-running."""
+def test_groups_and_non_steps_are_not_dispatched(store):
+    """A group is not dispatched itself, and a path that is not a step of the recipe is refused."""
     rec = load_recipe(SOFTWARE_FEATURE)
     ctx = engine.start(store, rec, {"title": "Login", "kind": "feature", "feature_request": "Add login"}, run_id="r_x")
-    for path in ("design", "slices", "slices/implement"):
+    for path in ("slices", "slices/implement"):
         with pytest.raises(EngineError) as ei:
             engine.begin_attempt(ctx, path, "owner", WRITER)
         assert ei.value.code == "packet.unsupported_step"
