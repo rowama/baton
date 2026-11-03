@@ -379,6 +379,8 @@ def test_detect(tmp_path):
     cli, project, recipe = setup(tmp_path)
     cli.run("init", str(project))
     cli.run("vendor", str(recipe))
+    pyaml = project / ".baton" / "project.yaml"
+    pyaml.write_text(pyaml.read_text(encoding="utf-8").replace("paths: {}", "paths: { specs: docs/specs, designs: docs/design }", 1), encoding="utf-8")
     git(project, "add", "-A")
     git(project, "commit", "-q", "-m", "Baton")
     run = cli.run("start", "software-feature", "--inputs", json.dumps({"title": "Login", "kind": "feature", "feature_request": "Sign in"}))["run_id"]

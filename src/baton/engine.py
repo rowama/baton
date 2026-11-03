@@ -176,6 +176,9 @@ def refresh(ctx: RunContext, importer: Importer | None = None) -> list[str]:
     log = ctx.log
     if log.state().state != "active":
         return []
+    from . import publish
+
+    publish.publish_due(ctx)  # step_passed → publish, before dependents move on (§8.10)
     readied: list[str] = []
     events = log.events()
     if importer is None:
@@ -190,8 +193,8 @@ def refresh(ctx: RunContext, importer: Importer | None = None) -> list[str]:
     if hold or awaiting_baseline(events, kind="adoption"):
         return readied
     view = view_of(ctx)
-    if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps):
-        log.append("run_completed")
+    if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps) and not publish.outstanding(ctx):
+        log.append("run_completed")  # a pending publish conflict or drift holds completion (§10.4, §10.5)
     return readied
 
 
@@ -1148,11 +1151,16 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
             }
         )
     out += skip_notices(ctx)
+    if ctx.log.state().state == "active":
+        from . import publish
+
+        out += publish.pending(ctx)
     return out
 
 
 def decide(
-    ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: str = "human", recorded_by: str | None = None
+    ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: str = "human", recorded_by: str | None = None,
+    path: str | None = None,
 ) -> Outcome:
     """Record the owner's decision, verbatim, then continue the step.
 
@@ -1167,6 +1175,10 @@ def decide(
     extra = {"recorded_by": recorded_by} if recorded_by else {}
     if ref.startswith("skip:"):
         return _decide_skip_notice(ctx, ref, decision, note, actor, extra)
+    if ref.startswith(("publish:", "drift:")):
+        return _decide_deliverable(ctx, ref, decision, note, actor, extra, path)
+    if path is not None:
+        raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
     if "#" in ref:
         return _decide_finding(ctx, ref, decision, note, actor, extra)
     if groups.locate_instance(ctx.recipe, ref) is not None:
@@ -1210,6 +1222,21 @@ def decide(
     if step.gates[gate_index].advisory:
         return _run_gates(ctx, step, ref, n, gate_index + 1)
     return _gate_failed(ctx, ref, n, gate_index, reasons)
+
+
+def _decide_deliverable(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any], path: str | None) -> Outcome:
+    """A publish conflict (overwrite | keep | alternate) or drift (leave), §10.4, §10.5."""
+    from . import publish
+
+    if ref.startswith("publish:"):
+        res = publish.decide_conflict(ctx, ref, decision, note, actor, extra, path)
+    else:
+        if path is not None:
+            raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
+        res = publish.decide_drift(ctx, ref, decision, note, actor, extra)
+    sp = ref.split(":", 1)[1].rsplit(".", 1)[0]
+    ready = refresh(ctx)
+    return Outcome(sp, ctx.log.state().step(sp).attempt, "recorded", [f"{decision}: {res.get('path') or ''}".rstrip(": ")], ready, _completed(ctx))
 
 
 FINDING_DECISIONS = ("accept-risk",)
@@ -1701,12 +1728,15 @@ class Api:
         return run_lock(self.project.baton, run_id)
 
     def _after(self, ctx: RunContext, leases: Any, before: int, out: dict[str, Any], extra: list[Path] | None = None) -> None:
-        from . import docs
+        from . import docs, publish
 
+        if ctx.log.state().state == "active":
+            publish.record_drift(ctx)  # drift is recorded by mutating calls only (§10.5)
+            refresh(ctx)  # a conflict or drift the owner settled on disk no longer holds the run
         if ctx.log.state().state in ("completed", "abandoned") and leases.current() is not None:
             leases.release(actor="runtime")
         self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
-        paths = list(extra or []) + self._adoption_progress(ctx) + self._project_paths()
+        paths = list(extra or []) + publish.deliverable_paths(ctx) + self._adoption_progress(ctx) + self._project_paths()
         docs.write_records(ctx)
         new = [e for e in ctx.log.events() if e.seq > before]
         cp = self._checkpoint(ctx, new, paths)
@@ -1779,6 +1809,11 @@ class Api:
             active = [r for r in self.project.store.run_ids() if self.project.store.run(r).state().state == "active"]
             if len(active) >= limit:
                 raise EngineError("limits.active_runs", f"{len(active)} runs are active and project.yaml limits.active_runs is {limit}; finish or abandon one first ({', '.join(active)})")
+        from . import publish
+
+        missing = publish.missing_path_keys(loaded.recipe, self.project.config.paths)
+        if missing:
+            raise EngineError("configuration.publish_path", f"{loaded.recipe.ref} publishes to paths.{', paths.'.join(missing)}, which project.yaml does not map; add them under paths:")
         title = title if title is not None else (inputs.get("title") if isinstance(inputs, dict) else None)
         work_item = {
             "kind": inputs.get("kind") if isinstance(inputs, dict) else None,
@@ -1902,8 +1937,21 @@ class Api:
                 "yours": lease.held_by(self.director, self.project.branch()),
             }
         pending = pending_decisions(ctx)
+        from . import publish
+
+        drifted = {(x["step_path"], x["artifact"]): x for x in publish.drift(events, self.project.root)}
+        deliverables = []
+        for (sp, art), t in sorted(publish.tracked(events).items()):
+            if t.path is None:
+                continue
+            x = drifted.get((sp, art))
+            deliverables.append({"step_path": sp, "artifact": art, "path": t.path, "sha256": t.expected,
+                                 "revisions": len(t.revisions), **({"drift": {"current_sha256": x["current_sha256"]}} if x else {})})
         return {
             "run_id": run_id,
+            "deliverables": deliverables,
+            "drift": [x for x in drifted.values()],
+            "possibly_stale": publish.possibly_stale_flags(events),
             "title": started.get("title"),
             "recipe": started.get("recipe"),
             "state": rs.state,
@@ -2631,11 +2679,11 @@ class Api:
         self.start_queued()
         return out
 
-    def decide(self, run_id: str, ref: str, decision: str, note: str = "") -> dict[str, Any]:
-        """Record the owner's decision verbatim (gates and escalations)."""
+    def decide(self, run_id: str, ref: str, decision: str, note: str = "", *, path: str | None = None) -> dict[str, Any]:
+        """Record the owner's decision verbatim (gates, escalations, findings, stale steps, notices, deliverables)."""
 
         def body(ctx: RunContext) -> dict[str, Any]:
-            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor)
+            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor, path=path)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
         return self._mutate(run_id, body)
@@ -2674,6 +2722,17 @@ class Api:
         def body(ctx: RunContext) -> dict[str, Any]:
             outcome = retriage(ctx, reason, actor=self.director.actor)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
+
+        return self._mutate(run_id, body)
+
+    def ingest_revision(self, run_id: str, step_path: str, artifact: str, note: str, *, feed: str = "revision_inputs") -> dict[str, Any]:
+        """Accept a drifted published file as a human revision (§10.5); the note is the owner's decision."""
+        from . import publish
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            res = publish.ingest_drift(ctx, step_path, artifact, note, feed, "human", {"recorded_by": self.director.actor})
+            refresh(ctx)
+            return {"run_id": ctx.run_id, **res}
 
         return self._mutate(run_id, body)
 
@@ -3207,12 +3266,16 @@ class Api:
 
         return self._sme_locked(run_id, body)
 
-    def promote_sme(self, c_id: str, target: str, note: str, *, text: str | None = None, turn: int | None = None) -> dict[str, Any]:
+    def promote_sme(self, c_id: str, target: str, note: str, *, text: str | None = None, turn: int | None = None,
+                    artifact: str | None = None, from_artifact: str | None = None, feed: str = "revision_inputs") -> dict[str, Any]:
         """Bring an expert's answer into the work with the owner's agreement (§12.2), recorded verbatim.
 
         ``decision``: a ``human_decision`` steps may reference as ``human.<decision_id>`` (needs a run);
         ``fact``: a platform fact; ``lesson``: ``.baton/process/lessons.md``; ``proposal``: a process
-        proposal file under ``.baton/process/proposals/`` (applied as a new recipe version by its maintainer).
+        proposal file under ``.baton/process/proposals/`` (applied as a new recipe version by its maintainer);
+        ``revision``: a human revision of a published artifact (``artifact`` = ``<step_path>.<name>``; the
+        content is the expert's artifact ``from_artifact``, else the answer or ``text``), written to its
+        published path (§10.5).
         """
         from . import sme
 
@@ -3229,6 +3292,10 @@ class Api:
         chosen = next((t for t in answered if t["turn"] == turn), None) if turn is not None else (answered[-1] if answered else None)
         if turn is not None and chosen is None:
             raise EngineError("sme.no_answer", f"{c_id} has no answered turn {turn}")
+        if target == "revision":
+            return self._promote_revision(w, cons, chosen, c_id, note, text, artifact, from_artifact, feed)
+        if artifact is not None or from_artifact is not None:
+            raise EngineError("sme.bad_target", "--artifact and --from are only for target revision")
         if chosen is None and not (text or "").strip():
             raise EngineError("sme.no_answer", f"{c_id} has no recorded answer; give the content to promote with --text")
         content = text if (text or "").strip() else json.loads(w.cas.read(chosen["answer"]["answer_sha256"]))["answer"]
@@ -3273,6 +3340,45 @@ class Api:
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
         return out
+
+    def _promote_revision(self, w: Any, cons: dict[str, Any], chosen: Any, c_id: str, note: str, text: str | None,
+                          artifact: str | None, from_artifact: str | None, feed: str) -> dict[str, Any]:
+        from . import publish
+
+        if w.run_id is None:
+            raise EngineError("sme.revision_needs_run", "only a consultation about a run can be promoted to a revision of that run's artifact")
+        if not artifact or "." not in artifact:
+            raise EngineError("sme.revision_needs_artifact", "give the artifact to revise as --artifact <step_path>.<name>")
+        step_path, name = artifact.rsplit(".", 1)
+        if from_artifact is not None:
+            turns = [chosen] if chosen is not None else []
+            arts = ((turns[0]["answer"] or {}).get("artifacts") or {}) if turns else {}
+            if from_artifact not in arts:
+                raise EngineError("sme.no_artifact", f"{c_id} turn {chosen['turn'] if chosen else '?'} returned no artifact {from_artifact!r} (it has {sorted(arts) or 'none'})")
+            content = w.cas.read(arts[from_artifact]["sha256"])
+            try:
+                content = redact_text(content.decode("utf-8")).encode("utf-8")
+            except UnicodeDecodeError:
+                pass
+        elif (text or "").strip():
+            content = redact_text(text or "").encode("utf-8")
+        elif chosen is not None:
+            content = redact_text(json.loads(w.cas.read(chosen["answer"]["answer_sha256"]))["answer"]).encode("utf-8")
+        else:
+            raise EngineError("sme.no_answer", f"{c_id} has no recorded answer; give the content with --text or --from")
+        n = chosen["turn"] if chosen else None
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            res = publish.ingest_sme(ctx, step_path, name, content, note=note, feed=feed, actor="human",
+                                     extra={"recorded_by": self.director.actor, "consultation": c_id, "turn": n},
+                                     decision={"ref": f"sme:{c_id}", "kind": "sme", "decision": "revision"})
+            ctx.log.append("sme_promoted", actor="human", data={
+                "consultation": c_id, "turn": n, "target": "revision", "note": note, "content_sha256": res["sha256"],
+                "decision_id": res["decision_id"], "artifact": artifact, "path": res["path"], **({"from": from_artifact} if from_artifact else {}),
+            })
+            return res
+
+        return {"consultation": c_id, "target": "revision", "turn": n, **self._mutate(w.run_id, body)}
 
     def detect(self) -> dict[str, Any]:
         from .adopt import detect

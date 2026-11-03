@@ -46,7 +46,7 @@
 | **Long-running work** | Dispatch is asynchronous; the runtime supervises, times out, classifies failures and wakes the Director. |
 | **Expert routing** | Questions go to experts by subject (project, platform, process). The Director routes and never answers from its own inference. |
 | **Observability and continuity** | Append-only, hash-chained event logs and content-addressed artifacts live in the repo; any capable Director on any machine can resume. |
-| **Deliverables in the project** | Documents, source code, drawings, etc. are published to real project paths; the run holds their provenance. |
+| **Deliverables in the project** | Documents, drawings, photos, etc. that workers return are published to real project paths; the run holds their provenance. Code that workspace steps write in place is recorded by its commit instead. |
 | **Low-friction adoption** | Existing projects are adopted in place; existing work is imported as attested results behind one owner decision. |
 
 ### 1.3 Non-goals
@@ -115,7 +115,7 @@ The runtime is built as a small **core** plus **layers**. A recipe or project th
 | **L5 Work items** | Concurrent runs, board, workspace lock, `revise` | Real projects |
 | **L6 Tailoring and adoption** | Complexity levels, triage, detect, research, crosswalks, seeding, baseline | Existing projects; varied formality |
 | **L7 Experts** | SME consultation (project, platform, process), platform facts and incidents, process feedback | Questions, platform issues, improvement |
-| **L8 Deliverables** | Publishing to project paths, drift detection | Documents, source code, drawings, etc. |
+| **L8 Deliverables** | Publishing to project paths, drift detection | Documents, drawings, photos, etc. returned as artifacts |
 
 ---
 
@@ -402,7 +402,7 @@ Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inp
 | `group.previous_iteration.findings` | Inside a `repeat_until` group: `{iteration, findings, gate_reasons, owner_note?}` from the previous iteration's judges (every finding they returned, each with its `step`; the reasons their gates failed; the owner's note when the iteration started after an iteration-limit `retry`). `not_applicable` in iteration 1 |
 | `static.<path>` | File shipped in the recipe |
 | `human.<decision_id>` | A recorded human decision (including an expert answer the owner promoted as a decision, §12.2) |
-| `human_revision.<step>.<artifact>` | A human edit to a published artifact that was explicitly ingested (§10.5) |
+| `human_revision.<step>.<artifact>` | The latest human edit to a published artifact that was explicitly ingested (§10.5); `not_applicable` while none is |
 | `research.findings` | Adoption research result (§11.2) |
 | `platform.facts` | The project's platform facts (§12.3) |
 
@@ -413,7 +413,7 @@ Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inp
 The loader (`recipe.py`) rejects a recipe unless:
 - Every `steps.<id>` reference names an ancestor via `depends_on` (transitively); there are no cycles; files exist; schemas are valid JSON Schema 2020-12.
 - Gate types are known; every capability used is in the declared vocabulary.
-- `publish.to` uses only `paths.*`, `run.*` and `project.*` variables.
+- `publish.to` uses only `paths.*`, `run.*` (`id`, `slug`, `title`, `kind`, `inputs`) and `project.*` variables, and only on top-level steps (`publish.in_group`, §10.4).
 - Complexity: the triage step exists, has no `applies_to`, outputs `level` constrained to the declared levels; every `applies_to` uses declared levels; for each level, every included step is reachable (`baton plan <recipe>` prints the per-level step and gate table).
 - Ids: per §5.8 (unique, no positional ids; `foreach` items declare an optional `id`).
 - Groups: per §5.4; `item` and `group.*` appear only inside groups; `independence.from_step` names the step itself or an ancestor (in the same group if inside one); `protect` appears only on `workspace: write` steps. With `repeat_from`, every step named in `repeat_until` must be at or after it (`group.judge_not_repeated`), and a step listed before it may not depend on one at or after it (`group.depends_on_repeated`).
@@ -743,8 +743,8 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Groups | `group_expanded` (on the group path: `mode` `foreach`\|`once`\|`skip`\|`single`, `source`, `source_sha256`, `items` `[{id, sha256, content_sha256, title?}]`, and on re-expansion `kept`/`changed`/`added`/`superseded`), `iteration_started` (on the instance path: `iteration`, `from`, `budget_base`), `iteration_limit_reached` (on the instance path: `iteration`, `max_iterations`, `judged`, `judged_seq`, `reasons`) |
 | Corrections | `step_revised`, `step_stale` |
 | Reviews | `findings_recorded` (on the recording step: `line`, `gate`, `findings` `[{id, severity, title, location?, status, reopened?, carried?}]`, `counts`, `open`, `blocking`, `partial`, `coverage_notes?`, `reviewed_commit?`, `previous_seq?`, `resolved?`, and for a review gate `review`, `review_attempt`, `reviewer`), `finding_dispositioned` (on the recording step: `line`, `finding`, `evaluation_seq`, `disposition`, `evidence?`, `decision_id?`, `by` `worker`\|`director`\|`owner`, `provisional?`), `gate_waived` (`gate`, `reason`, `decision_id`, `scope` `held`\|`next`, `attempt?`, `judged_seq?`), `protected_path_modified` (`changed`, `mode`) |
-| Human | `human_decision`, `human_revision_ingested` |
-| Deliverables | `artifact_published`, `drift_detected` |
+| Human | `human_decision`, `human_revision_ingested` (on the step: `artifact`, `path`, `sha256`, `revision`, `feed` `revision_inputs`\|`dependents`, `possibly_stale`, `decision_id`, `source` `drift`\|`sme`) |
+| Deliverables | `artifact_published` (on the step: `artifact`, `path`, `sha256`, `attempt`, `passed_seq`, `unchanged?`, `kept?`, `overwrote?`, `alternate?`, `revision?`, `decision_id?`), `drift_detected` (on the step: `artifact`, `path`, `published_sha256`, `current_sha256`) |
 | Adoption | `situation_detected` (adoption run: the `detect` result, scope counts), `research_recorded` (§11.1), `step_imported` (§11.4), `baseline_established` (§11.5) |
 | Experts | `sme_requested` (`consultation`, `turn`, `subject`, `mode` `relay`\|`handoff`, `question`, `refs`/`auto`/`attachments` `[{ref, label, path, sha256}]`, `worker`, `vendor`, `model`, `packet_sha256`, `dispatch_id`, `contact?`; a handoff: `path`, `handoff_sha256`), `sme_answered` (`consultation`, `turn`, `status` `answered`\|`rejected`\|`failed`\|`blocked`, `answer_sha256`, `result_sha256`, `confidence`, `sources_used`, `requested_refs`, `suggests_retriage`, `awaiting?`, `artifacts?`, `reasons?`, `classification?`), `sme_promoted` (`consultation`, `turn`, `target`, `note`, `content_sha256`, `decision_id?`, `path?`) |
 | Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used`, `permission_requested`, `migrated` |
@@ -940,21 +940,28 @@ project: { test_command: "pytest -q", preflight: "pytest -q --collect-only" }
 run_slug: "{{ run.inputs.title | slugify }}"
 ```
 
-- A missing key is a start-time error.
-- Targets must stay inside the project.
-- An existing target not last written by Baton with the same hash is a conflict, escalated (overwrite / keep / alternate name) and never overwritten silently.
-- Publishing records `artifact_published {path, sha256}`.
-- Workspace steps' output *is* the project tree and does not use `publish`.
+Publishing is for artifacts a worker returns in `result/artifacts/` (documents, drawings, photos). **Workspace steps' output *is* the project tree** (code a coding agent writes and commits in place, recorded by `commit_sha`) and does not use `publish`.
+
+Owner decisions (2026-11-03):
+- **Start.** A `paths.*` key a recipe publishes to that `project.yaml` does not map refuses `start` (`configuration.publish_path`). Targets must stay inside the project and outside `.git` and `.baton`.
+- **When.** After every `step_passed` of a step with publish artifacts, whatever the route (intake, an approved human gate, a waiver, a confirmed stale step), in the same call and before its checkpoint, so the commit includes the deliverable. Each one records `artifact_published {artifact, path, sha256, attempt, unchanged?}` on the step (`unchanged` when the file already held those bytes and was not rewritten). Imported steps (adoption seeds) are not published: their files already live where the prior process put them. `publish` inside a group is a load error (`publish.in_group`): its targets cannot vary per instance.
+- **Conflicts.** Writing is silent only when the target is absent, already holds exactly the artifact's bytes, or was last published (across all runs) by this same run and step and still has the hash Baton wrote (a revised step replacing its own untouched version). Anything else is a conflict: a file Baton never wrote, one another run published, one edited since. The step stays `passed` (downstream steps read CAS, never the published copy), and a pending owner decision `publish:<step_path>.<artifact>` offers `overwrite`, `keep` (the existing file stays; recorded as `artifact_published {kept: true}` with no write) or `alternate` (written beside it as `<stem>.<run_id><suffix>`, or at `--path`, itself checked for conflicts). The run does not complete while a conflict is pending.
 
 ### 10.5 Two copies and drift
 
-The CAS copy is the immutable record and is always what downstream steps consume. The published copy is the living file. A changed hash gives `drift_detected`, and the owner chooses:
-- **Leave it:** downstream keeps the CAS version.
-- **Ingest it as a revision:** it enters CAS (`human_revision_ingested`), steps declaring `human_revision.*` inputs (or not-yet-started dependents, if the owner chooses) receive it, and already-passed dependents are flagged possibly stale.
+The CAS copy is the immutable record and is always what downstream steps consume. The published copy is the living file. A changed hash (or a deleted file) is drift.
+
+Owner decisions (2026-11-03):
+- **Detection.** `status`, `detect` (situation `drift`) and `check` (a warning; an error under `--strict`) compute it without recording. Any mutating call on the run (including `resume`) records `drift_detected {artifact, path, published_sha256, current_sha256}` on the step once per new hash (`current_sha256: null` for a deleted file). Drift is tracked only while the run is active: once it completes, its published files belong to the project and editing them is normal.
+- **Decision.** Drift is a pending owner decision `drift:<step_path>.<artifact>`. It blocks no step but holds run completion (nothing can be ingested after the run ends). The owner chooses:
+  - **Leave it:** `decide <run> drift:<step_path>.<artifact> leave --note "<words>"`. Downstream keeps the CAS version; that hash is acknowledged and a later edit is new drift.
+  - **Ingest it as a revision:** `ingest_revision(run, step_path, artifact, note, feed?)` (`baton ingest-revision <run> <step_path> <artifact> --note "<words>" [--feed dependents]`) records `human_decision {kind: drift, decision: ingest}` and `human_revision_ingested {artifact, path, sha256, revision, feed, possibly_stale, decision_id, source}`, with the file stored in CAS. A deleted file can only be left.
+- **What it feeds.** `human_revision.<step>.<artifact>` resolves to the latest ingested revision; with none it is `not_applicable` (an unedited deliverable is normal, never a missing input). With `feed: dependents`, every dependent of that step that has not started (no attempt dispatched) also receives the latest revision for its `steps.<step>.artifacts.<name>` inputs, labeled as the owner's revision. Passed and imported dependents are flagged *possibly stale* in `status` and their records: a flag only, not the `stale` state; the owner may `revise`.
+- **From an expert.** `promote_sme(…, target=revision, artifact=<step_path>.<name>, from?)` ingests an expert's artifact (`--from <name>`) or answer (`--text`) the same way (`source: sme`) and writes it to the published path, with the conflict rule above.
 
 ### 10.6 Records and explain
 
-- **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes, output, artifacts (CAS hash and published path), gates and findings, waivers, decisions.
+- **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes, output, artifacts (CAS hash and published path), deliverables (publishes, kept files, drift, ingested revisions, possibly-stale flags), gates and findings, waivers, decisions.
 - **Run summary** (`docs/SUMMARY.md`): work item, recipe and versions, timeline, per-step table, escalations, leases.
 - Both are derived, regenerable and committed.
 - `explain(run)` returns **process facts only** (completed, imported and skipped steps; current position; pending decisions; remaining steps at this level and what other levels would add; possible branches). The Director can therefore describe progress without loading subject matter.
@@ -971,7 +978,7 @@ detect (deterministic, silent) ─► doctor (silent if healthy)
    └─ project without Baton ─► research ─► triage (per in-flight work item) ─► baseline (ONE owner decision) ─► continue
 ```
 
-`detect()` inspects files, git and event logs and returns the project situation (`no_baton`, `baton`, `adopting`) plus, per non-terminal run, `idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`, along with machine readiness (`doctor` without no-op runs) and open platform incidents. `diverged` is a run whose hash chain or CAS fails verification (e.g. two unsynced clones); `drift` arrives with publishing (Phase 13). It records nothing. Healthy situations print one line.
+`detect()` inspects files, git and event logs and returns the project situation (`no_baton`, `baton`, `adopting`) plus, per non-terminal run, `idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`, along with machine readiness (`doctor` without no-op runs) and open platform incidents. `diverged` is a run whose hash chain or CAS fails verification (e.g. two unsynced clones); `drift` is an otherwise idle run whose published deliverables changed (any run with drift lists the paths and gets a warning, §10.5). It records nothing. Healthy situations print one line.
 
 **Mechanics** (owner decision, 2026-11-02). Adoption is ordinary Baton work, so it needs no new concept:
 1. `adopt(recipe, crosswalk?, scope?)` (`baton adopt <recipe ref or dir> [--crosswalk <name or path>] [--scope <path>…]`) runs `init` if `.baton/` is missing, vendors a recipe given as a directory, checks the research scope (§18 #14), and starts an **adoption run**: a run of the runtime's built-in recipe `baton-adopt@1` (shipped in `builtin/`, loaded like a vendored recipe but never vendored). Its run inputs are the target recipe's summary (steps, levels, schemas, artifacts, gates), the crosswalk, the candidate files the runtime matched from it, the scope and the `detect` result; `situation_detected` records the latter. While an adoption run is active, `adopt` returns its status instead of starting another.
@@ -1071,8 +1078,8 @@ Answers are recorded (`sme_requested`, `sme_answered`) but **not referenceable**
 | `fact` | `platform_fact_recorded` in the project log, an entry in `.baton/platform/facts.md` | In every later platform packet |
 | `lesson` | An entry in `.baton/process/lessons.md` (origin, date, confirmations) | In process packets (`lessons`) |
 | `proposal` | `.baton/process/proposals/<consultation>-turn-<n>.md` | Applied by the recipe's maintainer as a new recipe version and re-vendored, never edited in place |
-
-Promoting into an artifact revision arrives with deliverables (Phase 13, §10.5). Project-level records written without a run are committed by a project checkpoint (`baton(project): …`); otherwise they ride along with the run's next checkpoint (§10.1).
+| `revision` (a consultation about a run; `--artifact <step_path>.<name>`, content from `--from <expert artifact>`, `--text` or the answer) | `human_decision {kind: sme, decision: revision}`, `human_revision_ingested {source: sme}`, the file written to the published path (`artifact_published {revision}`), `sme_promoted` | Steps take it as `human_revision.<step>.<artifact>` (or, with `--feed dependents`, in place of the artifact, §10.5). Refused while that file has drifted |
+ Project-level records written without a run are committed by a project checkpoint (`baton(project): …`); otherwise they ride along with the run's next checkpoint (§10.1).
 
 The Director relays answers faithfully and does not use them for routing. Since state lives in the record, it can resume in a fresh session afterwards; leakage is minimized, though the relayed answer passes through its context once.
 
@@ -1111,11 +1118,11 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `cancel(run, step_path)` | Withdraw a queued dispatch |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); later: questions, baseline items) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); a publish conflict (`ref` = `publish:<step_path>.<artifact>`): `overwrite`, `keep` or `alternate` (`path?`); drift (`ref` = `drift:<step_path>.<artifact>`): `leave` (§10.4, §10.5); later: questions, baseline items) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage (§5.5; the new level waits on the owner's `decide <run> <triage step> approve\|reject`); correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
-| `ingest_revision(run, step_path, artifact)` | Accept a drifted published file (§10.5) |
+| `ingest_revision(run, step_path, artifact, note, feed?)` | Accept a drifted published file as a human revision, the note being the owner's words (§10.5) |
 | `ask_sme(subject, question, refs, run?, mode, worker?, contact?, wait?)` / `sme_followup(consultation, question?, refs?, attach?)` / `sme_status(consultation, wait?)` (CLI `sme`) / `sme_handoff(consultation)` / `sme_eligible(subject, run?)` / `promote_sme(consultation, target, note, text?, turn?)` | Experts (§12): consult (relay or handoff), follow up, read the record, a runtime-made handoff prompt, eligible experts, promotion with the owner's words |
 | `platform_fact(text, source)` / `platform_incident(list\|show\|resolve, id?, fix?)` / `feedback(kind, text, run?, step?, gate?, informed_owner?)` | Project-level records (§12.3, §12.4) |
 | `adopt(recipe, crosswalk?, scope?)` / `establish_baseline(adoption, note)` | Adoption (§11): start an adoption run, or report the active one; apply the baseline proposal as the owner's one decision |
@@ -1200,7 +1207,7 @@ Per machine and profile; silent when healthy (`baton doctor [--profile <name>] [
 For pre-commit and CI; needs no network or profiles. Exit 0 when clean, otherwise one `ERROR <path>: <message>` line per problem. Checks:
 - hash chains and CAS integrity;
 - lockfile versus vendored recipes, and the neutrality lint;
-- drift (a warning unless `--strict`);
+- drift of active runs' published deliverables (a warning unless `--strict`, §10.5);
 - no secrets under `.baton/` (sentinels and patterns);
 - no impossible states;
 - `project.yaml` and `communication.md` present and valid;
@@ -1343,7 +1350,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 12 — Experts (L7).** `ask_sme` for all three subjects, follow-ups, promotion, platform facts and incidents, process feedback and statistics. Built (owner decisions, 2026-11-03): relay turns dispatched like steps outside the state machine; a runtime-generated handoff prompt, refused for experts that rely on working on this machine (§18 #17); full redacted transcripts (§18 #13); no person as an SME, proxies that draft and never send, replies attached by the owner; references selected by name per subject (§12.1); Director-approved follow-ups; promotion to decision, fact, lesson or proposal (artifact revisions with Phase 13); resolving an incident readies its step once; statistics derived on demand; a skipped blocking gate reported via `feedback` fires `on_needs_human` and stays as an owner notice until acknowledged.
 ✅ Packets contain only Director-selected references plus the index, with hashes; a non-promoted answer is unreachable from any step; an `executable_not_found` failure opens an incident and preselects facts and logs for the platform SME; a promoted platform fact appears in the next platform packet; a skipped blocking gate is surfaced to the owner immediately.
 
-**Phase 13 — Deliverables (L8).** Publishing, conflicts, drift, revision ingestion.
+**Phase 13 — Deliverables (L8).** Publishing, conflicts, drift, revision ingestion. Built (owner decisions, 2026-11-03): artifacts only (workspace steps' code is recorded by its commit); published after every `step_passed` (imports never), top-level steps only; silent overwrite only of this run's and step's own untouched file; a conflict is a pending owner decision (`overwrite`/`keep`/`alternate`) that keeps the step passed; drift computed by read-only calls, recorded by mutating ones, tracked while the run is active; `leave` or `ingest_revision`; `human_revision.*` is `not_applicable` until a revision exists; `--feed dependents` reaches only steps not yet started, and passed dependents are flagged possibly stale; pending conflicts and drift hold run completion; an expert's answer can be promoted to a revision.
 ✅ Deliverables appear at mapped paths; a pre-existing file is never silently overwritten; editing a published file triggers drift, and ingesting it feeds a later step.
 
 **Phase 14 — Director surface.** MCP server (stdio; optional authenticated HTTP), director and worker skills, communication contract default, action permissions.

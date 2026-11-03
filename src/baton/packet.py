@@ -209,6 +209,7 @@ class _Resolved:
     content: bytes
     media_type: str | None = None
     inline: Any = None  # the JSON value, when kind == "json"
+    revision: dict[str, Any] | None = None  # a human revision given in place of the recorded artifact (§10.5)
 
 
 class _Unresolvable(Exception):
@@ -302,7 +303,14 @@ def _resolve(
         reg = _source(ctx, record, ref.step)
         value = _walk(json.loads(cas.read(reg["output_sha256"])), ref.path, raw)
     elif ref.kind == "step_artifact":
-        return _artifact(ctx, name, raw, _source(ctx, record, ref.step), ref.step or "", ref.name)
+        resolved = _artifact(ctx, name, raw, _source(ctx, record, ref.step), ref.step or "", ref.name)
+        if loc is not None:
+            from .publish import revision_for_dependent
+
+            rev = revision_for_dependent(record.events, ref.step or "", ref.name or "", loc.path)
+            if rev is not None:  # the owner chose to feed a not-yet-started dependent their revision (§10.5)
+                return _revision(ctx, name, raw, rev, resolved.filename)
+        return resolved
     elif ref.kind == "static":
         rel = PurePosixPath(ref.name)
         full = ctx.recipe.root / "static" / rel
@@ -324,10 +332,25 @@ def _resolve(
         if ev is None or not ev.data.get("research_sha256"):
             raise _NotApplicable("this run was not started by an adoption")
         value = json.loads(cas.read(ev.data["research_sha256"]))
-    else:
-        # human_revision.*: arrives with publishing (Phase 13).
-        raise _Unresolvable(f"{ref.kind} references are not supported by this runtime yet")
+    elif ref.kind == "human_revision":
+        from .publish import latest_revision
+
+        _source(ctx, record, ref.step)
+        rev = latest_revision(record.events, ref.step or "", ref.name or "")
+        if rev is None:
+            raise _NotApplicable(f"no human revision of {ref.step}.{ref.name} has been ingested")
+        reg = record.registered(ref.step or "") or {}
+        art = (reg.get("artifacts") or {}).get(ref.name) or {}
+        return _revision(ctx, name, raw, rev, f"{name}{PurePosixPath(art.get('filename', '') or rev.data.get('path') or '').suffix}")
+    else:  # pragma: no cover - every reference kind is handled above
+        raise _Unresolvable(f"{ref.kind} references are not supported by this runtime")
     return _Resolved(name, raw, "json", f"{name}.json", _json_bytes(value), "application/json", value)
+
+
+def _revision(ctx: RunContext, name: str, raw: str, rev: Any, filename: str) -> _Resolved:
+    d = rev.data
+    info = {"step_path": rev.step_path, "artifact": d.get("artifact"), "revision": d.get("revision"), "source": d.get("source")}
+    return _Resolved(name, raw, "file", filename, ctx.log.cas.read(d["sha256"]), None, None, info)
 
 
 def resolve_inputs(
@@ -403,6 +426,9 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
         lines.append("")
         lines.append(f"File: `inputs/{r.filename}`" + (f" ({r.media_type})" if r.media_type else ""))
         lines.append("")
+        if r.revision is not None:
+            by = "an expert's answer the owner promoted" if r.revision.get("source") == "sme" else "the owner's edit of the published file"
+            lines += [f"This is revision {r.revision['revision']} of `{r.revision['artifact']}` from `{r.revision['step_path']}`: {by}, ingested by the owner.", ""]
         if r.kind == "json" and len(r.content) <= INLINE_LIMIT:
             lines += ["```json", r.content.decode("utf-8").rstrip("\n"), "```", ""]
         elif r.kind == "json":
@@ -769,6 +795,8 @@ def build_packet(
         entry = {"name": r.name, "from": r.ref, "kind": r.kind, "path": rel, "sha256": hashlib.sha256(r.content).hexdigest()}
         if r.media_type:
             entry["media_type"] = r.media_type
+        if r.revision is not None:
+            entry["human_revision"] = r.revision
         entries.append(entry)
     files["output_schema.json"] = (json.dumps(schema, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     revision = None

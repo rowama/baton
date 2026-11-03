@@ -653,6 +653,12 @@ class _Checker:
         for art in step.artifacts:
             if art.publish is not None:
                 self._check_publish(art.publish.to, f"{w}.artifacts.{art.name}.publish.to")
+                if place.chain:
+                    self.error(
+                        "publish.in_group",
+                        f"{w}.artifacts.{art.name}.publish",
+                        "publish is not allowed inside a group: its target cannot vary per instance (§10.4)",
+                    )
 
         if step.protect is not None and step.workspace != "write":
             self.error(

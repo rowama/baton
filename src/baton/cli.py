@@ -121,6 +121,8 @@ def _pending_lines(payload: dict) -> list[str]:
             lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0]}]")
         elif p["kind"] == "skip_notice":
             lines.append(f"Owner notice {p['ref']}: {p['prompt']}  [acknowledge]")
+        elif p["kind"] in ("publish_conflict", "drift"):
+            lines.append(f"Owner decision owed on {p['ref']}: {p['prompt']}  [{' | '.join(p['options'])}]")
         else:
             why = "; ".join(p.get("reasons") or p.get("questions") or []) or p.get("reason") or ""
             inc = f" (waits on platform incident {p['incident']})" if p.get("incident") else ""
@@ -490,13 +492,14 @@ def submit(
 @app.command()
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
-    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, or <step>#<finding>.")],
-    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step).")],
+    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, <step>#<finding>, skip:<seq>, publish:<step>.<artifact> or drift:<step>.<artifact>.")],
+    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite | keep | alternate (a publish conflict); leave (drift).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
+    path: Annotated[Optional[str], typer.Option("--path", help="alternate: the project path to publish at instead.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Record the owner's decision, verbatim."""
-    out = _call(as_json, lambda: _api().decide(run, ref, decision, note))
+    out = _call(as_json, lambda: _api().decide(run, ref, decision, note, path=path))
     _done(out, as_json, _outcome_text(out))
 
 
@@ -525,6 +528,21 @@ def disposition(
     """Record a finding's disposition; it takes effect at the next review of that finding."""
     out = _call(as_json, lambda: _api().disposition(run, step, finding, value, evidence))
     _done(out, as_json, _outcome_text({**out, "run_id": run}))
+
+
+@app.command("ingest-revision")
+def ingest_revision(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    step: Annotated[str, typer.Argument(help="Step path whose published artifact was edited.")],
+    artifact: Annotated[str, typer.Argument(help="Artifact name.")],
+    note: Annotated[str, typer.Option("--note", help="The owner's decision, in their own words (recorded verbatim).")],
+    feed: Annotated[str, typer.Option("--feed", help="revision_inputs (only human_revision.* inputs) | dependents (also not-yet-started dependents' artifact inputs).")] = "revision_inputs",
+    as_json: JsonOpt = False,
+) -> None:
+    """Accept an edited published file as a human revision (§10.5)."""
+    out = _call(as_json, lambda: _api().ingest_revision(run, step, artifact, note, feed=feed))
+    stale = f"\nPossibly stale (passed before the revision): {', '.join(out['possibly_stale'])}" if out.get("possibly_stale") else ""
+    _done(out, as_json, f"Ingested revision {out['revision']} of {artifact} ({step}) as {out['reference']}" + stale)
 
 
 @app.command()
@@ -622,13 +640,16 @@ def trace(
 
 
 @app.command()
-def check(as_json: JsonOpt = False) -> None:
+def check(
+    strict: Annotated[bool, typer.Option("--strict", help="Treat drift of published deliverables as an error.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
     """Repository consistency for pre-commit and CI: one ERROR line per problem, exit 0 when clean."""
     from .check import check as run_check
     from .project import find_root
 
     root = _call(as_json, lambda: find_root(_opts.project))
-    issues = run_check(root)
+    issues = run_check(root, strict=strict)
     errors = [i for i in issues if i.severity == "error"]
     if as_json:
         _emit({"ok": not errors, "issues": [i.model_dump() for i in issues]}, True, "")
@@ -762,14 +783,17 @@ def sme_eligible(
 @app.command("promote-sme")
 def promote_sme(
     consultation: Annotated[str, typer.Argument(help="Consultation id.")],
-    target: Annotated[str, typer.Argument(help="decision | fact | lesson | proposal")],
+    target: Annotated[str, typer.Argument(help="decision | fact | lesson | proposal | revision")],
     note: Annotated[str, typer.Option("--note", help="The owner's agreement, in their own words (recorded verbatim).")],
     text: Annotated[Optional[str], typer.Option("--text", help="What to promote, if not the answer as given.")] = None,
     turn: Annotated[Optional[int], typer.Option("--turn", help="Which turn's answer (default: the latest answered).")] = None,
+    artifact: Annotated[Optional[str], typer.Option("--artifact", help="revision: the published artifact to revise, <step_path>.<name>.")] = None,
+    from_artifact: Annotated[Optional[str], typer.Option("--from", help="revision: the expert's artifact to use as the content.")] = None,
+    feed: Annotated[str, typer.Option("--feed", help="revision: revision_inputs | dependents.")] = "revision_inputs",
     as_json: JsonOpt = False,
 ) -> None:
     """Bring an expert's answer into the work, with the owner's agreement (§12.2)."""
-    out = _call(as_json, lambda: _api().promote_sme(consultation, target, note, text=text, turn=turn))
+    out = _call(as_json, lambda: _api().promote_sme(consultation, target, note, text=text, turn=turn, artifact=artifact, from_artifact=from_artifact, feed=feed))
     where = out.get("reference") or out.get("path") or out.get("entry") or ""
     _done(out, as_json, f"Promoted {consultation} as a {target}" + (f": {where}" if where else ""))
 

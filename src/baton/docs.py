@@ -94,6 +94,7 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
                 mt = f" ({a['media_type']})" if a.get("media_type") else ""
                 lines.append(f"- `{name}`{mt}: CAS `{a['sha256']}`")
             lines.append("")
+    lines += _deliverable_lines(step_path, mine, events)
     reviews_ = [e for e in mine if e.type in ("finding_dispositioned", "gate_waived")]
     if reviews_:
         lines += ["## Dispositions and waivers", ""]
@@ -118,6 +119,37 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
         lines += ["## Other events", ""]
         lines += [f"- {e.ts} {e.type} by {e.actor}: {_brief(e)}" for e in other] + [""]
     return "\n".join(lines)
+
+
+def _deliverable_lines(step_path: str, mine: list[Event], events: list[Event]) -> list[str]:
+    """Publishing, drift and human revisions of this step's artifacts (§10.4, §10.5); flags from upstream revisions."""
+    out: list[str] = []
+    for e in mine:
+        d = e.data
+        if e.type == "artifact_published":
+            if d.get("kept"):
+                out.append(f"- {e.ts} `{d.get('artifact')}` not published: the owner kept the existing `{d.get('path')}` ({d.get('decision_id')})")
+            else:
+                how = " (already identical)" if d.get("unchanged") else " (overwrote, owner decision)" if d.get("overwrote") else ""
+                how = f" (alternate name, {d.get('decision_id')})" if d.get("alternate") else how
+                how = f" (revision {d.get('revision')})" if d.get("revision") else how
+                out.append(f"- {e.ts} `{d.get('artifact')}` published to `{d.get('path')}`{how}: `{d.get('sha256')}`")
+        elif e.type == "drift_detected":
+            what = "deleted" if d.get("current_sha256") is None else f"edited (now `{d.get('current_sha256')}`)"
+            out.append(f"- {e.ts} drift: `{d.get('path')}` {what}")
+        elif e.type == "human_decision" and d.get("kind") == "drift" and d.get("decision") == "leave":
+            out.append(f"- {e.ts} drift of `{d.get('path')}` left as is ({d.get('decision_id')}): \"{d.get('note')}\"")
+        elif e.type == "human_revision_ingested":
+            src = "an expert's answer" if d.get("source") == "sme" else "the edited published file"
+            feeds = "not-yet-started dependents and " if d.get("feed") == "dependents" else ""
+            out.append(f"- {e.ts} revision {d.get('revision')} of `{d.get('artifact')}` ingested from {src} ({d.get('decision_id')}): "
+                       f"`{d.get('sha256')}`, fed to {feeds}`human_revision.{step_path}.{d.get('artifact')}` inputs")
+            if d.get("possibly_stale"):
+                out.append(f"  - possibly stale (passed before it): {', '.join(f'`{p}`' for p in d['possibly_stale'])}")
+    flags = [e for e in events if e.type == "human_revision_ingested" and step_path in (e.data.get("possibly_stale") or [])]
+    for e in flags:
+        out.append(f"- **Possibly stale:** passed before revision {e.data.get('revision')} of `{e.data.get('artifact')}` from `{e.step_path}` was ingested")
+    return ["## Deliverables", "", *out, ""] if out else []
 
 
 def _tailoring_lines(step_path: str, mine: list[Event], events: list[Event]) -> list[str]:

@@ -62,7 +62,11 @@ def sha256_file(p: Path) -> str:
 
 
 def run_situation(project: Any, run_id: str, director: Any) -> dict[str, Any] | None:
-    """``idle | active_here | active_elsewhere | orphaned_attempts | diverged`` for a non-terminal run; ``None`` when terminal."""
+    """``idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`` for a non-terminal run; ``None`` when terminal.
+
+    ``drift`` (an idle run whose published deliverables were edited, §10.5) is
+    also listed under ``drift`` whatever the situation.
+    """
     from . import locks, supervisor
     from .check import run_integrity
     from .store import RunLog
@@ -103,8 +107,13 @@ def run_situation(project: Any, run_id: str, director: Any) -> dict[str, Any] | 
         out.update(situation="active_elsewhere", running=elsewhere, lease=lease.describe() if lease else None)
     elif mine or here:
         out.update(situation="active_here", running=here)
-    else:
-        out["situation"] = "idle"
+    from .publish import drift
+
+    drifted = [x["path"] for x in drift(events, project.root)]
+    if drifted:
+        out["drift"] = drifted
+    if "situation" not in out:
+        out["situation"] = "drift" if drifted else "idle"
     return out
 
 
@@ -134,6 +143,8 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
                 problems.append(f"run {r['run_id']} failed verification (diverged or tampered): " + "; ".join(r["problems"][:3]))
             elif r["situation"] == "orphaned_attempts":
                 problems.append(f"run {r['run_id']} has attempts whose supervisor died: {', '.join(r['attempts'])} (run `baton resume {r['run_id']}`)")
+            if r.get("drift"):
+                warnings.append(f"run {r['run_id']}: published deliverables changed since publishing: {', '.join(r['drift'])} (the owner decides: leave or ingest)")
         mach = None
         if machine:
             from .doctor import doctor

@@ -55,7 +55,7 @@ CONSULTATION_ID = re.compile(r"^c_[0-9a-f]{8}$")
 #: answers by working on this machine (§18 #17).
 NO_HANDOFF = ("shell", "code_exec", "workspace_read", "repo_workspace", "file_write")
 FEEDBACK_KINDS = ("friction", "skipped_step", "waste", "confusing")
-PROMOTE_TARGETS = ("decision", "fact", "lesson", "proposal")
+PROMOTE_TARGETS = ("decision", "fact", "lesson", "proposal", "revision")
 LOG_TAIL = 64 * 1024
 TEXT_INLINE = 16 * 1024
 

@@ -14,7 +14,7 @@ Needs no network and no worker profiles. Returns every problem as an
 * ``project.yaml`` and ``communication.md`` present and valid;
 * format versions readable by this runtime.
 
-Drift (published deliverables) arrives with the deliverables layer.
+Drift of an active run's published deliverables is a warning (an error with ``--strict``).
 """
 
 from __future__ import annotations
@@ -74,7 +74,8 @@ def _relabel(root: Path, issues: list[Issue]) -> list[Issue]:
     return out
 
 
-def check(root: Path) -> list[Issue]:
+def check(root: Path, *, strict: bool = False) -> list[Issue]:
+    """Every problem found; drift of an active run's deliverables is a warning, an error with ``strict``."""
     root = Path(root)
     baton = root / BATON_DIR
     issues: list[Issue] = []
@@ -126,6 +127,12 @@ def check(root: Path) -> list[Issue]:
         for rid in store.run_ids():
             issues += run_integrity(store, rid)
             events, _ = RunLog(store, rid).scan()
+            from .publish import drift
+
+            for x in drift(events, root):
+                what = "was deleted" if x["current_sha256"] is None else "was edited"
+                issues.append(Issue(code="publish.drift", where=x["path"], severity="error" if strict else "warning",
+                                    message=f"{x['artifact']} of {x['step_path']} in run {rid} {what} after publishing (leave it or ingest it: `baton status {rid}`)"))
             if events and events[0].type == "run_started":
                 ref, sha = events[0].data.get("recipe"), events[0].data.get("recipe_sha256")
                 entry = recipes.get(ref)
