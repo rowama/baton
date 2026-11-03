@@ -271,7 +271,7 @@ def test_adoption_with_a_crosswalk_needs_exactly_one_owner_decision(tmp_path):
     # Export: the nonconforming seed was refused; requirements reruns.
     st = cli.run("status", runs["export"])
     assert st["steps"]["requirements"]["state"] == "ready" and st["steps"]["design"]["state"] == "skipped"
-    assert "requirements" in st["ready"]  # (the fixture's plan depends only on design, skipped here, so it is ready too)
+    assert "requirements" in st["ready"]  # (the recipe's plan depends only on design, skipped here, so it is ready too)
 
     # Configuration and agent pointer; the repository checks clean.
     pyaml = yaml.safe_load((project / ".baton" / "project.yaml").read_text(encoding="utf-8"))
@@ -285,7 +285,8 @@ def test_adoption_with_a_crosswalk_needs_exactly_one_owner_decision(tmp_path):
     from baton.models import Findings  # noqa: F401 - the review returns baton:findings
 
     submit(cli, project, runs["login"], f"slices/{session}/i1/code_review", {"findings": [], "coverage": {"complete": True}})
-    submit(cli, project, runs["login"], f"slices/{session}/i1/accept", {"accepted": True})
+    assert submit(cli, project, runs["login"], f"slices/{session}/i1/accept", {"accepted": True}, expect=4)["needs_owner"]
+    cli.run("decide", runs["login"], f"slices/{session}/i1/accept", "approve", "--note", "Session works.")  # the recipe's acceptance gate
     st = cli.run("status", runs["login"])
     logout = next(i["id"] for i in st["groups"]["slices"]["instances"] if i["title"] == "Logout")
     assert st["ready"] == [f"slices/{logout}/i1/implement"]

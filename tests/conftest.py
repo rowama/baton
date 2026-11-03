@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SOFTWARE_FEATURE = ROOT / "tests" / "fixtures" / "recipes" / "software-feature"
+SOFTWARE_FEATURE = ROOT / "examples" / "recipes" / "software-feature"
 FIT_CHECK = ROOT / "examples" / "recipes" / "fit-check"
 
 

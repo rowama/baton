@@ -502,6 +502,27 @@ def test_checkpoint_commits_are_not_working_tree_changes(tmp_path):
     assert gitops.tree_changes(before, gitops.tree_snapshot(root), root)[0].startswith("HEAD moved")
 
 
+def test_snapshot_uses_the_repositorys_own_line_endings(tmp_path):
+    """Found on Windows CI (Phase 16): with the owner's ``core.autocrlf=true`` a committed CRLF file is LF in the
+    index; a status forced to ``autocrlf=false`` called it modified whenever git re-hashed it, so snapshots flapped."""
+    import os as _os
+
+    from baton import gitops
+
+    root = make_git_project(tmp_path / "r")
+    git(root, "config", "core.autocrlf", "true")
+    f = root / "notes.txt"
+    f.write_bytes(b"one\r\ntwo\r\n")
+    git(root, "add", "notes.txt")
+    git(root, "commit", "-q", "-m", "CRLF file")
+    before = gitops.tree_snapshot(root)
+    st = f.stat()
+    _os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))  # same bytes; git must re-hash it
+    after = gitops.tree_snapshot(root)
+    assert before.files == {} and after.files == {}
+    assert gitops.tree_changes(before, after, root) == []
+
+
 # -- HTTP ---------------------------------------------------------------------
 
 

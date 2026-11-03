@@ -345,7 +345,7 @@ def _status_text(s: dict) -> str:
         who = "you" if lease["yours"] else lease["director_id"]
         bits.append(f"lease: {who} until {lease['expires_at']}" + (" (expired)" if lease["expired"] else ""))
     lines = [" · ".join(bits)]
-    for gid, g in (s.get("groups") or {}).items():
+    for gid, g in (s.get("groups") or {}).items() if s["state"] != "completed" else ():  # quiet when done (§13.1)
         lines.append(f"  {gid}: {g['summary']}")
     for r in s["running"]:
         lines.append(f"  {r['step_path']}#{r['attempt']}: packet {r['packet']}; result goes in {r['result']}")

@@ -317,4 +317,7 @@ def test_positional_step_id_rejected(make_recipe, bad):
 
 @pytest.mark.parametrize("good", ["accept", "oauth2_setup", "s3_upload_check", "phase_review", "sha256_verify"])
 def test_role_step_id_accepted(make_recipe, good):
-    load_recipe(make_recipe(lambda r, _: step(r, "slices/accept").update(id=good)))
+    def rename(r, _):
+        step(r, "slices/accept").update(id=good)
+        step(r, "slices")["repeat_until"] = step(r, "slices")["repeat_until"].replace(".accept.", f".{good}.")
+    load_recipe(make_recipe(rename))

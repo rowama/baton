@@ -120,6 +120,25 @@ def test_shed_at_major(tmp_path):
     assert executed(cli, run) == ["triage", "site_survey", "design", "permits", "materials", "build"]
 
 
+def test_raised_bed_at_standard(tmp_path):
+    """Phase 16: the middle level end to end: a survey and layout, no permits, no layout approval or inspection."""
+    cli, project = setup(tmp_path)
+    run = cli.run("start", "backyard-project", "--inputs", json.dumps({"title": "Raised bed", "description": "A timber raised bed by the fence"}))["run_id"]
+    out = do(cli, project, run, "triage", {"level": "standard", "reasons": ["a raised bed changes the layout"]}, expect=4)
+    cli.run("decide", run, "triage", "approve", "--note", "Yes, standard")
+    assert skipped(cli, run) == ["permits"]
+    do(cli, project, run, "site_survey", SURVEY, artifacts={"site_photo": ("site.jpg", JPEG)})
+    do(cli, project, run, "design", DESIGN, artifacts={"layout_plan": ("plan.md", b"# Raised bed\n2.4 x 1.2 m\n")})  # no approval at standard
+    do(cli, project, run, "materials", MATERIALS)
+    out = do(cli, project, run, "build", BUILT, artifacts={"finished_photo": ("bed.jpg", JPEG)}, expect=4)
+    assert [p["prompt"] for p in out["pending_decisions"]] == ["Accept the finished project as done?"]
+    assert cli.run("decide", run, "build", "approve", "--note", "Done")["run_completed"]
+    assert executed(cli, run) == ["triage", "site_survey", "design", "materials", "build"]
+    evs = [json.loads(line) for line in (project / ".baton" / "runs" / run / "events.jsonl").read_text().splitlines()]
+    assert [e["step_path"] for e in evs if e["type"] == "human_decision"] == ["triage", "build"]
+    assert cli("check").exit_code == 0
+
+
 def test_retriage_from_minor_to_standard_adds_future_steps_only(tmp_path):
     cli, project = setup(tmp_path)
     run = cli.run("start", "backyard-project", "--inputs", json.dumps({"title": "Bed", "description": "A flower bed"}))["run_id"]

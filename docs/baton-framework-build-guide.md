@@ -350,7 +350,7 @@ steps:
     foreach: steps.plan.output.slices
     foreach_if_source_skipped: once        # minor work: one instance with item = run inputs
     concurrency: 1
-    repeat_until: group.steps.code_review.gates.passed
+    repeat_until: group.steps.code_review.gates.passed and group.steps.accept.gates.passed
     repeat_from: implement
     max_iterations: 3
     steps:
@@ -388,6 +388,9 @@ steps:
           - { name: slice,  from: item,                           required: true }
           - { name: review, from: group.steps.code_review.output, required: true }
         output_schema: schemas/acceptance_out.json
+        gates:                                         # a judge: rejecting sends the slice back to implement
+          - { type: schema }
+          - { type: human, prompt: "Accept this slice as done? Rejecting sends it back to implement with your note." }
 ```
 
 Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inputs`, `output_schema`, `artifacts`, `gates`, `workspace` (`none` | `read` | `write`; default `none`), `protect`, `effort` / `effort_from`, `independence`, `doc_template`. Group keys: §5.4.
@@ -507,6 +510,8 @@ Unknown names are load errors for recipes and profiles. New capabilities mean a 
    - `fits_per_occurrence`: a recipe plus an external scheduler that calls `baton start` for each occurrence.
    - `operations_engine`: start a `software-feature` run whose deliverable is that system, with the engine choice made in its design step.
 
+**`software-feature`** is the §5.1 recipe exactly, shipped with working prompts and review rubrics. Its slice acceptance is a judge (owner decision, 2026-11-03, found in Phase 16): in the original example `accept` had no gate, so a person answering `accepted: false` still passed the slice; with the human gate in `repeat_until`, rejecting it starts the next iteration at `implement` with the owner's note.
+
 Because it is small, `fit-check` is also the builder's first end-to-end recipe: with the `manual` adapter it is the Phase 4 toy run, and with an API worker it is the first real run in Phase 5.
 
 ### 5.8 Identifiers
@@ -607,7 +612,7 @@ class WorkerAdapter(Protocol):
 - **`litellm_api`**: runs `python -m baton.worker_runner` as the child (installed with the optional extra `baton[api]`). It builds messages from `INSTRUCTIONS.md` plus the text of every input not already inlined there, requests structured output where `litellm` reports support **[VERIFY per model]** (otherwise the reply schema goes in the prompt), and writes artifacts and `result.json` itself. The model replies with one JSON object: `status`, `output`, `artifacts` (text by declared name), `notes`, `questions_for_human`; a reply that is not a JSON object is a `failed` result (the step's problem, retried). **Inputs too large to inline are a hard error (§18 #1):** a non-UTF-8 input, or messages over `context_tokens × 2` bytes (roughly half the window; 256 KiB when `context_tokens` is not declared). The runtime checks this when dispatching, before anything is recorded, and refuses with a hint to choose a worker that reads files. Failures that are not the step's (authentication, network or provider errors, an unknown model, `litellm` missing) write no result; the child prints one line `baton-worker: failure=<class> code=<code> message=<redacted text>` and exits non-zero.
 - **`subprocess_harness`** with presets **`claude_code`** (`claude -p <prompt> <args>`) and **`codex`** (`codex exec <args> --skip-git-repo-check --color never <prompt>`); flags checked against `claude` 2.1.316 and `codex-cli` 0.166.0. Prompt: "Read <packet>/INSTRUCTIONS.md and follow it exactly; write outputs to <result>/ …". `cwd` is the attempt directory for `workspace: none`, the project root for `read` and `write`. `executable` defaults to `claude` / `codex`; `model` is passed as `--model`. The CLI uses its stored login (`auth.mode: cli_login`, env `allowlist`) or an injected key (`api_key`); `auth.mode: none` is a configuration error.
   - **Built-in args per mode** (a profile's `args.<mode>` replaces one mode's default): `claude_code` write `--permission-mode bypassPermissions`, read and none `--permission-mode acceptEdits`; `codex` `--sandbox workspace-write` for every mode.
-  - **Read and none steps are enforced by the runtime, not by flags.** The attempt's `result/` lies inside the project, so every mode must allow some writes and no CLI flag confines them to `result/`. For workers that can touch files (harness and `command` adapters), the runtime snapshots the working tree (HEAD, plus every changed or untracked path with its content hash, excluding the attempt directory; ignored files are not seen) before and after the worker runs. Any difference fails the implicit `workspace` gate and **escalates** the step (`workspace_modified`, listing the paths). HEAD moving only through Baton's own checkpoint commits (`baton(…): …` subjects, descending from the earlier HEAD; this run's or another's) is not a difference (found in Phase 14: consulting an expert about a just-completed run releases its lease again, and that checkpoint was blamed on the expert). The runtime never reverts the change; the owner inspects it. Write steps are not checked here (protected paths, §9.4, are).
+  - **Read and none steps are enforced by the runtime, not by flags.** The attempt's `result/` lies inside the project, so every mode must allow some writes and no CLI flag confines them to `result/`. For workers that can touch files (harness and `command` adapters), the runtime snapshots the working tree (HEAD, plus every changed or untracked path with its content hash, excluding the attempt directory; ignored files are not seen) before and after the worker runs. Any difference fails the implicit `workspace` gate and **escalates** the step (`workspace_modified`, listing the paths). HEAD moving only through Baton's own checkpoint commits (`baton(…): …` subjects, descending from the earlier HEAD; this run's or another's) is not a difference (found in Phase 14: consulting an expert about a just-completed run releases its lease again, and that checkpoint was blamed on the expert). The runtime never reverts the change; the owner inspects it. Write steps are not checked here (protected paths, §9.4, are). The snapshot's `git status` uses the repository's own line-ending settings, not `core.autocrlf=false` (found on Windows CI in Phase 16: files the owner's git committed with `autocrlf=true` are CRLF in the tree and LF in the index, and a forced override reported them modified only when git happened to re-hash them, so two snapshots of an untouched tree could differ); the hashes are of the raw bytes either way.
   - **Failure signals**: lines such as "Not logged in" or "Invalid API key" classify an exit without a result as `platform` / `auth_failed`.
 - **`command`**: a configured command line with placeholders (`{prompt_file}`, `{packet}`, `{result}`, `{workspace}`), for other tools or for relaying to another agent. It is split like a POSIX shell would split it (no shell runs it; on Windows a backslash is an ordinary character, so `C:\tools\x.exe` stays intact); placeholders are substituted per word with POSIX-form paths (`{workspace}` is empty for `none` steps); the first word is the executable, resolved per §6.2.
 - **`manual`**: prints the packet path and waits for `submit`. Used for humans and physical-world work.
@@ -1135,7 +1140,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
 | `init()` / `vendor(recipe_dir, approved?, note?)` / `upgrade(to?)` / `migrate(dry_run?)` | Setup and versioning (§14): a vendoring that changes or reuses step ids returns `needs_owner` until repeated with `approved` and the owner's words; `upgrade` pins this runtime (the launcher runs `--to <v>` under `<v>`); `migrate` brings stored files below the readable window to the current formats |
 
-No call lets the Director write step outputs, artifacts or events directly. Quiet by default: `detect`, `doctor`, `resume`, `status` and `check` print one line when healthy.
+No call lets the Director write step outputs, artifacts or events directly. Quiet by default: `detect`, `doctor`, `resume`, `status` and `check` print one line when healthy (a completed run's status leaves out its group progress).
 
 ### 13.2 CLI and MCP
 
@@ -1318,7 +1323,7 @@ Recipes are trialed the same way: vendor a new recipe version on a branch, start
 The runtime host may be Linux, macOS, native Windows or WSL.
 - Paths are stored and compared in POSIX form; backslashes are accepted on input.
 - Text is written as UTF-8 without BOM, with LF endings; a BOM is tolerated on read.
-- Git runs with explicit settings (`-c core.autocrlf=false`). Clones are made by other tools with their own settings (Git for Windows converts line endings by default), so `baton init` writes `.baton/.gitattributes` with `* -text`: hash-chained logs, CAS blobs and vendored recipes are checked out byte for byte everywhere, and `check` reports the rule missing.
+- Git runs with explicit settings (`-c core.autocrlf=false`), except the working-tree snapshot's `git status` (§6.3). Clones are made by other tools with their own settings (Git for Windows converts line endings by default), so `baton init` writes `.baton/.gitattributes` with `* -text`: hash-chained logs, CAS blobs and vendored recipes are checked out byte for byte everywhere, and `check` reports the rule missing.
 - On Windows, harness CLIs are often npm `.cmd` shims run through `cmd.exe`, which ends an argument at a newline and expands `%VAR%`. Prompts passed on a command line are therefore one line with no `%`, `^`, `&`, `|`, `<` or `>` (the task prompt, the no-op prompt and doctor's preflight prompt, which puts its command between backticks) **[VERIFY with the real CLIs on Windows]**.
 - Script gates and hooks run under the platform shell: `/bin/sh` on POSIX, `cmd.exe /d /s /c` on Windows. Recipe authors write gate commands for the shells their projects use.
 - No shebang reliance: entry points come from the package (`baton`, `python -m baton`, `py -m baton`).
@@ -1396,6 +1401,7 @@ Built (owner decisions, 2026-11-03): the launcher re-runs the command under the 
 ✅ Two worktrees of one project run two runtime versions side by side on one machine; an old run continues under a newer runtime; an unreadable format is refused with the migrate hint; `migrate --dry-run` changes nothing; the §14.3 trial workflow merges cleanly; vendoring a recipe version that changes a kept step id's signature, or reuses a retired id, requires an owner decision.
 
 **Phase 16 — Real use.** Example recipes `fit-check`, `software-feature` and `backyard-project` (§5.7); a remote-Director scenario.
+Built (owner decisions, 2026-11-03): `software-feature` moves from a test fixture to `examples/` with real prompts and rubrics and is the suite's only copy; slice acceptance is a judge (§5.7); each recipe runs end to end through the CLI with scripted workers and a scripted Director (`software-feature` at every level, `backyard-project` at every level, `fit-check` per verdict) and loads with no lint warnings; the remote Director is a fresh shell-only process per session, woken by completion hooks (a wake inbox standing in for a webhook) or by the owner's replies; an opt-in live run (`BATON_LIVE=1`) of `software-feature` at `minor` with Claude Code implementing and Codex triaging and reviewing; the README covers §19; runtime bugs found by real use are fixed and recorded (the working-tree snapshot's line endings, §6.3; a completed run's status in one line, §13.1).
 ✅ All three recipes run end-to-end and pass the lint with zero runtime changes. A remote Director with only shell access completes a multi-slice work item across several of its own sessions, woken by hooks, with no owner action beyond the recipe's decisions. The full suite passes on Linux and native Windows CI.
 
 ---

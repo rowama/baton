@@ -2,7 +2,9 @@
 
 A checkpoint stages the committing run's directory (and, later, its published
 deliverables) and commits exactly those paths on the current branch (§18 #6).
-Git runs with explicit settings (``core.autocrlf=false``, §15.1).
+Git runs with explicit settings (``core.autocrlf=false``, §15.1), except the
+working-tree snapshot's ``git status``, which uses the repository's own
+line-ending settings (see ``tree_snapshot``).
 
 **Unrelated changes.** The commit names its paths (``git commit --only``), so
 unstaged or untracked work elsewhere in the tree is never swept in. Changes
@@ -24,15 +26,17 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 GIT = ("git", "-c", "core.autocrlf=false", "-c", "core.quotepath=false")
+# For `git status` in tree_snapshot: the repository's own line-ending settings (§6.3).
+GIT_OWN_EOL = ("git", "-c", "core.quotepath=false")
 
 
 class GitError(Exception):
     pass
 
 
-def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def git(root: Path, *args: str, check: bool = True, own_eol: bool = False) -> subprocess.CompletedProcess[str]:
     try:
-        proc = subprocess.run([*GIT, "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", check=False)
+        proc = subprocess.run([*(GIT_OWN_EOL if own_eol else GIT), "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", check=False)
     except FileNotFoundError as e:  # pragma: no cover - git missing
         raise GitError("git is not installed") from e
     if check and proc.returncode != 0:
@@ -146,6 +150,13 @@ def tree_snapshot(root: Path, exclude: list[str] = ()) -> TreeSnapshot | None:
 
     Paths under any ``exclude`` prefix (POSIX, relative to the root) are left
     out. Ignored files are not seen. Returns None outside a git work tree.
+
+    ``git status`` runs with the repository's own line-ending settings, not
+    ``core.autocrlf=false``: files committed by the owner's git with
+    ``autocrlf=true`` (Git for Windows' default) hold CRLF in the tree and LF
+    in the index, and a forced override makes git report them modified only
+    when it happens to re-hash them (its index timing), so two snapshots of an
+    untouched tree could differ. The hashes are of the raw bytes either way.
     """
     import hashlib
 
@@ -153,7 +164,7 @@ def tree_snapshot(root: Path, exclude: list[str] = ()) -> TreeSnapshot | None:
         return None
     top = toplevel(root)
     head = git(top, "rev-parse", "--verify", "-q", "HEAD", check=False).stdout.strip() or None
-    raw = git(top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
+    raw = git(top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", own_eol=True).stdout
     entries = raw.split("\0")
     paths: list[str] = []
     i = 0

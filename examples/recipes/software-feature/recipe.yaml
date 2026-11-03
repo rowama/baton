@@ -90,7 +90,7 @@ steps:
     foreach: steps.plan.output.slices
     foreach_if_source_skipped: once        # minor work: one instance with item = run inputs
     concurrency: 1
-    repeat_until: group.steps.code_review.gates.passed
+    repeat_until: group.steps.code_review.gates.passed and group.steps.accept.gates.passed
     repeat_from: implement
     max_iterations: 3
     steps:
@@ -128,3 +128,6 @@ steps:
           - { name: slice,  from: item,                           required: true }
           - { name: review, from: group.steps.code_review.output, required: true }
         output_schema: schemas/acceptance_out.json
+        gates:
+          - { type: schema }
+          - { type: human, prompt: "Accept this slice as done? Rejecting sends it back to implement with your note." }
