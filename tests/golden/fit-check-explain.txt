@@ -1,0 +1,4 @@
+<run> (Contract review), recipe fit-check@1: active.
+Done: describe.
+Ready to dispatch: assess.
+Possible: assess: the owner approves or rejects (a rejection sends it back for another attempt).

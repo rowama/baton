@@ -204,7 +204,7 @@ baton/
 ```
 <project>/
 ├── AGENTS.md                         # one-line pointer: "This repo uses Baton; see .agents/skills/baton-director"
-├── .agents/skills/baton-director/  .agents/skills/baton-worker/   # vendored by baton init/upgrade
+├── .agents/skills/baton-director/  .agents/skills/baton-worker/   # vendored by baton init/upgrade (init also writes the AGENTS.md pointer; under adoption the baseline proposes it)
 ├── .baton/
 │   ├── baton.lock                    # runtime version, format versions, vocab version, recipe hashes, step-id signatures (§5.8)
 │   ├── project.yaml                  # paths, project vars, permissions, hooks (non-secret), limits, contacts, sme, effort bands
@@ -244,6 +244,7 @@ baton/
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
 ├── homes/<profile>/  # optional relocated CLI config homes [VERIFY per CLI]
+├── mcp.yaml          # `token: secret:<name>`: the bearer token for `baton mcp --http` (§13.2)
 ├── versions/         # installed runtime versions used by the launcher (§14.1)
 └── logs/             # unredacted raw worker output
 ```
@@ -604,7 +605,7 @@ class WorkerAdapter(Protocol):
 - **`litellm_api`**: runs `python -m baton.worker_runner` as the child (installed with the optional extra `baton[api]`). It builds messages from `INSTRUCTIONS.md` plus the text of every input not already inlined there, requests structured output where `litellm` reports support **[VERIFY per model]** (otherwise the reply schema goes in the prompt), and writes artifacts and `result.json` itself. The model replies with one JSON object: `status`, `output`, `artifacts` (text by declared name), `notes`, `questions_for_human`; a reply that is not a JSON object is a `failed` result (the step's problem, retried). **Inputs too large to inline are a hard error (§18 #1):** a non-UTF-8 input, or messages over `context_tokens × 2` bytes (roughly half the window; 256 KiB when `context_tokens` is not declared). The runtime checks this when dispatching, before anything is recorded, and refuses with a hint to choose a worker that reads files. Failures that are not the step's (authentication, network or provider errors, an unknown model, `litellm` missing) write no result; the child prints one line `baton-worker: failure=<class> code=<code> message=<redacted text>` and exits non-zero.
 - **`subprocess_harness`** with presets **`claude_code`** (`claude -p <prompt> <args>`) and **`codex`** (`codex exec <args> --skip-git-repo-check --color never <prompt>`); flags checked against `claude` 2.1.316 and `codex-cli` 0.166.0. Prompt: "Read <packet>/INSTRUCTIONS.md and follow it exactly; write outputs to <result>/ …". `cwd` is the attempt directory for `workspace: none`, the project root for `read` and `write`. `executable` defaults to `claude` / `codex`; `model` is passed as `--model`. The CLI uses its stored login (`auth.mode: cli_login`, env `allowlist`) or an injected key (`api_key`); `auth.mode: none` is a configuration error.
   - **Built-in args per mode** (a profile's `args.<mode>` replaces one mode's default): `claude_code` write `--permission-mode bypassPermissions`, read and none `--permission-mode acceptEdits`; `codex` `--sandbox workspace-write` for every mode.
-  - **Read and none steps are enforced by the runtime, not by flags.** The attempt's `result/` lies inside the project, so every mode must allow some writes and no CLI flag confines them to `result/`. For workers that can touch files (harness and `command` adapters), the runtime snapshots the working tree (HEAD, plus every changed or untracked path with its content hash, excluding the attempt directory; ignored files are not seen) before and after the worker runs. Any difference fails the implicit `workspace` gate and **escalates** the step (`workspace_modified`, listing the paths). The runtime never reverts the change; the owner inspects it. Write steps are not checked here (protected paths, §9.4, are).
+  - **Read and none steps are enforced by the runtime, not by flags.** The attempt's `result/` lies inside the project, so every mode must allow some writes and no CLI flag confines them to `result/`. For workers that can touch files (harness and `command` adapters), the runtime snapshots the working tree (HEAD, plus every changed or untracked path with its content hash, excluding the attempt directory; ignored files are not seen) before and after the worker runs. Any difference fails the implicit `workspace` gate and **escalates** the step (`workspace_modified`, listing the paths). HEAD moving only through Baton's own checkpoint commits (`baton(…): …` subjects, descending from the earlier HEAD; this run's or another's) is not a difference (found in Phase 14: consulting an expert about a just-completed run releases its lease again, and that checkpoint was blamed on the expert). The runtime never reverts the change; the owner inspects it. Write steps are not checked here (protected paths, §9.4, are).
   - **Failure signals**: lines such as "Not logged in" or "Invalid API key" classify an exit without a result as `platform` / `auth_failed`.
 - **`command`**: a configured command line with placeholders (`{prompt_file}`, `{packet}`, `{result}`, `{workspace}`), for other tools or for relaying to another agent. It is split like a POSIX shell would split it (no shell runs it; on Windows a backslash is an ordinary character, so `C:\tools\x.exe` stays intact); placeholders are substituted per word with POSIX-form paths (`{workspace}` is empty for `none` steps); the first word is the executable, resolved per §6.2.
 - **`manual`**: prints the packet path and waits for `submit`. Used for humans and physical-world work.
@@ -747,8 +748,8 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Deliverables | `artifact_published` (on the step: `artifact`, `path`, `sha256`, `attempt`, `passed_seq`, `unchanged?`, `kept?`, `overwrote?`, `alternate?`, `revision?`, `decision_id?`), `drift_detected` (on the step: `artifact`, `path`, `published_sha256`, `current_sha256`) |
 | Adoption | `situation_detected` (adoption run: the `detect` result, scope counts), `research_recorded` (§11.1), `step_imported` (§11.4), `baseline_established` (§11.5) |
 | Experts | `sme_requested` (`consultation`, `turn`, `subject`, `mode` `relay`\|`handoff`, `question`, `refs`/`auto`/`attachments` `[{ref, label, path, sha256}]`, `worker`, `vendor`, `model`, `packet_sha256`, `dispatch_id`, `contact?`; a handoff: `path`, `handoff_sha256`), `sme_answered` (`consultation`, `turn`, `status` `answered`\|`rejected`\|`failed`\|`blocked`, `answer_sha256`, `result_sha256`, `confidence`, `sources_used`, `requested_refs`, `suggests_retriage`, `awaiting?`, `artifacts?`, `reasons?`, `classification?`), `sme_promoted` (`consultation`, `turn`, `target`, `note`, `content_sha256`, `decision_id?`, `path?`) |
-| Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used`, `permission_requested`, `migrated` |
-| Project log | `platform_fact_recorded` (`fact`, `source`, `observed?`), `platform_incident_opened` (`incident`, `run`, `step_path`, `attempt`, `class`, `code`, `message`, `refs`), `platform_incident_resolved` (`incident`, `fix`, `retried`), `process_feedback` (`kind`, `text`, `run?`, `step_path?`, `qualified?`, `gate?`, `informed_owner?`), `step_skip_recorded` (`feedback_seq`, `run`, `step_path`, `gate`, `blocking`, `surfaced`, `informed_owner`); expert events of consultations without a run (§12.1) |
+| Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used` / `permission_requested` (project log: `action`, `rule`, and for a push `category`, `remote`, `branch`, `upstream`, `commits`, `paths`, `outside_docs?`, `unverified?`; for a Director action `detail?`; `decision_id` when the owner approved an `ask`), `migrated` |
+| Project log | `human_decision {kind: permission, action, decision: approve, note, decision_id}` (an owner's approval of an `ask` action, §13.7), `platform_fact_recorded` (`fact`, `source`, `observed?`), `platform_incident_opened` (`incident`, `run`, `step_path`, `attempt`, `class`, `code`, `message`, `refs`), `platform_incident_resolved` (`incident`, `fix`, `retried`), `process_feedback` (`kind`, `text`, `run?`, `step_path?`, `qualified?`, `gate?`, `informed_owner?`), `step_skip_recorded` (`feedback_seq`, `run`, `step_path`, `gate`, `blocking`, `surfaced`, `informed_owner`); expert events of consultations without a run (§12.1) |
 
 ### 8.3 Store
 
@@ -964,7 +965,7 @@ Owner decisions (2026-11-03):
 - **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes, output, artifacts (CAS hash and published path), deliverables (publishes, kept files, drift, ingested revisions, possibly-stale flags), gates and findings, waivers, decisions.
 - **Run summary** (`docs/SUMMARY.md`): work item, recipe and versions, timeline, per-step table, escalations, leases.
 - Both are derived, regenerable and committed.
-- `explain(run)` returns **process facts only** (completed, imported and skipped steps; current position; pending decisions; remaining steps at this level and what other levels would add; possible branches). The Director can therefore describe progress without loading subject matter.
+- `explain(run)` returns **process facts only** (completed, imported and skipped steps; current position; pending decisions; remaining steps at this level and what other levels would add or drop; possible branches: owner gates, findings that send work back, iteration limits, a level not yet set). It never includes step outputs, artifacts or run inputs, so the Director can describe progress without loading subject matter. Structured data plus a `text` rendering (golden-tested).
 
 ---
 
@@ -1034,7 +1035,7 @@ A **seed** (`proposed_seeds[]`) is `{work_item, step, item?, output?, artifacts?
 ### 11.5 The baseline
 
 One owner decision that ends adoption. It covers:
-- proposed `project.yaml` (paths, commands; permissions arrive in Phase 14);
+- proposed `project.yaml` (paths, commands; action permissions keep the defaults `init` wrote, §13.7);
 - agent-config merges (the `AGENTS.md` pointer line, §4.3, appended or created);
 - each in-flight work item with its complexity level and reasons, its seeds and its resulting plan (steps to run or skip);
 - proposed waivers;
@@ -1129,6 +1130,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
 | `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
 | `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
+| `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
 | `init()` / `vendor(recipe_dir)` / `upgrade(to?)` / `migrate()` | Setup and versioning (§14) |
 
 No call lets the Director write step outputs, artifacts or events directly. Quiet by default: `detect`, `doctor`, `resume`, `status` and `check` print one line when healthy.
@@ -1136,7 +1138,11 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 ### 13.2 CLI and MCP
 
 - The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
-- The MCP server (official Python SDK **[VERIFY]**) exposes the same calls over stdio, with an optional authenticated HTTP transport (bearer secret; localhost or private network) for Directors without shell access.
+- The MCP server (`baton mcp`; the official Python SDK `mcp` 2.x, checked against 2.3.0, installed with the optional extra `baton[mcp]`) exposes the same calls as tools, one per call with the CLI's names (`-` → `_`) and arguments. Results are the CLI's `--json` payloads; a refusal is a tool error whose text is the JSON payload with `exit_code` (1 problem, 3 lease held elsewhere); `needs_owner` stands for exit code 4. Every tool call opens the project afresh, like one CLI invocation: the server holds no state, and work it dispatched runs on under its supervisors.
+- Owner decisions (2026-11-03):
+  - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
+  - **HTTP** (`baton mcp --http [--port 8765]`), for Directors without shell access: streamable HTTP, started and stopped by the owner in the foreground on the runtime host, never detached or restarted by Baton, and nothing depends on it running. It binds a **loopback address only** (`--host` must be loopback): without TLS the token would cross the network in the clear, so remote access goes through a TLS proxy or tunnel of the owner's choice. Native HTTPS can be added later without other changes. Every request needs `Authorization: Bearer <token>`; the token comes only from `~/.baton/mcp.yaml` (`token: secret:<name>`, resolved like profile secrets, at least 16 characters), and the server refuses to start without one.
+  - The Director identity is the server process's `--director` / `BATON_DIRECTOR`, its harness `BATON_HARNESS`.
 - Registration per harness **[VERIFY]**: Claude Code `.mcp.json` or `claude mcp add baton -- baton mcp`; Codex `[mcp_servers.baton]` in its config; Hermes `hermes mcp add baton --command "baton mcp"`.
 
 ### 13.3 Skills
@@ -1152,12 +1158,12 @@ description: Run, resume, or adopt Baton work as Director — keep every work it
 # Baton Director
 
 You coordinate. You are the expert on the process — not on any step's subject matter, and not on the platform.
-Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP tools.
+Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP tools (`baton mcp`; same names, same arguments).
 
 ## Hard rules
 - Never perform step work yourself. Every step's output comes from dispatch/submit.
-- Never compose or edit a packet. If a step cannot start, report the missing inputs.
-- Never fabricate an owner decision, disposition or waiver. Record only the owner's actual words.
+- Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
+- Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - Retry guidance is additive; never restate or summarize inputs.
 - Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction.
 - Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
@@ -1165,18 +1171,24 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 
 ## Each session
 1. `detect`, then `doctor`. Silent when healthy; interrupt the owner only for a real problem.
-2. `board`. For each run that needs you: resume it. If its lease is held elsewhere, report holder and expiry; take over only with the owner's approval.
+2. `board`. For each run that needs you: `resume` it. If its lease is held elsewhere, report holder and expiry; take over only with the owner's approval.
 3. New work is a new run (`start`, then triage). Never fold unrelated work into an active run.
 
 ## Per run
 1. `status` → ready steps, running work, pending owner decisions, open findings, drift.
-2. Pending owner decision: present the question, the relevant record and options; record the answer verbatim.
+2. Pending owner decision: present the question, the relevant record and options; record the answer verbatim (`decide <run> <ref> <decision> --note "<owner's words>"`).
 3. Ready step: `eligible` → choose (respect preference order unless there is a stated reason) → `dispatch`. Starting work the process already calls for is not a question for the owner.
 4. Dispatch returns at once. If you can stay attached, `wait`; otherwise end your turn — the completion hook or the next `board` brings you back. Never treat work as finished until Baton records it.
-5. Gate failure: retry while attempts remain (another eligible worker if useful); review loops are handled by the recipe; otherwise escalate.
-6. Failure classified `platform` or `unknown`: consult the platform SME with the incident; `configuration`: tell the owner the exact fix.
-7. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage`.
-8. Run complete: `summary` → present to the owner; release the lease.
+5. A manual worker (a person) does the step: tell them where the packet is; they write the result; `submit` hands it in. Never write it for them.
+6. Gate failure: retry while attempts remain (another eligible worker if useful); review loops are handled by the recipe; otherwise escalate.
+7. Failure classified `platform` or `unknown`: consult the platform SME with the incident; `configuration`: tell the owner the exact fix.
+8. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage`.
+9. Run complete: `summary` → present to the owner; release the lease.
+
+## Pushing and other repo actions
+- Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.
+- Before a tag, merge, deploy or force push, call `permission <action> --detail "<what you will do>"`.
+- `allow`: go ahead. `ask` (exit 4): ask the owner; if they approve, repeat the same call with `--approved --note "<owner's words>"`. `deny`: never attempt it, and say so.
 
 ## Questions
 - About the process (where things are, what's next): answer from `explain`/`status`/`board`, never from memory. If the record doesn't say, say so.
@@ -1190,7 +1202,9 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 Follow `.baton/communication.md` exactly.
 ```
 
-**`skills/baton-worker/SKILL.md`**: the packet protocol rules (§7); the meaning of `exit_criteria`, `deadline` and `protected_paths`; "stop and report a mismatch instead of improvising"; report friction in `process_feedback`.
+**`skills/baton-worker/SKILL.md`**: the packet protocol rules (§7); the meaning of `exit_criteria`, `deadline`, `workspace` and `protected_paths`; "stop and report a mismatch instead of improvising"; report friction in `process_feedback`; never contact people, push, tag, merge or deploy.
+
+Both ship in the runtime (`skills/`); `init` copies them into `.agents/skills/` when missing (an edited copy is kept; `upgrade` re-vendors, §14). The shipped director skill is the text above (a test keeps every call it names in the API).
 
 ### 13.4 `doctor`
 
@@ -1240,6 +1254,12 @@ docs_only_globs: ["docs/**", "**/*.md", ".baton/runs/**", ".baton/platform/**", 
 ```
 
 The runtime enforces these for its own git operations and records `permission_used`. The Director checks them before acting outside the runtime: `ask` becomes `permission_requested`, and `deny` is never attempted. "Docs only" means every changed path matches the globs.
+
+Owner decisions (2026-11-03):
+- **Pushing is explicit.** `push` (`baton push`) pushes the current branch to its upstream (or, for a branch new on the remote, to `origin` or the only remote, setting the upstream); nothing pushes automatically, and it never forces. It sorts the commits being pushed (`<upstream>..HEAD`, else every commit no ref of the remote has) into the least privileged category covering them all: `docs_only` (every changed path matches `docs_only_globs`); `after_verified` (every other commit is a Baton checkpoint, or the `commit_sha` of a passed step in any run, so a recipe's gates vouched for it); `other`.
+- **Outcomes.** `deny` is refused (exit 1) and records nothing. `allow` records `permission_used` in the project log and commits it (`baton(project): permission used: …`) before pushing, so the record travels with the push. `ask` records `permission_requested` and returns `needs_owner` (exit 4) without pushing; the Director asks the owner and, on approval, repeats the call with `--approved --note "<owner's words>"`, which records `human_decision {kind: permission}` then `permission_used` with its `decision_id` (as with `waive`, the runtime requires the words and the director skill requires the actual approval). Approval never lifts a `deny`.
+- **Director actions** outside the runtime (`tag`, `merge`, `deploy`, `force_push`): `permission(action, detail?)` (`baton permission <action> --detail "<what>"`) applies the same rule and records the same events; `push` is not checked this way (the runtime pushes).
+- **Defaults** (written by `init`): as above, with `.baton/project/**` added to `docs_only_globs` because project checkpoints write there.
 
 ---
 
@@ -1353,7 +1373,7 @@ One order, core first, then layers in the order real use needs them. Every phase
 **Phase 13 — Deliverables (L8).** Publishing, conflicts, drift, revision ingestion. Built (owner decisions, 2026-11-03): artifacts only (workspace steps' code is recorded by its commit); published after every `step_passed` (imports never), top-level steps only; silent overwrite only of this run's and step's own untouched file; a conflict is a pending owner decision (`overwrite`/`keep`/`alternate`) that keeps the step passed; drift computed by read-only calls, recorded by mutating ones, tracked while the run is active; `leave` or `ingest_revision`; `human_revision.*` is `not_applicable` until a revision exists; `--feed dependents` reaches only steps not yet started, and passed dependents are flagged possibly stale; pending conflicts and drift hold run completion; an expert's answer can be promoted to a revision.
 ✅ Deliverables appear at mapped paths; a pre-existing file is never silently overwritten; editing a published file triggers drift, and ingesting it feeds a later step.
 
-**Phase 14 — Director surface.** MCP server (stdio; optional authenticated HTTP), director and worker skills, communication contract default, action permissions.
+**Phase 14 — Director surface.** MCP server (stdio; optional authenticated HTTP), director and worker skills, communication contract default, action permissions. Built (owner decisions, 2026-11-03): explicit `push` with docs-only / after-verified / other categories and `ask` settled by repeating the call with the owner's words; `permission` for Director actions; `init` vendors the skills and writes the `AGENTS.md` pointer (not under adoption); MCP over stdio, and over HTTP only as an owner-started, loopback-only, token-guarded foreground process; `explain` (§10.6), which earlier phases had not built. Two-harness check: scripted MCP and CLI Directors in the suite, plus an opt-in live test (`BATON_LIVE=1`) with Claude Code over MCP and Codex over the CLI, whose transcripts the owner reviews.
 ✅ The runtime refuses a push that permissions deny and records allowed ones; docs-only changes are recognized; Directors in two different harnesses complete the same recipe with different worker assignments using only CLI or MCP; transcript review shows no Director did step work or answered subject questions itself.
 
 **Phase 15 — Versioning.** Launcher, `upgrade`, `migrate`, compatibility rules.

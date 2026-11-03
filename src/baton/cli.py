@@ -81,29 +81,39 @@ def _api() -> engine.Api:
     return engine.Api.open(_opts.project, director_id=_opts.director)
 
 
+def error_payload(e: BaseException) -> tuple[int, dict[str, Any]] | None:
+    """(exit code, error payload) for a refusal any interface reports the same way; None for a bug."""
+    if isinstance(e, LeaseHeld):
+        extra: dict[str, Any] = {"lease": e.lease.__dict__}
+        if getattr(e, "status", None):
+            extra["status"] = e.status  # type: ignore[attr-defined]
+        return EXIT_LEASE, {"error": e.code, "message": str(e), **extra}
+    if isinstance(e, engine.IntegrityError):
+        return EXIT_PROBLEM, {"error": e.code, "message": str(e), "issues": [i.model_dump() for i in e.issues]}
+    if isinstance(e, HandoffError):
+        missing = [{"name": n, "from": r, "reason": why} for n, r, why in e.missing]
+        return EXIT_PROBLEM, {"error": "handoff.missing_inputs", "message": str(e), "missing": missing}
+    if isinstance(e, EngineError):
+        return EXIT_PROBLEM, {"error": e.code, "message": str(e)}
+    if isinstance(e, RecipeError):
+        return EXIT_PROBLEM, {"error": "recipe.invalid", "message": str(e), "issues": [i.model_dump() for i in e.issues]}
+    if isinstance(e, StoreError):
+        return EXIT_PROBLEM, {"error": "store.error", "message": str(e), "issues": [i.model_dump() for i in e.issues]}
+    return None
+
+
 def _call(as_json: bool, fn: Callable[[], Any]) -> Any:
     """Run an API call, mapping refusals to exit codes."""
     try:
         return fn()
-    except LeaseHeld as e:
-        extra = {"lease": e.lease.__dict__}
-        if getattr(e, "status", None):
-            extra["status"] = e.status  # type: ignore[attr-defined]
-        _fail(as_json, EXIT_LEASE, e.code, str(e), **extra)
-    except engine.IntegrityError as e:
-        if not as_json:
+    except (LeaseHeld, EngineError, RecipeError, StoreError) as e:
+        mapped = error_payload(e)
+        assert mapped is not None
+        code, payload = mapped
+        if not as_json and isinstance(e, engine.IntegrityError):
             for i in e.issues:
                 typer.echo(f"ERROR {i.where}: {i.message}", err=True)
-        _fail(as_json, EXIT_PROBLEM, e.code, str(e), issues=[i.model_dump() for i in e.issues])
-    except HandoffError as e:
-        missing = [{"name": n, "from": r, "reason": why} for n, r, why in e.missing]
-        _fail(as_json, EXIT_PROBLEM, "handoff.missing_inputs", str(e), missing=missing)
-    except EngineError as e:
-        _fail(as_json, EXIT_PROBLEM, e.code, str(e))
-    except RecipeError as e:
-        _fail(as_json, EXIT_PROBLEM, "recipe.invalid", str(e), issues=[i.model_dump() for i in e.issues])
-    except StoreError as e:
-        _fail(as_json, EXIT_PROBLEM, "store.error", str(e), issues=[i.model_dump() for i in e.issues])
+        _fail(as_json, code, payload.pop("error"), payload.pop("message"), **payload)
 
 
 def _checkpoint_note(payload: dict) -> None:
@@ -200,7 +210,7 @@ def adopt(
     try:
         find_root(root)
     except EngineError:
-        engine.Api.init(root)  # adoption starts with init when .baton/ is missing (§11.1)
+        engine.Api.init(root, agents_md=False)  # adoption starts with init when .baton/ is missing (§11.1); the baseline proposes AGENTS.md
     out = _call(as_json, lambda: _api().adopt(recipe, crosswalk=crosswalk, scope=scope or None))
     _done(out, as_json, _adoption_text(out))
 
@@ -843,6 +853,74 @@ def feedback(
     out = _call(as_json, lambda: _api().feedback(kind, text, run, step, gate, informed_owner))
     lines = [f"Recorded feedback (seq {out['seq']})."] + _pending_lines(out)
     _done(out, as_json, "\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# The Director surface: explain, action permissions, MCP (§10.6, §13.2, §13.7)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def explain(run: Annotated[str, typer.Argument(help="Run id.")], as_json: JsonOpt = False) -> None:
+    """Process facts only: what is done, where the run is, what remains at this level and what other levels would change."""
+    out = _call(as_json, lambda: _api().explain(run))
+    _done(out, as_json, out["text"])
+
+
+ApprovedOpt = Annotated[bool, typer.Option("--approved", help="The owner approved this `ask` action (with --note).")]
+NoteOpt = Annotated[Optional[str], typer.Option("--note", help="With --approved: the owner's words, recorded verbatim.")]
+
+
+def _permit_text(out: dict, what: str) -> str:
+    if not out["granted"]:
+        return f"{what}: the owner's approval is needed ({out['action']}, rule ask).\n{out['message']}"
+    how = f"approved by the owner ({out['decision_id']})" if out["permission"] == "approved" else "allowed"
+    return f"{what}: {how}."
+
+
+@app.command()
+def push(approved: ApprovedOpt = False, note: NoteOpt = None, as_json: JsonOpt = False) -> None:
+    """Push the current branch, if project.yaml permissions allow this kind of change (docs only, verified, other)."""
+    out = _call(as_json, lambda: _api().push(approved=approved, note=note))
+    if out.get("reason") == "nothing to push":
+        _done(out, as_json, "Nothing to push.")
+    text = _permit_text(out, f"Push of {len(out['commits'])} commit(s) to {out['remote']}/{out['branch']} [{out['category'].replace('_', '-')}]")
+    if out.get("pushed"):
+        text += "\nPushed."
+    _done(out, as_json, text)
+
+
+@app.command()
+def permission(
+    action: Annotated[str, typer.Argument(help="tag | merge | deploy | force_push")],
+    detail: Annotated[Optional[str], typer.Option("--detail", help="What exactly will be done (recorded).")] = None,
+    approved: ApprovedOpt = False,
+    note: NoteOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Check (and record) an action the Director takes outside the runtime: allow, ask (exit 4) or deny (exit 1)."""
+    out = _call(as_json, lambda: _api().permission(action.replace("-", "_"), detail, approved=approved, note=note))
+    _done(out, as_json, _permit_text(out, action))
+
+
+@app.command()
+def mcp(
+    http: Annotated[bool, typer.Option("--http", help="Serve streamable HTTP instead of stdio (needs a token in ~/.baton/mcp.yaml).")] = False,
+    host: Annotated[str, typer.Option("--host", help="With --http: loopback address to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="With --http: port.")] = 8765,
+) -> None:
+    """Serve the Director API as MCP tools: over stdio (started by the harness), or over HTTP on loopback (started by the owner)."""
+    try:
+        from . import mcp_server
+    except ImportError as e:
+        _fail(False, EXIT_PROBLEM, "mcp.missing", f"the MCP server needs the optional extra: pip install 'baton[mcp]' ({e})")
+    try:
+        if http:
+            mcp_server.serve_http(_opts.project, _opts.director, host=host, port=port)
+        else:
+            mcp_server.serve_stdio(_opts.project, _opts.director)
+    except EngineError as e:
+        _fail(False, EXIT_PROBLEM, e.code, str(e))
 
 
 def main() -> None:

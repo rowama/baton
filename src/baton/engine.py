@@ -1688,10 +1688,10 @@ class Api:
         return cls(Project.open(root, home=home, clock=clock or utc_now), Director.current(director_id, harness))
 
     @staticmethod
-    def init(root: str | Path) -> dict[str, Any]:
+    def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
         from .project import init
 
-        return init(root)
+        return init(root, agents_md=agents_md)
 
     def close(self) -> None:
         self.project.store.close()
@@ -2520,7 +2520,7 @@ class Api:
             return []
         rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
         after = gitops.tree_snapshot(self.project.root, [f"{rel_baton}/runs", f"{rel_baton}/project"])
-        return gitops.tree_changes(gitops.TreeSnapshot(raw.get("head"), raw.get("files") or {}), after)
+        return gitops.tree_changes(gitops.TreeSnapshot(raw.get("head"), raw.get("files") or {}), after, self.project.root)
 
     def _finish_records(self, ctx: RunContext, before: int, out: dict[str, Any]) -> None:
         """Records, lease release on completion and the checkpoint, without requiring the lease (runtime work)."""
@@ -2871,6 +2871,172 @@ class Api:
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
         return out
+
+    # -- action permissions (§13.7) ------------------------------------------
+
+    def push(self, *, approved: bool = False, note: str | None = None) -> dict[str, Any]:
+        """Push the current branch under ``permissions.push``.
+
+        The commits being pushed are sorted into ``docs_only`` / ``after_verified`` /
+        ``other`` (``permissions.py``). ``deny`` is refused and never attempted; ``ask``
+        records ``permission_requested`` and returns ``needs_owner``; the owner's approval is
+        the same call with ``approved`` and their words. An allowed push records
+        ``permission_used`` and commits that record first, so it travels with the push.
+        """
+        from . import gitops, permissions
+
+        try:
+            plan = permissions.plan_push(self.project.root, self.project.store, self.project.config.docs_only_globs)
+        except gitops.GitError as e:
+            raise EngineError("push.git", str(e)) from e
+        if not plan.commits:
+            return {"pushed": False, "reason": "nothing to push", **plan.summary(), "needs_owner": False}
+        rule = permissions.rule_for(self.project.config, "push", plan.category)
+        out = self._permit("push", rule, plan.summary(), approved, note, label=f"push ({plan.category.replace('_', '-')})")
+        if not out["granted"]:
+            return out
+        args = ["push", "--porcelain"] + (["--set-upstream"] if plan.upstream is None else []) + [plan.remote, f"HEAD:refs/heads/{plan.branch}"]
+        proc = gitops.git(self.project.root, *args, check=False)
+        if proc.returncode != 0:
+            raise EngineError("push.failed", f"git push failed: {redact_text((proc.stderr or proc.stdout).strip())}")
+        out["pushed"] = True
+        return out
+
+    def permission(self, action: str, detail: str | None = None, *, approved: bool = False, note: str | None = None) -> dict[str, Any]:
+        """Check an action the Director takes outside the runtime (tag, merge, deploy, force_push).
+
+        ``allow`` records ``permission_used`` and grants it; ``deny`` is refused; ``ask`` records
+        ``permission_requested`` and returns ``needs_owner`` until the call is repeated with the
+        owner's approval in their own words.
+        """
+        from . import permissions
+
+        if action == "push":
+            raise EngineError("permission.use_push", "the runtime does the pushing: use `baton push`, which checks permissions.push itself")
+        try:
+            rule = permissions.rule_for(self.project.config, action)
+        except ValueError as e:
+            raise EngineError("permission.unknown_action", str(e)) from e
+        return self._permit(action, rule, {"detail": detail} if detail else {}, approved, note, label=action.replace("_", "-"))
+
+    def _permit(self, action: str, rule: str, detail: dict[str, Any], approved: bool, note: str | None, *, label: str) -> dict[str, Any]:
+        from . import sme
+
+        actor = self.director.actor
+        base = {"action": action, "rule": rule, **detail}
+        if rule == "deny":
+            raise EngineError("permission.denied", f"{label} is denied by project.yaml permissions; it is never attempted")
+        out: dict[str, Any] = {**base}
+        if rule == "ask" and not approved:
+            ev = sme.project_append(self.project, "permission_requested", base, actor=actor)
+            cp = self._project_checkpoint(f"permission requested: {label}")
+            out.update(granted=False, permission="ask", requested_seq=ev.seq, needs_owner=True,
+                       message=f"{label} needs the owner's approval; repeat with --approved --note \"<the owner's words>\"")
+            if cp is not None:
+                out["checkpoint"] = cp.as_dict()
+            return out
+        data = dict(base)
+        if rule == "ask":
+            if not (note or "").strip():
+                raise EngineError("permission.note", "an approval needs the owner's words (--note), recorded verbatim")
+            log = self.project.store.project_log()
+            decision_id = f"d{len(log.events()) + 1}"
+            sme.project_append(self.project, "human_decision", {"kind": "permission", "action": action, "decision": "approve",
+                                                                 "note": note, "decision_id": decision_id, **detail}, actor="human")
+            data["decision_id"] = decision_id
+            out["decision_id"] = decision_id
+        ev = sme.project_append(self.project, "permission_used", data, actor=actor)
+        cp = self._project_checkpoint(f"permission used: {label}")
+        out.update(granted=True, permission="approved" if rule == "ask" else "allow", used_seq=ev.seq, needs_owner=False)
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
+    # -- explain (§10.6) -------------------------------------------------------
+
+    def explain(self, run_id: str) -> dict[str, Any]:
+        """Process facts only: what is done, where the run is, what remains at this level and what other levels would change.
+
+        Never step outputs or artifacts: the Director can describe progress without loading subject matter.
+        """
+        st = self.status(run_id)
+        ctx = self._ctx(run_id)
+        level = st["level"]
+        full = build_plan(ctx.recipe)
+        levels = [lv.level for lv in full.levels]
+        by_level = {lv.level: [s for s in lv.steps if s.depth == 0] for lv in full.levels}
+        titles = {s.path: s.title for lv in full.levels for s in lv.steps}
+        done = {"passed": [], "imported": [], "skipped": []}
+        for path, info in st["steps"].items():
+            if info.get("review_of"):
+                continue
+            state = info["state"]
+            key = {"passed": "passed", "imported": "imported", "skipped": "skipped"}.get(state)
+            if key:
+                done[key].append({"step": path, "title": titles.get(path, path)})
+        finished = {d["step"] for k in done.values() for d in k}
+        current = by_level.get(level) if level is not None or None in by_level else None
+
+        def remaining_at(lv: str | None) -> list[dict[str, Any]]:
+            rows = []
+            for s in by_level.get(lv, []):
+                if not s.included or s.path in finished:
+                    continue
+                gates = [g.type for g in s.gates if g.included]
+                rows.append({"step": s.path, "title": s.title, "kind": s.kind, "state": st["steps"].get(s.path, {}).get("state"),
+                             "gates": gates, **({"group": s.group} if s.group else {})})
+            return rows
+
+        remaining = remaining_at(level) if current is not None else []
+        other_levels: dict[str, Any] = {}
+        if level is not None and len(levels) > 1:
+            here = {s.path for s in by_level[level] if s.included}
+            for lv in levels:
+                if lv == level:
+                    continue
+                there = {s.path for s in by_level[lv] if s.included}
+                other_levels[lv] = {"adds": sorted(there - here), "drops": sorted(here - there)}
+        branches: list[str] = []
+        for r in remaining:
+            if "human" in r["gates"]:
+                branches.append(f"{r['step']}: the owner approves or rejects (a rejection sends it back for another attempt)")
+            if "review" in r["gates"] or "findings" in r["gates"]:
+                branches.append(f"{r['step']}: open blocking findings send the work back before it can pass")
+            if r.get("group") and r["group"].get("max_iterations"):
+                branches.append(f"{r['step']}: repeats until its judges pass, at most {r['group']['max_iterations']} iterations, then the owner decides")
+        if level is None and len(levels) > 1 and levels[0] is not None:
+            branches.append(f"triage sets the level ({', '.join(levels)}); the level decides which steps and gates run")
+        position = {
+            "running": [r["step_path"] for r in st["running"]], "queued": [q["step_path"] for q in st["queued"]],
+            "ready": st["ready"], "stale": [x["step_path"] for x in st["stale"]],
+            "owner_decisions": [{"ref": p["ref"], "kind": p["kind"]} for p in st["pending_decisions"]],
+            "groups": {g: i["summary"] for g, i in st["groups"].items()},
+        }
+        lines = [f"{run_id} ({st['title'] or 'untitled'}), recipe {st['recipe']}" + (f" at level {level}" if level else "") + f": {st['state']}."]
+        for k, label in (("passed", "Done"), ("imported", "Imported from the prior process"), ("skipped", "Skipped at this level")):
+            if done[k]:
+                lines.append(f"{label}: " + ", ".join(d["step"] for d in done[k]) + ".")
+        for k, label in (("running", "Running"), ("queued", "Queued for the working tree"), ("ready", "Ready to dispatch"), ("stale", "Stale")):
+            if position[k]:
+                lines.append(f"{label}: " + ", ".join(position[k]) + ".")
+        for g, summary in position["groups"].items():
+            lines.append(f"{g}: {summary}.")
+        if position["owner_decisions"]:
+            lines.append("Waiting on the owner: " + ", ".join(d["ref"] for d in position["owner_decisions"]) + ".")
+        if st["state"] == "active":
+            todo = [r["step"] for r in remaining if r["step"] not in position["ready"] and r["step"] not in position["running"]]
+            if level is None and len(levels) > 1 and levels[0] is not None:
+                lines.append("The level is not set yet; what remains depends on triage.")
+            elif todo:
+                lines.append("Still to come at this level: " + ", ".join(todo) + ".")
+        for lv, diff in other_levels.items():
+            bits = ([f"adds {', '.join(diff['adds'])}"] if diff["adds"] else []) + ([f"drops {', '.join(diff['drops'])}"] if diff["drops"] else [])
+            if bits:
+                lines.append(f"At {lv}: " + "; ".join(bits) + ".")
+        lines += [f"Possible: {b}." for b in branches]
+        return {"run_id": run_id, "title": st["title"], "recipe": st["recipe"], "state": st["state"], "level": level, "levels": levels,
+                "done": done, "position": position, "remaining": remaining, "other_levels": other_levels, "branches": branches,
+                "text": "\n".join(lines), "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"]}
 
     def _observed_fact(self, worker: str, resolved: Any) -> None:
         """A harness CLI found only through ``path.search`` is an observed platform fact (§6.2, §12.3)."""

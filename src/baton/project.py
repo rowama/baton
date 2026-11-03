@@ -65,7 +65,18 @@ hooks:                        # completion hooks (shell commands, non-secret); m
   on_complete: ""
   on_needs_human: ""          # falls back to on_complete
   on_platform_failure: ""     # falls back to on_complete
+permissions:                  # what the runtime and the Director may do to the repo and remotes: allow | ask | deny
+  push: { docs_only: allow, after_verified: allow, other: ask }
+  tag: ask
+  force_push: deny
+  merge: deny
+  deploy: deny
+docs_only_globs: ["docs/**", "**/*.md", ".baton/runs/**", ".baton/project/**", ".baton/platform/**", ".baton/process/**"]
 """
+
+#: Skills shipped with the runtime and vendored into projects (§4.3, §13.3).
+SKILLS: tuple[str, ...] = ("baton-director", "baton-worker")
+SKILLS_DIR = ".agents/skills"
 
 
 #: Recipes shipped with the runtime (§11.1): loaded from ``builtin/``, never vendored.
@@ -281,8 +292,13 @@ def read_lock(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def init(root: str | Path) -> dict[str, Any]:
-    """Create ``.baton/`` with defaults. Existing files are left untouched."""
+def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
+    """Create ``.baton/`` with defaults. Existing files are left untouched.
+
+    Also vendors the director and worker skills into ``.agents/skills/`` and, unless
+    ``agents_md`` is false (adoption, where the baseline proposes it, §11.5), writes the
+    ``AGENTS.md`` pointer line (created, or appended to an existing file).
+    """
     r = Path(root).resolve()
     if not r.is_dir():
         raise EngineError("init.no_dir", f"{r} is not a directory")
@@ -306,6 +322,19 @@ def init(root: str | Path) -> dict[str, Any]:
         text = read_text(ga)
         ga.write_bytes((text + ("" if text.endswith("\n") or not text else "\n") + GITATTRIBUTES).encode("utf-8"))
         created.append(f"{BATON_DIR}/.gitattributes (updated)")
+
+    for name in SKILLS:
+        create(f"{SKILLS_DIR}/{name}/SKILL.md", read_text(data.path("skills") / name / "SKILL.md"))
+    if agents_md:
+        from .adopt import AGENTS_POINTER
+
+        am = r / "AGENTS.md"
+        if not am.is_file():
+            create("AGENTS.md", AGENTS_POINTER + "\n")
+        elif AGENTS_POINTER not in read_text(am):
+            text = read_text(am)
+            am.write_bytes((text + ("" if text.endswith("\n") or not text else "\n") + AGENTS_POINTER + "\n").encode("utf-8"))
+            created.append("AGENTS.md (pointer appended)")
 
     gi = r / ".gitignore"
     existing = read_text(gi).splitlines() if gi.is_file() else []

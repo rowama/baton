@@ -19,7 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 api = ["litellm>=1.70"]  # the litellm_api adapter (§6.3); imported only by the worker child
 keyring = ["keyring>=25"]  # optional OS-keyring secret store (§6.1)
-dev = ["pytest>=8", "hypothesis>=6", "litellm>=1.70"]  # hypothesis: property tests (§17)
+mcp = ["mcp>=2.3,<3", "uvicorn>=0.30"]  # `baton mcp` (§13.2): stdio, or HTTP for Directors without a shell
+dev = ["pytest>=8", "hypothesis>=6", "litellm>=1.70", "mcp>=2.3,<3", "uvicorn>=0.30"]  # hypothesis: property tests (§17)
 
 [project.scripts]
 baton = "baton.cli:main"
@@ -34,6 +35,7 @@ packages = ["src/baton"]
 "defaults" = "baton/_data/defaults"
 "classify" = "baton/_data/classify"
 "builtin" = "baton/_data/builtin"
+"skills" = "baton/_data/skills"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -183,12 +183,29 @@ def tree_snapshot(root: Path, exclude: list[str] = ()) -> TreeSnapshot | None:
     return TreeSnapshot(head, files)
 
 
-def tree_changes(before: TreeSnapshot | None, after: TreeSnapshot | None) -> list[str]:
-    """What differs between two snapshots: changed paths, and HEAD if it moved."""
+def only_checkpoints(root: Path, old: str | None, new: str | None) -> bool:
+    """True when ``new`` descends from ``old`` through Baton checkpoint commits only (``baton(<run>): …``).
+
+    The runtime commits checkpoints while workers run (this run's or another's), so
+    those commits are never a worker's change to the working tree.
+    """
+    if not old or not new:
+        return False
+    if git(root, "merge-base", "--is-ancestor", old, new, check=False).returncode != 0:
+        return False
+    subjects = [x for x in git(root, "log", "--format=%s", f"{old}..{new}").stdout.splitlines() if x]
+    return bool(subjects) and all(x.startswith("baton(") and "): " in x for x in subjects)
+
+
+def tree_changes(before: TreeSnapshot | None, after: TreeSnapshot | None, root: Path | None = None) -> list[str]:
+    """What differs between two snapshots: changed paths, and HEAD if it moved.
+
+    With ``root``, HEAD moving only by Baton's own checkpoint commits does not count.
+    """
     if before is None or after is None:
         return []
     out = []
-    if before.head != after.head:
+    if before.head != after.head and not (root is not None and only_checkpoints(root, before.head, after.head)):
         out.append(f"HEAD moved from {before.head or '(none)'} to {after.head or '(none)'}")
     for path in sorted(set(before.files) | set(after.files)):
         if before.files.get(path) != after.files.get(path):

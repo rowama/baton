@@ -444,9 +444,9 @@ EVENT_TYPES: frozenset[str] = frozenset(t for ts in EVENT_TYPES_BY_AREA.values()
 #: Types a run log may hold: everything except project-log records.
 RUN_EVENT_TYPES: frozenset[str] = EVENT_TYPES - frozenset(EVENT_TYPES_BY_AREA["project_log"])
 #: Types the project log may hold: its own records, expert consultations outside
-#: a run, and machinery.
+#: a run, machinery, and owner decisions on project actions (an ``ask`` permission, §13.7).
 PROJECT_EVENT_TYPES: frozenset[str] = frozenset(
-    EVENT_TYPES_BY_AREA["project_log"] + EVENT_TYPES_BY_AREA["experts"] + EVENT_TYPES_BY_AREA["machinery"]
+    EVENT_TYPES_BY_AREA["project_log"] + EVENT_TYPES_BY_AREA["experts"] + EVENT_TYPES_BY_AREA["machinery"] + ("human_decision",)
 )
 
 ACTOR = r"^(runtime|human|worker|director)(:[^\s]+)?$"
@@ -562,6 +562,33 @@ class LimitsConfig(_Strict):
     active_runs: int | None = Field(default=None, ge=1)  # §8.9: `start` refuses beyond this many active runs
 
 
+Rule = Literal["allow", "ask", "deny"]
+
+#: Paths a "docs only" change may touch (§13.7). ``.baton/project/**`` holds project
+#: checkpoints' records, which a push of only Baton's own records also carries.
+DEFAULT_DOCS_ONLY_GLOBS: tuple[str, ...] = (
+    "docs/**", "**/*.md", ".baton/runs/**", ".baton/project/**", ".baton/platform/**", ".baton/process/**",
+)
+
+
+class PushRules(_Strict):
+    """``permissions.push`` (§13.7): one rule per kind of change being pushed."""
+
+    docs_only: Rule = "allow"        # every changed path matches docs_only_globs
+    after_verified: Rule = "allow"   # every other commit is a checkpoint or a passed step's commit_sha
+    other: Rule = "ask"
+
+
+class PermissionsConfig(_Strict):
+    """Action permissions (§13.7): what the runtime and the Director may do to the repo and its remotes."""
+
+    push: PushRules = Field(default_factory=PushRules)
+    tag: Rule = "ask"
+    force_push: Rule = "deny"
+    merge: Rule = "deny"
+    deploy: Rule = "deny"
+
+
 class SmeSubjectConfig(_Strict):
     """``project.yaml`` ``sme.<subject>`` (§12.1): profiles tried first for this subject."""
 
@@ -580,3 +607,5 @@ class ProjectConfig(_Strict):
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     sme: dict[Literal["project", "platform", "process"], SmeSubjectConfig] = Field(default_factory=dict)
+    permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    docs_only_globs: list[str] = Field(default_factory=lambda: list(DEFAULT_DOCS_ONLY_GLOBS))

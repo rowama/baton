@@ -535,7 +535,7 @@ def supervise(spec: dict[str, Any]) -> int:
 
     changes: list[str] = []
     if before is not None:
-        changes = gitops.tree_changes(before, gitops.tree_snapshot(root, spec.get("exclude") or []))
+        changes = gitops.tree_changes(before, gitops.tree_snapshot(root, spec.get("exclude") or []), root)
     if spec.get("sme"):
         api.sme_complete(spec, child, changes)  # an expert consultation turn (§12.1)
     else:
