@@ -219,8 +219,48 @@ def _status_text(s: dict) -> str:
         lines.append(f"  {gid}: {g['summary']}")
     for r in s["running"]:
         lines.append(f"  {r['step_path']}#{r['attempt']}: packet {r['packet']}; result goes in {r['result']}")
+    for q in s.get("queued") or []:
+        lines.append(f"  {q['step_path']}: queued for the working tree (position {q['position']}, worker {q['worker']})")
+    for st in s.get("stale") or []:
+        how = "dispatch it to re-run, or the owner may `decide ... confirm`" if st["runnable"] else st.get("waiting", "")
+        lines.append(f"  {st['step_path']}: stale ({st.get('cause')}{', revised ' + st['revised'] if st.get('revised') else ''}); {how}")
     lines += _pending_lines(s)
     return "\n".join(lines)
+
+
+@app.command()
+def board(
+    needs_me: Annotated[bool, typer.Option("--needs-me", help="Only runs waiting on an owner decision.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Every non-terminal run: position, running and queued work, owner decisions owed, lease holder."""
+    out = _call(as_json, lambda: _api().board(needs_me=needs_me))
+    lines = []
+    for r in out["runs"]:
+        if "error" in r:
+            lines.append(f"{r['run_id']}: ERROR {r['error']}")
+            continue
+        pos = r["position"]
+        bits = [f"{r['run_id']} {r['title'] or ''} [{r['recipe']}{', ' + r['level'] if r.get('level') else ''}]".replace("  ", " "),
+                f"{pos['done']}/{pos['total']} done"]
+        if r["running"]:
+            bits.append("running: " + ", ".join(f"{x['step_path']} ({x['profile']})" for x in r["running"]))
+        if r["queued"]:
+            bits.append("queued: " + ", ".join(q["step_path"] for q in r["queued"]))
+        if r["ready"]:
+            bits.append("ready: " + ", ".join(r["ready"]))
+        lease = r.get("lease")
+        if lease:
+            bits.append("lease: " + ("you" if lease["yours"] else lease["director_id"]) + (" (expired)" if lease["expired"] else ""))
+        lines.append(" · ".join(bits))
+        lines += [f"  {g}: {summary}" for g, summary in r["groups"].items()]
+        lines += ["  " + line for line in _pending_lines(r)]
+    if not out["runs"]:
+        lines.append("No runs need you." if needs_me else "No active runs.")
+    ws = out["workspace"]
+    if ws["holder"]:
+        lines.append(f"Working tree: held by {ws['holder']['step_path']} of {ws['holder']['run_id']}" + (f"; {ws['queued']} queued" if ws["queued"] else ""))
+    _done(out, as_json, "\n".join(lines))
 
 
 @app.command()
@@ -257,6 +297,14 @@ def dispatch(
 
 
 def _dispatched(out: dict, as_json: bool) -> None:
+    if out.get("queued"):
+        started = out.get("started_from_queue")
+        if started and started.get("started"):
+            _done(out, as_json, f"{out['step_path']}: the working tree was free; started from the queue [{started['dispatch_id']}]")
+        h = out.get("holder")
+        behind = f"behind {h['step_path']} of {h['run_id']}" if h else "behind earlier requests"
+        _done(out, as_json, f"Queued {out['step_path']} for the working tree ({behind}; position {out['position']}) [{out['queue_id']}]\n"
+                            f"It starts by itself when the tree is free. Withdraw: baton cancel {out['run_id']} {out['step_path']}")
     head = f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]"
     if not as_json:
         for w in out.get("warnings") or []:
@@ -267,6 +315,13 @@ def _dispatched(out: dict, as_json: bool) -> None:
         _done(out, as_json, f"{head}\nRunning until {out['deadline']} (effort {out['effort']}); log: {out.get('log')}\nThen: baton wait {out['run_id']} --dispatch {out['dispatch_id']}")
     code = EXIT_PROBLEM if out["outcome"] == "retry" and not out["needs_owner"] else None
     _done(out, as_json, f"{head}\n{_outcome_text(out)}", code)
+
+
+@app.command()
+def cancel(run: Annotated[str, typer.Argument(help="Run id.")], step: Annotated[str, typer.Argument(help="Step path.")], as_json: JsonOpt = False) -> None:
+    """Withdraw a dispatch queued for the working tree."""
+    out = _call(as_json, lambda: _api().cancel(run, step))
+    _done(out, as_json, f"Withdrew the queued dispatch of {step} [{out['queue_id']}]")
 
 
 @app.command()
@@ -311,6 +366,7 @@ def _outcome_text(out: dict) -> str:
         "waiver_pending": f"{out['step_path']}: waiver recorded",
         "abandoned": f"{out['step_path']} abandoned",
         "running": f"{out['step_path']} is still running",
+        "confirmed": f"{out['step_path']} confirmed unchanged by the owner; its earlier result stands",
     }[o]
     lines = [head] + [f"  - {r.splitlines()[0]}" for r in out["reasons"] if o != "needs_human"]
     if out["ready"]:
@@ -360,7 +416,7 @@ def submit(
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
     ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, or <step>#<finding>.")],
-    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding).")],
+    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     as_json: JsonOpt = False,
 ) -> None:

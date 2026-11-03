@@ -208,6 +208,8 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
                 lines.append(f"    - `{r['id']}` not reported again (resolved{how})")
         elif ev.type == "protected_path_modified":
             lines.append(f"- Protected paths modified ({d.get('mode')}): {', '.join(d.get('changed') or [])}")
+        elif ev.type == "step_passed" and d.get("confirmed"):
+            lines.append(f"- Outcome: **confirmed unchanged by the owner** (stale after a revision; earlier result kept) at {ev.ts}")
         elif ev.type == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:
             lines.append(f"- Outcome: **result kept, iteration not done** (gate {d['condition'].get('gate')} failed) at {ev.ts}")
         elif ev.type == "step_passed":
@@ -324,6 +326,8 @@ def _timeline_text(ev: Event) -> str:
     if t == "human_decision":
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"
+    if t == "step_passed" and d.get("confirmed"):
+        return "confirmed unchanged (earlier result kept)"
     if t == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:
         return "judged not done; iteration ends"
     if t == "step_passed":

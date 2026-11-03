@@ -729,7 +729,7 @@ def build_packet(
     assert isinstance(node, Step)
     rs = ctx.log.state()
     current = rs.step(step_path)
-    if current.state != "ready":
+    if current.state not in ("ready", "stale"):
         raise EngineError("packet.not_ready", f"{step_path} is {current.state}, not ready")
     view = view_of(ctx)
     loc = groups.locate(loaded, step_path)

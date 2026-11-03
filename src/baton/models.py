@@ -391,7 +391,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "run": ("run_started", "run_completed", "run_abandoned"),
     "leases": ("lease_claimed", "lease_renewed", "lease_taken_over", "lease_released"),
     "steps": (
-        "step_ready", "worker_selected", "packet_built", "dispatched", "step_running",
+        "step_ready", "dispatch_queued", "dispatch_dequeued", "worker_selected", "packet_built", "dispatched", "step_running",
         "result_submitted", "verification_started", "result_rejected", "gate_passed",
         "gate_failed", "human_gate_opened", "step_passed", "step_escalated", "step_abandoned",
         "step_timed_out", "attempt_orphaned", "failure_classified", "deadline_extended",
@@ -531,6 +531,10 @@ class HooksConfig(_Strict):
     on_platform_failure: str = ""
 
 
+class LimitsConfig(_Strict):
+    active_runs: int | None = Field(default=None, ge=1)  # §8.9: `start` refuses beyond this many active runs
+
+
 class ProjectConfig(_Strict):
     paths: dict[str, str] = Field(default_factory=dict)
     project: dict[str, Any] = Field(default_factory=dict)
@@ -541,3 +545,4 @@ class ProjectConfig(_Strict):
     contacts: dict[str, str] = Field(default_factory=dict)
     effort: EffortConfig = Field(default_factory=EffortConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)

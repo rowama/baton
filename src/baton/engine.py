@@ -48,7 +48,7 @@ from .packet import (
 from .recipe import LoadedRecipe, build_plan, load_recipe
 from .redact import redact_text
 from .state import SATISFIES_DEPS, IllegalTransition
-from .store import Store, canonical_json
+from .store import Store, StoreError, canonical_json
 from .supervisor import ChildResult
 
 __all__ = [
@@ -140,7 +140,9 @@ def refresh(ctx: RunContext) -> list[str]:
     """Move the run forward as far as the record allows; complete it when every top-level node is done.
 
     Readies every step (top level or inside a group's current iteration) whose
-    dependencies are satisfied, including ``stale`` steps (re-run, §8.9);
+    dependencies are satisfied. ``stale`` steps are left stale: once their
+    dependencies pass they are runnable (dispatch re-runs them, or the owner
+    confirms them, §8.1);
     expands and re-expands groups; starts instances as ``concurrency`` allows;
     ends iterations judged unmet and starts the next one, or escalates at
     ``max_iterations`` (§8.5). Steps with ``applies_to`` wait until a
@@ -168,8 +170,8 @@ def _advance(ctx: RunContext, view: groups.View, nodes: list[Any], frame: groups
             continue
         if isinstance(node, Step):
             state = view.rs.step(path).state
-            if state in ("blocked_on_deps", "stale"):
-                ctx.log.append("step_ready", step_path=path, data={"rerun": True} if state == "stale" else {})
+            if state == "blocked_on_deps":
+                ctx.log.append("step_ready", step_path=path, data={})
                 readied.append(path)
                 return True
         elif _advance_group(ctx, view, node, path, frame, readied):
@@ -264,6 +266,8 @@ def begin_attempt(
             remove_tree(built.dir.parent)
             raise EngineError("dispatch.worker_cannot_take_packet", f"{profile_name} cannot take {step_path}: " + "; ".join(problems))
     log, n = ctx.log, built.attempt
+    if log.state().step(step_path).state == "stale":
+        log.append("step_ready", step_path=step_path, data={"rerun": True})  # a runnable stale step re-runs (§8.1)
     node = node_for(ctx.recipe, step_path)
     dispatch_data = dict(dispatch_data or {})
     if isinstance(node, Step) and node.protect is not None and "protected" not in dispatch_data:
@@ -837,6 +841,8 @@ def decide(
     current = log.state().step(ref)
     if current.state == "escalated":
         return _decide_escalation(ctx, ref, decision, note, actor, extra)
+    if current.state == "stale":
+        return _decide_stale(ctx, ref, decision, note, actor, extra)
     if decision not in GATE_DECISIONS:
         raise EngineError("decide.bad_decision", f"decision must be one of {GATE_DECISIONS}, got {decision!r}")
     if current.state != "awaiting_human":
@@ -872,6 +878,45 @@ def decide(
 
 
 FINDING_DECISIONS = ("accept-risk",)
+STALE_DECISIONS = ("confirm",)
+
+
+def stale_runnable(ctx: RunContext, path: str, view: groups.View | None = None) -> str | None:
+    """Why a ``stale`` step cannot be re-run or confirmed yet, or ``None`` when it is runnable (§8.1)."""
+    view = view or view_of(ctx)
+    if view.rs.step(path).state != "stale":
+        return f"{path} is {view.rs.step(path).state}, not stale"
+    loc = groups.locate(ctx.recipe, path)
+    if loc is None:
+        return f"{path} is not a step of {ctx.recipe.recipe.ref}"
+    why = view.live_reason(path)
+    if why:
+        return why
+    if not view.deps_met(loc.node, loc.frame):
+        unmet = [d for d in loc.node.depends_on if view.state(groups.child_path(loc.frame, d)) not in SATISFIES_DEPS]
+        return f"its dependencies are not satisfied again yet: {', '.join(unmet)}"
+    return None
+
+
+def _decide_stale(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    """The owner confirms a stale step unchanged: its earlier accepted result stands (§8.1, §8.9)."""
+    if decision not in STALE_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} is stale; the owner may {STALE_DECISIONS[0]!r} it unchanged (or dispatch it to re-run), got {decision!r}")
+    why = stale_runnable(ctx, ref)
+    if why:
+        raise EngineError("decide.stale_not_runnable", f"{ref} cannot be confirmed yet: {why}")
+    log = ctx.log
+    n = log.state().step(ref).attempt
+    prev = next(e for e in reversed(log.events()) if e.step_path == ref and e.type in ("step_passed", "step_imported"))
+    hd = log.append(
+        "human_decision", actor=actor, step_path=ref, attempt=None,
+        data={"ref": ref, "kind": "stale", "decision": decision, "note": note, **extra},
+    )
+    data = {k: v for k, v in prev.data.items() if k != "confirmed"}
+    data["confirmed"] = {"decision_seq": hd.seq, "previous_seq": prev.seq}
+    log.append("step_passed", step_path=ref, attempt=n or None, data=data)
+    ready = refresh(ctx)
+    return Outcome(ref, n, "confirmed", [note] if note else [], ready, _completed(ctx))
 
 
 def _finding_ref(ctx: RunContext, step_path: str, finding: str) -> tuple[Any, dict[str, Any]]:
@@ -1235,22 +1280,24 @@ class Api:
             return None
         if not self.project.config.checkpoints.commit:
             return gitops.Checkpoint(False, reason="checkpoint commits are off in project.yaml")
-        pf = gitops.preflight(self.project.root, [ctx.run_dir])
-        if isinstance(pf, str):
-            return gitops.Checkpoint(False, reason=pf)
-        top, rels = pf
-        subject, body = _checkpoint_message(ctx, triggers, new)
-        ctx.log.append("checkpoint_committed", data={"triggers": [e.type for e in triggers], "through_seq": triggers[-1].seq, "subject": subject})
-        docs.write_records(ctx)
-        if gitops.lfs_available(top):
-            gitops.lfs_attributes(ctx.run_dir, int(self.project.config.lfs.threshold_mb * 1024 * 1024))
         from .locks import project_lock
 
-        try:
-            with project_lock(self.project.baton):
+        # Under the project lock: another run's checkpoint cannot stage its files
+        # between this preflight and this commit (§8.9).
+        with project_lock(self.project.baton):
+            pf = gitops.preflight(self.project.root, [ctx.run_dir])
+            if isinstance(pf, str):
+                return gitops.Checkpoint(False, reason=pf)
+            top, rels = pf
+            subject, body = _checkpoint_message(ctx, triggers, new)
+            ctx.log.append("checkpoint_committed", data={"triggers": [e.type for e in triggers], "through_seq": triggers[-1].seq, "subject": subject})
+            docs.write_records(ctx)
+            if gitops.lfs_available(top):
+                gitops.lfs_attributes(ctx.run_dir, int(self.project.config.lfs.threshold_mb * 1024 * 1024))
+            try:
                 sha = gitops.commit(top, rels, subject, body)
-        except gitops.GitError as e:
-            return gitops.Checkpoint(False, subject=subject, reason=str(e))
+            except gitops.GitError as e:
+                return gitops.Checkpoint(False, subject=subject, reason=str(e))
         return gitops.Checkpoint(sha is not None, sha, subject, None if sha else "nothing to commit")
 
     # -- recipes ------------------------------------------------------------
@@ -1283,6 +1330,11 @@ class Api:
 
     def start(self, recipe: str, inputs: dict[str, Any], *, title: str | None = None, run_id: str | None = None) -> dict[str, Any]:
         loaded = self.project.recipe(recipe)
+        limit = self.project.config.limits.active_runs
+        if limit is not None:
+            active = [r for r in self.project.store.run_ids() if self.project.store.run(r).state().state == "active"]
+            if len(active) >= limit:
+                raise EngineError("limits.active_runs", f"{len(active)} runs are active and project.yaml limits.active_runs is {limit}; finish or abandon one first ({', '.join(active)})")
         title = title if title is not None else (inputs.get("title") if isinstance(inputs, dict) else None)
         work_item = {
             "kind": inputs.get("kind") if isinstance(inputs, dict) else None,
@@ -1299,6 +1351,37 @@ class Api:
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
         return out
+
+    def board(self, *, needs_me: bool = False) -> dict[str, Any]:
+        """Every non-terminal run (§8.9): position, running and queued work, pending decisions, lease holder.
+
+        ``needs_me`` keeps only runs with a pending owner decision.
+        """
+        from . import locks
+
+        runs: list[dict[str, Any]] = []
+        for rid in self.project.store.run_ids():
+            try:
+                st = self.status(rid)
+            except (EngineError, StoreError) as e:
+                runs.append({"run_id": rid, "error": str(e), "code": getattr(e, "code", "store.error")})
+                continue
+            if st["state"] != "active" or (needs_me and not st["needs_owner"]):
+                continue
+            runs.append({
+                "run_id": rid, "title": st["title"], "recipe": st["recipe"], "level": st["level"],
+                "position": _position(st), "groups": {g: i["summary"] for g, i in st["groups"].items()},
+                "ready": st["ready"], "stale": [s["step_path"] for s in st["stale"]],
+                "running": [{k: r.get(k) for k in ("step_path", "attempt", "profile", "dispatch_id", "deadline")}
+                            | ({"alive": r["liveness"].get("supervisor_alive"), "overdue": r["liveness"].get("overdue")} if r.get("liveness") else {})
+                            for r in st["running"]],
+                "queued": st["queued"], "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"],
+                "lease": st["lease"],
+            })
+        holder = locks.workspace_holder(self.project.baton)
+        ws = {"holder": {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id", "attempt") if k in holder} if holder else None,
+              "queued": len(locks.read_queue(self.project.baton))}
+        return {"runs": runs, "workspace": ws, "needs_owner": any(r.get("needs_owner") for r in runs)}
 
     def status(self, run_id: str) -> dict[str, Any]:
         from . import gitops, locks, supervisor
@@ -1333,7 +1416,15 @@ class Api:
                      "blocking": [i for i in e.data.get("blocking") or [] if i in now_open], "partial": bool(e.data.get("partial"))}
             if now_open or entry["partial"]:
                 findings.append(entry)
-        ready = [p for p, st in sorted(rs.steps.items(), key=lambda kv: kv[1].last_seq) if st.state == "ready" and view.live_reason(p) is None]
+        ready = [p for p, st in sorted(rs.steps.items(), key=lambda kv: kv[1].last_seq)
+                 if (st.state == "ready" and view.live_reason(p) is None) or (st.state == "stale" and stale_runnable(ctx, p, view) is None)]
+        stale = []
+        for p, st in sorted(rs.steps.items()):
+            if st.state == "stale" and (view.live_reason(p, dispatch=False) is None):
+                ev = ctx.record().last("step_stale", p)
+                why = stale_runnable(ctx, p, view)
+                stale.append({"step_path": p, "cause": ev.data.get("cause") if ev else None, "revised": ev.data.get("revised") if ev else None,
+                              "runnable": why is None, **({"waiting": why} if why else {"options": ["dispatch (re-run)", "decide confirm"]})})
         running = []
         for path, st in sorted(rs.steps.items()):
             if st.state in ("dispatched", "running"):
@@ -1367,7 +1458,9 @@ class Api:
             "groups": group_info,
             "findings": findings,
             "ready": ready,
+            "stale": stale,
             "running": running,
+            "queued": self._queued_for(run_id),
             "pending_decisions": pending,
             "needs_owner": bool(pending),
             "lease": lease_info,
@@ -1428,10 +1521,26 @@ class Api:
         run under a detached supervisor: this call returns once the worker has
         started, with the dispatch id and deadline; the supervisor runs intake
         when it ends. ``wait=True`` then blocks until that is recorded.
+
+        A write-mode step needs the workspace lock (§8.9): while another
+        dispatch holds the working tree, or others are already waiting, the
+        request is queued (``queued: true``, with the holder and position) and
+        started later by whatever releases the lock.
         """
+        out = self._dispatch(run_id, step_path, worker, guidance=guidance, wait=wait)
+        if out.get("queued"):
+            for r in self.start_queued():  # the tree may be free with entries ahead of this one
+                if r["queue_id"] == out["queue_id"]:
+                    out["started_from_queue"] = r
+        return out
+
+    def _dispatch(
+        self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None, wait: bool = False,
+        queue_entry: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         import secrets
 
-        from . import adapters, supervisor
+        from . import adapters, locks, supervisor
         from .profiles import SetupError, build_env
 
         profiles = self.project.profiles()
@@ -1450,9 +1559,44 @@ class Api:
         def body(ctx: RunContext) -> dict[str, Any]:
             dispatch_id = f"d_{secrets.token_hex(4)}"
             n_next = ctx.log.state().step(step_path).attempt + 1
-            adir = ctx.attempt_dir(step_path, n_next)
             node = node_for(ctx.recipe, step_path)
             mode = getattr(node, "workspace", "none")
+            if mode != "write":
+                return _start(ctx, dispatch_id, n_next, node, mode, False)
+            st = ctx.log.state().step(step_path)
+            view = view_of(ctx)
+            why = (view.live_reason(step_path) if st.state == "ready" else
+                   stale_runnable(ctx, step_path, view) if st.state == "stale" else f"{step_path} is {st.state}, not ready")
+            if why:
+                raise EngineError("packet.not_ready", why)
+            baton = self.project.baton
+            with locks.project_lock(baton):
+                holder = locks.workspace_holder(baton)
+                queue = locks.read_queue(baton)
+                if queue_entry is None and (holder is not None or queue):
+                    return self._enqueue(ctx, step_path, worker, guidance, holder, queue)
+                if holder is not None and not (queue_entry is not None and holder.get("reserved") == queue_entry["queue_id"]):
+                    raise EngineError("workspace.busy", f"the working tree is held by {_holder_text(holder)}")
+                locks.take_workspace(baton, {
+                    "dispatch_id": dispatch_id, "run_id": ctx.run_id, "step_path": step_path, "attempt": n_next,
+                    "manual": adapter.name == "manual", "director": self.director.id, "since": supervisor.fmt(ctx.log.clock()),
+                })
+            try:
+                out = _start(ctx, dispatch_id, n_next, node, mode, True)
+            except BaseException:
+                with locks.project_lock(baton):
+                    locks.release_workspace(baton, dispatch_id=dispatch_id)
+                raise
+            if out.get("outcome") == "escalated":  # the supervisor never came up
+                with locks.project_lock(baton):
+                    locks.release_workspace(baton, dispatch_id=dispatch_id)
+            elif out.get("supervisor_pid"):
+                with locks.project_lock(baton):
+                    locks.update_workspace(baton, "dispatch_id", dispatch_id, supervisor_pid=out["supervisor_pid"])
+            return out
+
+        def _start(ctx: RunContext, dispatch_id: str, n_next: int, node: Any, mode: str, locked: bool) -> dict[str, Any]:
+            adir = ctx.attempt_dir(step_path, n_next)
             workspace = self.project.root if mode != "none" else None
             env = None
             try:
@@ -1480,6 +1624,8 @@ class Api:
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
                 deadline=deadline, effort=effort,
             )
+            if queue_entry is not None:
+                ctx.log.append("dispatch_dequeued", step_path=step_path, data={"queue_id": queue_entry["queue_id"], "started": True, "dispatch_id": dispatch_id})
             out: dict[str, Any] = {
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
                 "worker": worker, "adapter": adapter.name, "packet_sha256": built.sha256,
@@ -1488,6 +1634,8 @@ class Api:
                 "handoff": adapter.handoff(profile, built.dir, built.result_dir),
                 "warnings": [],
             }
+            if locked:
+                out["workspace_lock"] = True
             argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
                 return out  # a person does the work (no supervisor, no timeout); the Director submits
@@ -1530,6 +1678,8 @@ class Api:
             return out
 
         out = self._mutate(run_id, body)
+        if out.get("queued"):
+            return out
         if wait and "outcome" not in out and out.get("supervisor_pid"):
             waited = self.wait(run_id, out["dispatch_id"])
             res = waited["results"][0] if waited["results"] else {}
@@ -1537,6 +1687,134 @@ class Api:
                 if k in res or k in waited:
                     out[k] = res.get(k, waited.get(k))
         return out
+
+    # -- the workspace queue (§8.9) -----------------------------------------
+
+    def _enqueue(self, ctx: RunContext, step_path: str, worker: str, guidance: str | None, holder: dict[str, Any] | None, queue: list[dict[str, Any]]) -> dict[str, Any]:
+        """Queue a write-mode dispatch behind the workspace holder (called under the project lock)."""
+        import secrets
+
+        from . import locks, supervisor
+
+        if any(e.get("run_id") == ctx.run_id and e.get("step_path") == step_path for e in queue):
+            raise EngineError("dispatch.already_queued", f"{step_path} of run {ctx.run_id} is already queued for the working tree (withdraw it with `baton cancel {ctx.run_id} {step_path}`)")
+        entry = {
+            "queue_id": f"q_{secrets.token_hex(4)}", "run_id": ctx.run_id, "step_path": step_path, "worker": worker,
+            "director_id": self.director.id, "harness": self.director.harness, "queued_at": supervisor.fmt(ctx.log.clock()),
+        }
+        if guidance:
+            entry["guidance"] = guidance
+        queue.append(entry)
+        locks.write_queue(self.project.baton, queue)
+        held = {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id")} if holder and not holder.get("reserved") else None
+        data: dict[str, Any] = {"queue_id": entry["queue_id"], "worker": worker, "position": len(queue), "holder": held}
+        if guidance:
+            data["guidance"] = guidance
+        ctx.log.append("dispatch_queued", actor=self.director.actor, step_path=step_path, data=data)
+        return {
+            "run_id": ctx.run_id, "step_path": step_path, "queued": True, "queue_id": entry["queue_id"], "worker": worker,
+            "position": len(queue), "holder": held, "warnings": [],
+        }
+
+    def start_queued(self) -> list[dict[str, Any]]:
+        """Start queued write-mode dispatches while the working tree is free (§8.9).
+
+        Called by whatever releases the workspace lock (the supervisor after
+        intake, ``submit``, reconciliation, abandoning a run) and by a dispatch
+        that queued. Each entry starts as the Director who queued it, with its
+        packet built now; one that can no longer start is dropped, recorded and
+        reported through the hooks (outcome ``not_started``).
+        """
+        from . import locks
+        from .locks import Director
+
+        baton = self.project.baton
+        results: list[dict[str, Any]] = []
+        while True:
+            with locks.project_lock(baton):
+                if locks.workspace_holder(baton) is not None:
+                    break
+                queue = locks.read_queue(baton)
+                if not queue:
+                    break
+                entry = queue.pop(0)
+                locks.write_queue(baton, queue)
+                locks.take_workspace(baton, {"reserved": entry["queue_id"], "run_id": entry["run_id"], "step_path": entry["step_path"]})
+            base = {"queue_id": entry["queue_id"], "run_id": entry["run_id"], "step_path": entry["step_path"]}
+            api = Api(self.project, Director(entry.get("director_id") or self.director.id, entry.get("harness") or "cli", socket.gethostname()))
+            try:
+                out = api._dispatch(entry["run_id"], entry["step_path"], entry["worker"], guidance=entry.get("guidance"), queue_entry=entry)
+                results.append({**base, "started": True, "dispatch_id": out.get("dispatch_id"), "outcome": out.get("outcome")})
+            except (EngineError, HandoffError) as e:
+                with locks.project_lock(baton):
+                    locks.release_workspace(baton, reserved=entry["queue_id"])
+                reason = str(e)
+                self._drop_queued(entry, reason, getattr(e, "code", "handoff.missing_inputs"))
+                results.append({**base, "started": False, "reason": reason})
+        return results
+
+    def _drop_queued(self, entry: dict[str, Any], reason: str, code: str, *, actor: str = "runtime", fire: bool = True) -> None:
+        """Record that a queued dispatch will not start, and wake the Director."""
+        from . import docs
+
+        run_id, step_path = entry["run_id"], entry["step_path"]
+        try:
+            with self._run_lock(run_id):
+                ctx = self._ctx(run_id)
+                ctx.log.append("dispatch_dequeued", actor=actor, step_path=step_path,
+                               data={"queue_id": entry["queue_id"], "started": False, "reason": reason, "code": code})
+                docs.write_records(ctx)
+        except (EngineError, StoreError):
+            return  # the run is gone or unreadable: nothing to record it in
+        if fire:
+            self._fire_and_record(ctx, step_path, ctx.log.state().step(step_path).attempt or None, entry["queue_id"], outcome="not_started")  # type: ignore[arg-type]
+
+    def _queued_for(self, run_id: str) -> list[dict[str, Any]]:
+        from . import locks
+
+        queue = locks.read_queue(self.project.baton)
+        return [
+            {"step_path": e["step_path"], "queue_id": e["queue_id"], "worker": e.get("worker"), "position": i + 1, "queued_at": e.get("queued_at")}
+            for i, e in enumerate(queue) if e.get("run_id") == run_id
+        ]
+
+    def _release_workspace(self, *, dispatch_id: str | None = None, run_id: str | None = None) -> bool:
+        from . import locks
+
+        with locks.project_lock(self.project.baton):
+            return locks.release_workspace(self.project.baton, dispatch_id=dispatch_id, run_id=run_id)
+
+    def cancel(self, run_id: str, step_path: str) -> dict[str, Any]:
+        """Withdraw a queued write-mode dispatch (§8.9)."""
+        from . import locks
+
+        def body(ctx: RunContext) -> dict[str, Any]:
+            baton = self.project.baton
+            with locks.project_lock(baton):
+                queue = locks.read_queue(baton)
+                entry = next((e for e in queue if e.get("run_id") == run_id and e.get("step_path") == step_path), None)
+                if entry is None:
+                    raise EngineError("cancel.not_queued", f"{step_path} of run {run_id} is not queued")
+                locks.write_queue(baton, [e for e in queue if e is not entry])
+            ctx.log.append("dispatch_dequeued", actor=self.director.actor, step_path=step_path,
+                           data={"queue_id": entry["queue_id"], "started": False, "reason": "withdrawn by the Director", "code": "cancelled"})
+            return {"run_id": run_id, "step_path": step_path, "queue_id": entry["queue_id"], "cancelled": True}
+
+        return self._mutate(run_id, body, allow_closed=True)
+
+    def _drop_run_entries(self, run_id: str, reason: str) -> None:
+        """Remove a run's queued dispatches and its hold on the working tree (the run ended)."""
+        from . import locks
+
+        baton = self.project.baton
+        with locks.project_lock(baton):
+            queue = locks.read_queue(baton)
+            mine = [e for e in queue if e.get("run_id") == run_id]
+            if mine:
+                locks.write_queue(baton, [e for e in queue if e.get("run_id") != run_id])
+            locks.release_workspace(baton, run_id=run_id)
+        for e in mine:
+            self._drop_queued(e, reason, "run_ended", fire=False)
 
     # -- async: wait, reconcile, completion (§8.7) --------------------------
 
@@ -1667,6 +1945,7 @@ class Api:
                     if not supervisor.pid_alive(m.get("supervisor_pid")):
                         supervisor.remove_marker(self.project.baton, m["dispatch_id"])
             if ctx.log.state().state != "active":
+                self._release_finished_holder(ctx)
                 return actions
             for path, n, d in self._process_attempts(ctx):
                 did = d["dispatch_id"]
@@ -1700,9 +1979,24 @@ class Api:
                 actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": action, "outcome": outcome.outcome})
                 before = ctx.log.state().last_seq
                 self._finish_records(ctx, before, {})
+                self._release_workspace(dispatch_id=did)
                 self._fire_and_record(ctx, path, n, did)
                 supervisor.remove_marker(self.project.baton, did)
+            self._release_finished_holder(ctx)
+        self.start_queued()
         return actions
+
+    def _release_finished_holder(self, ctx: RunContext) -> None:
+        """Release this run's hold on the working tree if its attempt is no longer in flight (e.g. a crashed ``submit``)."""
+        from . import locks
+
+        with locks.project_lock(self.project.baton):
+            h = locks.workspace_holder(self.project.baton)
+            if h is None or h.get("run_id") != ctx.run_id or h.get("reserved"):
+                return
+            st = ctx.log.state().step(h.get("step_path", ""))
+            if ctx.log.state().state != "active" or st.attempt != h.get("attempt") or st.state not in ("dispatched", "running", "submitted", "verifying"):
+                locks.release_workspace(self.project.baton, dispatch_id=h.get("dispatch_id"))
 
     def _reconcile_tree(self, dispatch_id: str, dispatched: dict[str, Any]) -> list[str]:
         from . import gitops, supervisor
@@ -1743,7 +2037,9 @@ class Api:
             outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
             out = _outcome_dict(outcome)
             docs.write_records(ctx)  # so BATON_RECORD is current when the hooks run
+        self._release_workspace(dispatch_id=dispatch_id)
         self._fire_and_record(ctx, step_path, attempt, dispatch_id, before=before)
+        self.start_queued()
         return out
 
     def overdue(self, run_id: str, step_path: str, attempt: int, dispatch_id: str, previous: str, deadline: str, effort: str | None) -> None:
@@ -1856,11 +2152,16 @@ class Api:
                     raise EngineError("submit.result_exists", f"{target} already holds a result")
                 shutil.copytree(src, target, dirs_exist_ok=True)
             target.mkdir(parents=True, exist_ok=True)
-            profile = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt).get("profile")
+            disp = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt)
+            profile = disp.get("profile")
             outcome = submit(ctx, step_path, actor=f"worker:{profile}" if profile else "worker")
+            if disp.get("dispatch_id"):
+                self._release_workspace(dispatch_id=disp["dispatch_id"])  # a manual write step held the tree until now
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
-        return self._mutate(run_id, body)
+        out = self._mutate(run_id, body)
+        self.start_queued()
+        return out
 
     def decide(self, run_id: str, ref: str, decision: str, note: str = "") -> dict[str, Any]:
         """Record the owner's decision verbatim (gates and escalations)."""
@@ -1904,7 +2205,10 @@ class Api:
             abandon_run(ctx, reason, actor=self.director.actor)
             return {"run_id": ctx.run_id, "state": "abandoned"}
 
-        return self._mutate(run_id, body)
+        out = self._mutate(run_id, body)
+        self._drop_run_entries(run_id, "the run was abandoned")
+        self.start_queued()
+        return out
 
     # -- continuity ---------------------------------------------------------
 
@@ -2007,6 +2311,20 @@ def _last_data(events: list[Any], etype: str, step_path: str, attempt: int) -> d
     return {}
 
 
+def _position(st: dict[str, Any]) -> dict[str, Any]:
+    """Where a run is: top-level steps done of total, and the ones in progress."""
+    top = {p: s for p, s in st["steps"].items() if "review_of" not in s}
+    done = [p for p, s in top.items() if s["state"] in ("passed", "skipped", "imported")]
+    current = [p for p, s in top.items() if s["state"] not in ("passed", "skipped", "imported", "blocked_on_deps")]
+    return {"done": len(done), "total": len(top), "current": current}
+
+
+def _holder_text(h: dict[str, Any]) -> str:
+    if h.get("reserved"):
+        return f"a queued dispatch of {h.get('step_path')} (run {h.get('run_id')}) that is starting"
+    return f"{h.get('step_path')} of run {h.get('run_id')} (dispatch {h.get('dispatch_id')})"
+
+
 def _passed_outcome(ctx: RunContext, ev: Any) -> str:
     """``passed``, or for a judge whose gate failed: ``next_iteration`` | ``iteration_limit``."""
     cond = ev.data.get("condition") or {}
@@ -2037,7 +2355,9 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
     phrases: list[str] = []
     ended = any(e.type in ("run_completed", "run_abandoned") for e in triggers)
     for e in triggers:
-        if e.type == "step_passed" and (e.data.get("condition") or {}).get("gates_passed") is False:
+        if e.type == "step_passed" and e.data.get("confirmed"):
+            phrases.append(f"{e.step_path} confirmed unchanged by the owner")
+        elif e.type == "step_passed" and (e.data.get("condition") or {}).get("gates_passed") is False:
             phrases.append(f"{e.step_path} judged not done [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "step_passed":
             phrases.append(f"{e.step_path} passed [attempt {e.attempt}, {profile(e)}]")

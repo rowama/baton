@@ -144,7 +144,9 @@ def ids(ctx, group: str = "slices") -> list[str]:
 
 def ready(ctx) -> list[str]:
     view = view_of(ctx)
-    return sorted(p for p, s in ctx.log.state().steps.items() if s.state == "ready" and view.live_reason(p) is None)
+    """Dispatchable steps: ready ones and runnable stale ones (§8.1)."""
+    return sorted(p for p, s in ctx.log.state().steps.items()
+                  if (s.state == "ready" and view.live_reason(p) is None) or (s.state == "stale" and engine.stale_runnable(ctx, p, view) is None))
 
 
 def state(ctx, path: str) -> str:
@@ -531,7 +533,8 @@ def test_revise_marks_only_this_runs_dependents_stale_and_reruns_them(store, tmp
     p, out = run_step(ctx, "design", {"v": 2})
     assert p.manifest["prior_feedback"]["revision"]["reason"] == "wrong units"
     assert json.loads((p.dir / "previous" / "output.json").read_text(encoding="utf-8")) == {"v": 1}
-    assert out.ready == ["build"]  # stale dependents re-run once their dependencies pass
+    # Stale dependents are not readied; once their dependencies pass they are runnable (re-run or confirm).
+    assert out.ready == [] and ctx.log.state().step("build").state == "stale" and "build" in ready(ctx)
     p, _ = run_step(ctx, "build", {})
     assert inputs_of(p)["d"] == {"v": 2}
     assert p.manifest["prior_feedback"] is None

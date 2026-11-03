@@ -22,6 +22,7 @@ expires_at}``; ``lease_released {director_id}``.
 from __future__ import annotations
 
 import getpass
+import json
 import os
 import re
 import socket
@@ -259,3 +260,92 @@ def run_lock(baton_dir: Path, run_id: str) -> contextlib.AbstractContextManager[
 
 def project_lock(baton_dir: Path) -> contextlib.AbstractContextManager[None]:
     return file_lock(baton_dir / "cache" / "locks" / "project.lock")
+
+
+# ---------------------------------------------------------------------------
+# The workspace lock and queue (§8.9; §18 #10: lock only)
+#
+# One writer per working tree. The holder and the first-in-first-out queue of
+# write-mode dispatches waiting for it are small JSON files under
+# ``.baton/cache/workspace/``, read and changed only under the project lock.
+# A holder names the dispatch and the process keeping it (the dispatching
+# process until the supervisor is up, then the supervisor); a holder whose
+# process is gone counts as released. A manual worker's holder has no process
+# and is released by ``submit`` (or by reconciling its run).
+# ---------------------------------------------------------------------------
+
+
+def _ws(baton_dir: Path) -> Path:
+    return baton_dir / "cache" / "workspace"
+
+
+def _read_json(path: Path, default: object) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _write_json(path: Path, value: object) -> None:
+    from .store import atomic_write
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, (json.dumps(value, sort_keys=True, indent=1) + "\n").encode("utf-8"))
+
+
+def holder_live(holder: dict | None) -> bool:
+    """Whether a recorded holder still holds the working tree."""
+    if not holder:
+        return False
+    if holder.get("host") not in (None, socket.gethostname()):
+        return True  # judged on its own host
+    if holder.get("manual"):
+        return True
+    from .supervisor import pid_alive
+
+    return pid_alive(holder.get("supervisor_pid") or holder.get("pid"))
+
+
+def workspace_holder(baton_dir: Path) -> dict | None:
+    """The live holder of the working tree, or ``None`` (a dead holder is cleared)."""
+    path = _ws(baton_dir) / "holder.json"
+    h = _read_json(path, None)
+    if isinstance(h, dict) and holder_live(h):
+        return h
+    if path.exists():
+        path.unlink(missing_ok=True)
+    return None
+
+
+def take_workspace(baton_dir: Path, holder: dict) -> None:
+    _write_json(_ws(baton_dir) / "holder.json", {"host": socket.gethostname(), "pid": os.getpid(), **holder})
+
+
+def update_workspace(baton_dir: Path, key: str, value: str, **changes: object) -> None:
+    """Update the holder if it is still the one identified by ``key == value``."""
+    path = _ws(baton_dir) / "holder.json"
+    h = _read_json(path, None)
+    if isinstance(h, dict) and h.get(key) == value:
+        _write_json(path, {**h, **changes})
+
+
+def release_workspace(baton_dir: Path, *, dispatch_id: str | None = None, run_id: str | None = None, reserved: str | None = None) -> bool:
+    """Clear the holder if it matches; True when it was released."""
+    path = _ws(baton_dir) / "holder.json"
+    h = _read_json(path, None)
+    if not isinstance(h, dict):
+        return False
+    if (dispatch_id is not None and h.get("dispatch_id") == dispatch_id) or (run_id is not None and h.get("run_id") == run_id) \
+            or (reserved is not None and h.get("reserved") == reserved):
+        path.unlink(missing_ok=True)
+        return True
+    return False
+
+
+def read_queue(baton_dir: Path) -> list[dict]:
+    q = _read_json(_ws(baton_dir) / "queue.json", [])
+    return [e for e in q if isinstance(e, dict)] if isinstance(q, list) else []
+
+
+def write_queue(baton_dir: Path, entries: list[dict]) -> None:
+    _write_json(_ws(baton_dir) / "queue.json", entries)
