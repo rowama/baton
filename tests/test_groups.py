@@ -357,7 +357,7 @@ def test_max_iterations_escalates_and_owner_decides(store, tmp_path):
     assert ready(ctx) == []  # the escalated instance holds the only slot
     assert state(ctx, "slices") == "active"
     pending = engine.pending_decisions(ctx)
-    assert [(p["ref"], p["kind"], p["options"]) for p in pending] == [(f"slices/{a}", "iteration_limit", ["retry", "abandon"])]
+    assert [(p["ref"], p["kind"], [o["decision"] for o in p["options"]]) for p in pending] == [(f"slices/{a}", "iteration_limit", ["retry", "abandon"])]
     with pytest.raises(EngineError) as e:
         engine.decide(ctx, f"slices/{a}", "approve")
     assert e.value.code == "decide.bad_decision"

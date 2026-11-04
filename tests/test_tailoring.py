@@ -130,7 +130,7 @@ def test_above_lowest_level_waits_for_the_owner_and_reject_retries(ctx):
     assert out.outcome == "needs_human"
     assert "'major'" in out.reasons[0] and "a shed needs a permit" in out.reasons[0]
     (pd,) = engine.pending_decisions(ctx)
-    assert pd["ref"] == "triage" and pd["kind"] == "gate" and pd["options"] == ["approve", "reject"]
+    assert pd["ref"] == "triage" and pd["kind"] == "gate" and [o["decision"] for o in pd["options"]] == ["approve", "reject"] and pd["options"][0]["label"] == "Yes, that's the right size"
     assert events(ctx, "complexity_set") == []
     assert state(ctx, "spec") == "blocked_on_deps"
 

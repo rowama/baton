@@ -47,7 +47,7 @@ def test_packet_layout_and_manifest(store):
     assert names == ["INSTRUCTIONS.md", "inputs/profile.json", "inputs/rubric.md", "manifest.json", "output_schema.json"]
     m = json.loads((p.dir / "manifest.json").read_text(encoding="utf-8"))
     assert m["protocol"] == "baton-packet/1"
-    assert m["recipe"] == "fit-check@1" and m["recipe_sha256"] == ctx.recipe.sha256
+    assert m["recipe"] == "fit-check@2" and m["recipe_sha256"] == ctx.recipe.sha256
     assert (m["step_path"], m["attempt"], m["worker_profile"]) == ("assess", 1, "owner")
     assert [(i["name"], i["kind"], i["from"]) for i in m["inputs"]] == [
         ("profile", "json", "steps.describe.output"),

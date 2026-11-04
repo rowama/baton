@@ -67,7 +67,7 @@ def setup_with_workspace(tmp_path: Path, step: str, mode: str):
     rf.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     project = make_git_project(tmp_path / "proj")
     cli = Cli(project, make_home(tmp_path / "home"))
-    cli.run("init", str(project))
+    cli.run("init", str(project), "--bare")  # vendors its own edited fit-check
     cli.run("vendor", str(src))
     git(project, "add", "-A")
     git(project, "commit", "-q", "-m", "Adopt Baton")

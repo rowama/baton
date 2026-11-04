@@ -154,7 +154,7 @@ def test_a_pre_existing_file_is_never_overwritten_silently(tmp_path):
     out = p.by_hand(run, "draft", "# from Baton\n", expect=4)
     assert out["outcome"] == "passed" and target.read_text(encoding="utf-8") == "hand-written\n"
     (c,) = p.pending(run, "publish_conflict")
-    assert c["ref"] == "publish:draft.doc" and "not written by Baton" in c["reasons"][0] and c["options"] == ["overwrite", "keep", "alternate"]
+    assert c["ref"] == "publish:draft.doc" and "not written by Baton" in c["reasons"][0] and [o["decision"] for o in c["options"]] == ["overwrite", "keep", "alternate"]
     assert not p.of(run, "artifact_published")
     assert p.status(run)["ready"] == ["review"]  # the step passed; later steps read CAS and are not held
     # keep: the existing file stays; the deliverable is recorded as not published.
@@ -295,7 +295,7 @@ def test_leaving_drift_and_a_deleted_file(tmp_path):
     assert p.pending(run, "drift")  # a later edit is new drift
     target.unlink()
     (d,) = p.pending(run, "drift")
-    assert d["current_sha256"] is None and d["options"] == ["leave"]
+    assert d["current_sha256"] is None and [o["decision"] for o in d["options"]] == ["leave"]
     assert p.cli.run("ingest-revision", run, "draft", "doc", "--note", "x", expect=1)["error"] == "revision.deleted"
     p.cli.run("decide", run, "drift:draft.doc", "leave", "--note", "I removed it on purpose")
     assert not p.pending(run, "drift")

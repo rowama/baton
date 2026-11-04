@@ -30,9 +30,9 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import __version__, classify, groups, refs, reviews, versions
+from . import __version__, classify, groups, labels, refs, reviews, versions
 from .intake import read_result, run_script_gate
-from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile
+from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .packet import (
     PROTOCOL,
     BuiltPacket,
@@ -191,7 +191,9 @@ def refresh(ctx: RunContext, importer: Importer | None = None) -> list[str]:
         nodes = [n for n in nodes if cx is not None and n.id == cx.triage_step]
     while _advance(ctx, view_of(ctx), nodes, None, readied, importer):
         pass
-    if hold or awaiting_baseline(events, kind="adoption"):
+    from .frame import awaiting_selection
+
+    if hold or awaiting_baseline(events, kind="adoption") or awaiting_selection(events):
         return readied
     view = view_of(ctx)
     if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps) and not publish.outstanding(ctx):
@@ -858,6 +860,11 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
     held = _triage_gate(ctx, step_path, n)
     if held is not None:
         return held
+    from .frame import open_select_gate
+
+    held = open_select_gate(ctx, step_path, n)
+    if held is not None:
+        return held
     data = _registered(ctx, step_path, n)
     loc = groups.locate(ctx.recipe, step_path)
     if loc is not None and groups.is_judge(loc):
@@ -1092,6 +1099,25 @@ GATE_DECISIONS = ("approve", "reject")
 ESCALATION_DECISIONS = ("retry", "abandon")
 
 
+def _gate_options(ctx: RunContext, path: str, gate: Any) -> list[dict[str, Any]]:
+    """A human gate's options with labels: the implicit triage, protected and framing gates, or a recipe's gate."""
+    if gate in ("triage", "protected"):
+        return labels.options(gate, GATE_DECISIONS)
+    if gate == "select":
+        from .frame import FRAME_DECISIONS
+
+        return labels.options("frame", FRAME_DECISIONS)
+    over: dict[str, str] = {}
+    if isinstance(gate, int):
+        try:
+            g = _step(ctx, path).gates[gate]
+            if getattr(g, "labels", None) is not None:
+                over = g.labels.model_dump(exclude_none=True)
+        except (EngineError, IndexError):
+            pass
+    return labels.options("gate", GATE_DECISIONS, over)
+
+
 def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
     """Decisions owed by the owner, each with the ``ref`` to pass to ``decide``.
 
@@ -1113,7 +1139,8 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
             out.append(
                 {
                     "ref": path, "step_path": path, "attempt": st.attempt, "kind": "gate",
-                    "prompt": opened.data["prompt"] if opened else "", "options": list(GATE_DECISIONS),
+                    "prompt": opened.data["prompt"] if opened else "",
+                    "options": _gate_options(ctx, path, opened.data.get("gate") if opened else None),
                 }
             )
         elif st.state == "escalated":
@@ -1121,8 +1148,9 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
             d = esc.data if esc else {}
             entry = {
                 "ref": path, "step_path": path, "attempt": st.attempt, "kind": "escalation",
-                "reason": d.get("reason"), "reasons": d.get("reasons") or [], "questions": d.get("questions") or [],
-                "options": list(ESCALATION_DECISIONS),
+                "reason": d.get("reason"), "reasons": d.get("reasons") or [],
+                "questions": recorded_questions(d.get("questions")),
+                "options": labels.options("blocked" if d.get("reason") == "blocked" else "escalation", ESCALATION_DECISIONS),
             }
             if d.get("reason") in ("platform", "unknown"):
                 from .sme import incident_for
@@ -1139,7 +1167,7 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
             out.append({
                 "ref": "baseline", "step_path": None, "kind": "baseline", "path": bp.relative_to(ctx.store.root).as_posix(),
                 "prompt": f"Review the adoption baseline ({bp.relative_to(ctx.store.root).as_posix()}), edit it if needed, then establish it",
-                "options": [f"baton establish-baseline {ctx.run_id} --note \"<your words>\""],
+                "options": [labels.option("baseline", "establish", command=f"baton establish-baseline {ctx.run_id} --note \"<your words>\"")],
             })
     for ipath, lim in view.pending_limits():
         d = lim.data
@@ -1148,7 +1176,7 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
                 "ref": ipath, "step_path": ipath, "kind": "iteration_limit", "iteration": d.get("iteration"),
                 "max_iterations": d.get("max_iterations"), "reason": "iteration_limit",
                 "reasons": [f"{ipath} reached {d.get('max_iterations')} iterations without meeting its exit condition", *(d.get("reasons") or [])],
-                "options": list(ESCALATION_DECISIONS),
+                "options": labels.options("iteration_limit", ESCALATION_DECISIONS),
             }
         )
     out += skip_notices(ctx)
@@ -1161,7 +1189,7 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
 
 def decide(
     ctx: RunContext, ref: str, decision: str, note: str = "", *, actor: str = "human", recorded_by: str | None = None,
-    path: str | None = None,
+    path: str | None = None, answers: Any = None, partial: bool = False,
 ) -> Outcome:
     """Record the owner's decision, verbatim, then continue the step.
 
@@ -1180,6 +1208,8 @@ def decide(
         return _decide_deliverable(ctx, ref, decision, note, actor, extra, path)
     if path is not None:
         raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
+    if answers is not None or partial:
+        return _decide_answers(ctx, ref, decision, note, actor, extra, answers, partial)
     if "#" in ref:
         return _decide_finding(ctx, ref, decision, note, actor, extra)
     if groups.locate_instance(ctx.recipe, ref) is not None:
@@ -1189,6 +1219,12 @@ def decide(
         return _decide_escalation(ctx, ref, decision, note, actor, extra)
     if current.state == "stale":
         return _decide_stale(ctx, ref, decision, note, actor, extra)
+    opened_gate = None
+    if current.state == "awaiting_human":
+        o = ctx.record().last("human_gate_opened", ref, current.attempt)
+        opened_gate = o.data.get("gate") if o else None
+    if opened_gate == "select" and decision != "reject":
+        raise EngineError("decide.bad_decision", f"{ref} waits on the owner's selection: decide select --items <ids>, or reject")
     if decision not in GATE_DECISIONS:
         raise EngineError("decide.bad_decision", f"decision must be one of {GATE_DECISIONS}, got {decision!r}")
     if current.state != "awaiting_human":
@@ -1206,6 +1242,10 @@ def decide(
     )
     if gate_index == "triage":  # the implicit approval of a triage result (§5.5)
         return _decide_triage(ctx, step, ref, n, decision, note)
+    if gate_index == "select":  # a framing run's implicit selection (§11.6); select itself goes through frame.select
+        reasons = [f"the owner did not accept the breakdown: {note}" if note else "the owner did not accept the breakdown"]
+        log.append("gate_failed", step_path=ref, attempt=n, data={"gate": "select", "type": "select", "implicit": True, "reasons": reasons})
+        return _failed(ctx, ref, n, reasons)
     if gate_index == "protected":  # the implicit protected gate in warn mode (§9.4)
         base: dict[str, Any] = {"gate": "protected", "type": "protected", "implicit": True}
         if decision == "approve":
@@ -1259,7 +1299,7 @@ def skip_notices(ctx: RunContext) -> list[dict[str, Any]]:
                 "ref": f"skip:{e.seq}", "step_path": e.data.get("step_path"), "kind": "skip_notice",
                 "prompt": f"Reported: {what} was skipped outside Baton: {fb.get('text', '')}"
                           + (" (the owner was told at the time)" if e.data.get("informed_owner") else ""),
-                "options": list(SKIP_DECISIONS),
+                "options": labels.options("skip_notice", SKIP_DECISIONS),
             })
     return out
 
@@ -1552,6 +1592,80 @@ def revise(ctx: RunContext, step_path: str, reason: str, *, actor: str = "direct
 
 
 
+def check_answers(questions: list[dict[str, Any]], answers: Any, partial: bool) -> list[dict[str, Any]]:
+    """The owner's confirmed answers to a ``blocked`` step's questions (§13.8), checked; raises ``EngineError``.
+
+    Each answer is ``{id, answer, owner_words}``: ``answer`` the confirmed restatement (a string, or a list
+    of strings for a multi-select question), ``owner_words`` what the owner said for it, including the
+    confirmation. Every id must name one of the step's last questions, once; every ``needed`` question
+    must be answered unless ``partial``.
+    """
+    if not isinstance(answers, list):
+        raise EngineError("answers.invalid", "answers must be a JSON list of {id, answer, owner_words}")
+    known = {q["id"]: q for q in questions}
+    problems: list[str] = []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for n, a in enumerate(answers, start=1):
+        if not isinstance(a, dict):
+            problems.append(f"answer {n} is not an object {{id, answer, owner_words}}")
+            continue
+        extra_keys = sorted(set(a) - {"id", "answer", "owner_words"})
+        if extra_keys:
+            problems.append(f"answer {n}: unknown keys {', '.join(extra_keys)}")
+        qid = a.get("id")
+        if not isinstance(qid, str) or qid not in known:
+            problems.append(f"answer {n}: {qid!r} is not one of the step's questions ({', '.join(known) or 'none'})")
+            continue
+        if qid in seen:
+            problems.append(f"answer {n}: question {qid} is answered more than once")
+            continue
+        seen.add(qid)
+        ans = a.get("answer")
+        ok = (isinstance(ans, str) and ans.strip()) or (
+            isinstance(ans, list) and ans and all(isinstance(x, str) and x.strip() for x in ans))
+        if not ok:
+            problems.append(f"answer {n} ({qid}): answer must be a non-empty string (or list of strings)")
+        words = a.get("owner_words")
+        if not isinstance(words, str) or not words.strip():
+            problems.append(f"answer {n} ({qid}): owner_words is required: quote what the owner said, including the confirmation")
+        out.append({"id": qid, "answer": ans, "owner_words": words})
+    missing = [q["id"] for q in questions if q.get("priority", "needed") == "needed" and q["id"] not in seen]
+    if missing and not partial:
+        problems.append(f"needed questions not answered: {', '.join(missing)} (pass --partial to record a deliberately partial set)")
+    if problems:
+        raise EngineError("answers.invalid", "; ".join(problems))
+    return out
+
+
+def _decide_answers(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any],
+                    answers: Any, partial: bool) -> Outcome:
+    """``decide <run> <step> retry --answers <file>``: the owner's confirmed answers to a blocked step (§13.8)."""
+    from .models import recorded_questions
+
+    if answers is None:
+        raise EngineError("decide.bad_decision", "--partial goes with --answers")
+    if decision != "retry":
+        raise EngineError("decide.bad_decision", f"answers go with retry, got {decision!r}")
+    log = ctx.log
+    st = log.state().step(ref)
+    esc = ctx.record().last("step_escalated", ref) if st.state == "escalated" else None
+    if esc is None or esc.data.get("reason") != "blocked":
+        raise EngineError("decide.nothing_pending", f"{ref} is not waiting on answers to its questions (it is {st.state})")
+    if not note.strip():
+        raise EngineError("decide.note_required", "--note is required: the owner's words")
+    checked = check_answers(recorded_questions(esc.data.get("questions")), answers, partial)
+    n = st.attempt
+    decision_id = f"d{log.state().last_seq + 1}"
+    log.append(
+        "human_decision", actor=actor, step_path=ref, attempt=n,
+        data={"ref": ref, "kind": "answers", "decision": "retry", "answers": checked, "note": note, "decision_id": decision_id,
+              **({"partial": True} if partial else {}), **extra},
+    )
+    log.append("step_ready", step_path=ref, data={"after_decision": True})
+    return Outcome(ref, n, "retry", [f"{len(checked)} answer(s) recorded ({decision_id})"])
+
+
 def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
     if decision not in ESCALATION_DECISIONS:
         raise EngineError("decide.bad_decision", f"{ref} is escalated; decision must be one of {ESCALATION_DECISIONS}, got {decision!r}")
@@ -1689,10 +1803,10 @@ class Api:
         return cls(Project.open(root, home=home, clock=clock or utc_now), Director.current(director_id, harness))
 
     @staticmethod
-    def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
+    def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dict[str, Any]:
         from .project import init
 
-        return init(root, agents_md=agents_md)
+        return init(root, agents_md=agents_md, bare=bare)
 
     def close(self) -> None:
         self.project.store.close()
@@ -2760,14 +2874,23 @@ class Api:
         self.start_queued()
         return out
 
-    def decide(self, run_id: str, ref: str, decision: str, note: str = "", *, path: str | None = None) -> dict[str, Any]:
-        """Record the owner's decision verbatim (gates, escalations, findings, stale steps, notices, deliverables)."""
+    def decide(self, run_id: str, ref: str, decision: str, note: str = "", *, path: str | None = None,
+               answers: Any = None, partial: bool = False, items: list[str] | None = None) -> dict[str, Any]:
+        """Record the owner's decision verbatim (gates, escalations, findings, stale steps, notices, deliverables,
+        a blocked step's confirmed answers, a framing selection)."""
+
+        extra: list[Path] = []
 
         def body(ctx: RunContext) -> dict[str, Any]:
-            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor, path=path)
+            if items is not None or decision == "select":
+                from . import frame as framing
+
+                return {"run_id": ctx.run_id, **framing.select(self, ctx, ref, decision, note, items, extra)}
+            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor, path=path,
+                             answers=answers, partial=partial)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
-        return self._mutate(run_id, body)
+        return self._mutate(run_id, body, extra=extra)
 
     def waive(self, run_id: str, step_path: str, gate: str, reason: str) -> dict[str, Any]:
         """Waive one gate occurrence (§9.3). The reason is the owner's decision; the director skill requires it."""
@@ -3639,6 +3762,31 @@ class Api:
             if ev and ev[0].data.get("kind") == "adoption" and log.state().state == "active":
                 return rid
         return None
+
+    def frame(self, words: str) -> dict[str, Any]:
+        """Start a framing run from the owner's goal in their words (§11.6), or report the one awaiting its decision."""
+        from . import frame as framing
+        from .project import slugify
+
+        for rid in self.project.store.run_ids():
+            log = self.project.store.run(rid)
+            if framing.is_framing(log.events()) and log.state().state == "active":
+                return {**framing.status(self, rid), "started": False}
+        if not (words or "").strip():
+            raise EngineError("frame.no_words", "framing starts from the owner's goal in their own words (--note)")
+        inputs = framing.inputs_for(self.project, words)
+        ctx = start(self.project.store, self.project.recipe(framing.FRAME_RECIPE), inputs, title=inputs["title"],
+                    project=self.project.variables(), actor=self.director.actor,
+                    work_item={"kind": "framing", "slug": slugify(inputs["title"]), "branch": self.project.branch()})
+        leases = self._leases(ctx)
+        leases.ensure()
+        self._after(ctx, leases, 0, {})
+        return {**framing.status(self, ctx.run_id), "started": True}
+
+    def frame_status(self, run_id: str) -> dict[str, Any]:
+        from . import frame as framing
+
+        return framing.status(self, run_id)
 
     def adopt(self, recipe: str, *, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
         """Start an adoption run (§11.1), or report the one in progress."""

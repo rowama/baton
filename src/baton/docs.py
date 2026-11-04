@@ -18,7 +18,7 @@ from typing import Any
 
 from . import groups, locks
 from .data import read_text
-from .models import Event, Group
+from .models import Event, Group, recorded_questions
 from .packet import RunContext
 from .store import StoreError, atomic_write
 
@@ -247,6 +247,9 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
             by = f", recorded by {d['recorded_by']}" if d.get("recorded_by") else ""
             indent = "  " if d.get("kind") == "gate" else ""
             lines.append(f"{indent}- Owner decision{by}: **{d.get('decision')}**{note}")
+            if d.get("kind") == "answers":
+                lines += [f"  - answer {a['id']}: {a['answer'] if isinstance(a['answer'], str) else ', '.join(a['answer'])}"
+                          f' (owner: "{a["owner_words"]}")' for a in d.get("answers") or []]
         elif ev.type == "findings_recorded":
             counts = ", ".join(f"{n} {sev}" for sev, n in sorted((d.get("counts") or {}).items())) or "none"
             partial = " — **partial** coverage" if d.get("partial") else ""
@@ -272,7 +275,7 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
         elif ev.type == "step_escalated":
             lines.append(f"- Outcome: **escalated** ({d.get('reason')}) at {ev.ts}")
             if d.get("questions"):
-                lines += [f"  - question: {q}" for q in d["questions"]]
+                lines += [f"  - question {q['id']}: {q['ask']}" for q in recorded_questions(d["questions"])]
     # A retry is recorded as step_ready with retry_of = n (the event carries no attempt).
     if any(e.type == "step_ready" and e.data.get("retry_of") == n for e in mine):
         lines.append(f"- Outcome: not accepted; ready for attempt {n + 1}")

@@ -31,12 +31,11 @@ Extras: `api` for model-API workers (`litellm`), `mcp` for `baton mcp`, `keyring
 
 ```sh
 cd my-project
-baton init
-baton vendor path/to/recipe          # e.g. examples/recipes/software-feature
+baton init                           # --bare: vendor no starter recipes
 git add -A && git commit -m "Use Baton"
 ```
 
-`init` creates `.baton/` (project configuration, lockfile, owner communication contract, `.gitattributes`), copies the Director and worker skills into `.agents/skills/`, and adds a one-line pointer to `AGENTS.md`. Edit `.baton/project.yaml` to map the logical paths your recipes publish to and to set project variables:
+`init` creates `.baton/` (project configuration, lockfile, owner communication contract, `.gitattributes`), copies the Director and worker skills into `.agents/skills/`, adds a one-line pointer to `AGENTS.md`, and vendors the starter recipe `fit-check`. Nothing else needs vendoring before you start: framing (below) proposes from the recipes shipped with Baton and vendors the ones you choose. Edit `.baton/project.yaml` to map the logical paths your recipes publish to and to set project variables:
 
 ```yaml
 paths: { specs: docs/specs, designs: docs/design }
@@ -118,11 +117,30 @@ hooks:
 
 (`secret:` values are allowed only in the machine-level `hooks.yaml`.) For Directors without a shell, `baton mcp` serves the same calls over MCP (stdio; `--http` binds loopback only and needs a bearer token from `~/.baton/mcp.yaml`).
 
+## Frame a goal
+
+Owners usually bring goals, not tasks. Tell the Director what you want, in your own words ("I want to start a pure-water vending business"), and it frames it:
+
+```sh
+baton frame --note "<the owner's goal, in their words>"
+baton eligible <framing run> frame
+baton dispatch <framing run> frame --worker <profile>
+baton decide <framing run> frame select --items setup,running --note "<the owner's words>"
+```
+
+A worker breaks the goal into pieces of work, each proposing a recipe (a shipped one is vendored when you choose it) or a quick `fit-check`. The Director confirms the goal with you, lets you choose, and starts one work item per chosen piece. A piece that can't start yet (its details don't fit the recipe, or the recipe publishes to paths `project.yaml` doesn't map) is reported to you as a gap, never started.
+
+## Talking with the owner
+
+The Director talks with the owner like a project manager with a stakeholder: in the owner's terms, a topic at a time, offering best guesses to confirm, and confirming back before anything is recorded. When a step needs answers, the Director records the confirmed ones from a file: `baton decide <run> <step> retry --answers answers.json --note "<owner's words>"`, where each answer is `{id, answer, owner_words}` (`--partial` leaves a question open on purpose). Every pending decision in `status` and `board` comes with plain-language labels (`defaults/labels.yaml`; a recipe may label its own human gates).
+
+`.baton/communication.md` sets the style. The default is conversational. For the terse operator style (brief status, a list of your actions with each command in its own block, then the one decision owed), copy Baton's `defaults/communication-operator.md` over it.
+
 ## Example recipes
 
 | Recipe | What it shows |
 |---|---|
-| [`fit-check`](examples/recipes/fit-check) | Decide in minutes whether an idea suits Baton. Two steps, one human gate. |
+| [`fit-check`](examples/recipes/fit-check) | Decide in minutes whether an idea suits Baton. Two steps, one human gate; it infers first and asks only what it can't. Vendored by `init`. |
 | [`software-feature`](examples/recipes/software-feature) | A feature from request to accepted, tested slices: three complexity levels, requirements and design published to project paths, reviews by a different vendor, a per-slice implement, review and accept loop. |
 | [`backyard-project`](examples/recipes/backyard-project) | A non-software project (a flower bed or a shed): people as workers, photos as artifacts, permits and inspections at the highest level. |
 

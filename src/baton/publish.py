@@ -38,6 +38,7 @@ from typing import Any, Iterable
 import jinja2
 from jinja2 import nodes as jnodes
 
+from . import labels
 from .models import Step
 from .packet import EngineError, RunContext
 from .store import BATON_DIR
@@ -327,7 +328,7 @@ def pending(ctx: RunContext) -> list[dict[str, Any]]:
     """The owner decisions deliverables owe (§10.4, §10.5), in ``pending_decisions`` form."""
     out: list[dict[str, Any]] = []
     for d in conflicts(ctx):
-        opts = [o for o in CONFLICT_DECISIONS if not (d.unrenderable and o == "overwrite")]
+        opts = labels.options("publish_conflict", [o for o in CONFLICT_DECISIONS if not (d.unrenderable and o == "overwrite")])
         out.append({
             "ref": d.ref, "step_path": d.step_path, "kind": "publish_conflict", "artifact": d.artifact, "path": d.target,
             "reason": "publish_conflict", "reasons": [d.conflict],
@@ -344,7 +345,8 @@ def pending(ctx: RunContext) -> list[dict[str, Any]]:
             "current_sha256": x["current_sha256"],
             "prompt": (f"{x['path']} ({x['artifact']} of {x['step_path']}) was deleted after publishing; later steps keep the recorded version"
                        if gone else f"{x['path']} ({x['artifact']} of {x['step_path']}) was edited after publishing; later steps still get the recorded version"),
-            "options": ["leave"] if gone else ["leave", f"baton ingest-revision {ctx.run_id} {x['step_path']} {x['artifact']} --note \"<your words>\""],
+            "options": [labels.option("drift", "leave")] + ([] if gone else [labels.option(
+                "drift", "ingest", command=f"baton ingest-revision {ctx.run_id} {x['step_path']} {x['artifact']} --note \"<your words>\"")]),
         })
     return out
 

@@ -122,21 +122,32 @@ def _checkpoint_note(payload: dict) -> None:
         typer.echo(f"WARNING: checkpoint not committed: {cp['reason']}", err=True)
 
 
+def _read_answers(p: Path, as_json: bool) -> Any:
+    try:
+        return json.loads(p.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as e:
+        _fail(as_json, EXIT_USAGE, "answers.unreadable", f"cannot read answers file {p}: {e}")
+
+
+def _names(opts: list) -> list[str]:
+    return [o.get("command") or o["decision"] if isinstance(o, dict) else str(o) for o in opts]
+
+
 def _pending_lines(payload: dict) -> list[str]:
     lines = []
     for p in payload.get("pending_decisions") or []:
         if p["kind"] == "gate":
-            lines.append(f"Owner decision owed on {p['ref']} (attempt {p['attempt']}): {p['prompt']}  [{' | '.join(p['options'])}]")
+            lines.append(f"Owner decision owed on {p['ref']} (attempt {p['attempt']}): {p['prompt']}  [{' | '.join(_names(p['options']))}]")
         elif p["kind"] == "baseline":
-            lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0]}]")
+            lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0].get('command') or p['options'][0]['decision']}]")
         elif p["kind"] == "skip_notice":
             lines.append(f"Owner notice {p['ref']}: {p['prompt']}  [acknowledge]")
         elif p["kind"] in ("publish_conflict", "drift"):
-            lines.append(f"Owner decision owed on {p['ref']}: {p['prompt']}  [{' | '.join(p['options'])}]")
+            lines.append(f"Owner decision owed on {p['ref']}: {p['prompt']}  [{' | '.join(_names(p['options']))}]")
         else:
-            why = "; ".join(p.get("reasons") or p.get("questions") or []) or p.get("reason") or ""
+            why = "; ".join(p.get("reasons") or [f"{q['id']}: {q['ask']}" for q in p.get("questions") or []]) or p.get("reason") or ""
             inc = f" (waits on platform incident {p['incident']})" if p.get("incident") else ""
-            lines.append(f"Escalated {p['ref']} ({p.get('reason')}){inc}: {why}  [{' | '.join(p['options'])}]")
+            lines.append(f"Escalated {p['ref']} ({p.get('reason')}){inc}: {why}  [{' | '.join(_names(p['options']))}]")
     return lines
 
 
@@ -157,10 +168,11 @@ def _done(payload: dict, as_json: bool, text: str, code: int | None = None) -> N
 @app.command()
 def init(
     path: Annotated[Path, typer.Argument(help="Project root (default: current directory).")] = Path("."),
+    bare: Annotated[bool, typer.Option("--bare", help="Vendor no starter recipes (fit-check is vendored by default).")] = False,
     as_json: JsonOpt = False,
 ) -> None:
-    """Create .baton/ with defaults in a project. Existing files are kept."""
-    out = _call(as_json, lambda: engine.Api.init(path))
+    """Create .baton/ with defaults in a project (and the starter recipes, unless --bare). Existing files are kept."""
+    out = _call(as_json, lambda: engine.Api.init(path, bare=bare))
     lines = [f"Initialized Baton in {out['root']}"] + [f"  created {c}" for c in out["created"]] + [f"  note: {n}" for n in out["notes"]]
     _done(out, as_json, "\n".join(lines))
 
@@ -213,6 +225,32 @@ def adopt(
         engine.Api.init(root, agents_md=False)  # adoption starts with init when .baton/ is missing (§11.1); the baseline proposes AGENTS.md
     out = _call(as_json, lambda: _api().adopt(recipe, crosswalk=crosswalk, scope=scope or None))
     _done(out, as_json, _adoption_text(out))
+
+
+def _frame_text(out: dict) -> str:
+    lines = [f"Framing {out['framing']}: {out['state']}" + (" (started)" if out.get("started") else "")]
+    if out.get("goal"):
+        lines.append(f"  goal: {out['goal']}")
+    for p in out.get("parts") or []:
+        prop = p.get("proposal") or {}
+        how = prop.get("recipe") or ("fit-check" if "fit_check" in prop else "?")
+        lines.append(f"  part {p['id']}: {p['label']} [{p['kind']}; {how}]")
+    for r in out.get("runs") or []:
+        lines.append(f"  started {r['run']} ({r['recipe']}) for {r['part']}")
+    for g in out.get("gaps") or []:
+        lines.append(f"  gap {g['part']}: {g['reason']}")
+    lines.append(f"  next: {out['next']}")
+    return "\n".join(lines)
+
+
+@app.command()
+def frame(
+    note: Annotated[Optional[str], typer.Option("--note", help="The owner's goal, in their own words (recorded verbatim).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Frame a goal into pieces of work the owner chooses from: start the framing run, or show the one awaiting its decision."""
+    out = _call(as_json, lambda: _api().frame(note or ""))
+    _done(out, as_json, _frame_text(out))
 
 
 @app.command("establish-baseline")
@@ -555,10 +593,22 @@ def decide(
     decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite | keep | alternate (a publish conflict); leave (drift).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     path: Annotated[Optional[str], typer.Option("--path", help="alternate: the project path to publish at instead.")] = None,
+    answers: Annotated[Optional[Path], typer.Option("--answers", help="retry of a blocked step: a JSON file [{id, answer, owner_words}] of the owner's confirmed answers (keep it outside .baton/).")] = None,
+    partial: Annotated[bool, typer.Option("--partial", help="With --answers: record a deliberately partial set (a needed question left open).")] = False,
+    items: Annotated[Optional[str], typer.Option("--items", help="select (a framing run's frame gate): the chosen part ids, comma-separated; empty for none.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Record the owner's decision, verbatim."""
-    out = _call(as_json, lambda: _api().decide(run, ref, decision, note, path=path))
+    parsed = _read_answers(answers, as_json) if answers is not None else None
+    chosen = [i.strip() for i in items.split(",") if i.strip()] if items is not None else None
+    out = _call(as_json, lambda: _api().decide(run, ref, decision, note, path=path, answers=parsed, partial=partial, items=chosen))
+    if out.get("outcome") == "selected":
+        lines = [f"Framing {out['framing']}: selected {', '.join(out['selected']) or 'nothing'} ({out['decision_id']}); {out['state']}"]
+        lines += [f"  vendored {r}" for r in out["vendored"]]
+        lines += [f"  started {r['run']} ({r['recipe']}) for {r['part']}" for r in out["runs"]]
+        lines += [f"  gap {g['part']}: {g['reason']}" for g in out["gaps"]]
+        _done(out, as_json, "\n".join(lines))
+        return
     _done(out, as_json, _outcome_text(out))
 
 

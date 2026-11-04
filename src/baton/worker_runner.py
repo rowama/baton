@@ -54,9 +54,23 @@ Every input is included below. Reply with ONE JSON object and nothing else:
  "output": <an object matching the output schema>,
  "artifacts": {"<declared artifact name>": "<full text of the artifact>"},
  "notes": "<short notes for the record>",
- "questions_for_human": ["<only when status is blocked>"]}
+ "questions_for_human": [<only when status is blocked: {"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?, "priority"?: "needed" | "helpful"}>]}
 Use "blocked" with questions_for_human when only the owner can answer something, "failed" when you
-cannot do the step. Never guess around a mismatch: report it."""
+cannot do the step. Ask in the owner's terms; offer a best guess for anything you can infer.
+Never guess around a mismatch: report it."""
+
+
+QUESTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"}, "ask": {"type": "string"}, "why": {"type": "string"}, "best_guess": {"type": "string"},
+        "options": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "label": {"type": "string"}},
+                                               "required": ["id", "label"], "additionalProperties": False}},
+        "multi_select": {"type": "boolean"}, "priority": {"type": "string", "enum": ["needed", "helpful"]},
+    },
+    "required": ["id", "ask", "why"],
+    "additionalProperties": False,
+}
 
 
 class InputError(Exception):
@@ -112,7 +126,7 @@ def reply_schema(output_schema: dict[str, Any], artifact_names: list[str]) -> di
             "output": body,
             "artifacts": {"type": "object", "properties": {n: {"type": "string"} for n in artifact_names}, "additionalProperties": False},
             "notes": {"type": "string"},
-            "questions_for_human": {"type": "array", "items": {"type": "string"}},
+            "questions_for_human": {"type": "array", "items": QUESTION_SCHEMA},
         },
         "required": ["status", "output"],
         "additionalProperties": False,
@@ -165,7 +179,7 @@ def write_result(packet_dir: Path, result_dir: Path, reply: dict[str, Any] | Non
         envelope = {
             "protocol": manifest["protocol"], "packet_sha256": manifest["packet_sha256"], "status": status,
             "output": reply.get("output"), "artifacts": listed, "notes": str(reply.get("notes") or ""),
-            "questions_for_human": [str(q) for q in questions] if isinstance(questions, list) else [],
+            "questions_for_human": [q if isinstance(q, dict) else str(q) for q in questions] if isinstance(questions, list) else [],
             "process_feedback": [],
         }
     tmp = result_dir / "result.json.tmp"

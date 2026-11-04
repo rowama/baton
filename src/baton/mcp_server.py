@@ -177,10 +177,23 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.submit(run, step, result))
 
     @tool
-    def decide(run: str, ref: str, decision: str, note: str = "", path: str | None = None) -> dict[str, Any]:
+    def decide(run: str, ref: str, decision: str, note: str = "", path: str | None = None,
+               answers: list[dict[str, Any]] | str | None = None, partial: bool = False, items: list[str] | None = None) -> dict[str, Any]:
         """Record the owner's decision verbatim (note = the owner's words). ref: a step awaiting the owner, an instance path,
-        <step>#<finding>, skip:<seq>, publish:<step>.<artifact> or drift:<step>.<artifact>."""
-        return t.call(lambda api: api.decide(run, ref, decision, note, path=path))
+        <step>#<finding>, skip:<seq>, publish:<step>.<artifact> or drift:<step>.<artifact>. answers (retry of a blocked
+        step): the owner's confirmed answers [{id, answer, owner_words}], or the path of a JSON file holding them;
+        partial: a deliberately partial set. items (select, a framing run's frame gate): the chosen part ids."""
+
+        def body(api: Any) -> dict[str, Any]:
+            parsed: Any = answers
+            if isinstance(answers, str):
+                try:
+                    parsed = json.loads(Path(answers).read_text(encoding="utf-8-sig"))
+                except (OSError, ValueError) as e:
+                    raise EngineError("answers.unreadable", f"cannot read answers file {answers}: {e}") from e
+            return api.decide(run, ref, decision, note, path=path, answers=parsed, partial=partial, items=items)
+
+        return t.call(body)
 
     @tool
     def waive(run: str, step: str, gate: str, reason: str) -> dict[str, Any]:
@@ -298,6 +311,12 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     def adopt(recipe: str, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
         """Adopt this project with a vendored recipe: start the adoption run, or show the active one."""
         return t.call(lambda api: api.adopt(recipe, crosswalk=crosswalk, scope=scope or None))
+
+    @tool
+    def frame(note: str = "") -> dict[str, Any]:
+        """Frame the owner's goal (note = their words, verbatim) into pieces of work they choose from: start the
+        framing run, or show the one awaiting its decision."""
+        return t.call(lambda api: api.frame(note))
 
     @tool
     def establish_baseline(adoption: str, note: str) -> dict[str, Any]:

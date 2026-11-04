@@ -275,11 +275,11 @@ def test_project_config_validation(tmp_path):
 def test_vendor_refuses_in_place_edits(tmp_path, make_recipe):
     root = tmp_path / "p"
     root.mkdir()
-    init(root)
+    init(root, bare=True)
     api = _api(root, tmp_path / "home", Clock())
     assert api.vendor(FIT_CHECK)["changed"]
     assert not api.vendor(FIT_CHECK)["changed"]
-    lock = api.project.lock()["recipes"]["fit-check@1"]
+    lock = api.project.lock()["recipes"]["fit-check@2"]
     assert set(lock["steps"]) == {"describe", "assess"}
     assert lock["steps"]["assess"]["capabilities"] == ["structured_output", "technical_reasoning"]
     edited = make_recipe(lambda r, d: (d / "prompts" / "describe.md").write_text("changed"), source=FIT_CHECK)

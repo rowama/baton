@@ -158,7 +158,7 @@ def test_escalation_decisions(tmp_path):
     out = cli.run("submit", run, "describe", expect=4)
     assert out["outcome"] == "escalated" and out["checkpoint"]["committed"]
     pending = out["pending_decisions"][0]
-    assert pending["kind"] == "escalation" and pending["questions"] == ["Which vendors count?"]
+    assert pending["kind"] == "escalation" and [q["ask"] for q in pending["questions"]] == ["Which vendors count?"]
     assert cli.run("retry", run, "describe", expect=1)["error"] == "retry.escalated"
 
     out = cli.run("decide", run, "describe", "retry", "--note", "Only vendors over $10k.")
@@ -166,7 +166,7 @@ def test_escalation_decisions(tmp_path):
     cli.run("dispatch", run, "describe", "--worker", "owner")
     pf = json.loads((packet_dir(project, run, "describe", 2) / "manifest.json").read_text())["prior_feedback"]
     assert "the owner answered: Only vendors over $10k." in pf["reasons"]
-    assert "you asked the owner: Which vendors count?" in pf["reasons"]
+    assert "you asked the owner (q1): Which vendors count?" in pf["reasons"]
 
 
 def test_abandon(tmp_path):

@@ -80,7 +80,34 @@ SKILLS_DIR = ".agents/skills"
 
 
 #: Recipes shipped with the runtime (§11.1): loaded from ``builtin/``, never vendored.
-BUILTIN_RECIPES: dict[str, str] = {"baton-adopt@1": "baton-adopt"}
+BUILTIN_RECIPES: dict[str, str] = {"baton-adopt@1": "baton-adopt", "baton-frame@1": "baton-frame"}
+
+#: Recipes ``init`` vendors unless ``--bare`` (§11.6): the starter kit an owner needs to begin.
+STARTER_RECIPES: tuple[str, ...] = ("fit-check",)
+
+
+def catalog_dir() -> Path:
+    """Where the recipes shipped with the runtime live (``examples/recipes``, §5.7)."""
+    return data.path("examples") / "recipes"
+
+
+def catalog() -> dict[str, LoadedRecipe]:
+    """The shipped recipes (the catalog framing proposes from, §11.6), by recipe id; the highest version of each."""
+    out: dict[str, LoadedRecipe] = {}
+    root = catalog_dir()
+    if not root.is_dir():
+        return out
+    for d in sorted(root.iterdir()):
+        if not (d / "recipe.yaml").is_file():
+            continue
+        try:
+            loaded = load_recipe(d)
+        except RecipeError as e:  # pragma: no cover - shipped recipes are tested
+            raise EngineError("recipe.invalid", f"shipped recipe {d.name} is invalid: {e}") from e
+        prev = out.get(loaded.recipe.id)
+        if prev is None or loaded.recipe.version > prev.recipe.version:
+            out[loaded.recipe.id] = loaded
+    return out
 
 
 def builtin_recipe(ref: str) -> LoadedRecipe:
@@ -301,8 +328,11 @@ def read_lock(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
+def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dict[str, Any]:
     """Create ``.baton/`` with defaults. Existing files are left untouched.
+
+    Unless ``bare``, also vendors the starter recipes (``STARTER_RECIPES``, §11.6) that are not
+    vendored yet in any version, so a Director can begin with the owner straight away.
 
     Also vendors the director and worker skills into ``.agents/skills/`` and, unless
     ``agents_md`` is false (adoption, where the baseline proposes it, §11.5), writes the
@@ -363,7 +393,22 @@ def init(root: str | Path, *, agents_md: bool = True) -> dict[str, Any]:
         notes.append("not a git repository: checkpoint commits start once it is one")
     elif not lfs_available(r):
         notes.append("git-lfs is not installed: large stored blobs will be committed to git directly")
-    return {"root": str(r), "created": created, "notes": notes}
+    vendored: list[str] = []
+    if not bare:
+        shipped = catalog()
+        project = Project.open(r)
+        try:
+            have = {ref.split("@", 1)[0] for ref in project.vendored()}
+            for rid in STARTER_RECIPES:
+                if rid in have or rid not in shipped:
+                    continue
+                out = vendor(project, shipped[rid].root)
+                if out["changed"]:
+                    vendored.append(out["recipe"])
+                    created.append(f"{BATON_DIR}/recipes/{out['recipe']}/")
+        finally:
+            project.store.close()
+    return {"root": str(r), "created": created, "notes": notes, "vendored": vendored}
 
 
 def signature_flags(lock: dict[str, Any], recipe_id: str, version: int, steps: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

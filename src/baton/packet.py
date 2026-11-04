@@ -39,7 +39,7 @@ from typing import Any
 
 from . import groups, refs, reviews, versions
 from .data import read_text
-from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile
+from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .recipe import FINDINGS_SCHEMA_REF, LoadedRecipe
 from .routing import requirement_gaps
 from .state import SATISFIES_DEPS
@@ -450,6 +450,14 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
             lines.append("")
         if pf.get("guidance"):
             lines += ["Additional guidance for this attempt:", "", pf["guidance"], ""]
+        if pf.get("answers"):
+            lines += ["## The owner's answers", "",
+                      "Confirmed with the owner. `answer` is the confirmed answer; `owner_words` quotes the owner. "
+                      "Use them as given; ask again only about what they leave open.", ""]
+            for a in pf["answers"]:
+                ans = a["answer"] if isinstance(a["answer"], str) else ", ".join(a["answer"])
+                lines.append(f"- **{a['id']}**: {ans} (owner: \"{a['owner_words']}\")")
+            lines.append("")
         if pf["reasons"] or pf.get("guidance"):
             lines += ["Address every point above in this attempt.", ""]
         rev = pf.get("revision")
@@ -538,6 +546,9 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
         "",
         "- Use `blocked` with `questions_for_human` when only the owner can answer something; `failed` when",
         "  you cannot do the step. Never guess or improvise around a mismatch: report it.",
+        "- Each question is `{\"id\", \"ask\", \"why\", \"best_guess\"?, \"options\"?: [{\"id\", \"label\"}], \"multi_select\"?,",
+        "  \"priority\"?: \"needed\" | \"helpful\"}`, written in the owner's terms (never this process's vocabulary).",
+        "  Infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.",
         "- Report friction with the process itself in `process_feedback`.",
         "",
     ]
@@ -672,16 +683,22 @@ def prior_feedback(
         return {**base, "revision": revision}
     reasons: list[str] = []
     findings: list[dict[str, Any]] = []
+    answers: list[dict[str, Any]] | None = None
     for ev in record.attempt_events(step_path, attempt):
         if ev.type == "findings_recorded" and ev.data.get("blocking"):
             findings += [{"step": step_path, **f} for f in ev.data.get("findings") or [] if f.get("status") == "open"]
         if ev.type == "result_rejected" or (ev.type == "gate_failed" and not ev.data.get("advisory")):
             reasons += ev.data.get("reasons") or []
         elif ev.type == "step_escalated" and ev.data.get("questions"):
-            reasons += [f"you asked the owner: {q}" for q in ev.data["questions"]]
+            reasons += [f"you asked the owner ({q['id']}): {q['ask']}" for q in recorded_questions(ev.data["questions"])]
         elif ev.type == "human_decision" and ev.data.get("kind") == "escalation" and ev.data.get("note"):
             reasons.append(f"the owner answered: {ev.data['note']}")
+        elif ev.type == "human_decision" and ev.data.get("kind") == "answers":
+            answers = list(ev.data.get("answers") or [])
+            reasons.append("the owner answered your questions (confirmed answers below)")
     out: dict[str, Any] = {"attempt": attempt, "reasons": reasons}
+    if answers is not None:
+        out["answers"] = answers
     if findings:
         out["findings"] = findings
     if guidance:

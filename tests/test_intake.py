@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from baton import engine
+from baton import engine, labels
 from baton.packet import EngineError
 from baton.store import Store
 
@@ -59,7 +59,7 @@ def test_fit_check_through_human_gate(store):
     assert out.outcome == "needs_human" and state(ctx, "assess") == "awaiting_human"
     assert engine.pending_decisions(ctx) == [
         {"ref": "assess", "step_path": "assess", "attempt": 1, "kind": "gate",
-         "prompt": "Accept this verdict and its suggested next step?", "options": ["approve", "reject"]}
+         "prompt": "Accept this verdict and its suggested next step?", "options": labels.options("gate", ["approve", "reject"], {"approve": "That verdict sounds right", "reject": "I don't think that's right"})}
     ]
     out = engine.decide(ctx, "assess", "approve", "Agreed — go ahead.")
     assert out.outcome == "passed" and out.run_completed
@@ -159,7 +159,9 @@ def test_blocked_escalates_with_questions(store):
     _, out = attempt(ctx, "describe", None, status="blocked", questions_for_human=["How often does it happen?"])
     assert out.outcome == "escalated"
     esc = ctx.record().last("step_escalated", "describe")
-    assert esc.data["reason"] == "blocked" and esc.data["questions"] == ["How often does it happen?"]
+    assert esc.data["reason"] == "blocked"
+    assert esc.data["questions"] == [{"id": "q1", "ask": "How often does it happen?", "why": "", "options": [],
+                                      "multi_select": False, "priority": "needed"}]
 
 
 def test_worker_failed_is_retried(store):

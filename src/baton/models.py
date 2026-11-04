@@ -111,9 +111,17 @@ class FindingsGate(_GateBase):
     block_on: list[Severity] | None = None
 
 
+class HumanGateLabels(_Strict):
+    """A recipe's own plain-language labels for a human gate's options (§13.8)."""
+
+    approve: str | None = Field(default=None, min_length=1)
+    reject: str | None = Field(default=None, min_length=1)
+
+
 class HumanGate(_GateBase):
     type: Literal["human"]
     prompt: str = Field(min_length=1)
+    labels: HumanGateLabels | None = None
 
 
 Gate = Annotated[
@@ -297,6 +305,62 @@ class ResultDisposition(_Strict):
     evidence: str = ""
 
 
+class QuestionOption(_Strict):
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+
+
+class Question(_Strict):
+    """One structured question for the owner (§7.2): material for the Director's conversation."""
+
+    id: str = Field(min_length=1)
+    ask: str = Field(min_length=1)
+    why: str = ""
+    best_guess: str | None = None
+    options: list[QuestionOption] = Field(default_factory=list)
+    multi_select: bool = False
+    priority: Literal["needed", "helpful"] = "needed"
+
+
+def normalize_questions(raw: Any) -> list[dict[str, Any]]:
+    """Normalize ``questions_for_human`` (§7.2): a bare string becomes ``{id: q<n>, ask, why: ""}``.
+
+    Raises ``ValueError`` for an entry that is neither a string nor a valid question, or for
+    duplicated ids. Also used to read questions recorded before Phase 17 (plain strings).
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("questions_for_human must be a list")
+    out: list[dict[str, Any]] = []
+    for n, q in enumerate(raw, start=1):
+        if isinstance(q, str):
+            if not q.strip():
+                raise ValueError(f"question {n} is an empty string")
+            out.append({"id": f"q{n}", "ask": q, "why": "", "options": [], "multi_select": False, "priority": "needed"})
+        elif isinstance(q, dict):
+            out.append(Question.model_validate(q).model_dump(exclude_none=True))
+        else:
+            raise ValueError(f"question {n} is neither a string nor a question object")
+    ids = [q["id"] for q in out]
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    if dupes:
+        raise ValueError(f"question ids are not unique: {', '.join(dupes)}")
+    for q in out:
+        opt_ids = [o["id"] for o in q.get("options", [])]
+        if len(set(opt_ids)) != len(opt_ids):
+            raise ValueError(f"question {q['id']}: option ids are not unique")
+    return out
+
+
+def recorded_questions(raw: Any) -> list[dict[str, Any]]:
+    """Questions as recorded in an event, normalized; tolerant of anything malformed (never raises)."""
+    try:
+        return normalize_questions(raw)
+    except (ValueError, TypeError):
+        return [{"id": f"q{n}", "ask": str(q), "why": ""} for n, q in enumerate(raw or [], start=1)]
+
+
 class Result(_Strict):
     protocol: str
     packet_sha256: str
@@ -304,9 +368,14 @@ class Result(_Strict):
     output: Any = None
     artifacts: list[ResultArtifact] = Field(default_factory=list)
     notes: str = ""
-    questions_for_human: list[str] = Field(default_factory=list)
+    questions_for_human: list[dict[str, Any]] = Field(default_factory=list)
     process_feedback: list[Any] = Field(default_factory=list)
     dispositions: list[ResultDisposition] = Field(default_factory=list)
+
+    @field_validator("questions_for_human", mode="before")
+    @classmethod
+    def _normalize_questions(cls, v: Any) -> list[dict[str, Any]]:
+        return normalize_questions(v)
 
 
 # --------------------------------------------------------------------------
@@ -430,6 +499,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "human": ("human_decision", "human_revision_ingested"),
     "deliverables": ("artifact_published", "drift_detected"),
     "adoption": ("situation_detected", "research_recorded", "step_imported", "baseline_established"),
+    "framing": ("framing_selected",),
     "experts": ("sme_requested", "sme_answered", "sme_promoted"),
     "machinery": (
         "completion_hook_fired", "completion_hook_failed", "checkpoint_committed",

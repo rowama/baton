@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "words", "recipes"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "words": {"type": "string", "minLength": 1, "description": "The owner's goal, verbatim"},
+    "recipes": {
+      "type": "array",
+      "description": "Recipes a part may propose: vendored ones and those shipped with the runtime",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "description", "levels", "run_inputs", "vendored"],
+        "properties": {
+          "id": {"type": "string"}, "version": {"type": "integer"}, "description": {"type": "string"},
+          "levels": {"type": "array", "items": {"type": "string"}},
+          "run_inputs": {"type": ["object", "null"]},
+          "vendored": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "rubric": {"type": "string", "description": "fit-check's rubric: what suits this process and what suits an operations engine"}
+  },
+  "additionalProperties": false
+}

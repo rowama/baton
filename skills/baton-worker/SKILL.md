@@ -23,7 +23,8 @@ You do one attempt of one step. Everything you need is in the packet; everything
 Write to the result directory named in `INSTRUCTIONS.md`:
 - `artifacts/<name>.<ext>` for each declared artifact (required ones must exist).
 - `result.json` **last**: `protocol: "baton-packet/1"`, `packet_sha256` echoed from the manifest, `status` (`completed` | `blocked` | `failed`), `output` (valid against the schema), `artifacts` (`[{name, path}]`), `notes`, `questions_for_human`, optionally `process_feedback` and `dispositions`.
-- `blocked`: you need an answer from the owner; put the questions in `questions_for_human`.
+- `blocked`: you need an answer from the owner; put the questions in `questions_for_human`, each `{id, ask, why, best_guess?, options?: [{id, label}], multi_select?, priority?: needed | helpful}`. Write them in the owner's terms, never the process's or a rubric's vocabulary; infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.
+- `prior_feedback.answers` (in the manifest and `INSTRUCTIONS.md`): the owner's confirmed answers to your earlier questions, `{id, answer, owner_words}`. Use them as given.
 - `dispositions`: only for findings you were shown — `fixed` or `rejected`, each with evidence (a commit or `file:line`; for `rejected`, `file:line` or `path::test`). Never `accepted-risk`.
 
 ## Rules

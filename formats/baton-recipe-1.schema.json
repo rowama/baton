@@ -294,6 +294,17 @@
           "default": null,
           "title": "Applies To"
         },
+        "labels": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanGateLabels"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "prompt": {
           "minLength": 1,
           "title": "Prompt",
@@ -310,6 +321,40 @@
         "prompt"
       ],
       "title": "HumanGate",
+      "type": "object"
+    },
+    "HumanGateLabels": {
+      "additionalProperties": false,
+      "description": "A recipe's own plain-language labels for a human gate's options (\u00a713.8).",
+      "properties": {
+        "approve": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approve"
+        },
+        "reject": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject"
+        }
+      },
+      "title": "HumanGateLabels",
       "type": "object"
     },
     "Independence": {

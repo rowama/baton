@@ -132,7 +132,7 @@ class Director:
         i = self.used.get(key, 0)
         self.used[key] = i + 1
         decision, note = options[min(i, len(options) - 1)]
-        assert decision in p["options"], (p, decision)
+        assert decision in [o["decision"] for o in p["options"]], (p, decision)
         self.owner_decisions.append((p["ref"], decision))
         self.cli("decide", self.run, p["ref"], decision, "--note", note, expect=None)
 

@@ -1,0 +1,37 @@
+# Plain-language labels for the owner's decision options (§13.8). Material for the Director's
+# conversation, never shown to the owner by the runtime itself. Keyed by the kind of pending
+# decision, then by decision name. A recipe may label its own human gates (`labels:` on the gate).
+format: baton-labels/1
+
+gate:                      # a recipe's human gate
+  approve: { label: "Looks right", effect: "Accept this and carry on with the next part of the work." }
+  reject:  { label: "Not yet: here's what to change", effect: "This part is redone, with what you said as guidance." }
+triage:                    # approving the size of a piece of work
+  approve: { label: "Yes, that's the right size", effect: "The work goes ahead at this size; parts that size doesn't need are left out." }
+  reject:  { label: "No, it's bigger or smaller than that", effect: "The sizing is redone with what you said." }
+protected:                 # a change to files the process protects
+  approve: { label: "Keep that change", effect: "The change to the protected files stays and the work carries on." }
+  reject:  { label: "Undo that change", effect: "The change is not accepted; it is reverted and the part is redone." }
+frame:                     # choosing which parts of a goal to start on
+  select:  { label: "Start on these", effect: "Work starts on the parts you chose; the others are left for later." }
+  reject:  { label: "That's not quite it", effect: "The breakdown of your goal is redone with what you said." }
+escalation:                # work that stopped and needs the owner
+  retry:   { label: "Try again", effect: "This part is tried again, with what you said as guidance." }
+  abandon: { label: "Set this aside for now", effect: "This part stops here; the rest of the work may not be able to finish without it." }
+blocked:                   # work that stopped because it needs the owner's answers
+  retry:   { label: "Try again with your answers", effect: "This part picks up again with the answers you confirmed." }
+  abandon: { label: "Set this aside for now", effect: "This part stops here; the rest of the work may not be able to finish without it." }
+iteration_limit:           # a repeated piece of work that hasn't converged
+  retry:   { label: "Give it another round", effect: "Another set of tries is allowed, with what you said as guidance." }
+  abandon: { label: "Stop working on this piece", effect: "This piece stops here; the work as a whole can't finish until the plan changes." }
+baseline:                  # bringing an existing project under the process
+  establish: { label: "That's an accurate picture", effect: "The summary of your existing work is accepted as the starting point." }
+skip_notice:               # something was skipped outside the process
+  acknowledge: { label: "Noted", effect: "Records that you know about it; nothing else changes." }
+publish_conflict:          # a file the work wants to write already exists
+  overwrite: { label: "Replace the existing file", effect: "The new version replaces the file that is there now." }
+  keep:      { label: "Keep the existing file", effect: "The file stays as it is; the new version is kept only in the record." }
+  alternate: { label: "Save the new one alongside", effect: "The new version is written next to the existing file under another name." }
+drift:                     # a delivered file was edited afterwards
+  leave:  { label: "Leave it as it is", effect: "Your edit stays; later work keeps using the original version." }
+  ingest: { label: "Use my edited version", effect: "Your edited file becomes the version later work uses." }

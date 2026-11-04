@@ -80,6 +80,9 @@ File: `inputs/rubric.md`
 
 - Use `blocked` with `questions_for_human` when only the owner can answer something; `failed` when
   you cannot do the step. Never guess or improvise around a mismatch: report it.
+- Each question is `{"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?,
+  "priority"?: "needed" | "helpful"}`, written in the owner's terms (never this process's vocabulary).
+  Infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.
 - Report friction with the process itself in `process_feedback`.
 
 ## Output schema

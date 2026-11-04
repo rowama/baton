@@ -1,5 +1,5 @@
 id: fit-check
-version: 1
+version: 2
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Decide in minutes whether an idea suits Baton, before investing in it.
@@ -28,4 +28,5 @@ steps:
     output_schema: schemas/verdict.json
     gates:
       - { type: schema }
-      - { type: human, prompt: "Accept this verdict and its suggested next step?" }
+      - { type: human, prompt: "Accept this verdict and its suggested next step?",
+          labels: { approve: "That verdict sounds right", reject: "I don't think that's right" } }

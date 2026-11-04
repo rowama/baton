@@ -1,0 +1,21 @@
+# The runtime's built-in framing recipe (§11.6). Loaded by the runtime, never vendored.
+id: baton-frame
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Turn an owner's goal, in their words, into pieces of work they can choose to start.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: frame
+    title: Break the goal into pieces of work
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: standard }
+    prompt: prompts/frame.md
+    inputs:
+      - { name: words,   from: run.inputs.words,   required: true }
+      - { name: recipes, from: run.inputs.recipes, required: true }
+      - { name: rubric,  from: run.inputs.rubric,  required: false }
+    output_schema: schemas/frame.json
+    gates: [ { type: schema } ]

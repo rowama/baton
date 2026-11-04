@@ -277,9 +277,18 @@ def test_adopt_leaves_agents_md_to_the_baseline(tmp_path):
 def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
-                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary"):
+                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame"):
         assert f"`{call}" in text, call
-    assert "Follow `.baton/communication.md` exactly." in text
+    assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
+    assert "--answers <file>" in text and "frame select --items" in text
+
+
+def test_shipped_director_skill_is_the_guides_text():
+    """§13.3: the shipped director skill is the text in the build guide."""
+    guide = (ROOT / "docs" / "baton-framework-build-guide.md").read_text(encoding="utf-8")
+    start = guide.index("**`skills/baton-director/SKILL.md`**")
+    body = guide[guide.index("```markdown\n", start) + len("```markdown\n"):guide.index("\n```\n\n**`skills/baton-worker/SKILL.md`**", start)]
+    assert (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8") == body + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +340,7 @@ API_CALLS = {
     "detect", "board", "recipes", "plan", "start", "status", "explain", "eligible", "dispatch", "cancel", "wait", "submit", "decide",
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
-    "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate",
+    "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame",
 }
 
 

@@ -57,7 +57,7 @@ class Submission:
     output_sha256: str | None = None
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     notes: str = ""
-    questions: list[str] = field(default_factory=list)
+    questions: list[dict[str, Any]] = field(default_factory=list)
     process_feedback: list[Any] = field(default_factory=list)
     dispositions: list[Any] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)

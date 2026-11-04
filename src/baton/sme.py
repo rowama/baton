@@ -779,6 +779,7 @@ def intake(w: Where, turn: int, packet_sha256: str) -> dict[str, Any]:
     if status != "completed":
         notes = result.get("notes") or ""
         qs = result.get("questions_for_human") or []
+        qs = [q.get("ask", str(q)) if isinstance(q, dict) else str(q) for q in qs]
         return {**data, "status": status, "reasons": [str(x) for x in ([notes] if notes else []) + list(qs)] or [f"the expert reported {status}"]}
     data.update(
         status="answered",

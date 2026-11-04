@@ -67,7 +67,7 @@ class Setup:
         self.project = make_git_project(tmp_path / "proj")
         self.home = make_home(tmp_path / "home", OWNER_PROFILE + bot)
         self.cli = Cli(self.project, self.home)
-        self.cli.run("init", str(self.project))
+        self.cli.run("init", str(self.project), "--bare")  # vendors its own edited fit-check
         self.cli.run("vendor", str(src))
         py = self.project / ".baton" / "project.yaml"
         cfg = yaml.safe_load(py.read_text(encoding="utf-8"))
