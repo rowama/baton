@@ -1,6 +1,6 @@
 # Baton: Build Guide for a Vendor-Neutral, Director-Led Multi-Step Process Framework
 
-> **Revision 4 (consolidation).** Same design as Revision 3, reorganized into one coherent structure: a stated set of principles, a capped concept set with a glossary, a small core plus optional layers, merged duplicate sections, a single event list, a single API table, one build order, and explicit versioning so real projects can trial new Baton versions on a branch. History: Rev 2 (model-neutral recipes, routing, isolation, repo persistence, publishing); Rev 2.1 (renamed from "Relay"); Rev 2.2 (adoption, complexity tailoring, consultation); Rev 3 (work items, sub-processes, async execution, findings reviews, SMEs, platform area, permissions; informed by the owner's `eng-process` and its use on `mmbridge`).
+> **Revision 4 (consolidation).** Same design as Revision 3, reorganized into one coherent structure: a stated set of principles, a capped concept set with a glossary, a small core plus optional layers, merged duplicate sections, a single event list, a single API table, one build order, and explicit versioning so real projects can trial new Baton versions on a branch. History: Rev 2 (model-neutral recipes, routing, isolation, repo persistence, publishing); Rev 2.1 (renamed from "Relay"); Rev 2.2 (adoption, complexity tailoring, consultation); Rev 3 (work items, sub-processes, async execution, findings reviews, SMEs, platform area, permissions; informed by the owner's `eng-process` and its use on `mmbridge`); Rev 4.1 (2026-11-04: the conversation layer, §13.8, and framing new work, §11.6, built in Phase 17; prompted by the first real-project run, whose `fit-check` exchange was unusable for an owner thinking about a business).
 >
 > **Audience:** a fresh AI coding session (Claude Code, Codex, Hermes, etc.) building this framework from scratch.
 > **Read the whole document before writing code.** Then follow the build order (§16). Each phase has acceptance criteria; do not start a phase until the previous one passes.
@@ -26,10 +26,11 @@
 
 ### 1.1 Principles (every feature is judged against these)
 
-1. **Invisible when healthy.** After install, the owner should not notice Baton unless something truly needs them. Checks are silent when fine; owner attention is spent only on real decisions: gates the recipe defines, escalations, and the one-time adoption baseline.
+1. **Invisible when healthy.** After install, the owner should not notice Baton unless something truly needs them. Checks are silent when fine; owner attention is spent only on real decisions: gates the recipe defines, escalations, the one-time adoption baseline, and choosing work items when a goal is framed.
 2. **Friction must pay for itself.** Every setup step, prompt or file the owner touches must save more effort than it costs. Prefer generalizing an existing mechanism over adding a parallel one.
 3. **Arbitrarily complex processes, simple runtime.** Recipes can express multi-agent processes of any size (iteration, fan-out, reviews, many concurrent work items). The runtime stays small and conventional: one event log format, one packet protocol, one state machine, no daemon, no server. **Everything that does work is a dispatch of a packet to a worker** (steps, reviews, research, triage, expert consultation); everything else is bookkeeping over the event log.
 4. **Evolve by trial.** Runtime, recipes and formats are versioned and pinned per project and per run, so a real project can try a new Baton version on a branch and merge or discard it (§14).
+5. **Deterministic machinery, human conversation** (owner decision, 2026-11-04). Two layers, kept separate. The runtime, and everything that crosses into it (packets, results, events, decisions), stays structured and deterministic; explicitly deterministic and explicitly inferential work stay separated, as everywhere else in this guide. The owner's side is a conversation run by the Director, who talks like a good project manager with a stakeholder: plain language in the owner's terms, structure (choices, checklists) where it helps, open talk where that helps, and no Baton vocabulary. The seam between the layers is the **confirm-back** (§13.8): nothing the Director understood from conversation is recorded until the owner confirms it. The owner may be a layperson; nothing in the owner's path assumes otherwise.
 
 ### 1.2 Guarantees
 
@@ -99,6 +100,10 @@ Experts (§12) add none either: a *consultation* is a series of SME dispatches (
 
 Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
 
+Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision.
+
+These concepts are **internal vocabulary**: recipe authors, Directors and the runtime use them; owners never need them. The Director speaks in the owner's terms (§13.8) unless the owner chooses the terse operator style (§13.6).
+
 Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache.
 
 ### 2.1 Core and layers
@@ -113,7 +118,7 @@ The runtime is built as a small **core** plus **layers**. A recipe or project th
 | **L3 Sub-processes** | `foreach`, `repeat_until`, instances, iterations | Slice loops, review-fix loops |
 | **L4 Reviews** | Findings gates, dispositions, waivers, protected files, reviewer independence | Independent review |
 | **L5 Work items** | Concurrent runs, board, workspace lock, `revise` | Real projects |
-| **L6 Tailoring and adoption** | Complexity levels, triage, detect, research, crosswalks, seeding, baseline | Existing projects; varied formality |
+| **L6 Tailoring and adoption** | Complexity levels, triage, detect, research, crosswalks, seeding, baseline, framing (§11.6) | Existing projects; varied formality; goals that hold several work items |
 | **L7 Experts** | SME consultation (project, platform, process), platform facts and incidents, process feedback | Questions, platform issues, improvement |
 | **L8 Deliverables** | Publishing to project paths, drift detection | Documents, drawings, photos, etc. returned as artifacts |
 
@@ -121,8 +126,8 @@ The runtime is built as a small **core** plus **layers**. A recipe or project th
 
 ## 3. Roles and Topology
 
-- **Owner:** owns goals, makes decisions at gates and escalations. Talks to the Director (and, when needed, to an SME through it).
-- **Director:** any harness with the `baton-director` skill that can reach the runtime by shell (CLI) or MCP. Expert at running processes, routing work and communicating; **never performs step work**.
+- **Owner:** owns goals, makes decisions at gates and escalations. Talks to the Director in their own terms (and, when needed, to an SME through it); needs no Baton vocabulary.
+- **Director:** any harness with the `baton-director` skill that can reach the runtime by shell (CLI) or MCP. Expert at running processes, routing work and facilitating the owner's decisions, the way a project manager engages a stakeholder (§13.8); impartial; **never performs step work** and never answers subject questions itself.
 - **Runtime:** deterministic Python installed on the **runtime host**, the machine where the repo and CLI-harness workers live.
 - **Worker:** executes one attempt of one step under one profile; stateless with respect to the run.
 - **SMEs:** workers consulted by subject. A **platform** SME is an IT-type expert (it may itself be an agent with its own access) that works with workers, the Director and the owner to resolve infrastructure problems. A **process** SME has Baton and the recipe as its subject.
@@ -185,8 +190,11 @@ baton/
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   # generated from models (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── builtin/baton-adopt/     # the built-in adoption recipe (§11.1): research step, baton-research/1 schema
+├── builtin/baton-frame/     # the built-in framing recipe (§11.6): frame step, baton-frame/1 schema
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
-├── defaults/communication.md        # default owner communication contract (written by `baton init`)
+├── defaults/communication.md        # default owner communication contract, conversational (written by `baton init`)
+├── defaults/communication-operator.md   # the terse operator style, for owners who choose it (§13.6)
+├── defaults/labels.yaml     # plain-language labels for decision options (§13.8)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/
 └── tests/
 ```
@@ -494,7 +502,7 @@ Unknown names are load errors for recipes and profiles. New capabilities mean a 
 | `backyard-project` | A non-software project (a flower bed vs a shed) | Manual workers, photo artifacts, human gates, levels |
 
 **`fit-check`** keeps itself to minutes, or it defeats its purpose:
-1. **`describe`:** a worker interviews the owner about the idea, mainly about *each occurrence*: how often it happens, how much judgment it needs, how long it takes, which agents and people are involved, whether a repo audit trail is a benefit. Output: a structured profile of the idea.
+1. **`describe`:** a worker profiles the idea, mainly *each occurrence*: how often it happens, how much judgment it needs, how long it takes, which agents and people are involved, whether a repo audit trail is a benefit. Output: a structured profile of the idea. **It infers first** (owner decision, 2026-11-04): it fills the profile from the idea as far as it reasonably can, lists each inference under `assumptions` (`{field, value, basis}`) for the Director to confirm, and asks only about what it cannot infer, as structured questions (§7.2) in the owner's terms. The rubric's words ("occurrence", "audit trail", "live integration") are internal: a question about a water-vending idea asks about opening a site or serving a customer, not about an "occurrence". An idea that holds several kinds of work (setting up a business *and* running it) is not forced into one profile: the worker says so (`status: blocked`, one question offering the parts as options), and the Director suggests framing it (§11.6).
 2. **`assess`:** scores the profile against a fixed rubric (static file in the recipe):
 
    | Fits Baton | Fits an operations engine |
@@ -661,7 +669,7 @@ Adapters never interpret results; intake does.
 - `packet_sha256`: SHA-256 of `"baton-packet/1\n"`, then the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) and `"\n"`, then `"<path>\0<sha256>\n"` for every other packet file (inputs, `INSTRUCTIONS.md`, `output_schema.json`) sorted by POSIX path. Documented in `packet.py` and tested. The manifest holds no clock reading except `deadline`, which the caller supplies.
 - `workspace` is the step's mode (`none` | `read` | `write`); `optional_artifacts` lists declared artifacts that are not required.
 - Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event. Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
-- `prior_feedback`: `{attempt, reasons, findings?, guidance?, revision?}`: gate reasons from the previous attempt and any retry guidance; `findings` lists the open findings of a failed findings or review gate, each with its `step`, so the worker can address and disposition them (§9.2). While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
+- `prior_feedback`: `{attempt, reasons, findings?, guidance?, answers?, revision?}`: gate reasons from the previous attempt and any retry guidance; `answers` lists the owner's confirmed answers to the previous attempt's questions (`[{id, answer, owner_words}]`, §13.8), so a `blocked` step resumes with exactly what the owner confirmed; `findings` lists the open findings of a failed findings or review gate, each with its `step`, so the worker can address and disposition them (§9.2). While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
 
 - **Reviewer packets** (steps whose output is `baton:findings`, and review steps, §9.1) also carry `prior_findings`: `null` at the first review, else `{evaluated_at, attempt, findings}`, the previous evaluation of the same findings line with each finding's status and disposition. A review step's inputs are the reviewed step's declared inputs plus the result under review: `reviewed_output` (JSON) and `reviewed_<artifact>` for each registered artifact, from the reviewed attempt's `result_submitted`.
 
@@ -688,6 +696,16 @@ attempt-<n>/result/  result.json  artifacts/<name>.<ext>
 ```
 
 `dispositions` (optional): `[{step, finding, disposition, evidence}]`, a worker's `fixed` or `rejected` claims about findings it was shown (its own gates' findings, or the judges' findings of an enclosing loop; `step` is the recording step's id or path). Intake checks the evidence (§9.2); an invalid entry rejects the result. `accepted-risk` is not allowed here.
+
+`questions_for_human` (owner decision, 2026-11-04) is structured, so the Director can hold a conversation from it without knowing the step's subject:
+
+```json
+{"id": "q1", "ask": "Will each site be one machine, or several?", "why": "Sets how much equipment planning is needed",
+ "best_guess": "One machine per site at first", "options": [{"id": "one", "label": "One machine"}, {"id": "several", "label": "Several"}],
+ "multi_select": false, "priority": "needed"}
+```
+
+`id` (unique in the result), `ask` and `why` are required; `best_guess`, `options` (each `{id, label}`), `multi_select` (default false) and `priority` (`needed` | `helpful`, default `needed`) are optional. `ask`, `why` and labels use the owner's terms, never the recipe's internal vocabulary. A bare string is accepted and normalized to `{id: "q<n>", ask: <string>, why: ""}`, so existing workers keep working; intake (§8.10) rejects an entry that is neither. Answers come back confirmed and structured (`prior_feedback.answers`, §13.8).
 
 `status` is `completed`, `blocked` (needs an owner answer) or `failed`. Workers write only inside `result/`, except `workspace: write` steps, whose changes are checked by gates and recorded through `commit_sha` in `output`. `process_feedback` lets workers report friction (§12.4).
 
@@ -754,6 +772,8 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 | Human | `human_decision`, `human_revision_ingested` (on the step: `artifact`, `path`, `sha256`, `revision`, `feed` `revision_inputs`\|`dependents`, `possibly_stale`, `decision_id`, `source` `drift`\|`sme`) |
 | Deliverables | `artifact_published` (on the step: `artifact`, `path`, `sha256`, `attempt`, `passed_seq`, `unchanged?`, `kept?`, `overwrote?`, `alternate?`, `revision?`, `decision_id?`), `drift_detected` (on the step: `artifact`, `path`, `published_sha256`, `current_sha256`) |
 | Adoption | `situation_detected` (adoption run: the `detect` result, scope counts), `research_recorded` (§11.1), `step_imported` (§11.4), `baseline_established` (§11.5) |
+| Framing | `framing_selected` (framing run: `decision_id`, `selected`, `runs` `[{part, run, recipe}]`, `gaps` `[{part, reason}]`, §11.6); `run_started.framing {run, part}` on each run it starts |
+| Answers | `human_decision {kind: answers, answers: [{id, answer, owner_words}], note, decision_id}` (on the step whose questions were answered; precedes the retry it feeds, §13.8) |
 | Experts | `sme_requested` (`consultation`, `turn`, `subject`, `mode` `relay`\|`handoff`, `question`, `refs`/`auto`/`attachments` `[{ref, label, path, sha256}]`, `worker`, `vendor`, `model`, `packet_sha256`, `dispatch_id`, `contact?`; a handoff: `path`, `handoff_sha256`), `sme_answered` (`consultation`, `turn`, `status` `answered`\|`rejected`\|`failed`\|`blocked`, `answer_sha256`, `result_sha256`, `confidence`, `sources_used`, `requested_refs`, `suggests_retriage`, `awaiting?`, `artifacts?`, `reasons?`, `classification?`), `sme_promoted` (`consultation`, `turn`, `target`, `note`, `content_sha256`, `decision_id?`, `path?`) |
 | Machinery | `completion_hook_fired`, `completion_hook_failed`, `checkpoint_committed`, `permission_used` / `permission_requested` (project log: `action`, `rule`, and for a push `category`, `remote`, `branch`, `upstream`, `commits`, `paths`, `outside_docs?`, `unverified?`; for a Director action `detail?`; `decision_id` when the owner approved an `ask`), `migrated` (run-level, any run state; `family` `events`\|`lock`\|`recipe`, `from`, `to`, `path`; for a log, in that log: `upto_seq`, `upto_sha256`, `sha256` of the upcast copy; for the lockfile or a vendored recipe, in the project log, a recipe also `recipe`, `sha256`, `source_sha256`; §14.2) |
 | Project log | `human_decision {kind: permission, action, decision: approve, note, decision_id}` (an owner's approval of an `ask` action, §13.7), `human_decision {kind: vendor, recipe, decision: approve, note, decision_id, flags}` (§14.2), `platform_fact_recorded` (`fact`, `source`, `observed?`), `platform_incident_opened` (`incident`, `run`, `step_path`, `attempt`, `class`, `code`, `message`, `refs`), `platform_incident_resolved` (`incident`, `fix`, `retried`), `process_feedback` (`kind`, `text`, `run?`, `step_path?`, `qualified?`, `gate?`, `informed_owner?`), `step_skip_recorded` (`feedback_seq`, `run`, `step_path`, `gate`, `blocking`, `surfaced`, `informed_owner`); expert events of consultations without a run (§12.1) |
@@ -844,7 +864,7 @@ A worker process that exits without writing `result.json` records `attempt_orpha
 
 1. Check `protocol` and `packet_sha256`; validate `output` against the schema (Draft 2020-12, format checks on). For a `foreach` source, echoed item ids must be current and unique (§5.8).
 2. Verify required artifacts; ingest into CAS. Check a worker's `dispositions` (§7.2, §9.2). Check protected paths (§9.4).
-3. `blocked` → `escalated` with the questions. Otherwise run gates in order (blocking gates stop at the first failure; advisory gates always run and record).
+3. `blocked` → `escalated` with the questions, normalized and validated (§7.2). Otherwise run gates in order (blocking gates stop at the first failure; advisory gates always run and record).
 4. All blocking gates pass → `step_passed` → publish (§10.4) → record (§10.6) → checkpoint (§10.1) → dependents ready; group bookkeeping (§8.5); hooks fire.
 
 Recording: `result_submitted` carries the hashes of the stored `result.json`, the output and each registered artifact; the implicit provenance check is recorded as a `gate_passed` with `gate: "provenance"`; declared gates are recorded by index. `step_passed` repeats the output and artifact hashes, and is the only thing downstream packets resolve from. Envelope, hash, schema and artifact problems are one `result_rejected` listing every reason. A rejected result, a failed blocking gate (except on a judge, §5.4), a `failed` worker or a rejected human gate returns the step to `ready` (its reasons become the next packet's `prior_feedback`) while attempts remain, else `escalated` (`attempts_exhausted`). A gate command that cannot be rendered or has a bad `cwd` escalates at once (`configuration`). A human gate's decision is referenced by the step path of the step awaiting it; `human_decision` records the owner's words verbatim, followed by the gate's `gate_passed` / `gate_failed`.
@@ -976,7 +996,7 @@ Owner decisions (2026-11-03):
 
 ---
 
-## 11. Adoption and Triage of Existing Projects
+## 11. Adoption and Triage of Existing Projects; Framing New Work
 
 ### 11.1 Flow
 
@@ -1049,6 +1069,17 @@ One owner decision that ends adoption. It covers:
 - known gaps.
 
 It is blameless: it records what exists, what is assumed and what is missing. The proposal is `.baton/adoption/<adoption run>/baseline.yaml` (format `baton-baseline/1`): `adoption`, `recipe`, `research_sha256`, `project_yaml {paths, project}`, `agents_md {path, action: append | create | none}`, `history[]` (finished items), `work_items[] {key, run, title, level, level_reasons, create, seeds[] {step, item?, import, reasons?, output_sha256?, artifacts?, evidence?, gates?}, waivers[] {step, item?, gate, reason}, attested[], plan {run, skip, imported}}`, `gaps[]`, `files {path: sha256}` (every file a seed or evidence reads). The owner may edit any part: change a level (a declared one), drop a seed or waiver (the step then runs), set `create: false` (that run is abandoned), or change the proposed configuration. `establish_baseline` re-checks the file (format, levels, seeds against their schemas; a seed's file whose hash changed since the proposal refuses the whole baseline, naming `adopt` to regenerate it), then applies it in one call: `human_decision {kind: baseline}` with the owner's words verbatim and `baseline_established {baseline_sha256, runs, note}` in the adoption run (its baseline file stored in its CAS); in each work-item run, `baseline_established {adoption, decision_id, level}`, `complexity_set {approval: baseline}`, the skips, the imports in dependency order (group expansions and instance starts interleaved as the record calls for), the waivers; `project.yaml` and `AGENTS.md` updated; one checkpoint commit covering all of it. From then on everything is ordinary Baton.
+
+### 11.6 Framing new work
+
+Owners bring goals, not work items. "Start a pure-water vending business" holds several pieces of work of different kinds: setting up the business, buying sites and equipment, marketing, and running it day to day. Forcing such a goal through one recipe (or one `fit-check` profile) produces questions the owner cannot answer. **Framing** turns the owner's goal into work items they choose from. It is ordinary Baton work, like adoption (§11.1), and adds no concept.
+
+1. `frame(words)` (`baton frame --note "<owner's words>"`) starts a **framing run** of the built-in recipe `baton-frame@1` (in `builtin/`, loaded like `baton-adopt`, never vendored). Its run inputs are the owner's words verbatim and a summary of each vendored recipe (id, description, levels, run-input schema), plus `fit-check`'s rubric. While a framing run awaits its decision, `frame` returns its status instead of starting another.
+2. Its one step, `frame`, is dispatched by the Director like any step. Output (`baton-frame/1`): `goal` (the goal restated plainly, for the Director to confirm), `parts[] {id, label, description, kind (project | operations | unclear), proposal {recipe?, inputs?, fit_check?}, reasons}`, `assumptions[]`. `label` and `description` use the owner's terms. A part with a fitting vendored recipe proposes it with run inputs; any other part proposes a `fit-check` run with the part as its idea. Operations (running the business day to day) are not Baton work (§1.3): such a part proposes `fit-check`, whose `operations_engine` verdict leads to a project that builds that system (§5.7). The worker may return `blocked` with questions (§7.2) like any step.
+3. The step has an implicit human gate, `select`. The Director confirms the goal, then lets the owner choose any or all parts, in conversation, and confirms back (§13.8). `decide <framing run> frame select --items <part ids> --note "<owner's words>"` records `human_decision` and `framing_selected`, and the runtime starts one run per selected part with its proposed recipe and inputs (`run_started.framing {run, part}`). A proposed input that does not validate, or a recipe no longer vendored, is a gap reported to the owner, not a run. Selecting nothing ends framing with no runs. `reject` with a note retries `frame` with the note as feedback, as for triage (§5.5).
+4. The framing run completes when the selection is applied. The runs it started are ordinary work items; each runs its own triage where its recipe has one.
+
+The Director offers framing when an owner states a goal rather than a task, or when a step reports that an idea holds several kinds of work (§5.7). Starting a known recipe directly (`start`) is unchanged.
 
 ---
 
@@ -1126,7 +1157,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `cancel(run, step_path)` | Withdraw a queued dispatch |
 | `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
 | `submit(run, step_path, result_dir)` | For manual/external workers |
-| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); a publish conflict (`ref` = `publish:<step_path>.<artifact>`): `overwrite`, `keep` or `alternate` (`path?`); drift (`ref` = `drift:<step_path>.<artifact>`): `leave` (§10.4, §10.5); later: questions, baseline items) |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); a publish conflict (`ref` = `publish:<step_path>.<artifact>`): `overwrite`, `keep` or `alternate` (`path?`); drift (`ref` = `drift:<step_path>.<artifact>`): `leave` (§10.4, §10.5); a `blocked` step's questions: `retry` with `--answers <file>`, the owner's confirmed answers (§13.8); a framing run's `frame` gate: `select --items <ids>` (§11.6); later: baseline items). Every pending decision in `status` and `board` lists its `options` as `[{decision, label, effect}]`: `label` and `effect` in plain language (§13.8) |
 | `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
 | `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage (§5.5; the new level waits on the owner's `decide <run> <triage step> approve\|reject`); correct an earlier step in this run |
 | `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
@@ -1134,6 +1165,7 @@ Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 pr
 | `ask_sme(subject, question, refs, run?, mode, worker?, contact?, wait?)` / `sme_followup(consultation, question?, refs?, attach?)` / `sme_status(consultation, wait?)` (CLI `sme`) / `sme_handoff(consultation)` / `sme_eligible(subject, run?)` / `promote_sme(consultation, target, note, text?, turn?)` | Experts (§12): consult (relay or handoff), follow up, read the record, a runtime-made handoff prompt, eligible experts, promotion with the owner's words |
 | `platform_fact(text, source)` / `platform_incident(list\|show\|resolve, id?, fix?)` / `feedback(kind, text, run?, step?, gate?, informed_owner?)` | Project-level records (§12.3, §12.4) |
 | `adopt(recipe, crosswalk?, scope?)` / `establish_baseline(adoption, note)` | Adoption (§11): start an adoption run, or report the active one; apply the baseline proposal as the owner's one decision |
+| `frame(words)` | Framing (§11.6): start a framing run from the owner's goal in their words, or report the one awaiting its decision |
 | `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
 | `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
 | `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
@@ -1159,7 +1191,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 ```markdown
 ---
 name: baton-director
-description: Run, resume, or adopt Baton work as Director — keep every work item moving, route steps to capable workers, follow long-running work, handle gates, findings and escalations, explain the process in plain language, route questions to the right expert, and keep the owner informed. Use whenever the user asks to start, continue, resume, adopt, check, or ask about Baton work.
+description: Run, resume, or adopt Baton work as Director — keep every work item moving, route steps to capable workers, follow long-running work, handle gates, findings and escalations, talk with the owner in their own terms the way a project manager engages a stakeholder, route questions to the right expert, and keep the owner informed. Use whenever the user asks to start, continue, resume, adopt, check, or ask about Baton work.
 ---
 
 # Baton Director
@@ -1179,11 +1211,11 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 ## Each session
 1. `detect`, then `doctor`. Silent when healthy; interrupt the owner only for a real problem.
 2. `board`. For each run that needs you: `resume` it. If its lease is held elsewhere, report holder and expiry; take over only with the owner's approval.
-3. New work is a new run (`start`, then triage). Never fold unrelated work into an active run.
+3. New work is a new run (`start`, then triage). Never fold unrelated work into an active run. When the owner states a goal rather than a task ("I want to start a water vending business"), offer to frame it (`frame`), and use the owner's own words as its input.
 
 ## Per run
 1. `status` → ready steps, running work, pending owner decisions, open findings, drift.
-2. Pending owner decision: present the question, the relevant record and options; record the answer verbatim (`decide <run> <ref> <decision> --note "<owner's words>"`).
+2. Pending owner decision: hold the conversation it needs (see *Talking to the owner*), confirm back, then record it (`decide <run> <ref> <decision> --note "<owner's words>"`). A `blocked` step's questions: take them up with the owner, confirm the answers, write them to a file outside `.baton/` and `decide <run> <step> retry --answers <file> --note "<owner's words>"`.
 3. Ready step: `eligible` → choose (respect preference order unless there is a stated reason) → `dispatch`. Starting work the process already calls for is not a question for the owner.
 4. Dispatch returns at once. If you can stay attached, `wait`; otherwise end your turn — the completion hook or the next `board` brings you back. Never treat work as finished until Baton records it.
 5. A manual worker (a person) does the step: tell them where the packet is; they write the result; `submit` hands it in. Never write it for them.
@@ -1206,7 +1238,13 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 - Record process friction with `feedback`.
 
 ## Talking to the owner
-Follow `.baton/communication.md` exactly.
+You are the owner's project manager: you understand Baton and the work's structure, and you speak the owner's language. You are impartial; you help the owner decide, you never steer.
+- Talk in the owner's terms. Baton's words (run, step, attempt, dispatch, escalate, retry, abandon, packet, gate, worker, profile names) are yours, not theirs; use them only if the owner does. Use each option's `label`, not its decision name.
+- Turn structure into conversation. A list of questions from a worker is material for a conversation, not a message to forward: take what is needed now, a topic at a time; offer a worker's `best_guess` for confirmation instead of asking; offer choices when the question has them (several at once when `multi_select`); leave `helpful` questions until the `needed` ones are settled.
+- Confirm back before recording. Restate what you understood as a short yes/no ("So: one machine per site to start, and you'll handle the permits yourself?"). Record only what the owner confirmed, with their words. Small conversational inferences (what to talk about next) need no confirmation; anything recorded does.
+- Don't answer subject questions. If the owner asks what something means for the work itself, say you'll ask an expert, and route it (see *Questions*).
+- Keep the machinery out of sight. Don't report dispatches, workers, attempts or hooks unless the owner asks; report progress in terms of their work.
+- Follow `.baton/communication.md`: it says how this owner likes to be told things, and may choose the terse operator style.
 ```
 
 **`skills/baton-worker/SKILL.md`**: the packet protocol rules (§7); the meaning of `exit_criteria`, `deadline`, `workspace` and `protected_paths`; "stop and report a mismatch instead of improvising"; report friction in `process_feedback`; never contact people, push, tag, merge or deploy.
@@ -1237,7 +1275,17 @@ For pre-commit and CI; needs no network or profiles. Exit 0 when clean, otherwis
 
 ### 13.6 Owner communication contract
 
-`.baton/communication.md` is created from Baton's default at `init` and owned by the project. The Director follows it exactly. The default, adopted from the owner's existing practice:
+`.baton/communication.md` is created from Baton's default at `init` and owned by the project. It says how this owner likes to be told things; the Director follows it, within the conversation layer (§13.8). Two styles ship (owner decision, 2026-11-04):
+
+**Conversational** (`defaults/communication.md`, the default): guidance on tone and judgment, not a message template.
+- Talk as a project manager talks with a stakeholder: plain language in the owner's terms, warm and brief, no Baton vocabulary.
+- One topic at a time; choices where the question has them; open questions where the owner is still thinking.
+- Offer best guesses to confirm rather than asking from scratch; confirm back before anything is recorded.
+- Healthy progress is reported briefly, in terms of the owner's work, or not at all.
+- When the owner must act outside the conversation (a command, a setting, a purchase), the operator rules below for actions, placeholders and first mention apply to that part.
+- Risk mitigations the agents propose are a decision for the owner, in plain terms with their cost and a narrower alternative, never absorbed silently.
+
+**Operator** (`defaults/communication-operator.md`, chosen by copying it over `communication.md`): the terse shape, adopted from the owner's existing developer practice, for owners who want it:
 - **Shape:** brief status (or omit); a labeled list of the owner's actions, one step per line, each pasteable command alone in its own block; then the single decision owed. With nothing to do, one "no action" line.
 - **Placeholders** that are not valid shell syntax (`PASTE_TOKEN_HERE`, never `$TOKEN`).
 - **First mention** of anything new the owner must do or understand: where it lives (product, UI path, file or CLI), what it does, and the exact value or action.
@@ -1267,6 +1315,25 @@ Owner decisions (2026-11-03):
 - **Outcomes.** `deny` is refused (exit 1) and records nothing. `allow` records `permission_used` in the project log and commits it (`baton(project): permission used: …`) before pushing, so the record travels with the push. `ask` records `permission_requested` and returns `needs_owner` (exit 4) without pushing; the Director asks the owner and, on approval, repeats the call with `--approved --note "<owner's words>"`, which records `human_decision {kind: permission}` then `permission_used` with its `decision_id` (as with `waive`, the runtime requires the words and the director skill requires the actual approval). Approval never lifts a `deny`.
 - **Director actions** outside the runtime (`tag`, `merge`, `deploy`, `force_push`): `permission(action, detail?)` (`baton permission <action> --detail "<what>"`) applies the same rule and records the same events; `push` is not checked this way (the runtime pushes).
 - **Defaults** (written by `init`): as above, with `.baton/project/**` added to `docs_only_globs` because project checkpoints write there.
+
+### 13.8 The conversation layer
+
+Principle 5 (§1.1) in practice. The Director stands between the runtime's structured world and the owner's conversational one, like a project manager between engineers and a stakeholder: it understands the machinery, speaks the stakeholder's language, and translates in both directions. It is impartial (it helps the owner decide and never steers), and it does not answer subject questions (§13.3, *Questions*).
+
+**Deterministic on the runtime side.** Everything the Director needs to hold the conversation comes from the runtime as data, so it never has to read subject matter or invent options:
+- **Questions** a worker asks (`questions_for_human`, §7.2): each with why it matters, a best guess and choices, in the owner's terms.
+- **Assumptions** a worker made (`assumptions` in outputs that declare them, e.g. `fit-check`'s profile and `baton-frame`'s output): what to confirm rather than ask.
+- **Decision options** in `status` and `board`: `[{decision, label, effect}]`. Labels come from `defaults/labels.yaml` (e.g. escalation `retry` → "Try again with your answers", `abandon` → "Set this aside for now"; human gate `approve` → "Looks right", `reject` → "Not yet: here's what to change"). A recipe may give its own for a human gate: `{type: human, prompt, labels: {approve: "…", reject: "…"}}`. The runtime never shows the owner anything itself; labels are material for the Director.
+- **Process facts** from `explain` (§10.6), for "where are we?" questions.
+
+**Fuzzy on the owner side.** How to hold the conversation is the Director's judgment, guided by `communication.md` (§13.6) and the skill: order and pace, which questions to ask and which guesses to confirm, when a checklist helps and when open talk does, what to leave out. Nothing here is enforced in code, and nothing should be; phrasing is not a reliability concern.
+
+**The confirm-back seam.** Before anything from the conversation is recorded, the Director restates it and the owner confirms. The runtime holds its side deterministically:
+- Answers to a `blocked` step's questions go back as a file passed to `decide <run> <step> retry --answers <file> --note "<owner's words>"`: `[{id, answer, owner_words}]`, where `answer` is the confirmed restatement and `owner_words` quotes what the owner said for it, including the confirmation. The runtime checks every id against the step's last questions, refuses an answer without `owner_words` and refuses a missing `needed` question unless `--partial` is given, then records `human_decision {kind: answers}` and readies the step with the answers in `prior_feedback.answers` (§7.1).
+- Every other decision already carries the owner's words (`--note`), as before. As with `waive`, the runtime requires the words; the skill requires that they are a real confirmation.
+- The escalation stays pending for as many conversational turns as it takes. Nothing is recorded until the owner confirms; a deliberately partial answer set is recorded only with `--partial` (§18 #24).
+
+**Review.** Whether the conversation felt right is judged on transcripts, not enforced: the live test (§17) and the owner's review look for Baton vocabulary reaching the owner, questions forwarded unconverted, decisions recorded without a confirm-back, and subject questions answered by the Director.
 
 ---
 
@@ -1404,6 +1471,15 @@ Built (owner decisions, 2026-11-03): the launcher re-runs the command under the 
 Built (owner decisions, 2026-11-03): `software-feature` moves from a test fixture to `examples/` with real prompts and rubrics and is the suite's only copy; slice acceptance is a judge (§5.7); each recipe runs end to end through the CLI with scripted workers and a scripted Director (`software-feature` at every level, `backyard-project` at every level, `fit-check` per verdict) and loads with no lint warnings; the remote Director is a fresh shell-only process per session, woken by completion hooks (a wake inbox standing in for a webhook) or by the owner's replies; an opt-in live run (`BATON_LIVE=1`) of `software-feature` at `minor` with Claude Code implementing and Codex triaging and reviewing; the README covers §19; runtime bugs found by real use are fixed and recorded (the working-tree snapshot's line endings, §6.3; a completed run's status in one line, §13.1).
 ✅ All three recipes run end-to-end and pass the lint with zero runtime changes. A remote Director with only shell access completes a multi-slice work item across several of its own sessions, woken by hooks, with no owner action beyond the recipe's decisions. The full suite passes on Linux and native Windows CI.
 
+**Phase 17 — Conversation layer and framing.** Prompted by the first real-project run (2026-11-04): an owner starting a pure-water vending business got five abstract `fit-check` questions at once ("which piece of work is one occurrence?"), plumbing reports ("dispatched describe to claude-code-sub, attempt 1"), and "Decision owed: `retry` or `abandon`". The runtime's mechanism is unchanged; this phase gives it a human-facing side (§1.1 principle 5). Scope:
+- Structured `questions_for_human` with string normalization (§7.2); `prior_feedback.answers` (§7.1); `decide … retry --answers` with its checks and `human_decision {kind: answers}` (§13.8).
+- Decision `options` with plain-language labels in `status` and `board`; `defaults/labels.yaml`; optional `labels` on human gates (§13.8).
+- The conversational `defaults/communication.md` and `defaults/communication-operator.md` (§13.6).
+- The director skill's new *Talking to the owner* section and related edits (§13.3), shipped in `skills/`.
+- `fit-check`'s `describe`: infer first, `assumptions` in the profile schema, questions in the owner's terms, several kinds of work reported as one question (§5.7).
+- Framing: `frame`, the built-in `baton-frame@1` recipe and `baton-frame/1` schema, the `select` gate, `framing_selected`, run creation and gaps (§11.6).
+✅ The water-vending scenario, scripted: from the owner's words, framing proposes parts in plain language; selecting two starts two runs with the right recipes, and a part with an invalid proposed input is reported as a gap, not a run. A `fit-check` run whose `describe` returns `blocked` with structured questions and assumptions is resumed through `decide … retry --answers`, and the next packet carries exactly the confirmed answers; an answer without `owner_words`, an unknown question id or a missing `needed` answer (without `--partial`) is refused. Bare-string questions from an existing worker still work. Every pending decision in `status --json` lists options with labels. With `communication-operator.md` in place, the operator style's shape is unchanged. Opt-in live test (`BATON_LIVE=1`): a real Director runs the scenario with a scripted owner; the owner reviews the transcript for the four points in §13.8 *Review*.
+
 ---
 
 ## 17. Testing Strategy
@@ -1414,6 +1490,7 @@ Built (owner decisions, 2026-11-03): `software-feature` moves from a test fixtur
 - **Process control:** detachment, process-tree termination and marker liveness on POSIX and Windows.
 - **Secret leak:** sentinel secrets through a full run; absent from the working tree and git history.
 - **Golden files:** `INSTRUCTIONS.md`, records, summary, `explain` output.
+- **Conversation review** (opt-in, with live tests): transcripts of a real Director with a scripted owner, reviewed by the owner against §13.8 *Review*. Not a pass/fail gate in CI: phrasing is judged, not enforced.
 - **Live tests** (opt-in): real API models and harness CLIs.
 
 ---
@@ -1440,6 +1517,12 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 16. Optional OpenTelemetry export of events. [off]
 17. SME handoff mode support per harness. [relay first; handoff per harness later] **Decided (2026-11-03):** relay is the formal mode. Handoff needs nothing per harness: the runtime (never the Director) generates a copy-and-paste prompt from the consultation, saved as `handoff.md`, which is the whole record; nothing returns except through promotion. The runtime refuses it, with the reason, when the expert relies on `shell`, `code_exec`, `workspace_read`, `repo_workspace` or `file_write`, unless the expert is a `command` black box. SMEs are never people; a person is consulted through a proxy SME that drafts and never sends (§12.1).
 18. **Conditionally deferred risk: erroneous worker dispositions** (discussed 2026-11-02). *Risk:* a worker's `fixed` or `rejected` disposition is wrong but survives (e.g. the confirming review misses it), so a real problem slips through. *Mitigation today:* dispositions are provisional until an independent review confirms them, and persistent disagreement escalates to the owner (§18 #12). *Options discussed and set aside:* (a) the Director judges a dispute itself. The owner's view is that a well-presented dispute needs no subject expertise, the same as a juror or arbiter, but the Director's impartiality must remain sacrosanct, so the Director does not judge. (b) The Director mediates by routing: the runtime opens a pending dispute, and the Director sends it to an independent arbiter worker (a dispatch at `<step>~arbiter`, different vendor from worker and reviewer, returning uphold/reopen with reasons) or escalates it to the owner. The worker and the reviewer must present their evidence so that no subject expertise is needed to decide. This adds a "dispute" concept (§2). *Trigger to revisit:* the owner sees cases where problems slip through because of erroneous worker dispositions. Then reopen this item with these options; (b) is the leading candidate.
+19. **Format versions for Phase 17's additions** (structured questions, `answers`, human-gate `labels`, framing events). [Additive within the current `baton-packet/1`, `baton-recipe/1` and `baton-events/1`, no version bump: every addition is optional or a new event type, and the lockfile already pins the runtime that reads them.]
+20. **Communication style scope.** Per project (one `communication.md`), or per contact, so a developer owner can use the operator style while a client on the same project gets the conversational one? [Per project for now; per contact when a project has more than one person deciding.]
+21. **Who owns decision labels.** [Runtime defaults in `defaults/labels.yaml`; a recipe may label its own human gates; no project-level override yet.]
+22. **Framing and `fit-check`.** Should framing replace `fit-check` for goals? [No: `fit-check` stays a standalone recipe for a single idea; framing proposes a `fit-check` run for any part without a fitting recipe.]
+23. **Framing with one part.** If `frame` proposes a single part, does the owner still choose? [Yes, as one confirm-back: "So we'll start on X?" Selecting is the owner's decision even with one option.]
+24. **Partial answers.** May the owner leave a `needed` question unanswered? [Yes, with `--partial`; the step gets the confirmed answers and may ask again.]
 
 ---
 
@@ -1453,6 +1536,7 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
   - authoring a neutral recipe (including groups, complexity levels and reviews);
   - vendoring a recipe;
   - adopting an existing project;
+  - framing a goal into work items, and choosing the conversational or operator communication style;
   - resuming on a new machine;
   - trialing a new version on a branch.
 - Three example recipes ship (§5.7): `fit-check`, `software-feature` (software) and `backyard-project` (non-software).
@@ -1460,4 +1544,5 @@ Suggested answers are in brackets; the guide assumes them until told otherwise.
 - Principle checks, demonstrated in Phase 16:
   - after setup, a healthy project produces no routine owner prompts;
   - adoption needs exactly one owner decision;
-  - every owner touchpoint is a recipe gate, an escalation or the baseline.
+  - every owner touchpoint is a recipe gate, an escalation, the baseline or a framing selection;
+  - an owner unfamiliar with Baton can frame a goal and answer a step's questions without meeting Baton's vocabulary, and every answer recorded was confirmed back (Phase 17).
