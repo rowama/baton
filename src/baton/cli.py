@@ -184,9 +184,18 @@ def detect(as_json: JsonOpt = False) -> None:
 
     out = _call(as_json, lambda: run_detect(_opts.project, director=_director()))
     lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
+    lines += _blocking_lines(out)
     lines += [f"WARNING {w}" for w in out["warnings"]]
     _emit(out, as_json, "\n".join(lines))
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
+
+
+def _blocking_lines(out: dict) -> list[str]:
+    """A blocking problem's owner message and options (material for the Director, §13.8)."""
+    b = out.get("blocking")
+    if not b:
+        return []
+    return ["", b["message"], "", "Options: " + " | ".join(o["label"] for o in b["options"])]
 
 
 def _director() -> Any:
@@ -777,6 +786,7 @@ def doctor(
     """Machine readiness: lockfile, profiles (env, executables, a no-op run each), uncovered steps. One line when healthy."""
     out = _call(as_json, lambda: _api().doctor(profile, run_noop=not no_run))
     lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
+    lines += _blocking_lines(out)
     lines += [f"WARNING {w}" for w in out["warnings"]]
     _emit({**out}, as_json, "\n".join(lines))
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)

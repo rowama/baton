@@ -35,3 +35,7 @@ publish_conflict:          # a file the work wants to write already exists
 drift:                     # a delivered file was edited afterwards
   leave:  { label: "Leave it as it is", effect: "Your edit stays; later work keeps using the original version." }
   ingest: { label: "Use my edited version", effect: "Your edited file becomes the version later work uses." }
+director_sandboxed:        # the Director's own tool sandboxes Baton (informational: the owner acts outside Baton)
+  connect_tool:       { label: "Connect Baton to Codex (recommended)", effect: "Baton runs as a tool the AI tool connects to, outside its sandbox; the AI tool stays sandboxed for everything else. One command, then a restart." }
+  approve_when_asked: { label: "Approve when asked", effect: "The AI tool asks before each Baton command leaves its sandbox. Expect frequent prompts." }
+  turn_off_sandbox:   { label: "Turn off the sandbox", effect: "The AI tool runs without its sandbox and can then change anything on your computer." }

@@ -186,3 +186,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0051 The launcher is the package's own entry point](decisions/0051-launcher-mechanics.md) | accepted |
 | [0052 Format families, migrate, upgrade and step-id signatures](decisions/0052-format-window-migrate-upgrade.md) | accepted |
 | [0053 Codex directs Baton through MCP, not shell commands](decisions/0053-codex-director-via-mcp.md) | accepted |
+| [0054 What counts as a sandboxed Director](decisions/0054-sandbox-detection.md) | accepted |

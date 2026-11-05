@@ -32,13 +32,25 @@ run here: ``hooks.yaml`` is valid, its ``secret:`` references resolve, and
 each command's program is found on PATH. Hooks are never fired by doctor.
 
 Platform incidents arrive with their layer (Phase 12).
+
+**A sandboxed Director** (§13.4; decisions 0053, 0054). Before anything else,
+``sandbox_probe`` checks that a file can be created under the Baton home and
+that the network is not refused. A harness that sandboxes its own commands
+(Codex in ``workspace-write`` mode) refuses both, and every worker dispatched
+from that shell would inherit the sandbox. That is reported as one blocking
+problem, ``director_sandboxed``, with a plain-language message for the owner
+and informational options, and nothing else runs. Every write ``doctor`` makes
+under the Baton home goes through ``_home_log``, so a refused write is reported
+the same way, never as a traceback.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import platform
+import socket
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -54,10 +66,123 @@ PREFLIGHT_TIMEOUT_S = 600
 #: How to log in again, per harness, for the "not logged in" fix.
 LOGIN_HINTS = {"claude_code": "claude auth login", "codex": "codex login"}
 
+# ---------------------------------------------------------------------------
+# A sandboxed Director (decisions 0053, 0054)
+# ---------------------------------------------------------------------------
+
+#: How sandboxes refuse: a read-only mount (Linux), permission denied, or not permitted (macOS seatbelt, seccomp).
+SANDBOX_ERRNOS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
+#: TEST-NET-1 (RFC 5737). Connecting a UDP socket only looks up a route: no packet is ever sent.
+NETWORK_PROBE = ("192.0.2.1", 9)
+CODEX_HINT = "CODEX_SANDBOX_NETWORK_DISABLED"  # experimental; tailors the message, never decides
+MCP_COMMAND = "codex mcp add baton -- baton mcp"
+
+_MESSAGE_CODEX = """**Baton can't run from inside this AI tool's sandbox.**
+Codex limits the commands it runs: they can only change files in this project folder, and usually can't reach the internet. Baton needs both: it keeps its working files in your home folder (`~/.baton`), and the AI helpers it starts need the internet.
+
+**Fix (recommended): connect Baton to Codex as a tool.** Codex runs connected tools outside its sandbox, so Baton works fully and Codex stays sandboxed for everything else. Run this once in your own terminal, then restart Codex:
+`codex mcp add baton -- baton mcp`
+
+Other ways, if you prefer:
+- Approve Baton's commands when Codex asks. Expect frequent prompts.
+- Run Codex without its sandbox (`codex --sandbox danger-full-access`). Codex can then change anything on your computer."""
+
+_MESSAGE_GENERIC = """**Baton can't run from inside this AI tool's sandbox.**
+This AI tool limits the commands it runs: they can only change files in this project folder, and may not reach the internet. Baton needs both: it keeps its working files in your home folder (`~/.baton`), and the AI helpers it starts need the internet.
+
+**Fix (recommended): connect Baton to this AI tool as a tool (an MCP server).** AI tools usually run connected tools outside their sandbox, so Baton works fully and the tool stays sandboxed for everything else. Add the MCP server command `baton mcp` in this tool's settings, then restart it.
+
+Other ways, if you prefer:
+- Approve Baton's commands when the tool asks. Expect frequent prompts.
+- Run the tool without its sandbox. It can then change anything on your computer."""
+
+
+class HomeWriteError(Exception):
+    """A write under the Baton home was refused; ``problem`` is what doctor reports."""
+
+    def __init__(self, path: Path, error: OSError):
+        super().__init__(f"cannot write {path}: {error.strerror or error}")
+        self.path, self.error = path, error
+
+
+def _home_writable(home: Path) -> OSError | None:
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        fd, probe = tempfile.mkstemp(prefix=".baton-probe-", dir=home)
+        os.close(fd)
+        os.unlink(probe)
+    except OSError as e:
+        return e
+    return None
+
+
+def network_state() -> str:
+    """``ok``, ``denied`` (refused by a sandbox) or ``unreachable`` (no route: offline). Local only."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except OSError as e:
+        return "denied" if e.errno in SANDBOX_ERRNOS else "unreachable"
+    try:
+        s.settimeout(2)
+        s.connect(NETWORK_PROBE)
+    except OSError as e:
+        return "denied" if e.errno in SANDBOX_ERRNOS else "unreachable"
+    finally:
+        s.close()
+    return "ok"
+
+
+def sandboxed(home_error: OSError | None, network: str) -> dict[str, Any]:
+    """The ``director_sandboxed`` problem: the owner message and its informational options."""
+    from . import labels
+
+    codex = os.environ.get(CODEX_HINT) == "1"
+    overrides = {} if codex else {"connect_tool": "Connect Baton as a tool (recommended)"}
+    return {
+        "code": "director_sandboxed",
+        "title": "Baton can't run from inside this AI tool's sandbox",
+        "message": _MESSAGE_CODEX if codex else _MESSAGE_GENERIC,
+        "fix": MCP_COMMAND if codex else "register `baton mcp` as an MCP server in this AI tool",
+        "harness": "codex" if codex else None,
+        "cause": {"home": None if home_error is None else f"{home_error.strerror or home_error}", "network": network},
+        "options": labels.options("director_sandboxed", ["connect_tool", "approve_when_asked", "turn_off_sandbox"], overrides),
+    }
+
+
+def sandbox_probe(home: Path) -> tuple[dict[str, Any] | None, list[str], list[str]]:
+    """``(blocking, problems, warnings)`` for this process's Baton home and network (decision 0054)."""
+    err = _home_writable(home)
+    net = network_state()
+    if (err is not None and err.errno in SANDBOX_ERRNOS) or net == "denied":
+        return sandboxed(err if err is not None and err.errno in SANDBOX_ERRNOS else None, net), [], []
+    problems = [f"cannot write the Baton home {home}: {err.strerror or err}"] if err is not None else []
+    warnings = ["this machine has no network route; workers that use the internet will fail"] if net == "unreachable" else []
+    return None, problems, warnings
+
+
+def blocked_report(blocking: dict[str, Any], line_prefix: str) -> dict[str, Any]:
+    """The whole report of a command that stops at ``director_sandboxed``: one problem."""
+    return {
+        "ok": False, "line": f"{line_prefix}: {blocking['title']}", "blocking": blocking,
+        "problems": [f"director_sandboxed: {blocking['title']} (fix: {blocking['fix']})"], "warnings": [],
+    }
+
+
+def _home_log(log_path: Path) -> Path:
+    """Every write doctor makes under the Baton home: refused writes raise ``HomeWriteError``."""
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "ab"):
+            pass
+    except OSError as e:
+        raise HomeWriteError(log_path, e) from e
+    return log_path
+
 
 def _run(argv: list[str], env: Any, cwd: Path, log_path: Path, timeout_s: float) -> Any:
     from .supervisor import run_child
 
+    _home_log(log_path)
     if env.resolved is not None:
         argv = [env.resolved.executable, *argv[1:]]
     return run_child(argv, env=env.env, cwd=cwd, log_path=log_path, timeout_s=timeout_s)
@@ -321,10 +446,21 @@ def _hook_problems(project: Any) -> list[str]:
 
 
 def doctor(project: Any, only: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
+    blocking, problems, warnings = sandbox_probe(project.home)
+    if blocking is not None:
+        return {**blocked_report(blocking, "doctor"), "profiles": {}, "uncovered_steps": []}
+    try:
+        return _doctor(project, only, run_noop, problems, warnings)
+    except HomeWriteError as e:
+        if e.error.errno in SANDBOX_ERRNOS:
+            return {**blocked_report(sandboxed(e.error, network_state()), "doctor"), "profiles": {}, "uncovered_steps": []}
+        return {"ok": False, "line": "doctor: 1 problem(s)", "problems": [str(e)], "warnings": warnings, "profiles": {}, "uncovered_steps": []}
+
+
+def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str], warnings: list[str]) -> dict[str, Any]:
     from .routing import PreferencesError, load_preferences
 
-    problems: list[str] = _lock_problems(project)
-    warnings: list[str] = []
+    problems = problems + _lock_problems(project)
     if only is None:
         problems += _supervisor_problems(project) + _hook_problems(project)
     try:

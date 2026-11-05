@@ -1,9 +1,9 @@
 ---
 id: 2026-11-codex-director-sandbox
 title: "Codex as Director: detect its sandbox and connect Baton through MCP"
-status: proposed
+status: in-progress
 level: standard
-decisions: ["0053"]   # codex-director-via-mcp, owner decision 2026-11-04
+decisions: ["0053", "0054"]   # codex-director-via-mcp; sandbox-detection (slice 1), owner decisions 2026-11-04
 touches: [design/director-interface.md, design/platform-and-security.md]   # §13.2, §13.3, §13.4, §15; also the repo README.md
 ---
 
@@ -53,7 +53,7 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 - Probe first, before anything that writes logs:
   - Can a file be created under the Baton home (`BATON_HOME`, default `~/.baton`)?
   - Is network access available? This check is cheap, local where possible, and has a short timeout.
-- Both failing, or the home write failing with `EROFS` or `EACCES`, means `director_sandboxed`.
+- The home write refused with `EROFS`, `EACCES` or `EPERM`, or the network refused, means `director_sandboxed` (decision [0054](../decisions/0054-sandbox-detection.md); it settles criterion 1's "no network" as *refused* network). The network probe connects a UDP socket to a TEST-NET address: no packet is sent, a sandbox refuses it with a permission error, an offline machine answers "unreachable". Offline is an ordinary warning; other home-write errors (disk full) are an ordinary problem.
 - `CODEX_SANDBOX_NETWORK_DISABLED=1` is a hint that the caller is Codex ([Codex commit](https://forge.lthn.ai/core/core-agent-ide/commit/fde48aaa0d0becdf51ce930d6d987ee07d6d031f)). It is experimental, so use it only to tailor the message, never as the test.
 - Without that hint, say "this AI tool's sandbox" and still name the MCP fix generically: connect Baton as an MCP tool.
 - Every write to the Baton home in `detect` and `doctor` goes through one helper that turns `OSError` into this problem. No tracebacks reach the Director.
@@ -80,4 +80,9 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 
 ## Log
 
-(empty)
+### Probe and problem
+
+- **Commit:** `2026-11-codex-director-sandbox: probe and problem`
+- **Summary:** `sandbox_probe` (home write, refused network) runs first in `detect` and `doctor` (`src/baton/doctor.py`, `src/baton/adopt.py`); `director_sandboxed` stops both with one problem, a `blocking` payload (owner message, Codex-tailored when `CODEX_SANDBOX_NETWORK_DISABLED=1`, fix, cause, options) and exit 1; the CLI's text output carries the message. Every doctor log write goes through `_home_log`. Labels: `defaults/labels.yaml` `director_sandboxed`. Docs: §13.4, §13.8 label kinds; decision 0054. Tests: `tests/test_sandbox.py` (a real read-only home for `doctor`, `detect` and `detect` outside a project; each sandbox errno; refused network and socket creation; the Codex message; offline is a warning; a refused log write mid-doctor, sandbox and disk-full; the helper; text output; the healthy path; the labels' wording).
+- **Review:** not yet reviewed.
+- **Accepted:** not yet (criteria 1–2 are this slice's; the owner accepts).

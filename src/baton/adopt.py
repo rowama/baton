@@ -123,14 +123,25 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
     from .locks import Director
     from .project import Project, find_root
 
+    from .doctor import blocked_report, sandbox_probe
+    from .project import machine_home
+
     start = Path(root or Path.cwd()).resolve()
+    # A sandboxed Director comes first: nothing else can work until it is resolved (decisions 0053, 0054).
+    blocking, probe_problems, probe_warnings = sandbox_probe(Path(home) if home else machine_home()) if machine else (None, [], [])
     try:
         found = find_root(start)
     except EngineError:
         git = is_repo(start) if start.is_dir() else False
+        if blocking is not None:
+            return {**blocked_report(blocking, "baton"), "project": {"situation": "no_baton", "root": str(start), "git": git},
+                    "runs": [], "machine": None, "incidents": []}
         line = f"No Baton project at {start}" + (" (a git repository)" if git else "") + ": adopt it with `baton adopt <recipe>`."
-        return {"ok": True, "project": {"situation": "no_baton", "root": str(start), "git": git}, "runs": [], "machine": None,
-                "incidents": [], "problems": [], "warnings": [], "line": line}
+        return {"ok": not probe_problems, "project": {"situation": "no_baton", "root": str(start), "git": git}, "runs": [], "machine": None,
+                "incidents": [], "problems": probe_problems, "warnings": probe_warnings, "line": line}
+    if blocking is not None:
+        return {**blocked_report(blocking, "baton"), "project": {"situation": "unknown", "root": str(found), "git": is_repo(found)},
+                "runs": [], "machine": None, "incidents": []}
     project = Project.open(found, home=home)
     try:
         director = director or Director.current()
@@ -150,6 +161,9 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
             from .doctor import doctor
 
             mach = doctor(project, run_noop=False)
+            if mach.get("blocking"):
+                return {**blocked_report(mach["blocking"], "baton"), "project": {"situation": "unknown", "root": str(project.root), "git": is_repo(project.root)},
+                        "runs": [], "machine": None, "incidents": []}
             problems += [f"doctor: {p}" for p in mach["problems"]]
             warnings += [f"doctor: {w}" for w in mach["warnings"]]
         from .sme import incidents as _incidents
