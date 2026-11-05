@@ -3,7 +3,7 @@ id: 2026-11-codex-director-sandbox
 title: "Codex as Director: detect its sandbox and connect Baton through MCP"
 status: in-progress
 level: standard
-decisions: ["0053", "0054"]   # codex-director-via-mcp; sandbox-detection (slice 1), owner decisions 2026-11-04
+decisions: ["0053", "0054", "0055"]   # codex-director-via-mcp; sandbox-detection (slice 1); README before the live check (slice 2); owner decisions 2026-11-04
 touches: [design/director-interface.md, design/platform-and-security.md]   # §13.2, §13.3, §13.4, §15; also the repo README.md
 ---
 
@@ -70,7 +70,7 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 - §13.3 skill: the blocking-problem and prefer-MCP rules.
 - §15: a note on harness sandboxes.
 
-**Risk.** The "MCP runs outside the sandbox" claim rests on a maintainer statement and one third-party macOS report, so acceptance criterion 5 must pass on Linux before the README recommends it. If it fails, reopen the decision.
+**Risk.** The "MCP runs outside the sandbox" claim rests on a maintainer statement and one third-party macOS report, so acceptance criterion 5 must pass on Linux before the README recommends it. If it fails, reopen the decision. Until then the README section carries a "not yet confirmed by a live run" note (decision [0055](../decisions/0055-codex-readme-before-live-check.md)); slice 3 removes it or reworks the section.
 
 ## Plan
 
@@ -86,3 +86,10 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 - **Summary:** `sandbox_probe` (home write, refused network) runs first in `detect` and `doctor` (`src/baton/doctor.py`, `src/baton/adopt.py`); `director_sandboxed` stops both with one problem, a `blocking` payload (owner message, Codex-tailored when `CODEX_SANDBOX_NETWORK_DISABLED=1`, fix, cause, options) and exit 1; the CLI's text output carries the message. Every doctor log write goes through `_home_log`. Labels: `defaults/labels.yaml` `director_sandboxed`. Docs: §13.4, §13.8 label kinds; decision 0054. Tests: `tests/test_sandbox.py` (a real read-only home for `doctor`, `detect` and `detect` outside a project; each sandbox errno; refused network and socket creation; the Codex message; offline is a warning; a refused log write mid-doctor, sandbox and disk-full; the helper; text output; the healthy path; the labels' wording).
 - **Review:** not yet reviewed.
 - **Accepted:** not yet (criteria 1–2 are this slice's; the owner accepts).
+
+### Skill and README
+
+- **Commit:** `2026-11-codex-director-sandbox: skill and README`
+- **Summary:** The director skill (`skills/baton-director/SKILL.md` and its §13.3 text) prefers the MCP tools over the shell whenever it has both, and takes a `blocking` `detect` problem up with the owner before any other work, relaying its `message` and offering its `options` by label. §13.2: Codex registration is `codex mcp add baton -- baton mcp`, checked against `codex-cli` 0.166.0 and no longer [VERIFY]. README: "Using Codex as Director", with the not-yet-confirmed note (decision 0055). No new calls. Tests: the skill test checks both new rules; the shipped skill still equals §13.3; docs links and § references resolve.
+- **Review:** not yet reviewed.
+- **Accepted:** not yet (criteria 3–4 are this slice's; the owner accepts).

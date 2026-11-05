@@ -136,6 +136,18 @@ The Director talks with the owner like a project manager with a stakeholder: in 
 
 `.baton/communication.md` sets the style. The default is conversational. For the terse operator style (brief status, a list of your actions with each command in its own block, then the one decision owed), copy Baton's `defaults/communication-operator.md` over it.
 
+## Using Codex as Director
+
+Codex sandboxes the commands it runs: in its default `workspace-write` mode they can change only the project folder and usually can't reach the internet, and everything they start inherits that. Baton keeps its working files in `~/.baton` and its workers need the internet, so connect Baton to Codex as an MCP tool instead of letting Codex run `baton` in its shell. Codex runs MCP servers outside its sandbox, and stays sandboxed for everything else (§13.2). Once, in your own terminal:
+
+```sh
+codex mcp add baton -- baton mcp
+```
+
+Then restart Codex. It calls Baton's tools directly, with the same names and arguments as the CLI. If Codex runs `baton detect` from its sandboxed shell anyway, Baton stops with `director_sandboxed` and this fix, rather than failing part way (§13.4).
+
+> **Not yet confirmed by a live run.** That Codex runs MCP servers outside its sandbox rests on a Codex maintainer's statement. A live run on Linux ([change doc](docs/changes/2026-11-codex-director-sandbox.md), part 3) will confirm it or change this advice.
+
 ## Example recipes
 
 | Recipe | What it shows |

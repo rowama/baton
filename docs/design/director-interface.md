@@ -41,7 +41,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
   - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
   - **HTTP** (`baton mcp --http [--port 8765]`), for Directors without shell access: streamable HTTP, started and stopped by the owner in the foreground on the runtime host, never detached or restarted by Baton, and nothing depends on it running. It binds a **loopback address only** (`--host` must be loopback): without TLS the token would cross the network in the clear, so remote access goes through a TLS proxy or tunnel of the owner's choice. Native HTTPS can be added later without other changes. Every request needs `Authorization: Bearer <token>`; the token comes only from `~/.baton/mcp.yaml` (`token: secret:<name>`, resolved like profile secrets, at least 16 characters), and the server refuses to start without one.
   - The Director identity is the server process's `--director` / `BATON_DIRECTOR`, its harness `BATON_HARNESS`.
-- Registration per harness **[VERIFY]**: Claude Code `.mcp.json` or `claude mcp add baton -- baton mcp`; Codex `[mcp_servers.baton]` in its config; Hermes `hermes mcp add baton --command "baton mcp"`.
+- Registration per harness: Codex `codex mcp add baton -- baton mcp` (checked against `codex-cli` 0.166.0). Codex is directed through MCP, not its shell: it runs MCP servers outside the sandbox that confines its own commands and everything they start (Decision: [0053](../decisions/0053-codex-director-via-mcp.md); a sandboxed shell gets `director_sandboxed`, §13.4). Claude Code `.mcp.json` or `claude mcp add baton -- baton mcp`, Hermes `hermes mcp add baton --command "baton mcp"` **[VERIFY]**. The director skill prefers MCP whenever a harness has both (§13.3).
 
 ### 13.3 Skills
 
@@ -56,7 +56,7 @@ description: Run, resume, or adopt Baton work as Director — keep every work it
 # Baton Director
 
 You coordinate. You are the expert on the process — not on any step's subject matter, and not on the platform.
-Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP tools (`baton mcp`; same names, same arguments).
+Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI with `--json` on the runtime host: same names, same arguments. Prefer MCP even when you also have a shell, since a harness that sandboxes its shell commands usually runs MCP tools outside the sandbox.
 
 ## Hard rules
 - Never perform step work yourself. Every step's output comes from dispatch/submit.
@@ -68,7 +68,7 @@ Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP too
 - Act only within the project's action permissions. `ask` means request it; `deny` means never.
 
 ## Each session
-1. `detect`, then `doctor`. Silent when healthy; interrupt the owner only for a real problem.
+1. `detect`, then `doctor`. Silent when healthy; interrupt the owner only for a real problem. A `blocking` problem (e.g. `director_sandboxed`) comes before everything else: take it up with the owner first, relaying its `message` in conversation and offering its `options` by label, do no other work until it is resolved, then `detect` again.
 2. `board`. For each run that needs you: `resume` it. If its lease is held elsewhere, report holder and expiry; take over only with the owner's approval.
 3. New work is a new run (`start`, then triage). Never fold unrelated work into an active run. When the owner states a goal rather than a task ("I want to start a water vending business"), offer to frame it (`frame`), and use the owner's own words as its input.
 4. A project with no work yet (just after `init`): ask the owner what they'd like help with, in their terms, and frame it. Nothing needs vendoring first: framing proposes from the recipes shipped with Baton and starts what the owner chooses. If no worker on this machine can do the framing step, say so plainly, with what `doctor` reports.

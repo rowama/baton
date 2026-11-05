@@ -281,6 +281,9 @@ def test_director_skill_names_every_call_it_relies_on():
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
     assert "--answers <file>" in text and "frame select --items" in text
+    # A blocking detect problem comes first; MCP is preferred over a (possibly sandboxed) shell (§13.3, decision 0053).
+    assert "A `blocking` problem (e.g. `director_sandboxed`) comes before everything else" in text
+    assert "Prefer MCP even when you also have a shell" in text
 
 
 def test_shipped_director_skill_is_the_guides_text():
