@@ -293,6 +293,7 @@ def test_director_skill_names_every_call_it_relies_on():
                  "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame"):
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
+    assert "## Before you ask the owner anything" in text   # change 2026-11-director-question-check
     assert "--answers <file>" in text and "frame select --items" in text
     # A blocking detect problem comes first; MCP is preferred over a (possibly sandboxed) shell (§13.3, decision 0053).
     assert "A `blocking` problem (e.g. `director_sandboxed`) comes before everything else" in text

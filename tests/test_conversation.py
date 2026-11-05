@@ -289,7 +289,7 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     assert st["goal"].startswith("Start a business") and [p["id"] for p in st["parts"]] == ["setup", "kiosk", "signage", "running"]
     pd = status(cli, fr)["pending_decisions"]
     assert [(p["ref"], p["kind"]) for p in pd] == [("frame", "gate")]
-    assert [o["decision"] for o in pd[0]["options"]] == ["select", "reject"] and pd[0]["options"][0]["label"] == "Start on these"
+    assert [o["decision"] for o in pd[0]["options"]] == ["select", "reject"] and pd[0]["options"][0]["label"] == "Start work on these"
 
     # approve is not how a selection is made
     bad = cli.run("decide", fr, "frame", "approve", "--note", "ok", expect=1)
