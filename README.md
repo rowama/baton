@@ -10,7 +10,7 @@
 - Context efficiency by design, nothing arbitrary
 - Undistracted, focused process Director, the Baton expert.
 
-Baton is a small runtime that lets any agentic harness act as the **Director** of a multi-step process. Each step is done by a **worker**: a model API call, a headless coding agent, or a person. Processes are **recipes**: model-neutral, shareable packages of steps, inputs, gates and prompts. The runtime builds each worker's packet, checks each result, keeps an append-only, hash-chained record in your repository, and wakes the Director when work finishes. The design and every rule are in [`docs/baton-framework-build-guide.md`](docs/baton-framework-build-guide.md); section numbers below (§) point into it.
+Baton is a small runtime that lets any agentic harness act as the **Director** of a multi-step process. Each step is done by a **worker**: a model API call, a headless coding agent, or a person. Processes are **recipes**: model-neutral, shareable packages of steps, inputs, gates and prompts. The runtime builds each worker's packet, checks each result, keeps an append-only, hash-chained record in your repository, and wakes the Director when work finishes. The design and every rule are in [`docs/`](docs/README.md): [`docs/principles.md`](docs/principles.md) for the principles, `docs/design/` for the design by topic, `docs/decisions/` for the owner's decisions. Section numbers below (§) are listed in the [§ index](docs/README.md#-index), which names the file holding each one.
 
 ---
 

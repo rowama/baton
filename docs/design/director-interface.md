@@ -1,0 +1,196 @@
+## 13. The Director Interface
+
+### 13.1 The API (engine; one table)
+
+Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 problem, 2 usage, 3 lease held elsewhere, 4 needs owner decision) and as an MCP tool.
+
+| Call | Purpose |
+|---|---|
+| `detect()` | Project and run situations; machine readiness; one line when healthy |
+| `board(needs_me?)` | All non-terminal runs, positions (with group progress), running and queued work, pending decisions, lease holders; `needs_me` keeps runs with pending owner decisions |
+| `recipes()` / `plan(recipe)` | Vendored recipes; per-level step and gate table |
+| `start(recipe, inputs)` | New run (work item); claims its lease |
+| `status(run)` / `explain(run)` | State, pending items, findings, drift / process-facts narrative |
+| `eligible(run, step_path)` | Ordered eligible profiles with reasons |
+| `dispatch(run, step_path, worker, wait=false)` | Build packet, start supervised worker; returns a dispatch id (or `queued` behind the workspace lock, §8.9) |
+| `cancel(run, step_path)` | Withdraw a queued dispatch |
+| `wait(run, dispatch_id?, timeout?)` | Block until completion (attached Directors) |
+| `submit(run, step_path, result_dir)` | For manual/external workers |
+| `decide(run, ref, decision, note)` | Record an owner decision verbatim (gates: `approve`/`reject`; escalations: `retry` with a fresh attempt budget, the note becoming the next packet's feedback, or `abandon`; an instance at its iteration limit (`ref` = instance path): `retry` with a fresh iteration budget, or `abandon`; a finding (`ref` = `<step_path>#<finding>`): `accept-risk`; a runnable stale step: `confirm` (keep the earlier result, §8.1); a skip notice (`ref` = `skip:<seq>`): `acknowledge` (§12.4); a publish conflict (`ref` = `publish:<step_path>.<artifact>`): `overwrite`, `keep` or `alternate` (`path?`); drift (`ref` = `drift:<step_path>.<artifact>`): `leave` (§10.4, §10.5); a `blocked` step's questions: `retry` with `--answers <file>`, the owner's confirmed answers (§13.8); a framing run's `frame` gate: `select --items <ids>` or `reject` (§11.6); later: baseline items). Every pending decision in `status` and `board` lists its `options` as `[{decision, label, effect}]`: `label` and `effect` in plain language (§13.8) |
+| `retry(run, step_path, worker?, guidance?)` | New attempt; guidance is additive only |
+| `retriage(run, reason)` / `revise(run, step_path, reason)` | Re-triage (§5.5; the new level waits on the owner's `decide <run> <triage step> approve\|reject`); correct an earlier step in this run |
+| `disposition(run, step_path, finding, disposition, evidence?)` / `waive(run, step_path, gate, reason)` | Reviews (§9): `step_path` is the step that recorded the finding; `finding` its id (or `<gate>:<id>`) |
+| `ingest_revision(run, step_path, artifact, note, feed?)` | Accept a drifted published file as a human revision, the note being the owner's words (§10.5) |
+| `ask_sme(subject, question, refs, run?, mode, worker?, contact?, wait?)` / `sme_followup(consultation, question?, refs?, attach?)` / `sme_status(consultation, wait?)` (CLI `sme`) / `sme_handoff(consultation)` / `sme_eligible(subject, run?)` / `promote_sme(consultation, target, note, text?, turn?)` | Experts (§12): consult (relay or handoff), follow up, read the record, a runtime-made handoff prompt, eligible experts, promotion with the owner's words |
+| `platform_fact(text, source)` / `platform_incident(list\|show\|resolve, id?, fix?)` / `feedback(kind, text, run?, step?, gate?, informed_owner?)` | Project-level records (§12.3, §12.4) |
+| `adopt(recipe, crosswalk?, scope?)` / `establish_baseline(adoption, note)` | Adoption (§11): start an adoption run, or report the active one; apply the baseline proposal as the owner's one decision |
+| `frame(words)` | Framing (§11.6): start a framing run from the owner's goal in their words, or report the active one (goal, parts, next) |
+| `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
+| `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
+| `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
+| `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
+| `init(bare?)` / `vendor(recipe_dir, approved?, note?)` / `upgrade(to?)` / `migrate(dry_run?)` | Setup and versioning (§14): `init` also vendors the starter recipes unless `bare` (§11.6); a vendoring that changes or reuses step ids returns `needs_owner` until repeated with `approved` and the owner's words; `upgrade` pins this runtime (the launcher runs `--to <v>` under `<v>`); `migrate` brings stored files below the readable window to the current formats |
+
+No call lets the Director write step outputs, artifacts or events directly. Quiet by default: `detect`, `doctor`, `resume`, `status` and `check` print one line when healthy (a completed run's status leaves out its group progress).
+
+### 13.2 CLI and MCP
+
+- The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
+- The MCP server (`baton mcp`; the official Python SDK `mcp` 2.x, checked against 2.3.0, installed with the optional extra `baton[mcp]`) exposes the same calls as tools, one per call with the CLI's names (`-` → `_`) and arguments. Results are the CLI's `--json` payloads; a refusal is a tool error whose text is the JSON payload with `exit_code` (1 problem, 3 lease held elsewhere); `needs_owner` stands for exit code 4. Every tool call opens the project afresh, like one CLI invocation: the server holds no state, and work it dispatched runs on under its supervisors.
+- Decision: [0048](../decisions/0048-mcp-transports.md).
+  - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
+  - **HTTP** (`baton mcp --http [--port 8765]`), for Directors without shell access: streamable HTTP, started and stopped by the owner in the foreground on the runtime host, never detached or restarted by Baton, and nothing depends on it running. It binds a **loopback address only** (`--host` must be loopback): without TLS the token would cross the network in the clear, so remote access goes through a TLS proxy or tunnel of the owner's choice. Native HTTPS can be added later without other changes. Every request needs `Authorization: Bearer <token>`; the token comes only from `~/.baton/mcp.yaml` (`token: secret:<name>`, resolved like profile secrets, at least 16 characters), and the server refuses to start without one.
+  - The Director identity is the server process's `--director` / `BATON_DIRECTOR`, its harness `BATON_HARNESS`.
+- Registration per harness **[VERIFY]**: Claude Code `.mcp.json` or `claude mcp add baton -- baton mcp`; Codex `[mcp_servers.baton]` in its config; Hermes `hermes mcp add baton --command "baton mcp"`.
+
+### 13.3 Skills
+
+**`skills/baton-director/SKILL.md`** (Agent Skills format; vendored into projects):
+
+```markdown
+---
+name: baton-director
+description: Run, resume, or adopt Baton work as Director — keep every work item moving, route steps to capable workers, follow long-running work, handle gates, findings and escalations, talk with the owner in their own terms the way a project manager engages a stakeholder, route questions to the right expert, and keep the owner informed. Use whenever the user asks to start, continue, resume, adopt, check, or ask about Baton work.
+---
+
+# Baton Director
+
+You coordinate. You are the expert on the process — not on any step's subject matter, and not on the platform.
+Use the `baton` CLI with `--json` on the runtime host, or the equivalent MCP tools (`baton mcp`; same names, same arguments).
+
+## Hard rules
+- Never perform step work yourself. Every step's output comes from dispatch/submit.
+- Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
+- Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
+- Retry guidance is additive; never restate or summarize inputs.
+- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction.
+- Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
+- Act only within the project's action permissions. `ask` means request it; `deny` means never.
+
+## Each session
+1. `detect`, then `doctor`. Silent when healthy; interrupt the owner only for a real problem.
+2. `board`. For each run that needs you: `resume` it. If its lease is held elsewhere, report holder and expiry; take over only with the owner's approval.
+3. New work is a new run (`start`, then triage). Never fold unrelated work into an active run. When the owner states a goal rather than a task ("I want to start a water vending business"), offer to frame it (`frame`), and use the owner's own words as its input.
+4. A project with no work yet (just after `init`): ask the owner what they'd like help with, in their terms, and frame it. Nothing needs vendoring first: framing proposes from the recipes shipped with Baton and starts what the owner chooses. If no worker on this machine can do the framing step, say so plainly, with what `doctor` reports.
+
+## Per run
+1. `status` → ready steps, running work, pending owner decisions, open findings, drift.
+2. Pending owner decision: hold the conversation it needs (see *Talking to the owner*), confirm back, then record it (`decide <run> <ref> <decision> --note "<owner's words>"`). A `blocked` step's questions: take them up with the owner, confirm the answers, write them to a file outside `.baton/` and `decide <run> <step> retry --answers <file> --note "<owner's words>"`. A framing run's choice: confirm the goal, let the owner choose parts, confirm back, then `decide <run> frame select --items <ids> --note "<owner's words>"`; tell the owner plainly about any part that could not start (a gap) and why.
+3. Ready step: `eligible` → choose (respect preference order unless there is a stated reason) → `dispatch`. Starting work the process already calls for is not a question for the owner.
+4. Dispatch returns at once. If you can stay attached, `wait`; otherwise end your turn — the completion hook or the next `board` brings you back. Never treat work as finished until Baton records it.
+5. A manual worker (a person) does the step: tell them where the packet is; they write the result; `submit` hands it in. Never write it for them.
+6. Gate failure: retry while attempts remain (another eligible worker if useful); review loops are handled by the recipe; otherwise escalate.
+7. Failure classified `platform` or `unknown`: consult the platform SME with the incident; `configuration`: tell the owner the exact fix.
+8. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage`.
+9. Run complete: `summary` → present to the owner; release the lease.
+
+## Pushing and other repo actions
+- Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.
+- Before a tag, merge, deploy or force push, call `permission <action> --detail "<what you will do>"`.
+- `allow`: go ahead. `ask` (exit 4): ask the owner; if they approve, repeat the same call with `--approved --note "<owner's words>"`. `deny`: never attempt it, and say so.
+
+## Questions
+- About the process (where things are, what's next): answer from `explain`/`status`/`board`, never from memory. If the record doesn't say, say so.
+- Subject matter → `ask_sme project`. Infrastructure, tools, accounts, deployment → `ask_sme platform`. How Baton or the recipe should work → `ask_sme process`.
+- Never answer these from your own inference. Say plainly that you'll ask an expert. Choose references by name; don't read subject content to choose them. Relay answers faithfully, labeled as the expert's. Promote only with the owner's agreement. Don't use expert content for routing; after a consultation, prefer resuming fresh.
+- If the owner would rather talk to the expert directly, run `sme-handoff` and give them the runtime's prompt unchanged; never write one yourself. If it is refused, relay the reason and continue in relay mode.
+- When a person's input is needed, consult a proxy (`--contact`, as the owner names them); the owner sends what it drafts. Never contact anyone yourself. Bring their reply back with `sme-followup --attach`.
+- Record process friction with `feedback`.
+
+## Talking to the owner
+You are the owner's project manager: you understand Baton and the work's structure, and you speak the owner's language. You are impartial; you help the owner decide, you never steer.
+- Talk in the owner's terms. Baton's words (run, step, attempt, dispatch, escalate, retry, abandon, packet, gate, worker, profile names) are yours, not theirs; use them only if the owner does. Use each option's `label`, not its decision name.
+- Turn structure into conversation. A list of questions from a worker is material for a conversation, not a message to forward: take what is needed now, a topic at a time; offer a worker's `best_guess` for confirmation instead of asking; offer choices when the question has them (several at once when `multi_select`); leave `helpful` questions until the `needed` ones are settled.
+- Confirm back before recording. Restate what you understood as a short yes/no ("So: one machine per site to start, and you'll handle the permits yourself?"). Record only what the owner confirmed, with their words. Small conversational inferences (what to talk about next) need no confirmation; anything recorded does.
+- Don't answer subject questions. If the owner asks what something means for the work itself, say you'll ask an expert, and route it (see *Questions*).
+- Keep the machinery out of sight. Don't report dispatches, workers, attempts or hooks unless the owner asks; report progress in terms of their work.
+- Follow `.baton/communication.md`: it says how this owner likes to be told things, and may choose the terse operator style.
+```
+
+**`skills/baton-worker/SKILL.md`**: the packet protocol rules (§7); the meaning of `exit_criteria`, `deadline`, `workspace` and `protected_paths`; "stop and report a mismatch instead of improvising"; report friction in `process_feedback`; never contact people, push, tag, merge or deploy.
+
+Both ship in the runtime (`skills/`); `init` copies them into `.agents/skills/` when missing (an edited copy is kept; `upgrade` re-vendors, §14). The shipped director skill is the text above (a test keeps every call it names in the API).
+
+### 13.4 `doctor`
+
+Per machine and profile; silent when healthy (`baton doctor [--profile <name>] [--no-run]`; `--no-run` skips the no-op round trips, which for API profiles are small real model calls).
+- Lockfile versus the running runtime version, recipe hashes, supported format and vocabulary versions.
+- For each profile: build its exact environment, resolve its executable (§6.2), run a no-op task through its adapter; report auth mode, duration, env names present or denied.
+- **Effective auth mode**: what the worker would really use under its exact environment. Harness CLIs are asked (`claude auth status --json`, `codex login status`; a local query, run even with `--no-run`); API profiles report `api_key` with the resolved names; manual profiles `none`. A `cli_login` profile whose CLI would use an API key is a problem (billing would switch; add the key to `env_deny`); one that is not logged in is a problem naming the login command.
+- **Gate preflight** for write-capable profiles (harness profiles claiming `repo_workspace`): run `project.preflight` (or the test command) through the worker's own adapter and write-mode args, so a mode that would block gates is caught before a full run is wasted. The worker is asked to run `python -m baton.probe --marker <file> --nonce <n> -- <command>`, which runs the command and writes its exit code to a marker under `.baton/cache/`. The runtime also runs the command itself, as a script gate would. No marker: the mode blocked the command. A different exit code: the sandbox changed its outcome. Either is a problem. Both failing alike is a warning.
+- Supervisor can detach (a test supervisor must start in its own session); hooks reachable (valid `hooks.yaml`, `secret:` references resolve, each command's program is found; hooks are never fired); open platform incidents (warnings); steps with no eligible profile on this machine.
+- WSL repos on `/mnt/c` (warning).
+
+### 13.5 `check`
+
+For pre-commit and CI; needs no network or profiles. Exit 0 when clean, otherwise one `ERROR <path>: <message>` line per problem. Checks:
+- hash chains and CAS integrity;
+- lockfile versus vendored recipes, and the neutrality lint;
+- drift of active runs' published deliverables (a warning unless `--strict`, §10.5);
+- no secrets under `.baton/` (sentinels and patterns);
+- no impossible states;
+- `project.yaml` and `communication.md` present and valid;
+- `.baton/.gitattributes` holds `* -text` (§15.1);
+- format versions readable by this runtime.
+
+### 13.6 Owner communication contract
+
+`.baton/communication.md` is created from Baton's default at `init` and owned by the project. It says how this owner likes to be told things; the Director follows it, within the conversation layer (§13.8). Two styles ship (Decision: [0049](../decisions/0049-communication-styles.md)):
+
+**Conversational** (`defaults/communication.md`, the default): guidance on tone and judgment, not a message template.
+- Talk as a project manager talks with a stakeholder: plain language in the owner's terms, warm and brief, no Baton vocabulary.
+- One topic at a time; choices where the question has them; open questions where the owner is still thinking.
+- Offer best guesses to confirm rather than asking from scratch; confirm back before anything is recorded.
+- Healthy progress is reported briefly, in terms of the owner's work, or not at all.
+- When the owner must act outside the conversation (a command, a setting, a purchase), the operator rules below for actions, placeholders and first mention apply to that part.
+- Risk mitigations the agents propose are a decision for the owner, in plain terms with their cost and a narrower alternative, never absorbed silently.
+
+**Operator** (`defaults/communication-operator.md`, chosen by copying it over `communication.md`): the terse shape, adopted from the owner's existing developer practice, for owners who want it:
+- **Shape:** brief status (or omit); a labeled list of the owner's actions, one step per line, each pasteable command alone in its own block; then the single decision owed. With nothing to do, one "no action" line.
+- **Placeholders** that are not valid shell syntax (`PASTE_TOKEN_HERE`, never `$TOKEN`).
+- **First mention** of anything new the owner must do or understand: where it lives (product, UI path, file or CLI), what it does, and the exact value or action.
+- **Manual verification** lists only steps runnable against what is live now, each with how readiness was confirmed. Blocked steps say what unblocks them.
+- **A reversed default** gets a one-line "Before → After".
+- **Risk mitigations the agents propose** are a decision with their cost and a narrower alternative, never absorbed silently.
+- Healthy progress is reported briefly or not at all.
+
+`project.yaml` `contacts:` maps roles to people or agents (`owner`, `platform`).
+
+### 13.7 Action permissions
+
+```yaml
+permissions:
+  push: { docs_only: allow, after_verified: allow, other: ask }   # allow | ask | deny
+  tag: ask
+  force_push: deny
+  merge: deny
+  deploy: deny
+docs_only_globs: ["docs/**", "**/*.md", ".baton/runs/**", ".baton/platform/**", ".baton/process/**"]
+```
+
+The runtime enforces these for its own git operations and records `permission_used`. The Director checks them before acting outside the runtime: `ask` becomes `permission_requested`, and `deny` is never attempted. "Docs only" means every changed path matches the globs.
+
+Decision: [0050](../decisions/0050-action-permissions.md).
+- **Pushing is explicit.** `push` (`baton push`) pushes the current branch to its upstream (or, for a branch new on the remote, to `origin` or the only remote, setting the upstream); nothing pushes automatically, and it never forces. It sorts the commits being pushed (`<upstream>..HEAD`, else every commit no ref of the remote has) into the least privileged category covering them all: `docs_only` (every changed path matches `docs_only_globs`); `after_verified` (every other commit is a Baton checkpoint, or the `commit_sha` of a passed step in any run, so a recipe's gates vouched for it); `other`.
+- **Outcomes.** `deny` is refused (exit 1) and records nothing. `allow` records `permission_used` in the project log and commits it (`baton(project): permission used: …`) before pushing, so the record travels with the push. `ask` records `permission_requested` and returns `needs_owner` (exit 4) without pushing; the Director asks the owner and, on approval, repeats the call with `--approved --note "<owner's words>"`, which records `human_decision {kind: permission}` then `permission_used` with its `decision_id` (as with `waive`, the runtime requires the words and the director skill requires the actual approval). Approval never lifts a `deny`.
+- **Director actions** outside the runtime (`tag`, `merge`, `deploy`, `force_push`): `permission(action, detail?)` (`baton permission <action> --detail "<what>"`) applies the same rule and records the same events; `push` is not checked this way (the runtime pushes).
+- **Defaults** (written by `init`): as above, with `.baton/project/**` added to `docs_only_globs` because project checkpoints write there.
+
+### 13.8 The conversation layer
+
+Principle 5 (§1.1) in practice. The Director stands between the runtime's structured world and the owner's conversational one, like a project manager between engineers and a stakeholder: it understands the machinery, speaks the stakeholder's language, and translates in both directions. It is impartial (it helps the owner decide and never steers), and it does not answer subject questions (§13.3, *Questions*).
+
+**Deterministic on the runtime side.** Everything the Director needs to hold the conversation comes from the runtime as data, so it never has to read subject matter or invent options:
+- **Questions** a worker asks (`questions_for_human`, §7.2): each with why it matters, a best guess and choices, in the owner's terms.
+- **Assumptions** a worker made (`assumptions` in outputs that declare them, e.g. `fit-check`'s profile and `baton-frame`'s output): what to confirm rather than ask.
+- **Decision options** in `status` and `board`: `[{decision, label, effect}]`. Labels come from `defaults/labels.yaml` (e.g. escalation `retry` → "Try again with your answers", `abandon` → "Set this aside for now"; human gate `approve` → "Looks right", `reject` → "Not yet: here's what to change"). A recipe may give its own for a human gate: `{type: human, prompt, labels: {approve: "…", reject: "…"}}` (the effect still comes from the defaults). `labels.yaml` (format `baton-labels/1`) is keyed by kind of decision: `gate`, `triage`, `protected`, `frame`, `escalation`, `blocked` (an escalation whose reason is `blocked`), `iteration_limit`, `baseline`, `skip_notice`, `publish_conflict`, `drift`. An option made by another command carries it as `command` (`establish-baseline`, `ingest-revision`). A blocked step's pending decision also lists its `questions`, normalized. The runtime never shows the owner anything itself; labels are material for the Director.
+- **Process facts** from `explain` (§10.6), for "where are we?" questions.
+
+**Fuzzy on the owner side.** How to hold the conversation is the Director's judgment, guided by `communication.md` (§13.6) and the skill: order and pace, which questions to ask and which guesses to confirm, when a checklist helps and when open talk does, what to leave out. Nothing here is enforced in code, and nothing should be; phrasing is not a reliability concern.
+
+**The confirm-back seam.** Before anything from the conversation is recorded, the Director restates it and the owner confirms. The runtime holds its side deterministically:
+- Answers to a `blocked` step's questions go back as a file passed to `decide <run> <step> retry --answers <file> --note "<owner's words>"`: `[{id, answer, owner_words}]`, where `answer` is the confirmed restatement and `owner_words` quotes what the owner said for it, including the confirmation. The runtime checks every id against the step's last questions, refuses an answer without `owner_words` and refuses a missing `needed` question unless `--partial` is given, then records `human_decision {kind: answers}` and readies the step with the answers in `prior_feedback.answers` (§7.1).
+- Every other decision already carries the owner's words (`--note`), as before. As with `waive`, the runtime requires the words; the skill requires that they are a real confirmation.
+- The escalation stays pending for as many conversational turns as it takes. Nothing is recorded until the owner confirms; a deliberately partial answer set is recorded only with `--partial` (§18 #24).
+
+**Review.** Whether the conversation felt right is judged on transcripts, not enforced: the live test (§17) and the owner's review look for Baton vocabulary reaching the owner, questions forwarded unconverted, decisions recorded without a confirm-back, and subject questions answered by the Director.

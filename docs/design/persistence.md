@@ -1,0 +1,61 @@
+## 10. Persistence, Handoff and Deliverables
+
+### 10.1 Checkpoint commits
+
+After `step_passed` (with publishing), `human_decision`, `step_escalated`, `iteration_limit_reached`, `run_completed`, `run_abandoned` and `lease_released` (so a handoff travels through git), the runtime stages the run's directory and its published deliverables and commits with a structured message (`baton(<run_id>): <step_path> passed [attempt 1, claude-code-sub]`). One API call makes at most one checkpoint commit, its subject listing each trigger. Changed project-level records (`.baton/project/`, `.baton/platform/`, `.baton/process/`) are committed with it; a call that touches no run commits them on their own (`baton(project): …`, §12.2). On by default, to the current branch (`project.yaml` `checkpoints: { commit: true }`; §18 #6).
+- Commit SHAs are read back from `git log` on resume, not written into the next event. This keeps commits self-contained. `checkpoint_committed` is appended just before the commit it belongs to (no SHA); if the commit then fails, the next checkpoint carries it.
+- Workspace steps commit their own code; their `commit_sha` is in the step output, and the checkpoint commit follows.
+- Never commit with unrelated uncommitted changes; refuse and report. The commit names its paths (`git commit --only`), so unstaged or untracked work elsewhere is never swept in; changes *staged* for other paths, a merge/rebase in progress or a missing git identity refuse the checkpoint, which is reported in the call's result and retried at the next trigger.
+- Git LFS is optional (§18 #7): with `git lfs` installed, stored blobs at or above `lfs.threshold_mb` (default 5) are listed in the run's own `.gitattributes` before staging.
+- Pushing follows action permissions (§13.7); checkpoint commits normally qualify as docs-only.
+
+### 10.2 Leases
+
+A lease is an event `lease_claimed {director_id, harness, host, branch, expires_at}`. Mutating calls on a run require its lease: a free or expired lease is claimed automatically, the holder's lease is renewed (`lease_renewed`) once half its term has passed, and an unexpired lease held by another Director (or by the same Director on another branch) refuses with exit code 3. The term is `project.yaml` `leases.minutes` (default 60; §18 #5). `take_over(reason)` records a takeover (`lease_taken_over`, with the previous holder and the reason); the director skill requires owner approval first, the runtime only requires the reason. The runtime releases the lease when a run completes or is abandoned. The Director identity is `--director` / `BATON_DIRECTOR` (default `<user>@<host>`); the harness name is `BATON_HARNESS`. Leases travel through git, so they coordinate *sequential* handoff. **A run lives on one branch at a time**: continuing it on another branch requires releasing it on the first. Divergent hash chains (two Directors on unsynced clones) are caught by `resume` and `check`, and need owner resolution.
+
+### 10.3 Resume
+
+1. Verify the hash chain and every CAS blob.
+2. Rebuild the cache.
+3. Reconcile live work with running markers (§8.7): still alive → left running; finished with a result → intake now; otherwise `orphaned`, classified (`platform` / `supervisor_died`) and escalated for an owner decision (`decide <step> retry`).
+4. Check published deliverables for drift.
+5. Claim the lease, or report the holder.
+6. Return status.
+
+A new machine needs only the pinned runtime and its own worker profiles: clone → `baton doctor` → `baton resume <run>`.
+
+### 10.4 Publishing
+
+Artifacts may declare `publish.to` using **logical** path keys mapped in `project.yaml`:
+
+```yaml
+paths: { specs: docs/specs, designs: docs/design, plans: docs/plans, drawings: cad/drawings }
+project: { test_command: "pytest -q", preflight: "pytest -q --collect-only" }
+run_slug: "{{ run.inputs.title | slugify }}"
+```
+
+Publishing is for artifacts a worker returns in `result/artifacts/` (documents, drawings, photos). **Workspace steps' output *is* the project tree** (code a coding agent writes and commits in place, recorded by `commit_sha`) and does not use `publish`.
+
+Decision: [0038](../decisions/0038-publishing.md).
+- **Start.** A `paths.*` key a recipe publishes to that `project.yaml` does not map refuses `start` (`configuration.publish_path`). Targets must stay inside the project and outside `.git` and `.baton`.
+- **When.** After every `step_passed` of a step with publish artifacts, whatever the route (intake, an approved human gate, a waiver, a confirmed stale step), in the same call and before its checkpoint, so the commit includes the deliverable. Each one records `artifact_published {artifact, path, sha256, attempt, unchanged?}` on the step (`unchanged` when the file already held those bytes and was not rewritten). Imported steps (adoption seeds) are not published: their files already live where the prior process put them. `publish` inside a group is a load error (`publish.in_group`): its targets cannot vary per instance.
+- **Conflicts.** Writing is silent only when the target is absent, already holds exactly the artifact's bytes, or was last published (across all runs) by this same run and step and still has the hash Baton wrote (a revised step replacing its own untouched version). Anything else is a conflict: a file Baton never wrote, one another run published, one edited since. The step stays `passed` (downstream steps read CAS, never the published copy), and a pending owner decision `publish:<step_path>.<artifact>` offers `overwrite`, `keep` (the existing file stays; recorded as `artifact_published {kept: true}` with no write) or `alternate` (written beside it as `<stem>.<run_id><suffix>`, or at `--path`, itself checked for conflicts). The run does not complete while a conflict is pending.
+
+### 10.5 Two copies and drift
+
+The CAS copy is the immutable record and is always what downstream steps consume. The published copy is the living file. A changed hash (or a deleted file) is drift.
+
+Decision: [0039](../decisions/0039-drift.md).
+- **Detection.** `status`, `detect` (situation `drift`) and `check` (a warning; an error under `--strict`) compute it without recording. Any mutating call on the run (including `resume`) records `drift_detected {artifact, path, published_sha256, current_sha256}` on the step once per new hash (`current_sha256: null` for a deleted file). Drift is tracked only while the run is active: once it completes, its published files belong to the project and editing them is normal.
+- **Decision.** Drift is a pending owner decision `drift:<step_path>.<artifact>`. It blocks no step but holds run completion (nothing can be ingested after the run ends). The owner chooses:
+  - **Leave it:** `decide <run> drift:<step_path>.<artifact> leave --note "<words>"`. Downstream keeps the CAS version; that hash is acknowledged and a later edit is new drift.
+  - **Ingest it as a revision:** `ingest_revision(run, step_path, artifact, note, feed?)` (`baton ingest-revision <run> <step_path> <artifact> --note "<words>" [--feed dependents]`) records `human_decision {kind: drift, decision: ingest}` and `human_revision_ingested {artifact, path, sha256, revision, feed, possibly_stale, decision_id, source}`, with the file stored in CAS. A deleted file can only be left.
+- **What it feeds.** `human_revision.<step>.<artifact>` resolves to the latest ingested revision; with none it is `not_applicable` (an unedited deliverable is normal, never a missing input). With `feed: dependents`, every dependent of that step that has not started (no attempt dispatched) also receives the latest revision for its `steps.<step>.artifacts.<name>` inputs, labeled as the owner's revision. Passed and imported dependents are flagged *possibly stale* in `status` and their records: a flag only, not the `stale` state; the owner may `revise`.
+- **From an expert.** `promote_sme(…, target=revision, artifact=<step_path>.<name>, from?)` ingests an expert's artifact (`--from <name>`) or answer (`--text`) the same way (`source: sme`) and writes it to the published path, with the conflict rule above.
+
+### 10.6 Records and explain
+
+- **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes, output, artifacts (CAS hash and published path), deliverables (publishes, kept files, drift, ingested revisions, possibly-stale flags), gates and findings, waivers, decisions.
+- **Run summary** (`docs/SUMMARY.md`): work item, recipe and versions, timeline, per-step table, escalations, leases.
+- Both are derived, regenerable and committed.
+- `explain(run)` returns **process facts only** (completed, imported and skipped steps; current position; pending decisions; remaining steps at this level and what other levels would add or drop; possible branches: owner gates, findings that send work back, iteration limits, a level not yet set). It never includes step outputs, artifacts or run inputs, so the Director can describe progress without loading subject matter. Structured data plus a `text` rendering (golden-tested).

@@ -1,0 +1,90 @@
+## 11. Adoption and Triage of Existing Projects; Framing New Work
+
+### 11.1 Flow
+
+```
+detect (deterministic, silent) ─► doctor (silent if healthy)
+   ├─ project with Baton runs ─────────────► board → resume runs → continue
+   └─ project without Baton ─► research ─► triage (per in-flight work item) ─► baseline (ONE owner decision) ─► continue
+```
+
+`detect()` inspects files, git and event logs and returns the project situation (`no_baton`, `baton`, `adopting`) plus, per non-terminal run, `idle | active_here | active_elsewhere | orphaned_attempts | diverged | drift`, along with machine readiness (`doctor` without no-op runs) and open platform incidents. `diverged` is a run whose hash chain or CAS fails verification (e.g. two unsynced clones); `drift` is an otherwise idle run whose published deliverables changed (any run with drift lists the paths and gets a warning, §10.5). It records nothing. Healthy situations print one line.
+
+**Mechanics** (Decision: [0040](../decisions/0040-adoption-mechanics.md)). Adoption is ordinary Baton work, so it needs no new concept:
+1. `adopt(recipe, crosswalk?, scope?)` (`baton adopt <recipe ref or dir> [--crosswalk <name or path>] [--scope <path>…]`) runs `init` if `.baton/` is missing, vendors a recipe given as a directory, checks the research scope (§18 #14), and starts an **adoption run**: a run of the runtime's built-in recipe `baton-adopt@1` (shipped in `builtin/`, loaded like a vendored recipe but never vendored). Its run inputs are the target recipe's summary (steps, levels, schemas, artifacts, gates), the crosswalk, the candidate files the runtime matched from it, the scope and the `detect` result; `situation_detected` records the latter. While an adoption run is active, `adopt` returns its status instead of starting another.
+2. Its one step, `research` (§11.2), is dispatched by the Director like any step.
+3. When research passes, the runtime records it (`research_recorded {research_sha256, runs, gaps}` in the adoption run) and starts one **work-item run** of the target recipe per in-flight work item, with the run inputs research proposed (`run_started.adoption {run, work_item}`, then `research_recorded {research_sha256, work_item}`; `research.findings` resolves to that blob, the research output plus `work_item`). A proposed input that does not validate is a gap, not a run. Until the baseline, a work-item run readies only its triage step; triage applies no level there.
+4. The Director dispatches each run's triage. When none is left pending, the runtime writes the **baseline proposal** `.baton/adoption/<adoption run>/baseline.yaml` (§11.5) and the adoption run waits on the owner (pending decision `baseline`).
+5. The owner reads it, may edit it, and makes the one decision: `establish_baseline(adoption, note)` (`baton establish-baseline <adoption run> --note "<owner's words>"`).
+
+The adoption run completes when the baseline is established; it is never seeded or triaged itself.
+
+### 11.2 Research
+
+Research gathers **evidence**, not judgment. It is a built-in first step of adoption and answers one question per recipe: *which of this recipe's step outputs already exist here, where, and in what state?* It also covers existing agent configuration, candidate path mappings and candidate commands.
+- It is read-only (`workspace: read`, `workspace_read` capability), with a deterministic check that the tree is unchanged.
+- **Scope** (§18 #14): the non-ignored files under the scope paths (default: the whole project, never `.git` or `.baton`) are counted before the run starts; over 10,000 files or 200 MB, `adopt` refuses with the counts and asks for `--scope`.
+- Output (`research.findings`, runtime-owned schema `baton-research/1`): `evidence[] {path, sha256, kind, maps_to?, confidence}`, `work_items[] {key, title, status (finished | in_flight), position?, inputs?}` (in-flight items carry the proposed run inputs), `proposed_seeds[]` (§11.4), `agent_config[] {path, kind, note?}`, `path_candidates {key: path}`, `command_candidates {name: command}`, `gaps[]`.
+
+### 11.3 Crosswalks
+
+For projects run under a known prior process, a crosswalk (shipped with a recipe or kept in the project) maps that process's artifacts and approval records to recipe steps (by qualified id, §5.8), gates and instances. With one, research mostly confirms matches instead of interpreting. It is the single biggest friction reducer for adoption. Crosswalks pass the neutrality lint. (A crosswalk for the owner's `eng-process` is a separate guide.)
+
+Format `baton-crosswalk/1` (Decision: [0041](../decisions/0041-crosswalk-format.md)), in `<recipe>/crosswalks/<id>.yaml` (validated when the recipe loads) or anywhere in the project (validated at `adopt`):
+
+```yaml
+format: baton-crosswalk/1
+id: eng-process
+prior_process: "eng-process (feature folders, slice folders, APPROVED files)"
+maps:
+  - match: "docs/features/*/request.md"        # glob relative to the project root; each * or ** is a capture
+    step: software-feature@1/requirements      # qualified step id; in a group: <recipe>@<v>/<group>/<step>
+    artifact: requirements_doc                 # or `output: true`, or `gate: <index>` (approval evidence)
+    work_item: "{1}"                           # template over the captures: the work item key
+  - match: "docs/features/*/slices/*/review.json"
+    step: software-feature@1/slices/code_review
+    output: true
+    work_item: "{1}"
+    item: "{2}"                                # in a foreach group: the item's key in the prior process
+```
+
+The runtime matches every rule (in scope) and gives research the **candidates**: `{path, sha256, rule, step, artifact | output | gate, work_item, item?}`. A rule naming an unknown step, artifact or gate, or another recipe, is an error.
+
+### 11.4 Seeding
+
+A **seed** (`proposed_seeds[]`) is `{work_item, step, item?, output?, artifacts? {name: path}, evidence? [path], gates? [{gate, evidence [path]}]}`: `step` is a top-level step id or `<group>/<step>`; `item` is the 0-based index of the instance's item in the seeded `foreach` source's output (resolved once, when the baseline is applied, to the runtime-assigned instance id).
+- A seeded step becomes `imported` (`step_imported`, actor `human`, attested by the baseline decision). Its data holds the output and artifact hashes (as `step_passed`), the evidence files with hashes and `attested {adoption, decision_id}`.
+- Its artifacts enter CAS; its `output` must validate against the step's schema. A nonconforming seed is not imported; the baseline offers to rerun that step. So is a seed whose step is excluded at the work item's level, whose dependencies are neither seeded nor skipped, whose files are missing, or whose item index is out of range.
+- Gates that can run on a seed (schema, script) do run, when the proposal is written (a failed script gate refuses the seed). Review, findings and human gates passed outside Baton are imported with their evidence. A script, review or findings gate without evidence gets a proposed waiver (applied as `gate_waived {scope: imported}` with the baseline's decision id). A human gate without evidence is listed as attested by the baseline itself (human gates are decided, never waived).
+- Steps approved before a gate existed get a proposed waiver (§9.3).
+- **Groups:** seeding works at the granularity actually reached. The plan is imported, the group is expanded from it, finished instances are imported whole, and a partly finished instance has its completed steps imported while the rest start normally. The seeds are kept in the run's `baseline_established`, so an instance that starts later (under `concurrency`) still has its finished steps imported when it starts, in its first iteration only. Seeds reach one level of groups.
+- *Not built yet (Phase 11):* a pending owner approval staying a pending human gate. Today a human gate without evidence is listed under `attested` in the baseline, so the owner's baseline decision covers it; to have it asked separately, the owner drops that seed and the step runs normally.
+- **Work items:** finished ones stay as history (listed in the baseline, not seeded). Each in-flight one becomes its own run, triaged and seeded. New ones start normally.
+
+### 11.5 The baseline
+
+One owner decision that ends adoption. It covers:
+- proposed `project.yaml` (paths, commands; action permissions keep the defaults `init` wrote, §13.7);
+- agent-config merges (the `AGENTS.md` pointer line, §4.3, appended or created);
+- each in-flight work item with its complexity level and reasons, its seeds and its resulting plan (steps to run or skip);
+- proposed waivers;
+- known gaps.
+
+It is blameless: it records what exists, what is assumed and what is missing. The proposal is `.baton/adoption/<adoption run>/baseline.yaml` (format `baton-baseline/1`): `adoption`, `recipe`, `research_sha256`, `project_yaml {paths, project}`, `agents_md {path, action: append | create | none}`, `history[]` (finished items), `work_items[] {key, run, title, level, level_reasons, create, seeds[] {step, item?, import, reasons?, output_sha256?, artifacts?, evidence?, gates?}, waivers[] {step, item?, gate, reason}, attested[], plan {run, skip, imported}}`, `gaps[]`, `files {path: sha256}` (every file a seed or evidence reads). The owner may edit any part: change a level (a declared one), drop a seed or waiver (the step then runs), set `create: false` (that run is abandoned), or change the proposed configuration. `establish_baseline` re-checks the file (format, levels, seeds against their schemas; a seed's file whose hash changed since the proposal refuses the whole baseline, naming `adopt` to regenerate it), then applies it in one call: `human_decision {kind: baseline}` with the owner's words verbatim and `baseline_established {baseline_sha256, runs, note}` in the adoption run (its baseline file stored in its CAS); in each work-item run, `baseline_established {adoption, decision_id, level}`, `complexity_set {approval: baseline}`, the skips, the imports in dependency order (group expansions and instance starts interleaved as the record calls for), the waivers; `project.yaml` and `AGENTS.md` updated; one checkpoint commit covering all of it. From then on everything is ordinary Baton.
+
+### 11.6 Framing new work
+
+Owners bring goals, not work items. "Start a pure-water vending business" holds several pieces of work of different kinds: setting up the business, buying sites and equipment, marketing, and running it day to day. Forcing such a goal through one recipe (or one `fit-check` profile) produces questions the owner cannot answer. **Framing** turns the owner's goal into work items they choose from. It is ordinary Baton work, like adoption (§11.1), and adds no concept.
+
+1. `frame(words)` (`baton frame --note "<owner's words>"`) starts a **framing run** of the built-in recipe `baton-frame@1` (in `builtin/`, loaded like `baton-adopt`, never vendored). Its run inputs are the owner's words verbatim, a summary of each recipe a part may propose (id, version, description, levels, run-input schema, `vendored`): every vendored recipe (its newest version) and every recipe shipped with the runtime that is not vendored (the **catalog**, `examples/recipes/`, shipped in the package), plus `fit-check`'s rubric (from the vendored `fit-check`, else the shipped one). While a framing run is active, `frame` returns its status (goal, parts, what to do next) instead of starting another.
+2. Its one step, `frame`, is dispatched by the Director like any step. Output (`baton-frame/1`): `goal` (the goal restated plainly, for the Director to confirm), `parts[] {id, label, description, kind (project | operations | unclear), proposal {recipe?, inputs?, fit_check?}, reasons}`, `assumptions[]`. `label` and `description` use the owner's terms. A part with a fitting vendored recipe proposes it with run inputs; any other part proposes a `fit-check` run with the part as its idea. Operations (running the business day to day) are not Baton work (§1.3): such a part proposes `fit-check`, whose `operations_engine` verdict leads to a project that builds that system (§5.7). The worker may return `blocked` with questions (§7.2) like any step.
+3. The step has an implicit human gate, `select` (opened once its declared gates pass, like triage's, §5.5; options labeled from `labels.yaml` `frame`). The Director confirms the goal, then lets the owner choose any or all parts, in conversation, and confirms back (§13.8). `decide <framing run> frame select --items <part ids> --note "<owner's words>"` (comma-separated; empty selects nothing) checks the ids, then records `human_decision {kind: frame, gate: select, items, note, decision_id}`, the gate's `gate_passed` and the step's `step_passed`; starts one run per selected part with its proposed recipe and inputs (`run_started.framing {run, part}`; a `fit_check` proposal starts `fit-check` with `{title, idea}`); and records `framing_selected {decision_id, selected, runs, gaps, vendored?}`. `approve` is refused at this gate. Selecting nothing ends framing with no runs. `reject` with a note retries `frame` with the note as feedback, as for triage. One checkpoint commit holds the framing run, the runs it started and anything vendored.
+   - **Vendoring on selection** (Decision: [0042](../decisions/0042-vendoring-on-selection.md)). A proposal names a recipe id (optionally `@version`). A vendored version is used when there is one (the newest); otherwise a catalog recipe of that id (and version, if given) is vendored as part of applying the selection. The owner's selection is the approval: a shipped recipe is as trusted as the runtime (§15.2). A recipe from anywhere else is vendored only by `vendor`, as before.
+   - **Gaps.** A selected part that cannot start becomes a gap `{part, label, reason}` in plain terms, never a run, and nothing is vendored for it: a recipe neither vendored nor in the catalog; inputs that do not validate against the recipe's run-input schema; a recipe that publishes to `paths.*` keys `project.yaml` does not map (e.g. `software-feature` on a fresh project); `limits.active_runs` reached. The Director tells the owner about each gap and what would fix it.
+4. The framing run completes when the selection is applied. The runs it started are ordinary work items; each runs its own triage where its recipe has one.
+
+The Director offers framing when an owner states a goal rather than a task, when a step reports that an idea holds several kinds of work (§5.7), and in a project with no work yet. Starting a known recipe directly (`start`) is unchanged.
+
+**Starting straight after `init`** (Decision: [0043](../decisions/0043-starter-recipes-at-init.md)). `init` vendors the **starter recipes** (`fit-check` today) unless `--bare`, skipping any already vendored in some version. With framing built in and the catalog vendored on selection, a Director can begin with the owner immediately after `init`: the owner never vendors by hand except for a recipe from outside the catalog. What a machine still needs is a worker profile able to do the framing step (§6.1; `doctor` shows it). A recipe for authoring recipes, once shipped in the catalog, is proposed the same way with no runtime change.
+
+**Mature projects** (deferred to Phase 18; Decision: [0044](../decisions/0044-framing-mature-projects-deferred.md)). Adoption still starts from a chosen recipe (`adopt`, §11.1). Framing that sees an existing project (the `detect` result) and proposes adopting existing work under a recipe, as well as new work, is Phase 18.

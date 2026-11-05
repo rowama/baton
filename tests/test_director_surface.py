@@ -284,8 +284,8 @@ def test_director_skill_names_every_call_it_relies_on():
 
 
 def test_shipped_director_skill_is_the_guides_text():
-    """§13.3: the shipped director skill is the text in the build guide."""
-    guide = (ROOT / "docs" / "baton-framework-build-guide.md").read_text(encoding="utf-8")
+    """§13.3: the shipped director skill is the text in the design doc."""
+    guide = (ROOT / "docs" / "design" / "director-interface.md").read_text(encoding="utf-8")
     start = guide.index("**`skills/baton-director/SKILL.md`**")
     body = guide[guide.index("```markdown\n", start) + len("```markdown\n"):guide.index("\n```\n\n**`skills/baton-worker/SKILL.md`**", start)]
     assert (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8") == body + "\n"
