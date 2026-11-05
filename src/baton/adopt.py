@@ -165,7 +165,11 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
                 return {**blocked_report(mach["blocking"], "baton"), "project": {"situation": "unknown", "root": str(project.root), "git": is_repo(project.root)},
                         "runs": [], "machine": None, "incidents": []}
             problems += [f"doctor: {p}" for p in mach["problems"]]
-            warnings += [f"doctor: {w}" for w in mach["warnings"]]
+            # No wake path is doctor's warning only; the routine check stays quiet for an
+            # attached Director and shows it when it is a problem (a detached lease; decision 0061).
+            from .doctor import NO_WAKE
+
+            warnings += [f"doctor: {w}" for w in mach["warnings"] if not w.startswith(NO_WAKE)]
         from .sme import incidents as _incidents
 
         open_inc = [i for i in _incidents(project.store.project_log().events()).values() if i["status"] == "open"]

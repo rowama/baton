@@ -1,9 +1,9 @@
 ---
 id: 2026-11-director-wake
 title: "A detached Director notices when work finishes, or tells the owner first that it might not"
-status: proposed
+status: in-progress
 level: standard
-decisions: ["0057", "0058", "0059"]   # exit-code opt-out; warn, never refuse; owner warned before an unwoken dispatch
+decisions: ["0057", "0058", "0059", "0060", "0061"]   # exit-code opt-out; warn, never refuse; owner warned before an unwoken dispatch; manual workers get no notice; detect stays quiet
 touches: [design/runtime.md, design/director-interface.md]   # §8.7, §13.1, §13.3, §13.4; also the repo README.md
 ---
 
@@ -64,6 +64,8 @@ None. The owner accepted the recommended scope (B1–B4, B5 as README examples, 
 - [0057](../decisions/0057-owner-needed-exit-code-opt-out.md): `BATON_OWNER_EXIT=0`; the default stays 4.
 - [0058](../decisions/0058-detached-director-warned-not-refused.md): a Director with no wake path is warned, never refused.
 - [0059](../decisions/0059-warn-owner-before-unwoken-dispatch.md): the Director tells the owner before a dispatch it might not be woken for.
+- [0060](../decisions/0060-wake-notice-skips-manual-workers.md): "manual steps" means manual workers. The notice is left out only when every eligible worker is manual, and a dispatch to a manual worker never warns (asked while building slice 1).
+- [0061](../decisions/0061-wake-warning-in-doctor-not-detect.md): `doctor` warns about a missing wake path. `detect` leaves that warning out and shows only the detached-lease problem, which keeps principle 1 (asked while building slice 1).
 
 ### Mechanism
 
@@ -104,4 +106,20 @@ None. The owner accepted the recommended scope (B1–B4, B5 as README examples, 
 
 ## Log
 
-(empty)
+### Wake path and warnings
+
+- **Commit:** `2026-11-director-wake: wake path and warnings`
+- **Summary:**
+  - `supervisor.wake_path` replaces `hooks_configured`. It is the hook `choose_hook` picks for outcome `needs_human`, across project and machine hooks: `on_platform_failure` alone is none, and so is a machine `hooks.yaml` that does not load.
+  - `supervisor.wake_info` / `wake_notice` / `duration_text` build `wake {configured, hook}` or `{configured: false, expected, notice}`. `expected` is the band as `project.yaml` writes it (`2h`), and the notice is in plain words from the step's effort and `extend_once`.
+  - `eligible` and `sme_eligible` return `wake` (a consultation turn: the default band, never extended), and the text output of both shows the notice. The notice is left out when every eligible worker is manual (decision 0060, asked while building this slice).
+  - `dispatch` (supervised, with or without `--wait`, and queued) and `ask_sme` / `sme_followup` (with or without `--wait`) warn with no wake path. Text mode prints each warning to stderr (`cli._warn`), including the queued and `--wait` paths, which did not print them before. A manual-worker dispatch never warns.
+  - `doctor._wake_check` warns "no completion hook would wake a Director when work needs the owner". It is a problem naming the runs when an active run's current lease has a harness other than `cli`. `detect` (`src/baton/adopt.py`) drops the plain warning and keeps the problem (decision 0061).
+- **Docs:** §8.7 (the wake path), §13.1 (`wake` in `eligible` / `sme_eligible`), §13.4 (the doctor check), §13.8 (the notice is material the Director relays). Decisions 0060 and 0061 are new; both are listed in `docs/README.md` and in this doc.
+- **Tests:**
+  - `tests/test_async.py`: the wake-path test for each hook combination, including a broken machine file; duration wording; `eligible`'s exact notice, with no Baton vocabulary, for an L step, a 45m band without `extend_once`, and a hooked project; a manual-only eligible set and a manual dispatch; dispatch warnings in text and JSON mode, with and without `--wait`, with `on_platform_failure` only, and none when hooked; doctor's warning, its problem for a `claude-web` lease, and silence when hooked; `detect` quiet for an attached Director and showing the problem for the detached lease.
+  - `tests/test_experts.py`: `sme_eligible`'s `wake`, and `ask_sme --wait` warning, or not warning when hooked.
+  - `test_dispatch_with_wait_blocks_until_recorded` now configures a hook, since `--wait` warns too.
+  - `tests/test_real_use.py`: the healthy-project test checks that `detect` is one line with no hook, then configures a machine `on_needs_human` hook for the full quiet check.
+- **Review:** not yet reviewed.
+- **Accepted:** not yet (criteria 1–3 are this slice's; the owner accepts).

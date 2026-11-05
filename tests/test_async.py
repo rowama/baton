@@ -2,8 +2,9 @@
 
 A dispatch survives its caller's shell; hooks fire for every outcome; each
 liveness row of the running-marker table is reproduced; an overdue S step is
-extended once, then terminated and classified; detaching with no hook prints
-a warning; classification is data-driven.
+extended once, then terminated and classified; with no hook that would wake
+the Director, eligible gives the owner's notice and dispatch warns, with or
+without --wait; classification is data-driven.
 """
 
 from __future__ import annotations
@@ -271,8 +272,8 @@ class _WinJob:
             self.h = None
 
 
-def test_dispatch_with_wait_blocks_until_recorded_and_prints_no_warning(tmp_path):
-    s = Setup(tmp_path)
+def test_dispatch_with_wait_blocks_until_recorded(tmp_path):
+    s = Setup(tmp_path, hooks={"on_complete": "c"})
     res = s.cli("dispatch", s.run, "describe", "--worker", "bot", "--wait")
     assert res.payload["outcome"] == "passed" and res.payload["warnings"] == []
 
@@ -471,24 +472,105 @@ def test_manual_workers_get_an_informational_deadline_and_no_supervisor(tmp_path
 # ---------------------------------------------------------------------------
 
 
-def test_detaching_with_no_hook_prints_the_warning(tmp_path):
+def _text(s: Setup, *args: str):
     from typer.testing import CliRunner
 
     from baton.cli import app
 
-    s = Setup(tmp_path)
     runner = CliRunner(env={"BATON_HOME": str(s.home), "BATON_DIRECTOR": "alice@host1", "BATON_PROJECT": str(s.project)})
-    res = runner.invoke(app, ["dispatch", s.run, "describe", "--worker", "bot"])
+    return runner.invoke(app, list(args))
+
+
+def test_wake_path_is_a_hook_that_fires_for_a_step_waiting_on_the_owner(tmp_path):
+    s = Setup(tmp_path, hooks={"on_platform_failure": "p"})
+    assert supervisor.wake_path(s.api().project) is None  # only on_platform_failure: nothing fires for needs_human
+    for hooks, machine, want in (({"on_needs_human": "n"}, None, "on_needs_human"), ({"on_complete": "c"}, None, "on_complete"),
+                                 ({"on_platform_failure": "p"}, {"on_complete": "c"}, "on_complete")):
+        t = Setup(tmp_path / want / str(bool(machine)), hooks=hooks, machine_hooks=machine)
+        assert supervisor.wake_path(t.api().project) == want
+    (s.home / "hooks.yaml").write_text("hooks: [not, a, mapping]\n", encoding="utf-8")
+    assert supervisor.wake_path(s.api().project) is None  # a machine file that does not load fires nothing
+
+
+@pytest.mark.parametrize(("seconds", "want"), [(60, "about a minute"), (45 * 60, "about 45 minutes"), (3600, "about 1 hour"),
+                                               (90 * 60, "about 90 minutes"), (7200, "about 2 hours"), (2.5 * 3600, "about 2.5 hours")])
+def test_wake_durations_are_plain_words(seconds, want):
+    assert supervisor.duration_text(seconds) == want
+
+
+def test_eligible_reports_the_wake_path_and_the_owners_notice_from_the_band(tmp_path):
+    s = Setup(tmp_path, effort="L")
+    wake = s.cli.run("eligible", s.run, "describe")["wake"]
+    assert wake == {"configured": False, "expected": "4h", "notice": (
+        "I might not notice when this part finishes. It can take up to about 4 hours (a little longer if it runs over). "
+        "If you haven't heard from me by then, ask me to check on it.")}
+    for word in ("step", "dispatch", "hook", "worker", "Baton", "packet"):
+        assert word not in wake["notice"]
+    text = _text(s, "eligible", s.run, "describe")
+    assert "Before ending your turn, tell the owner" in text.stdout and wake["notice"] in text.stdout
+
+    s2 = Setup(tmp_path / "once-off", effort_cfg={"bands": {"M": "45m"}, "extend_once": False})
+    wake2 = s2.cli.run("eligible", s2.run, "describe")["wake"]
+    assert wake2["expected"] == "45m" and "about 45 minutes." in wake2["notice"] and "runs over" not in wake2["notice"]
+
+    s3 = Setup(tmp_path / "hooked", hooks={"on_needs_human": "n"})
+    assert s3.cli.run("eligible", s3.run, "describe")["wake"] == {"configured": True, "hook": "on_needs_human"}
+    assert "tell the owner" not in _text(s3, "eligible", s3.run, "describe").stdout
+
+
+def test_a_step_only_a_person_can_do_gets_no_notice(tmp_path):
+    s = Setup(tmp_path)
+    (s.baton / "preferences.yaml").write_text("exclude: [bot]\n", encoding="utf-8")
+    out = s.cli.run("eligible", s.run, "describe")
+    assert [e["adapter"] for e in out["eligible"]] == ["manual"]
+    assert out["wake"] == {"configured": False}
+    d = s.cli.run("dispatch", s.run, "describe", "--worker", "owner")
+    assert d["warnings"] == []  # the Director hands the result in itself
+
+
+def test_dispatch_warns_with_no_wake_path_with_or_without_wait(tmp_path):
+    s = Setup(tmp_path)
+    res = _text(s, "dispatch", s.run, "describe", "--worker", "bot")
     assert res.exit_code == 0, res.stdout
-    assert "WARNING: no completion hook is configured" in res.stderr
-    assert "baton wait" in res.stdout
+    assert "WARNING: no completion hook would wake you when this needs the owner" in res.stderr
+    assert "wake.notice" in res.stderr and "baton wait" in res.stdout
     s.api().wait(s.run, timeout=60)
 
-    s2 = Setup(tmp_path / "two", hooks={"on_complete": "c"})
-    runner2 = CliRunner(env={"BATON_HOME": str(s2.home), "BATON_DIRECTOR": "alice@host1", "BATON_PROJECT": str(s2.project)})
-    res2 = runner2.invoke(app, ["dispatch", s2.run, "describe", "--worker", "bot"])
-    assert res2.exit_code == 0 and "WARNING" not in res2.stderr
-    s2.api().wait(s2.run, timeout=60)
+    s2 = Setup(tmp_path / "waiting")
+    d = s2.cli.run("dispatch", s2.run, "describe", "--worker", "bot", "--wait")
+    assert d["outcome"] and any(w.startswith(supervisor.NO_WAKE_WARNING) for w in d["warnings"]), d
+
+    s3 = Setup(tmp_path / "platform-only", hooks={"on_platform_failure": "p"})
+    res3 = _text(s3, "dispatch", s3.run, "describe", "--worker", "bot", "--wait")
+    assert f"WARNING: {supervisor.NO_WAKE_WARNING}" in res3.stderr, (res3.stdout, res3.stderr)
+
+    s4 = Setup(tmp_path / "hooked", hooks={"on_complete": "c"})
+    res4 = _text(s4, "dispatch", s4.run, "describe", "--worker", "bot")
+    assert res4.exit_code == 0 and "WARNING" not in res4.stderr
+    s4.api().wait(s4.run, timeout=60)
+
+
+def test_doctor_warns_with_no_wake_path_and_reports_a_problem_for_a_detached_lease(tmp_path):
+    s = Setup(tmp_path)
+    rep = s.cli("doctor", "--no-run", expect=None).payload
+    assert any(w.startswith("no completion hook would wake a Director") for w in rep["warnings"]), rep["warnings"]
+    assert not [p for p in rep["problems"] if "would wake" in p]
+    det = s.cli("detect", expect=None).payload  # the routine check stays quiet for an attached Director (decision 0061)
+    assert not [x for x in det["problems"] + det["warnings"] if "would wake" in x], det
+
+    api = s.api()
+    api.lease(s.run, "release")
+    Api.open(s.project, director_id="alice@host1", harness="claude-web", home=s.home).lease(s.run, "claim")
+    rep = s.cli("doctor", "--no-run", expect=None).payload
+    probs = [p for p in rep["problems"] if "would wake" in p]
+    assert probs and s.run in probs[0] and "claude-web" in probs[0], rep["problems"]
+    assert not [w for w in rep["warnings"] if "would wake" in w]
+    det = s.cli("detect", expect=None).payload
+    assert any("would wake" in p and "claude-web" in p for p in det["problems"]), det
+
+    s2 = Setup(tmp_path / "hooked", hooks={"on_needs_human": "n"})
+    rep2 = s2.cli("doctor", "--no-run", expect=None).payload
+    assert not [x for x in rep2["problems"] + rep2["warnings"] if "would wake" in x]
 
 
 # ---------------------------------------------------------------------------

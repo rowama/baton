@@ -451,6 +451,39 @@ def _hook_problems(project: Any) -> list[str]:
     return problems
 
 
+NO_WAKE = "no completion hook would wake a Director when work needs the owner"
+
+
+def _wake_check(project: Any) -> tuple[list[str], list[str]]:
+    """(problems, warnings) for the wake path (§13.4, decision 0058).
+
+    No hook would fire for a step waiting on the owner: a warning, or a
+    problem once an active run's lease names a harness other than ``cli``
+    (a Director that says it ends its turn).
+    """
+    from . import locks
+    from .store import StoreError
+    from .supervisor import wake_path
+
+    if wake_path(project) is not None:
+        return [], []
+    fix = "set on_needs_human (or on_complete) in .baton/project.yaml or ~/.baton/hooks.yaml (README: Directors that end their turn)"
+    detached = []
+    for rid in project.store.run_ids():
+        try:
+            log = project.context(rid).log
+            if log.state().state != "active":
+                continue
+            lease = locks.current(log.events())
+        except (EngineError, StoreError):
+            continue  # `check` reports unreadable runs
+        if lease is not None and (lease.harness or "cli") != "cli":
+            detached.append(f"{rid} ({lease.harness})")
+    if detached:
+        return [f"{NO_WAKE}, and active runs are led by Directors that end their turn: {', '.join(detached)}; {fix}"], []
+    return [], [f"{NO_WAKE}; {fix}"]
+
+
 def doctor(project: Any, only: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
     blocking, problems, warnings = sandbox_probe(project.home)
     if blocking is not None:
@@ -469,6 +502,9 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
     problems = problems + _lock_problems(project)
     if only is None:
         problems += _supervisor_problems(project) + _hook_problems(project)
+        wake_problems, wake_warnings = _wake_check(project)
+        problems += wake_problems
+        warnings = warnings + wake_warnings
     try:
         profiles = project.profiles()
     except EngineError as e:

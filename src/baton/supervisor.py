@@ -373,11 +373,70 @@ class HookConfigError(ValueError):
     pass
 
 
-def hooks_configured(project: Any) -> bool:
+def wake_path(project: Any) -> str | None:
+    """The hook that would wake a Director when a step ends waiting on the owner (§8.7), or None.
+
+    That is the outcome a Director must not miss, so it is the test: a project
+    whose only hook is ``on_platform_failure`` has no wake path. A machine
+    ``hooks.yaml`` that does not load fires nothing (``fire_hooks``), so it is
+    none either; ``doctor`` reports why.
+    """
     try:
-        return bool(load_hooks(project))
+        configured = load_hooks(project)
     except HookConfigError:
-        return True  # misconfigured, but configured: doctor reports it
+        return None
+    for _source, hooks in configured:
+        name = choose_hook(hooks, "needs_human", None, needs_owner=True)
+        if name is not None:
+            return name
+    return None
+
+
+def duration_text(seconds: float) -> str:
+    """``about 45 minutes``, ``about 2 hours``, ``about 2.5 hours``: plain words for the owner."""
+    minutes = max(1, round(seconds / 60))
+    if minutes == 1:
+        return "about a minute"
+    if minutes < 120 and minutes % 60:
+        return f"about {minutes} minutes"
+    hours = round(seconds / 1800) / 2
+    return "about 1 hour" if hours == 1 else f"about {hours:g} hours"
+
+
+def _compact(seconds: float) -> str:
+    """``45m``, ``2h``, ``90s``: the band as ``project.yaml`` writes it."""
+    if seconds % 3600 == 0:
+        return f"{seconds / 3600:g}h"
+    if seconds % 60 == 0:
+        return f"{seconds / 60:g}m"
+    return f"{seconds:g}s"
+
+
+def wake_notice(seconds: float, extend_once: bool, what: str = "this part finishes") -> str:
+    """The owner's notice before a dispatch nothing would wake the Director for (decision 0059). No Baton vocabulary."""
+    over = " (a little longer if it runs over)" if extend_once else ""
+    return (f"I might not notice when {what}. It can take up to {duration_text(seconds)}{over}. "
+            "If you haven't heard from me by then, ask me to check on it.")
+
+
+def wake_info(project: Any, seconds: float | None, extend_once: bool, *, what: str = "this part finishes") -> dict[str, Any]:
+    """``wake`` for ``eligible`` / ``sme_eligible``: ``{configured, hook}``, or ``{configured: false, expected, notice}``.
+
+    ``seconds`` is the work's effort band; None (every eligible worker is a
+    person, decision 0060) gives no notice.
+    """
+    hook = wake_path(project)
+    if hook is not None:
+        return {"configured": True, "hook": hook}
+    out: dict[str, Any] = {"configured": False}
+    if seconds is not None:
+        out["expected"] = _compact(seconds)
+        out["notice"] = wake_notice(seconds, extend_once, what)
+    return out
+
+
+NO_WAKE_WARNING = ("no completion hook would wake you when this needs the owner; if you end your turn, "
+                   "tell the owner first (`eligible` gives the words in wake.notice)")
 
 
 def choose_hook(hooks: dict[str, str], outcome: str, classification: str | None, needs_owner: bool) -> str | None:

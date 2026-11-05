@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from baton.recipe import load_recipe
 
@@ -347,6 +351,11 @@ def test_a_healthy_project_makes_no_routine_owner_prompts(tmp_path):
     run = cli.run("start", "software-feature", "--inputs", json.dumps(FIX))["run_id"]
     Director(cli, project, run).drive()
     runner = CliRunner(env={"BATON_HOME": str(cli.home), "BATON_PROJECT": str(project), "BATON_DIRECTOR": "alice@host1"})
+    res = runner.invoke(app, ["detect"])  # no hook, attached Director: the routine check stays one line (decision 0061)
+    assert res.exit_code == 0 and len(res.stdout.strip().splitlines()) <= 1, res.stdout
+    # A healthy project has a wake path (§13.4); without one, doctor warns.
+    wake = (shlex.join if os.name == "posix" else subprocess.list2cmdline)([sys.executable, "-c", "pass"])
+    (cli.home / "hooks.yaml").write_text(yaml.safe_dump({"hooks": {"on_needs_human": wake}}), encoding="utf-8")
     for args in (["detect"], ["doctor", "--no-run"], ["check"], ["board", "--needs-me"], ["resume", run], ["status", run]):
         res = runner.invoke(app, args)
         assert res.exit_code == 0, (args, res.stdout)

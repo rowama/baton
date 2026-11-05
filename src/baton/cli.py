@@ -477,7 +477,22 @@ def dispatch(
     _dispatched(out, as_json)
 
 
+def _warn(out: dict, as_json: bool) -> None:
+    """Text mode: each warning on stderr, so it shows however stdout is captured (JSON keeps them in ``warnings``)."""
+    if not as_json:
+        for w in out.get("warnings") or []:
+            typer.echo(f"WARNING: {w}", err=True)
+
+
+def _wake_lines(wake: dict | None) -> list[str]:
+    if not wake or wake.get("configured") or not wake.get("notice"):
+        return []
+    return ["No completion hook would wake you when this needs the owner. Before ending your turn, tell the owner:",
+            f"   {wake['notice']}"]
+
+
 def _dispatched(out: dict, as_json: bool) -> None:
+    _warn(out, as_json)
     if out.get("queued"):
         started = out.get("started_from_queue")
         if started and started.get("started"):
@@ -487,9 +502,6 @@ def _dispatched(out: dict, as_json: bool) -> None:
         _done(out, as_json, f"Queued {out['step_path']} for the working tree ({behind}; position {out['position']}) [{out['queue_id']}]\n"
                             f"It starts by itself when the tree is free. Withdraw: baton cancel {out['run_id']} {out['step_path']}")
     head = f"Dispatched {out['step_path']} attempt {out['attempt']} to {out['worker']} ({out['adapter']}) [{out['dispatch_id']}]"
-    if not as_json:
-        for w in out.get("warnings") or []:
-            typer.echo(f"WARNING: {w}", err=True)
     if "outcome" not in out and out["adapter"] == "manual":  # a person does the work
         _done(out, as_json, f"{head}\n{out['handoff']}\nThen: baton submit {out['run_id']} {out['step_path']}")
     if "outcome" not in out:  # running under its supervisor
@@ -513,6 +525,7 @@ def eligible(run: Annotated[str, typer.Argument(help="Run id.")], step: Annotate
     if not lines:
         lines.append(f"No eligible worker for {step}." + (" The step is escalated." if out["escalated"] else ""))
     lines += [f"   excluded {e['profile']}: {'; '.join(e['reasons'])}" for e in out["excluded"]]
+    lines += _wake_lines(out.get("wake"))
     lines += _pending_lines(out)
     _done(out, as_json, "\n".join(lines))
 
@@ -824,11 +837,10 @@ def _sme_text(out: dict) -> str:
 
 
 def _sme_started(out: dict, as_json: bool) -> None:
+    _warn(out, as_json)
     if "turns" in out:
         _done(out, as_json, _sme_text(out))
-    lines = [f"Asked the {out['subject']} expert ({out['worker']}): consultation {out['consultation']} turn {out['turn']}, due {out['deadline']}"]
-    lines += [f"WARNING: {w}" for w in out.get("warnings") or []]
-    _done(out, as_json, "\n".join(lines))
+    _done(out, as_json, f"Asked the {out['subject']} expert ({out['worker']}): consultation {out['consultation']} turn {out['turn']}, due {out['deadline']}")
 
 
 @app.command("ask-sme")
@@ -896,6 +908,7 @@ def sme_eligible(
     out = _call(as_json, lambda: _api().sme_eligible(subject, run))
     lines = [f"{e['profile']} ({e['adapter']}, {e['vendor']}): {'; '.join(e['reasons'])}" for e in out["eligible"]] or ["No eligible profile."]
     lines += [f"  excluded {x['profile']}: {'; '.join(x['reasons'])}" for x in out["excluded"]]
+    lines += _wake_lines(out.get("wake"))
     _done(out, as_json, "\n".join(lines))
 
 

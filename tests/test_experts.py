@@ -446,3 +446,19 @@ def test_async_turn_returns_at_once_and_wait_collects_it(tmp_path: Path) -> None
     assert out["turn"] == 1 and out["warnings"]  # no hook configured
     done = s.cli.run("sme", out["consultation"], "--wait", "--timeout", "60")
     assert done["state"] == "answered"
+
+
+def test_sme_eligible_reports_the_wake_path_and_ask_sme_warns_without_one(tmp_path: Path) -> None:
+    from baton import supervisor
+
+    s = Setup(tmp_path, start=False)
+    wake = s.cli.run("sme-eligible", "project")["wake"]
+    assert wake["configured"] is False and wake["expected"] == "2h"
+    assert wake["notice"].startswith("I might not notice when the expert's answer comes back. It can take up to about 2 hours.")
+    out = s.ask("project", "q")  # with --wait: still warned
+    assert out["state"] == "answered" and any(w.startswith(supervisor.NO_WAKE_WARNING) for w in out["warnings"]), out
+
+    (tmp_path / "hooked").mkdir()
+    h = Setup(tmp_path / "hooked", hooks=True, start=False)
+    assert h.cli.run("sme-eligible", "project")["wake"] == {"configured": True, "hook": "on_needs_human"}
+    assert h.cli.run("ask-sme", "project", "q")["warnings"] == []

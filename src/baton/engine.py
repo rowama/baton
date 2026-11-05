@@ -2200,16 +2200,32 @@ class Api:
         """
         ctx = self._ctx(run_id)
         result, _w = self._routing(ctx, step_path)
-        out: dict[str, Any] = {"run_id": run_id, **result.as_dict()}
+        wake = self._step_wake(ctx, step_path, result.eligible)
+        out: dict[str, Any] = {"run_id": run_id, **result.as_dict(), "wake": wake}
         if result.eligible or ctx.log.state().step(step_path).state != "ready":
             out["escalated"] = False
             return out
 
         def body(c: RunContext) -> dict[str, Any]:
             escalate_no_worker(c, step_path, result.excluded, actor=self.director.actor)
-            return {"run_id": run_id, **result.as_dict(), "escalated": True}
+            return {"run_id": run_id, **result.as_dict(), "wake": wake, "escalated": True}
 
         return self._mutate(run_id, body)
+
+    def _step_wake(self, ctx: RunContext, step_path: str, eligible: list[dict[str, Any]]) -> dict[str, Any]:
+        """Would anything wake the Director when this step ends waiting on the owner (§8.7, decision 0059)?
+
+        No notice when every eligible worker is a person (decision 0060): the
+        Director hands the result in with ``submit``, so nothing ends unseen.
+        """
+        from . import supervisor
+
+        cfg = self.project.config.effort
+        seconds = None
+        if not eligible or any(e.get("adapter") != "manual" for e in eligible):
+            effort, _src = resolve_effort(ctx, node_for(ctx.recipe, step_path), cfg, step_path)
+            seconds = cfg.seconds(effort)
+        return supervisor.wake_info(self.project, seconds, cfg.extend_once)
 
     def dispatch(self, run_id: str, step_path: str, worker: str, *, guidance: str | None = None, wait: bool = False) -> dict[str, Any]:
         """Build the packet and hand it to the worker's adapter (§8.7).
@@ -2375,15 +2391,16 @@ class Api:
             out["supervisor_pid"] = marker.get("supervisor_pid")
             out["worker_pid"] = marker.get("worker_pid")
             out["log"] = str(log_path)
-            if not wait and not supervisor.hooks_configured(self.project):
+            if supervisor.wake_path(self.project) is None:
                 out["warnings"].append(
-                    "no completion hook is configured: nothing will wake you when this finishes; "
-                    f"check with `baton status {ctx.run_id}` or `baton wait {ctx.run_id}`"
+                    f"{supervisor.NO_WAKE_WARNING}; check with `baton status {ctx.run_id}` or `baton wait {ctx.run_id}`"
                 )
             return out
 
         out = self._mutate(run_id, body)
         if out.get("queued"):
+            if adapter.name != "manual" and supervisor.wake_path(self.project) is None:
+                out.setdefault("warnings", []).append(f"{supervisor.NO_WAKE_WARNING}; check with `baton status {run_id}`")
             return out
         if wait and "outcome" not in out and out.get("supervisor_pid"):
             waited = self.wait(run_id, out["dispatch_id"])
@@ -3338,8 +3355,13 @@ class Api:
 
         if subject not in sme.SUBJECTS:
             raise EngineError("sme.bad_subject", f"subject must be one of {', '.join(sme.SUBJECTS)}")
+        from . import supervisor
+
         req, _v, el, ex = self._sme_routing(subject, self._ctx(run_id) if run_id else None)
-        return {"subject": subject, "requires": req.model_dump(exclude_none=True), "eligible": el, "excluded": ex}
+        cfg = self.project.config.effort
+        # A turn gets the default band and is never extended; an expert is never a person (decision 0045).
+        wake = supervisor.wake_info(self.project, cfg.seconds(cfg.default), False, what="the expert's answer comes back")
+        return {"subject": subject, "requires": req.model_dump(exclude_none=True), "eligible": el, "excluded": ex, "wake": wake}
 
     def _sme_locked(self, run_id: str | None, body: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         """Run ``body`` holding the run's lease and lock (run consultations) or the project lock."""
@@ -3481,8 +3503,8 @@ class Api:
                 w.log.append("sme_answered", data={"consultation": c_id, "turn": turn, "status": "failed", "classification": "platform",
                                                    "code": "supervisor_failed", "reasons": ["the supervisor did not start"]})
                 out["state"] = "failed"
-            elif not wait and not supervisor.hooks_configured(self.project):
-                out["warnings"].append(f"no completion hook is configured: check with `baton sme {c_id}` or `baton sme {c_id} --wait`")
+            elif supervisor.wake_path(self.project) is None:
+                out["warnings"].append(f"{supervisor.NO_WAKE_WARNING}; check with `baton sme {c_id}` or `baton sme {c_id} --wait`")
             return out
 
         out = self._sme_locked(run_id, body)
