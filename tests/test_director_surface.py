@@ -206,6 +206,19 @@ def test_push_of_a_new_branch_sets_its_upstream(tmp_path):
     assert cli.run("push")["reason"] == "nothing to push"
 
 
+def test_owner_exit_zero_covers_push_and_permission(tmp_path, monkeypatch):
+    """Decision 0057: the owner-needed exit of ``push`` and ``permission`` (``ask``) follows BATON_OWNER_EXIT."""
+    cli, project = setup_fit_check(tmp_path)
+    with_remote(tmp_path, project)
+    commit_file(project, "src/app.py", "print('hi')\n")
+    monkeypatch.setenv("BATON_OWNER_EXIT", "0")
+    assert cli.run("push", expect=0)["needs_owner"] is True
+    out = cli.run("permission", "tag", "--detail", "tag v1.0 on main", expect=0)
+    assert out["needs_owner"] is True and not out["granted"]
+    monkeypatch.delenv("BATON_OWNER_EXIT")
+    assert cli.run("permission", "tag", "--detail", "tag v1.0 on main", expect=4)["needs_owner"] is True
+
+
 def test_push_without_a_remote_is_a_problem(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     commit_file(project, "docs/a.md")

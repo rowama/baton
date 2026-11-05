@@ -1,7 +1,10 @@
 """The ``baton`` command line (§13.1).
 
-Every command takes ``--json`` for machine-readable output. Exit codes:
-0 ok, 1 problem, 2 usage, 3 lease held elsewhere, 4 needs an owner decision.
+Every command takes ``--json`` for machine-readable output. Exit codes
+(§13.1): 0 ok, 1 problem, 2 usage, 3 lease held elsewhere, 4 finished and the
+owner is needed now (a success path, not a failure). ``BATON_OWNER_EXIT=0``
+makes that case exit 0 instead, ``needs_owner: true`` still in the JSON, for
+harnesses that treat any non-zero exit as failure (decision 0057).
 
 Global options (or environment): ``--project`` / ``BATON_PROJECT`` (default:
 the nearest directory with ``.baton/project.yaml``), ``--director`` /
@@ -13,6 +16,7 @@ the nearest directory with ``.baton/project.yaml``), ``--director`` /
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
@@ -25,6 +29,7 @@ from .recipe import RecipeError, render_plan
 from .store import StoreError
 
 EXIT_OK, EXIT_PROBLEM, EXIT_USAGE, EXIT_LEASE, EXIT_OWNER = 0, 1, 2, 3, 4
+OWNER_EXIT_VAR = "BATON_OWNER_EXIT"
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Baton process runtime.")
 
@@ -102,8 +107,22 @@ def error_payload(e: BaseException) -> tuple[int, dict[str, Any]] | None:
     return None
 
 
+def _owner_exit() -> int:
+    """The exit code for "finished, the owner is needed": 4, or 0 under ``BATON_OWNER_EXIT=0`` (decision 0057)."""
+    raw = os.environ.get(OWNER_EXIT_VAR, "").strip()
+    if raw in ("", "4"):
+        return EXIT_OWNER
+    if raw == "0":
+        return EXIT_OK
+    raise ValueError(f"{OWNER_EXIT_VAR} must be 0 or 4, got {raw!r}")
+
+
 def _call(as_json: bool, fn: Callable[[], Any]) -> Any:
-    """Run an API call, mapping refusals to exit codes."""
+    """Run an API call, mapping refusals to exit codes. A bad ``BATON_OWNER_EXIT`` is refused before any work."""
+    try:
+        _owner_exit()
+    except ValueError as e:
+        _fail(as_json, EXIT_USAGE, "usage.owner_exit", str(e))
     try:
         return fn()
     except (LeaseHeld, EngineError, RecipeError, StoreError) as e:
@@ -156,7 +175,10 @@ def _done(payload: dict, as_json: bool, text: str, code: int | None = None) -> N
     if not as_json:
         _checkpoint_note(payload)
     if code is None:
-        code = EXIT_OWNER if payload.get("needs_owner") else EXIT_OK
+        try:
+            code = _owner_exit() if payload.get("needs_owner") else EXIT_OK
+        except ValueError:  # _call refused it before any work; a command without one keeps the default
+            code = EXIT_OWNER
     raise typer.Exit(code)
 
 

@@ -168,7 +168,7 @@ def _toy(root: Path, version: int, *, check: bool = True, draft_schema: str = "a
     return make_recipe(root, steps, schemas={"a.json": OBJ, "b.json": {"type": "object", "required": ["x"]}}, version=version)
 
 
-def test_vendoring_a_changed_or_reused_step_id_needs_the_owner(tmp_path):
+def test_vendoring_a_changed_or_reused_step_id_needs_the_owner(tmp_path, monkeypatch):
     project = make_git_project(tmp_path / "proj")
     cli = Cli(project, make_home(tmp_path / "home"))
     cli.run("init", str(project))
@@ -184,6 +184,10 @@ def test_vendoring_a_changed_or_reused_step_id_needs_the_owner(tmp_path):
     assert out["flags"] == [{"code": "retired_id_reused", "step": "check", "present_in": [1], "retired_in": [2]}]
     assert lock_path.read_bytes() == before and not (project / ".baton" / "recipes" / "toy@3").exists()
     assert cli("vendor", str(tmp_path / "v3"), "--approved", expect=1).payload["error"] == "vendor.note"
+
+    monkeypatch.setenv("BATON_OWNER_EXIT", "0")  # decision 0057: the same refusal exits 0, needs_owner kept
+    assert cli.run("vendor", str(tmp_path / "v3"), expect=0)["needs_owner"] is True
+    monkeypatch.delenv("BATON_OWNER_EXIT")
 
     out = cli.run("vendor", str(tmp_path / "v3"), "--approved", "--note", "Reusing check is fine: same role.")
     assert out["changed"] and out["decision_id"]

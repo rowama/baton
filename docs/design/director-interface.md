@@ -2,7 +2,17 @@
 
 ### 13.1 The API (engine; one table)
 
-Every call is available as a CLI command (`--json` output; exit codes 0 ok, 1 problem, 2 usage, 3 lease held elsewhere, 4 needs owner decision) and as an MCP tool.
+Every call is available as a CLI command (`--json` output; exit codes below) and as an MCP tool.
+
+| Exit | Meaning |
+|---|---|
+| 0 | Done; nothing needs the owner |
+| 1 | A problem: the call was refused or the work failed (e.g. `dispatch --wait` ending in `retry`) |
+| 2 | Usage: bad arguments, or a `BATON_OWNER_EXIT` other than `0` or `4` (refused before any work) |
+| 3 | The run's lease is held by another Director |
+| 4 | **Finished, and the owner is needed now.** This is a success path, not a failure. The call did its work, and a decision, gate or escalation now waits on the owner (`needs_owner: true`). From `dispatch --wait` or `wait`, it means: go to the owner now. `status`, `board`, `resume`, `decide`, `submit`, `push`, `permission` (`ask`) and `vendor` (flagged step ids) use it the same way |
+
+`BATON_OWNER_EXIT=0` makes the owner-needed case exit 0 instead, for harnesses that treat any non-zero exit as failure. `needs_owner: true` stays in the JSON and is then the only signal. Unset (or `4`), nothing changes (Decision: [0057](../decisions/0057-owner-needed-exit-code-opt-out.md)). The MCP tools have no exit codes; they always return `needs_owner`.
 
 | Call | Purpose |
 |---|---|

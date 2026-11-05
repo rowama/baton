@@ -647,3 +647,52 @@ def test_doctor_checks_supervisor_and_hooks(tmp_path):
     probs = [p for p in rep["problems"] if "hook" in p]
     assert any("on_complete" in p and "nowhere" in p for p in probs), probs
     assert any("on_needs_human" in p and "not found on PATH" in p for p in probs), probs
+
+
+# ---------------------------------------------------------------------------
+# Exit codes: 4 is "finished, the owner is needed"; BATON_OWNER_EXIT=0 (decision 0057)
+# ---------------------------------------------------------------------------
+
+
+def test_owner_exit_zero_makes_owner_needed_exit_0_and_keeps_needs_owner(tmp_path, monkeypatch):
+    s = Setup(tmp_path)
+    s.cli.run("dispatch", s.run, "describe", "--worker", "bot", "--wait")
+    s.behave("good", output=VERDICT)
+    monkeypatch.setenv("BATON_OWNER_EXIT", "0")
+    d = s.cli("dispatch", s.run, "assess", "--worker", "bot", "--wait", expect=0).payload
+    assert d["outcome"] == "needs_human" and d["needs_owner"] is True
+    for args in (("wait", s.run), ("status", s.run), ("resume", s.run), ("board",)):
+        assert s.cli(*args, expect=0).payload["needs_owner"] is True, args
+    monkeypatch.setenv("BATON_OWNER_EXIT", "4")
+    assert s.cli("status", s.run, expect=4).payload["needs_owner"] is True
+    monkeypatch.delenv("BATON_OWNER_EXIT")
+    assert s.cli("wait", s.run, expect=4).payload["needs_owner"] is True  # the default stays 4
+
+
+def test_a_bad_owner_exit_value_is_a_usage_error_before_any_work(tmp_path, monkeypatch):
+    s = Setup(tmp_path)
+    before = len(s.events())
+    monkeypatch.setenv("BATON_OWNER_EXIT", "1")
+    res = s.cli("dispatch", s.run, "describe", "--worker", "bot", "--wait", expect=2)
+    assert res.payload["error"] == "usage.owner_exit" and "must be 0 or 4" in res.payload["message"]
+    assert len(s.events()) == before  # nothing was dispatched
+    text = _text(s, "status", s.run)
+    assert text.exit_code == 2 and "BATON_OWNER_EXIT must be 0 or 4" in text.stderr
+
+
+@pytest.mark.parametrize(("value", "want"), [(None, 4), ("4", 4), ("0", 0), ("", 4)])
+def test_every_owner_needed_exit_goes_through_one_place(value, want, monkeypatch, capsys):
+    """``cli._done`` is the only owner-needed exit (``decide`` and every other command use it)."""
+    import typer
+
+    from baton import cli
+
+    if value is None:
+        monkeypatch.delenv("BATON_OWNER_EXIT", raising=False)
+    else:
+        monkeypatch.setenv("BATON_OWNER_EXIT", value)
+    for payload, code in (({"needs_owner": True}, want), ({"needs_owner": False}, 0)):
+        with pytest.raises(typer.Exit) as e:
+            cli._done(payload, True, "")
+        assert e.value.exit_code == code
+    capsys.readouterr()

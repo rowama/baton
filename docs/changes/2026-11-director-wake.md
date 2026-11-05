@@ -123,3 +123,18 @@ None. The owner accepted the recommended scope (B1–B4, B5 as README examples, 
   - `tests/test_real_use.py`: the healthy-project test checks that `detect` is one line with no hook, then configures a machine `on_needs_human` hook for the full quiet check.
 - **Review:** not yet reviewed.
 - **Accepted:** not yet (criteria 1–3 are this slice's; the owner accepts).
+
+### Exit codes
+
+- **Commit:** `2026-11-director-wake: exit codes`
+- **Summary:**
+  - `cli._owner_exit` reads `BATON_OWNER_EXIT`: unset, empty or `4` gives 4, and `0` gives 0. `cli._done`, the only place a command exits 4 for a needed owner, uses it, and `needs_owner` is untouched in the payload.
+  - `cli._call` checks the value before any API call, so anything else is a usage error (exit 2, `usage.owner_exit`) before any work is done.
+  - The module docstring states the exit codes and the opt-out.
+- **Docs:** §13.1 gains the exit-code table. It defines exit 4 as "finished, the owner is needed now", a success path, and documents `BATON_OWNER_EXIT` (decision 0057). The README and skill tables are slice 3's.
+- **Tests:**
+  - `tests/test_async.py`: under `BATON_OWNER_EXIT=0`, `dispatch --wait`, `wait`, `status`, `resume` and `board` exit 0 with `needs_owner: true`. `4` and unset still exit 4. A bad value is exit 2 before anything is dispatched, in JSON and text mode. `_done` maps owner-needed for unset, empty, `4` and `0`; this covers `decide` and every other command, which all exit through it.
+  - `tests/test_director_surface.py`: `push` and `permission` (`ask`).
+  - `tests/test_versioning.py`: `vendor` with a flagged step id.
+- **Review:** not yet reviewed.
+- **Accepted:** not yet (criterion 4, apart from the README and skill tables; the owner accepts).
