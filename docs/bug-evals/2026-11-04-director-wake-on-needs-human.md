@@ -150,3 +150,17 @@ Yes, empty hooks are the documented default (`project.py:64-67`, `models.py:626-
  "last_checkpoint":"0b5bba7923e4364889af9ce90afdbdd31aad381d","last_seq":24}
 ```
 Platform-side: Shell 217411 ended 2026-11-04T23:38:34Z (5:38 PM CST) and 217412 ended 2026-11-05T00:26:14Z (6:26 PM CST), both exit_code 4 with terminal `status: failed`, as reported by Gus and not re-verified here.
+
+## Ulrik platform confirmation (2026-11-04 evening)
+
+Ulrik reproduced on Merkle (machineId background Shells, then end turn):
+
+| Exit | Terminal status | Wake? |
+|------|-----------------|-------|
+| 0 | succeeded | **No** |
+| 1 | failed | **No** |
+| 4 | failed | **No** |
+
+A box-local exit-4 Shell also completed without waking. Next agent wake was ~2.5h later from Rob message, not Shell completion.
+
+**Conclusion:** the miss is not exit-4 only. Remote (and observed box) background Shell completion wakes did not reach the owning agent. Immediate Director fix without webhooks: stay attached with foreground dispatch --wait or AwaitShell before ending the turn. Product ask: always deliver Shell completion wakes for any exit code.
