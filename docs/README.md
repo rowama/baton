@@ -189,3 +189,6 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0054 What counts as a sandboxed Director](decisions/0054-sandbox-detection.md) | accepted |
 | [0055 The Codex README section ships before the live check, marked unverified](decisions/0055-codex-readme-before-live-check.md) | accepted |
 | [0056 Codex setup includes a config line so Baton's tools need no per-call approval](decisions/0056-codex-tool-approval.md) | accepted |
+| [0057 BATON_OWNER_EXIT=0 makes owner-needed exit 0; the default stays 4](decisions/0057-owner-needed-exit-code-opt-out.md) | accepted |
+| [0058 A Director with no wake path is warned, never refused](decisions/0058-detached-director-warned-not-refused.md) | accepted |
+| [0059 The Director tells the owner before a dispatch it might not be woken for](decisions/0059-warn-owner-before-unwoken-dispatch.md) | accepted |
