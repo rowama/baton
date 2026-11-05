@@ -6,8 +6,9 @@ It keeps no memory between sessions: everything it knows comes from the wake
 that started it (a completion hook's variables, or the owner's reply) and from
 ``baton … --json``. It follows the director skill: relay the owner's words,
 route from ``eligible`` in preference order, dispatch without waiting and end
-the turn, tell the owner where a person's packet is and ``submit`` when they
-say they are done. Messages for the owner go to the outbox; every command it
+the turn (telling the owner ``wake.notice`` first when no hook would wake it),
+tell the owner where a person's packet is and ``submit`` when they say they
+are done. Messages for the owner go to the outbox; every command it
 ran goes to the sessions log.
 """
 
@@ -72,6 +73,8 @@ for run in dict.fromkeys(runs):
         step = st["ready"][0]
         code, el = baton("eligible", run, step)
         worker = el["eligible"][0]["profile"]
+        if not el.get("wake", {}).get("configured", True) and el["wake"].get("notice"):
+            tell(kind="notice", run=run, step=step, text=el["wake"]["notice"])  # no wake path: the owner hears first
         code, d = baton("dispatch", run, step, "--worker", worker)
         if d.get("adapter") == "manual":  # a person: tell them where the packet is; never do it for them
             tell(kind="manual", run=run, step=step, packet=d["packet"], attempt=d.get("attempt"))

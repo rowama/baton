@@ -87,12 +87,19 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 1. `status` → ready steps, running work, pending owner decisions, open findings, drift.
 2. Pending owner decision: hold the conversation it needs (see *Talking to the owner*), confirm back, then record it (`decide <run> <ref> <decision> --note "<owner's words>"`). A `blocked` step's questions: take them up with the owner, confirm the answers, write them to a file outside `.baton/` and `decide <run> <step> retry --answers <file> --note "<owner's words>"`. A framing run's choice: confirm the goal, let the owner choose parts, confirm back, then `decide <run> frame select --items <ids> --note "<owner's words>"`; tell the owner plainly about any part that could not start (a gap) and why.
 3. Ready step: `eligible` → choose (respect preference order unless there is a stated reason) → `dispatch`. Starting work the process already calls for is not a question for the owner.
-4. Dispatch returns at once. If you can stay attached, `wait`; otherwise end your turn — the completion hook or the next `board` brings you back. Never treat work as finished until Baton records it.
+4. Dispatch returns at once. Stay attached with `wait` unless you have a wake path (see *Work that outlives your turn*). Never treat work as finished until Baton records it.
 5. A manual worker (a person) does the step: tell them where the packet is; they write the result; `submit` hands it in. Never write it for them.
 6. Gate failure: retry while attempts remain (another eligible worker if useful); review loops are handled by the recipe; otherwise escalate.
 7. Failure classified `platform` or `unknown`: consult the platform SME with the incident; `configuration`: tell the owner the exact fix.
 8. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage`.
 9. Run complete: `summary` → present to the owner; release the lease.
+
+## Work that outlives your turn
+- Before you dispatch, read `wake` from `eligible` (or `sme-eligible`). You have a wake path only if `wake.configured` is true, or your harness has woken you when background work ended and you have seen that work.
+- With no wake path, stay attached: `wait` (or `dispatch --wait` in the foreground) until Baton records the result.
+- If you will end your turn anyway, first give the owner `wake.notice` in conversation, before you dispatch. Never skip it.
+- Exit 4 (or `needs_owner: true`) from `dispatch --wait` or `wait` means the work finished and the owner is needed now: go to the owner. It is not a failure. Exit codes: 0 done, 1 problem, 2 usage, 3 lease held elsewhere, 4 finished and the owner is needed. If your harness treats any non-zero exit as failure, run with `BATON_OWNER_EXIT=0` and read `needs_owner`.
+- A Director that ends its turn while work runs sets `BATON_DIRECTOR` (a stable identity for its leases) and `BATON_HARNESS` (its harness, never `cli`).
 
 ## Pushing and other repo actions
 - Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.

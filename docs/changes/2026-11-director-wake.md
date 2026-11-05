@@ -1,7 +1,7 @@
 ---
 id: 2026-11-director-wake
 title: "A detached Director notices when work finishes, or tells the owner first that it might not"
-status: in-progress
+status: done
 level: standard
 decisions: ["0057", "0058", "0059", "0060", "0061"]   # exit-code opt-out; warn, never refuse; owner warned before an unwoken dispatch; manual workers get no notice; detect stays quiet
 touches: [design/runtime.md, design/director-interface.md]   # §8.7, §13.1, §13.3, §13.4; also the repo README.md
@@ -138,3 +138,31 @@ None. The owner accepted the recommended scope (B1–B4, B5 as README examples, 
   - `tests/test_versioning.py`: `vendor` with a flagged step id.
 - **Review:** not yet reviewed.
 - **Accepted:** not yet (criterion 4, apart from the README and skill tables; the owner accepts).
+
+### Skill, README and the scenario
+
+- **Commit:** `2026-11-director-wake: skill, README and the scenario`
+- **Summary:**
+  - The director skill (`skills/baton-director/SKILL.md`, and its text in §13.3) gains *Work that outlives your turn*:
+    - Read `wake` before dispatching. A wake path is `wake.configured`, or a harness wake the Director has seen work.
+    - With no wake path, stay attached with `wait`. A Director that ends its turn anyway first gives the owner `wake.notice`, before the dispatch, and never skips it.
+    - Exit 4 / `needs_owner` from `dispatch --wait` or `wait` means "go to the owner now", not failure. It carries the exit codes in brief and `BATON_OWNER_EXIT=0`.
+    - A detached Director sets `BATON_DIRECTOR` and `BATON_HARNESS`.
+  - Per-run item 4 no longer assumes a hook exists.
+  - README:
+    - "Exit codes" (the table, and 4 as "finished, the owner is needed now").
+    - "Directors that end their turn": what the Director does, the warnings, a table of `BATON_DIRECTOR`, `BATON_HARNESS` and `BATON_OWNER_EXIT`, and two hook examples. One is a webhook (`curl` to `secret:director_wake_url`, machine `hooks.yaml`); the other is a local inbox file (`printf … >> .baton/cache/inbox.log`, project `project.yaml`).
+  - The old hook paragraph under "Run work" now points there.
+  - `tests/fakes/detached_director.py` is the bug eval's Director. It frames a goal, reads `eligible`'s `wake`, tells the owner the notice when there is no wake path, dispatches the framing step with `--wait`, and on exit 4 / `needs_owner` takes the pending decision to the owner. Its transcript interleaves commands (with exit codes and warnings) and messages to the owner.
+  - The Phase 16 `remote_director.py` follows the same rule.
+- **Docs:** §13.3 (the skill text). No new decisions. The bug eval's later platform confirmation (harness background-job wakes never arrived, at any exit code) supports the "stay attached" default; that edit is the owner's, outside this change's commits.
+- **Tests:**
+  - `tests/test_real_use.py`, the scenario (criterion 7):
+    - With no hooks, the notice ("…about 2 hours…") is relayed before the dispatch, `dispatch --wait` exits 4 with the no-wake warning in its JSON, the framing decision reaches the owner, and the lease shows harness `cloud-chat`.
+    - With `BATON_OWNER_EXIT=0`, the same turn exits 0 and still reaches the owner.
+    - With an `on_needs_human` hook there is no notice and no warning, and the hook fires once with `(frame, needs_human)`.
+  - `tests/test_real_use.py`, the README (criterion 6): the exit-code table, the three variables, both hook examples valid as `HooksConfig`, and the inbox hook run for real (POSIX) to write `r_1 frame needs_human`.
+  - The Phase 16 test checks that no notice was owed with its hook.
+  - `tests/test_director_surface.py`: the skill test checks each new rule and that the old hook assumption is gone. The shipped skill still equals §13.3.
+- **Review:** not yet reviewed.
+- **Accepted:** not yet (criteria 4 (README and skill tables), 5, 6 and 7; the owner accepts).

@@ -108,14 +108,51 @@ baton decide <run> <step> approve --note "<the owner's words>"
 baton board                                          # every active work item
 ```
 
-Dispatch is asynchronous: a detached supervisor finishes the work, records it and commits a checkpoint. A Director whose turn ends while work runs (a cloud chat agent with a shell on this machine, for example) is woken by a **completion hook** in `.baton/project.yaml` or `~/.baton/hooks.yaml` (§8.7):
+Dispatch is asynchronous: a detached supervisor finishes the work, records it and commits a checkpoint. A Director that ends its turn while work runs needs something to wake it: see [Directors that end their turn](#directors-that-end-their-turn). For Directors without a shell, `baton mcp` serves the same calls over MCP (stdio; `--http` binds loopback only and needs a bearer token from `~/.baton/mcp.yaml`).
+
+### Exit codes
+
+| Exit | Meaning |
+|---|---|
+| 0 | Done; nothing needs the owner |
+| 1 | A problem: the call was refused or the work failed |
+| 2 | Usage: bad arguments, or a `BATON_OWNER_EXIT` other than `0` or `4` |
+| 3 | The run's lease is held by another Director |
+| 4 | **Finished, and the owner is needed now.** Not a failure: a decision, approval or question waits on the owner (`needs_owner: true` in the JSON). From `dispatch --wait` or `wait`, it means: go to the owner now |
+
+Some harnesses show any non-zero exit as `failed`. For those, set `BATON_OWNER_EXIT=0`: the owner-needed case then exits 0 and `needs_owner: true` is the signal. MCP tools have no exit codes and always return `needs_owner`.
+
+## Directors that end their turn
+
+A Director in a terminal can `wait` (or `dispatch --wait`) until the work is recorded. A Director that ends its turn while work runs (a cloud chat agent with a shell on this machine, for example) is brought back only by a **completion hook**, or by its harness if that really wakes it when a background job ends. Without one, nobody notices when the work finishes. So:
+
+- Before it dispatches, the Director reads `wake` from `baton eligible`. With no hook that would fire when the work needs you (`on_needs_human`, or `on_complete`), it stays attached. If it will end its turn anyway, it first tells you, in plain words, that it might not notice when the work finishes and roughly how long that may take, so you know when to check back.
+- `baton dispatch` and `baton ask-sme` warn whenever no hook would wake the Director. `baton doctor` warns too, and reports a problem when a run is led by a Director that ends its turn.
+- Set these in the Director's environment:
+
+| Variable | Meaning |
+|---|---|
+| `BATON_DIRECTOR` | A stable identity for the Director (default `<user>@<host>`), so its leases survive between turns |
+| `BATON_HARNESS` | Which harness the Director runs in (e.g. `cloud-chat`; default `cli`, meaning a terminal that stays attached). Shown in leases; `doctor` uses it |
+| `BATON_OWNER_EXIT` | `0` makes "the owner is needed" exit 0 instead of 4 (see [Exit codes](#exit-codes)) |
+
+Hooks go in `.baton/project.yaml` (committed, no secrets) or `~/.baton/hooks.yaml` (this machine; `secret:` values allowed). Each hook gets `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed`, `needs_human`, `failed`, …) and more (§8.7). Two examples:
+
+A webhook that wakes a remote agent, in `~/.baton/hooks.yaml`, with the URL kept as a secret:
 
 ```yaml
 hooks:
   on_complete: "curl -fsS -m 20 -X POST -d run=$BATON_RUN_ID -d step=$BATON_STEP_PATH -d outcome=$BATON_OUTCOME secret:director_wake_url"
 ```
 
-(`secret:` values are allowed only in the machine-level `hooks.yaml`.) For Directors without a shell, `baton mcp` serves the same calls over MCP (stdio; `--http` binds loopback only and needs a bearer token from `~/.baton/mcp.yaml`).
+A local inbox file, for a Director that checks a file when it next runs (or a watcher that tails it), in `.baton/project.yaml`:
+
+```yaml
+hooks:
+  on_complete: "printf '%s %s %s\\n' \"$BATON_RUN_ID\" \"$BATON_STEP_PATH\" \"$BATON_OUTCOME\" >> .baton/cache/inbox.log"
+```
+
+`on_needs_human` (falls back to `on_complete`) fires when the work needs you; `on_platform_failure` alone wakes nobody for that.
 
 ## Frame a goal
 

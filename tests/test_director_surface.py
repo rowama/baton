@@ -297,6 +297,16 @@ def test_director_skill_names_every_call_it_relies_on():
     # A blocking detect problem comes first; MCP is preferred over a (possibly sandboxed) shell (§13.3, decision 0053).
     assert "A `blocking` problem (e.g. `director_sandboxed`) comes before everything else" in text
     assert "Prefer MCP even when you also have a shell" in text
+    # Work that outlives the turn (change 2026-11-director-wake; decisions 0057-0059).
+    wake = text[text.index("## Work that outlives your turn"):text.index("## Pushing and other repo actions")]
+    assert "Before you dispatch, read `wake` from `eligible`" in wake
+    assert "With no wake path, stay attached: `wait`" in wake
+    assert "first give the owner `wake.notice` in conversation, before you dispatch. Never skip it." in wake
+    assert "Exit 4 (or `needs_owner: true`) from `dispatch --wait` or `wait` means the work finished and the owner is needed now" in wake
+    assert "It is not a failure." in wake and "`BATON_OWNER_EXIT=0`" in wake
+    assert "4 finished and the owner is needed" in wake  # the exit-code table, in brief
+    assert "sets `BATON_DIRECTOR`" in wake and "`BATON_HARNESS` (its harness, never `cli`)" in wake
+    assert "the completion hook or the next `board` brings you back" not in text  # no longer assumes a hook exists
 
 
 def test_shipped_director_skill_is_the_guides_text():

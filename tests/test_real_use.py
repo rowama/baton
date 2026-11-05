@@ -17,9 +17,10 @@ import pytest
 import yaml
 
 from baton.recipe import load_recipe
+from baton.supervisor import NO_WAKE_WARNING
 
 from conftest import FIT_CHECK, ROOT, SOFTWARE_FEATURE
-from projectkit import FIT_INPUTS, GOOD_PROFILE, git, packet_dir, setup_fit_check, write_result
+from projectkit import FIT_INPUTS, GOOD_PROFILE, Cli, git, make_git_project, make_home, packet_dir, setup_fit_check, write_result
 from realkit import Director, calls, make_toy_project, run_events
 
 BACKYARD = ROOT / "examples" / "recipes" / "backyard-project"
@@ -324,12 +325,100 @@ def test_remote_director_completes_a_multi_slice_work_item_across_sessions(tmp_p
     assert len(woken_by_hook) >= 6
     every = [c for s in logged for c in s["commands"]]
     assert not any("--wait" in c or c[0] == "wait" for c in every)  # never attached: always ended the turn
+    assert not [m for m in lines(outbox) if m["kind"] == "notice"]  # the hook is a wake path: no notice was owed
     assert {c[0] for c in every} <= {"detect", "board", "status", "eligible", "dispatch", "decide", "submit", "start", "summary"}
     evs = assert_clean_record(cli, project, run)
     assert {e["data"]["director_id"] for e in evs if e["type"] in ("lease_claimed", "lease_renewed")} <= {"remote@cloud"}
     session_iteration = [e for e in evs if e["type"] == "iteration_started" and e["data"]["iteration"] == 2]
     assert len(session_iteration) == 1  # the review sent one slice back, handled by the recipe without the owner
     assert [c["profile"] for c in calls(sf) if c["step"].endswith("code_review")] == ["checker"] * 3
+
+
+# ---------------------------------------------------------------------------
+# The bug eval's scenario: a detached Director, framing, --wait (change 2026-11-director-wake)
+# ---------------------------------------------------------------------------
+
+DETACHED = Path(__file__).parent / "fakes" / "detached_director.py"
+GOAL = "I want to start a pure-water vending business: a few self-serve machines around town."
+FRAMED = {
+    "goal": "Start a business selling purified water from a few self-serve machines around town.",
+    "parts": [{"id": "setup", "label": "Setting up the business", "description": "Registering it, banking, insurance and permits.",
+               "kind": "project", "proposal": {"fit_check": {"idea": "Set up a small water-vending business."}},
+               "reasons": ["No listed process covers business setup"]}],
+    "assumptions": [],
+}
+
+
+def _detached_turn(tmp_path: Path, *, hooks: dict | None = None, owner_exit: str | None = None) -> tuple[list[dict], Cli, Path]:
+    """One turn of the scripted detached Director on a fresh project; returns its transcript."""
+    from realkit import configure, profiles
+
+    work = tmp_path / "work"
+    work.mkdir()
+    script = work / "script.json"
+    script.write_text(json.dumps({"frame": {"output": FRAMED}}), encoding="utf-8")
+    project = make_git_project(tmp_path / "proj")
+    cli = Cli(project, make_home(tmp_path / "home", profiles(script)))
+    cli.run("init", str(project))
+    if hooks:
+        configure(project, hooks=hooks)
+    (project / ".baton" / "preferences.yaml").write_text("prefer:\n  by_step:\n    frame: [builder]\n", encoding="utf-8")
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "Baton")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BATON_")}
+    env.update(BATON_HOME=str(cli.home), BATON_DIRECTOR="chat@cloud", BATON_HARNESS="cloud-chat",
+               PYTHONPATH=str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", ""))
+    if owner_exit is not None:
+        env["BATON_OWNER_EXIT"] = owner_exit
+    transcript = tmp_path / "transcript.jsonl"
+    proc = subprocess.run([sys.executable, str(DETACHED), GOAL, str(transcript)], cwd=project, env=env,
+                          capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return [json.loads(x) for x in transcript.read_text(encoding="utf-8").splitlines()], cli, project
+
+
+def _index(transcript: list[dict], pred) -> int:
+    return next(i for i, e in enumerate(transcript) if pred(e))
+
+
+def test_a_detached_director_with_no_hook_tells_the_owner_before_dispatching(tmp_path):
+    """The bug eval (2026-11-04-director-wake-on-needs-human): no hooks, framing dispatched with --wait in the background."""
+    t, cli, _project = _detached_turn(tmp_path)
+    el = next(e for e in t if e.get("cmd", [None])[0] == "eligible")
+    notice = _index(t, lambda e: e.get("tell", {}).get("kind") == "notice")
+    dispatch = _index(t, lambda e: e.get("cmd", [None])[0] == "dispatch")
+    assert notice < dispatch  # the owner heard it before the work started
+    text = t[notice]["tell"]["text"]
+    assert text.startswith("I might not notice when this part finishes.") and "about 2 hours" in text
+    assert el["exit"] == 0
+    assert t[dispatch]["exit"] == 4  # finished, and the owner is needed: not a failure
+    assert any(w.startswith(NO_WAKE_WARNING) for w in t[dispatch]["warnings"])  # with --wait too
+    question = next(e["tell"] for e in t if e.get("tell", {}).get("kind") == "question")
+    assert question["ref"] == "frame"
+    st = cli("status", question["run"], expect=4).payload
+    assert st["needs_owner"] and st["lease"]["harness"] == "cloud-chat"
+
+
+def test_the_detached_scenario_exits_0_with_owner_exit_0(tmp_path):
+    t, _cli, _project = _detached_turn(tmp_path, owner_exit="0")
+    dispatch = next(e for e in t if e.get("cmd", [None])[0] == "dispatch")
+    assert dispatch["exit"] == 0
+    assert any(e.get("tell", {}).get("kind") == "question" for e in t)  # needs_owner still brought the Director to the owner
+    assert any(e.get("tell", {}).get("kind") == "notice" for e in t)
+
+
+def test_the_detached_scenario_with_an_on_needs_human_hook(tmp_path):
+    from realkit import cmdline
+
+    inbox = tmp_path / "inbox.jsonl"
+    wake = tmp_path / "wake.py"
+    wake.write_text(WAKE, encoding="utf-8")
+    t, _cli, _project = _detached_turn(tmp_path, hooks={"on_needs_human": cmdline([sys.executable, str(wake), str(inbox)])})
+    assert not any(e.get("tell", {}).get("kind") == "notice" for e in t)  # a wake path: nothing to warn the owner about
+    dispatch = next(e for e in t if e.get("cmd", [None])[0] == "dispatch")
+    assert dispatch["exit"] == 4 and dispatch["warnings"] == []
+    fired = [json.loads(x) for x in inbox.read_text(encoding="utf-8").splitlines()]
+    assert [(h["BATON_STEP_PATH"], h["BATON_OUTCOME"]) for h in fired] == [("frame", "needs_human")]
 
 
 # ---------------------------------------------------------------------------
@@ -374,3 +463,31 @@ def test_readme_profile_example_is_valid(tmp_path):
     f = tmp_path / "workers.yaml"
     f.write_text(block, encoding="utf-8")
     assert sorted(load_profiles(f)) == ["api-writer", "claude-code-sub", "codex-sub", "owner"]
+
+
+def test_readme_covers_directors_that_end_their_turn(tmp_path):
+    """Change 2026-11-director-wake, criterion 6: the exit-code table, the environment, and two hook examples that work."""
+    import re
+
+    from baton import supervisor
+    from baton.models import HooksConfig
+
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    codes = text[text.index("### Exit codes"):text.index("## Directors that end their turn")]
+    for n in range(5):
+        assert f"| {n} |" in codes, n
+    assert "**Finished, and the owner is needed now.** Not a failure" in codes and "`BATON_OWNER_EXIT=0`" in codes
+    section = text[text.index("## Directors that end their turn"):text.index("## Frame a goal")]
+    for var in ("BATON_DIRECTOR", "BATON_HARNESS", "BATON_OWNER_EXIT"):
+        assert f"| `{var}` |" in section, var
+    blocks = [yaml.safe_load(b) for b in re.findall(r"```yaml\n(.*?)```", section, re.S)]
+    assert len(blocks) == 2
+    webhook, inbox = (HooksConfig.model_validate(b["hooks"]) for b in blocks)
+    assert webhook.on_complete.startswith("curl ") and "secret:director_wake_url" in webhook.on_complete
+    if os.name != "posix":
+        return
+    (tmp_path / ".baton" / "cache").mkdir(parents=True)
+    env = {**os.environ, "BATON_RUN_ID": "r_1", "BATON_STEP_PATH": "frame", "BATON_OUTCOME": "needs_human"}
+    child = supervisor.run_hook(inbox.on_complete, env, tmp_path, tmp_path / "hook.log")
+    assert child.exit_code == 0
+    assert (tmp_path / ".baton" / "cache" / "inbox.log").read_text(encoding="utf-8") == "r_1 frame needs_human\n"
