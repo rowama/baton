@@ -21,6 +21,7 @@ The runtime host may be Linux, macOS, native Windows or WSL.
 - Hooks and `command` adapters run shell commands. Only machine-level configuration may reference secrets; the loader rejects `secret:` in `project.yaml`.
 - Action permissions bound what the runtime and Director do to the repo and its remotes. The defaults never merge, deploy or force-push.
 - An SME (especially a platform SME) may hold its own credentials outside Baton. Baton gives it facts, incidents and redacted logs, never secrets.
+- **Harness sandboxes.** A Director's harness may sandbox the commands it runs (Codex's `workspace-write`: writes only in the project, usually no network), and everything those commands start inherits it, supervisors and workers included. Baton never weakens a harness sandbox: a sandboxed shell gets `director_sandboxed` from `detect`/`doctor` (§13.4), and the harness directs Baton through MCP instead, whose server runs outside the sandbox while the harness's own commands stay confined (§13.2; Decision: [0053](../decisions/0053-codex-director-via-mcp.md)). Turning the sandbox off is the owner's choice, offered but never recommended.
 
 
 ### 15.3 Future: guided process authoring (design implications now)

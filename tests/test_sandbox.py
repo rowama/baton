@@ -98,10 +98,12 @@ def test_denied_network_is_the_sandbox_and_codex_gets_its_own_message(tmp_path, 
     cli, _ = setup_fit_check(tmp_path)
     _deny_network(monkeypatch)
     b = _assert_blocked(cli("doctor", expect=None), "doctor")
-    assert b["cause"] == {"home": None, "network": "denied"}
+    assert b["cause"] == {"home": None, "network": "denied"} and b["config"] is None
     monkeypatch.setenv(doc.CODEX_HINT, "1")
     b = _assert_blocked(cli("doctor", expect=None), "doctor")
     assert b["harness"] == "codex" and b["fix"] == "codex mcp add baton -- baton mcp"
+    assert b["config"] == {"file": "~/.codex/config.toml", "section": "[mcp_servers.baton]", "line": 'default_tools_approval_mode = "approve"'}
+    assert '`default_tools_approval_mode = "approve"`' in b["message"] and "`[mcp_servers.baton]`" in b["message"]
     assert "`codex mcp add baton -- baton mcp`" in b["message"] and "Codex runs connected tools outside its sandbox" in b["message"]
     assert b["options"][0]["label"] == "Connect Baton to Codex (recommended)"
 

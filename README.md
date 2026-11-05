@@ -144,9 +144,15 @@ Codex sandboxes the commands it runs: in its default `workspace-write` mode they
 codex mcp add baton -- baton mcp
 ```
 
-Then restart Codex. It calls Baton's tools directly, with the same names and arguments as the CLI. If Codex runs `baton detect` from its sandboxed shell anyway, Baton stops with `director_sandboxed` and this fix, rather than failing part way (§13.4).
+Codex asks before every MCP tool call unless told otherwise (and `codex exec` refuses them), and `codex mcp add` has no option for that. So open `~/.codex/config.toml` and add one line under the `[mcp_servers.baton]` section the command wrote:
 
-> **Not yet confirmed by a live run.** That Codex runs MCP servers outside its sandbox rests on a Codex maintainer's statement. A live run on Linux ([change doc](docs/changes/2026-11-codex-director-sandbox.md), part 3) will confirm it or change this advice.
+```toml
+[mcp_servers.baton]
+# … what codex mcp add wrote …
+default_tools_approval_mode = "approve"
+```
+
+Then restart Codex. It calls Baton's tools directly, with the same names and arguments as the CLI. If Codex runs `baton detect` from its sandboxed shell anyway, Baton stops with `director_sandboxed` and this fix, rather than failing part way (§13.4). Checked live with `codex-cli` 0.166.0 on Linux: sandboxed Codex completes a run over MCP with a real worker (`tests/test_live_codex_mcp.py`).
 
 ## Example recipes
 

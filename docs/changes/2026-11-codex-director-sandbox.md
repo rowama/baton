@@ -3,7 +3,7 @@ id: 2026-11-codex-director-sandbox
 title: "Codex as Director: detect its sandbox and connect Baton through MCP"
 status: in-progress
 level: standard
-decisions: ["0053", "0054", "0055"]   # codex-director-via-mcp; sandbox-detection (slice 1); README before the live check (slice 2); owner decisions 2026-11-04
+decisions: ["0053", "0054", "0055", "0056"]   # codex-director-via-mcp; sandbox-detection (slice 1); README before the live check (slice 2); tool approval line (slice 3); owner decisions 2026-11-04
 touches: [design/director-interface.md, design/platform-and-security.md]   # §13.2, §13.3, §13.4, §15; also the repo README.md
 ---
 
@@ -26,7 +26,7 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 
 **Decision (owner, 2026-11-04).** Codex directs Baton through MCP (`baton mcp`, §13.2), not through shell commands. Decision: [0053](../decisions/0053-codex-director-via-mcp.md).
 - A Codex maintainer states that "MCPs operate outside of the Codex exec sandbox" ([openai/codex #4152](https://github.com/openai/codex/issues/4152)).
-- Codex's own commands stay sandboxed. No config file editing is needed: setup is one command, `codex mcp add baton -- baton mcp`.
+- Codex's own commands stay sandboxed. ~~No config file editing is needed: setup is one command, `codex mcp add baton -- baton mcp`.~~ Setup is that command plus one line in `~/.codex/config.toml`, `default_tools_approval_mode = "approve"` under `[mcp_servers.baton]`: found in slice 3, decision [0056](../decisions/0056-codex-tool-approval.md).
 
 **Acceptance criteria.**
 1. With an unwritable Baton home or no network, `detect` and `doctor` never crash. Each reports one blocking problem, `director_sandboxed`, with the owner message below and a non-zero exit. The healthy path still prints one line.
@@ -42,8 +42,11 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 > **Baton can't run from inside this AI tool's sandbox.**
 > Codex limits the commands it runs: they can only change files in this project folder, and usually can't reach the internet. Baton needs both: it keeps its working files in your home folder (`~/.baton`), and the AI helpers it starts need the internet.
 >
-> **Fix (recommended): connect Baton to Codex as a tool.** Codex runs connected tools outside its sandbox, so Baton works fully and Codex stays sandboxed for everything else. Run this once in your own terminal, then restart Codex:
+> **Fix (recommended): connect Baton to Codex as a tool.** Codex runs connected tools outside its sandbox, so Baton works fully and Codex stays sandboxed for everything else. Run this once in your own terminal:
 > `codex mcp add baton -- baton mcp`
+> Then, so Codex doesn't ask before every Baton action, open `~/.codex/config.toml` and add this line under the `[mcp_servers.baton]` section that command just wrote:
+> `default_tools_approval_mode = "approve"`
+> Then restart Codex.
 >
 > Other ways, if you prefer:
 > - Approve Baton's commands when Codex asks. Expect frequent prompts.
@@ -70,7 +73,7 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 - §13.3 skill: the blocking-problem and prefer-MCP rules.
 - §15: a note on harness sandboxes.
 
-**Risk.** The "MCP runs outside the sandbox" claim rests on a maintainer statement and one third-party macOS report, so acceptance criterion 5 must pass on Linux before the README recommends it. If it fails, reopen the decision. Until then the README section carries a "not yet confirmed by a live run" note (decision [0055](../decisions/0055-codex-readme-before-live-check.md)); slice 3 removes it or reworks the section.
+**Risk.** The "MCP runs outside the sandbox" claim rests on a maintainer statement and one third-party macOS report, so acceptance criterion 5 must pass on Linux before the README recommends it. If it fails, reopen the decision. Until then the README section carries a "not yet confirmed by a live run" note (decision [0055](../decisions/0055-codex-readme-before-live-check.md)); slice 3 removes it or reworks the section. **Resolved (2026-11-04):** criterion 5 passed live on Linux; the note is gone.
 
 ## Plan
 
@@ -93,3 +96,10 @@ Codex then told the owner, in passing, that "Baton cannot write logs", and carri
 - **Summary:** The director skill (`skills/baton-director/SKILL.md` and its §13.3 text) prefers the MCP tools over the shell whenever it has both, and takes a `blocking` `detect` problem up with the owner before any other work, relaying its `message` and offering its `options` by label. §13.2: Codex registration is `codex mcp add baton -- baton mcp`, checked against `codex-cli` 0.166.0 and no longer [VERIFY]. README: "Using Codex as Director", with the not-yet-confirmed note (decision 0055). No new calls. Tests: the skill test checks both new rules; the shipped skill still equals §13.3; docs links and § references resolve.
 - **Review:** not yet reviewed.
 - **Accepted:** not yet (criteria 3–4 are this slice's; the owner accepts).
+
+### Live check
+
+- **Commit:** `2026-11-codex-director-sandbox: live check`
+- **Summary:** `tests/test_live_codex_mcp.py` (opt-in `BATON_LIVE=1`, Linux). Codex runs `codex exec --sandbox workspace-write` with `/tmp`, `$TMPDIR` and the network closed to its commands, and the Baton home outside the project; Baton is connected with `-c mcp_servers.baton.*` overrides, so `~/.codex/config.toml` is never edited. Over MCP, Codex completed `fit-check` using only Baton's tools: `describe` was a real dispatch to the Claude Code subscription worker, whose supervisor wrote its logs under the Baton home, and the owner's words were recorded verbatim (2 passed, 118 s, 2026-11-04, codex-cli 0.166.0). Negative control: `baton detect --json` from Codex's shell got `director_sandboxed` with cause `{home: "Read-only file system", network: "denied"}` and the Codex hint, confirming slice 1's network check against the real sandbox. Found live: Codex needs `default_tools_approval_mode = "approve"` for the baton server (decision 0056); the owner message (`blocking.config`), the connect label, §13.2, §13.4 and the README now include it, and the README's unverified note is gone. §15.2 gains the harness-sandbox note. Tests: `tests/test_sandbox.py` checks the config line in the Codex message.
+- **Review:** the owner reviews the transcript (`codex-mcp-director.jsonl`).
+- **Accepted:** not yet (criterion 5; the owner accepts).

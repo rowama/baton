@@ -76,12 +76,17 @@ SANDBOX_ERRNOS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
 NETWORK_PROBE = ("192.0.2.1", 9)
 CODEX_HINT = "CODEX_SANDBOX_NETWORK_DISABLED"  # experimental; tailors the message, never decides
 MCP_COMMAND = "codex mcp add baton -- baton mcp"
+#: Without it Codex asks before every Baton tool call (`codex exec` refuses them); `codex mcp add` has no flag for it (decision 0056).
+CODEX_APPROVAL = {"file": "~/.codex/config.toml", "section": "[mcp_servers.baton]", "line": 'default_tools_approval_mode = "approve"'}
 
 _MESSAGE_CODEX = """**Baton can't run from inside this AI tool's sandbox.**
 Codex limits the commands it runs: they can only change files in this project folder, and usually can't reach the internet. Baton needs both: it keeps its working files in your home folder (`~/.baton`), and the AI helpers it starts need the internet.
 
-**Fix (recommended): connect Baton to Codex as a tool.** Codex runs connected tools outside its sandbox, so Baton works fully and Codex stays sandboxed for everything else. Run this once in your own terminal, then restart Codex:
+**Fix (recommended): connect Baton to Codex as a tool.** Codex runs connected tools outside its sandbox, so Baton works fully and Codex stays sandboxed for everything else. Run this once in your own terminal:
 `codex mcp add baton -- baton mcp`
+Then, so Codex doesn't ask before every Baton action, open `~/.codex/config.toml` and add this line under the `[mcp_servers.baton]` section that command just wrote:
+`default_tools_approval_mode = "approve"`
+Then restart Codex.
 
 Other ways, if you prefer:
 - Approve Baton's commands when Codex asks. Expect frequent prompts.
@@ -90,7 +95,7 @@ Other ways, if you prefer:
 _MESSAGE_GENERIC = """**Baton can't run from inside this AI tool's sandbox.**
 This AI tool limits the commands it runs: they can only change files in this project folder, and may not reach the internet. Baton needs both: it keeps its working files in your home folder (`~/.baton`), and the AI helpers it starts need the internet.
 
-**Fix (recommended): connect Baton to this AI tool as a tool (an MCP server).** AI tools usually run connected tools outside their sandbox, so Baton works fully and the tool stays sandboxed for everything else. Add the MCP server command `baton mcp` in this tool's settings, then restart it.
+**Fix (recommended): connect Baton to this AI tool as a tool (an MCP server).** AI tools usually run connected tools outside their sandbox, so Baton works fully and the tool stays sandboxed for everything else. Add the MCP server command `baton mcp` in this tool's settings, allow its tools without asking each time if the tool offers that, then restart it.
 
 Other ways, if you prefer:
 - Approve Baton's commands when the tool asks. Expect frequent prompts.
@@ -143,6 +148,7 @@ def sandboxed(home_error: OSError | None, network: str) -> dict[str, Any]:
         "title": "Baton can't run from inside this AI tool's sandbox",
         "message": _MESSAGE_CODEX if codex else _MESSAGE_GENERIC,
         "fix": MCP_COMMAND if codex else "register `baton mcp` as an MCP server in this AI tool",
+        "config": CODEX_APPROVAL if codex else None,
         "harness": "codex" if codex else None,
         "cause": {"home": None if home_error is None else f"{home_error.strerror or home_error}", "network": network},
         "options": labels.options("director_sandboxed", ["connect_tool", "approve_when_asked", "turn_off_sandbox"], overrides),

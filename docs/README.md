@@ -188,3 +188,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0053 Codex directs Baton through MCP, not shell commands](decisions/0053-codex-director-via-mcp.md) | accepted |
 | [0054 What counts as a sandboxed Director](decisions/0054-sandbox-detection.md) | accepted |
 | [0055 The Codex README section ships before the live check, marked unverified](decisions/0055-codex-readme-before-live-check.md) | accepted |
+| [0056 Codex setup includes a config line so Baton's tools need no per-call approval](decisions/0056-codex-tool-approval.md) | accepted |
