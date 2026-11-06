@@ -115,8 +115,9 @@ def open_select_gate(ctx: Any, step_path: str, n: int) -> Any:
         return None
     out = frame_output(ctx, n)
     parts = out.get("parts") or []
-    listing = "; ".join(f"{p.get('id')}: {p.get('label')}" for p in parts)
-    prompt = (f"Goal: {out.get('goal', '')} Which of these should we start on? {listing}. "
+    listing = "; ".join(str(p.get("label")) for p in parts)
+    prompt = (f"Goal: {out.get('goal', '')} Parts: {listing}. Which should be included now? "
+              "Each chosen part starts what its option's next says, usually a first look rather than the work itself. "
               "(Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)")
     ctx.log.append("human_gate_opened", step_path=step_path, attempt=n, data={
         "gate": SELECT_GATE, "type": SELECT_GATE, "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path,
@@ -171,6 +172,44 @@ def _plan_part(api: Any, part: dict[str, Any], active: int) -> tuple[dict[str, A
         return None, f"project.yaml limits.active_runs is {limit} and that many pieces of work are already active"
     return {"part": part["id"], "recipe": loaded, "vendor_from": vendor_from, "inputs": inputs,
             "title": inputs.get("title") or part.get("label")}, None
+
+
+FIT_CHECK_NEXT = "a fit check: a few questions and a recommendation, no commitment"
+REJECT_NEXT = "the breakdown is redone with what you said"
+
+
+def _active_others(api: Any, run_id: str) -> int:
+    store = api.project.store
+    return sum(1 for r in store.run_ids() if r != run_id and store.run(r).state().state == "active")
+
+
+def part_next(api: Any, part: dict[str, Any], active: int) -> str:
+    """What choosing one part triggers, in process-neutral words (§11.6; Decision 0071)."""
+    plan, why = _plan_part(api, part, active)
+    if plan is None:
+        return f"can't start yet: {why}"
+    r = plan["recipe"].recipe
+    if r.id == FIT_CHECK and "fit_check" in (part.get("proposal") or {}):
+        return FIT_CHECK_NEXT
+    return f"starts {r.id}: {r.description or ''}".rstrip(": ")
+
+
+def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give a framing run's select options their ``next``, computed from the record (Decision 0071)."""
+    if not pending or not is_framing(ctx.log.events()):
+        return pending
+    for p in pending:
+        if p.get("ref") != FRAME_STEP or p.get("kind") != "gate":
+            continue
+        out = frame_output(ctx, p["attempt"])
+        active = _active_others(api, ctx.run_id)
+        for o in p.get("options") or []:
+            if o["decision"] == "select":
+                o["next"] = [{"part": q.get("id"), "label": q.get("label"), "next": part_next(api, q, active)}
+                             for q in out.get("parts") or []]
+            elif o["decision"] == "reject":
+                o["next"] = REJECT_NEXT
+    return pending
 
 
 def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[str] | None, paths: list[Any]) -> dict[str, Any]:

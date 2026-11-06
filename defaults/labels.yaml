@@ -13,7 +13,7 @@ protected:                 # a change to files the process protects
   approve: { label: "Keep that change", effect: "The change to the protected files stays and the work carries on." }
   reject:  { label: "Undo that change", effect: "The change is not accepted; it is reverted and the part is redone." }
 frame:                     # choosing which parts of a goal to start on
-  select:  { label: "Start work on these", effect: "Work starts now on the parts you chose. The parts you don't choose are not kept; to do them later, describe the goal again." }
+  select:  { label: "Include these", effect: "Each part you choose gets a first look, or starts its process if one fits; the others stay listed in your plan for later." }
   reject:  { label: "That's not quite it", effect: "The breakdown of your goal is redone with what you said." }
 escalation:                # work that stopped and needs the owner
   retry:   { label: "Try again", effect: "This part is tried again, with what you said as guidance." }

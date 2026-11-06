@@ -2,7 +2,8 @@
 
 Every pending decision in ``status`` and ``board`` lists its ``options`` as
 ``[{decision, label, effect}]`` (plus ``command`` where the decision is made by
-another command). Labels come from ``defaults/labels.yaml``; a recipe may give
+another command, and ``next`` where the record decides what the option triggers,
+added by the API: framing's options, §11.6). Labels come from ``defaults/labels.yaml``; a recipe may give
 its own for a human gate (``labels: {approve: "...", reject: "..."}``). The
 runtime never shows the owner anything itself: labels are material for the
 Director's conversation.

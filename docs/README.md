@@ -194,3 +194,14 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0059 The Director tells the owner before a dispatch it might not be woken for](decisions/0059-warn-owner-before-unwoken-dispatch.md) | accepted |
 | [0060 No wake notice or warning when the work is a person's](decisions/0060-wake-notice-skips-manual-workers.md) | accepted |
 | [0061 No wake path is a doctor warning; detect shows it only as a problem](decisions/0061-wake-warning-in-doctor-not-detect.md) | accepted |
+| [0062 Framing's select keeps its mechanism; only its presentation is fixed](decisions/0062-framing-mechanism-kept-presentation-fixed.md) | accepted |
+| [0063 Baton manages no backlog as a feature, but may write a backlog and notes as deliverables](decisions/0063-backlog-and-notes-are-deliverables.md) | accepted |
+| [0064 Framing publishes its breakdown; unchosen parts can be started later](decisions/0064-framing-publishes-its-breakdown.md) | accepted |
+| [0065 Owner notes: recorded verbatim, only when asked, in an opt-in notes file; never fed into a step](decisions/0065-owner-notes.md) | accepted |
+| [0066 A part is started later with start --from-plan, from the framing run's record](decisions/0066-start-from-plan.md) | accepted |
+| [0067 note(text): no tag, an append-only file, no confirm-back](decisions/0067-note-call.md) | accepted |
+| [0068 The runtime renders framing's breakdown from the record; no new framing version](decisions/0068-breakdown-rendered-by-runtime.md) | accepted |
+| [0069 Framing's breakdown is a process plan: it lists process starts, never orders or schedules them](decisions/0069-process-plan-lists-not-schedules.md) | accepted |
+| [0070 The owner's answer to the notes-file offer is a project decision](decisions/0070-notes-offer-recorded-as-project-decision.md) | accepted |
+| [0071 next is an optional option field; framing's options carry it first](decisions/0071-next-on-framing-options.md) | accepted |
+| [0072 A process-plan conflict at --from-plan waits on the run it started](decisions/0072-plan-republish-conflict-on-started-run.md) | accepted |

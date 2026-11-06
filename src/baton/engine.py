@@ -1818,6 +1818,12 @@ class Api:
 
         return Leases(ctx.log, self.director, self.project.branch(), self.project.config.leases.minutes)
 
+    def _pending(self, ctx: RunContext) -> list[dict[str, Any]]:
+        """``pending_decisions`` with the options' ``next`` where the record decides it (Decision 0071)."""
+        from .frame import annotate_next
+
+        return annotate_next(self, ctx, pending_decisions(ctx))
+
     def _ctx(self, run_id: str) -> RunContext:
         return self.project.context(run_id)
 
@@ -1857,7 +1863,7 @@ class Api:
         cp = self._checkpoint(ctx, new, paths)
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
-        pending = pending_decisions(ctx)
+        pending = self._pending(ctx)
         out["pending_decisions"] = pending
         out["needs_owner"] = bool(pending)
 
@@ -2131,7 +2137,7 @@ class Api:
                 "expires_at": lease.expires_at, "expired": lease.expired(now),
                 "yours": lease.held_by(self.director, self.project.branch()),
             }
-        pending = pending_decisions(ctx)
+        pending = self._pending(ctx)
         from . import publish
 
         drifted = {(x["step_path"], x["artifact"]): x for x in publish.drift(events, self.project.root)}
@@ -2593,7 +2599,7 @@ class Api:
                 break
             _time.sleep(0.1)
         results = [self._attempt_result(ctx, p, n) | {"dispatch_id": d} for p, n, d in targets]
-        pend = pending_decisions(ctx)
+        pend = self._pending(ctx)
         return {
             "run_id": run_id, "results": results, "timed_out": bool(pending), "waiting_for_submit": manual,
             "pending_decisions": pend, "needs_owner": bool(pend),
@@ -3329,7 +3335,7 @@ class Api:
                         ctx.log.append("completion_hook_fired" if d.get("ok") else "completion_hook_failed", data={**d, "notice": ref})
                     docs.write_records(ctx)
                 out["hooks"] = fired
-                out["pending_decisions"] = pending_decisions(ctx)
+                out["pending_decisions"] = self._pending(ctx)
                 out["needs_owner"] = True
         cp = self._project_checkpoint(f"process feedback ({kind})")
         if cp is not None:

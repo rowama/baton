@@ -289,7 +289,7 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     assert st["goal"].startswith("Start a business") and [p["id"] for p in st["parts"]] == ["setup", "kiosk", "signage", "running"]
     pd = status(cli, fr)["pending_decisions"]
     assert [(p["ref"], p["kind"]) for p in pd] == [("frame", "gate")]
-    assert [o["decision"] for o in pd[0]["options"]] == ["select", "reject"] and pd[0]["options"][0]["label"] == "Start work on these"
+    assert [o["decision"] for o in pd[0]["options"]] == ["select", "reject"] and pd[0]["options"][0]["label"] == "Include these"
 
     # approve is not how a selection is made
     bad = cli.run("decide", fr, "frame", "approve", "--note", "ok", expect=1)
@@ -320,6 +320,29 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     assert cli.run("check")["ok"]
     assert "nothing to commit" not in json.dumps(sel.get("checkpoint") or {})
     assert git(project, "status", "--porcelain", "--", ".baton/").strip() == ""  # runs, recipes and lockfile committed
+
+
+def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
+    cli, project = fresh(tmp_path)
+    fr = _frame(cli, project)
+    manual(cli, project, fr, "frame", frame_output())
+    for payload in (status(cli, fr), cli("board", expect=None).payload["runs"][0]):
+        (pd,) = payload["pending_decisions"]
+        assert pd["prompt"] and "kiosk" not in pd["prompt"] and "Building the first machine site" in pd["prompt"]
+        opts = {o["decision"]: o for o in pd["options"]}
+        assert all("next" in o for o in opts.values())
+        assert opts["reject"]["next"] == "the breakdown is redone with what you said"
+        nxt = {p["part"]: p for p in opts["select"]["next"]}
+        assert list(nxt) == ["setup", "kiosk", "signage", "running"]
+        assert nxt["kiosk"]["label"] == "Building the first machine site"
+        fc = "a fit check: a few questions and a recommendation, no commitment"
+        assert nxt["setup"]["next"] == fc and nxt["running"]["next"] == fc
+        desc = catalog()["backyard-project"].recipe.description
+        assert nxt["kiosk"]["next"] == f"starts backyard-project: {desc}"
+        assert nxt["signage"]["next"].startswith("can't start yet: ") and "description" in nxt["signage"]["next"]
+    # Reading next changes nothing: the selection still starts exactly the proposals.
+    sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "Those two. Yes.")
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
 
 
 def test_selecting_nothing_ends_framing_with_no_runs(tmp_path):
