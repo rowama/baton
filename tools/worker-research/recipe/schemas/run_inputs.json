@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "title",
+    "known_workers",
+    "today",
+    "adapters",
+    "capabilities"
+  ],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "known_workers": {
+      "type": "string",
+      "description": "The current known-workers.yaml text"
+    },
+    "today": {
+      "type": "string",
+      "format": "date"
+    },
+    "adapters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Adapters this runtime has"
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "The capability vocabulary: name -> meaning, tiers, machine-dependent ones"
+    }
+  }
+}

@@ -216,3 +216,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0080 Known-workers data: models, providers and routes, with research and verification kept apart](decisions/0080-known-workers-format.md) | accepted |
 | [0081 Live verification runs only on request; unverified generated profiles are eligible, flagged](decisions/0081-live-verification-on-request.md) | accepted |
 | [0082 Machine-dependent capabilities need an owner declaration or a passing probe](decisions/0082-machine-dependent-capabilities.md) | accepted |
+| [0083 The maintainer researcher is one Baton dispatch through a profile the maintainer names](decisions/0083-researcher-dispatches-through-a-profile.md) | accepted |

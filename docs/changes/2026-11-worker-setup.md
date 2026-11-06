@@ -3,7 +3,7 @@ id: 2026-11-worker-setup
 title: "Machine-wide worker resources are maintained separately from project setup"
 status: in-progress
 level: standard
-decisions: ["0074", "0075", "0076", "0077", "0078", "0079", "0080", "0081", "0082"]
+decisions: ["0074", "0075", "0076", "0077", "0078", "0079", "0080", "0081", "0082", "0083"]
 touches: [design/workers.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md, design/runtime.md, design/versioning.md, principles.md]
 ---
 
@@ -245,5 +245,12 @@ New execution adapters for additional modalities, project-specific exceptions, w
 
 - **Commit:** 2026-11-worker-setup: Known-workers schema, seed data and packaging
 - **Summary:** `src/baton/known_workers.py` defines and validates `baton-known-workers/1`: models, providers, routes and `machine_dependent`, with the checks in §6.4 (vocabulary, tiers, adapters for supported routes, model and provider references, creator prefixes, mutable aliases needing a creator, machine-dependent capabilities absent, provenance, duplicates). Seed `defaults/known-workers.yaml`: Claude Opus 5.5 and Sonnet 5.5 (direct API), Opus 5.5 through OpenRouter (same `model_id`, its own invocation), and the Claude Code and Codex harnesses on their default models (aliases, no `model_id`). The IDs and context sizes were checked on 2026-11-06 against platform.claude.com's models overview and OpenRouter's model page (which gives no context length); LiteLLM 1.106.6 lists the `openrouter` provider. No route is live-verified. Capabilities and tiers in the seed are judgment, as the file says. Amended 0082: the machine-dependent list lives in this data, because published vocabularies are never edited (§5.6). Tests: the seed validates and spans harness, direct and intermediary access; the wheel config ships `defaults/` and nothing from `tools/`; 16 rejection cases; an unsupported route for a model the runtime cannot run is valid.
+- **Review:** clean
+- **Accepted:** pending owner review
+
+### 5. Maintainer researcher and broad coverage
+
+- **Commit:** 2026-11-worker-setup: Maintainer researcher and broad coverage
+- **Summary:** The owner chose (0083) that the researcher is one Baton dispatch through a profile the maintainer names. `tools/worker-research/` holds `research.py`, a one-step `worker-research` recipe (the prompt sets the coverage scope, the identity and route rules, and forbids touching `verified`; the report schema requires inclusion criteria, providers and categories covered, coverage gaps, and each change with its sources) and a README. The script runs the recipe in a scratch project, validates the proposal and refuses one that touches `verified`; a valid one replaces `defaults/known-workers.yaml` for `git diff` review, with the report under `reports/`. Broad coverage itself comes from the first real research run, which needs a maintainer and a web-capable profile; it was not run here. Tests: a fake command-adapter worker; a valid proposal is written with its report; an invalid one, and one that claims a live check, leave the file alone and are saved as refused; the recipe loads; a real offline `uv build --wheel` ships `known-workers.yaml` and nothing from `tools/` (skipped where it cannot build offline).
 - **Review:** clean
 - **Accepted:** pending owner review

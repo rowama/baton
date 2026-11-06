@@ -50,6 +50,7 @@ baton/
 ├── defaults/labels.yaml     # plain-language labels for decision options (§13.8)
 ├── defaults/known-workers.yaml   # shared, read-only data about models and routes (§6.4)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/   # the catalog: shipped in the package (§11.6)
+├── tools/worker-research/   # maintainers only, never shipped: research.py and its one-step recipe propose known-workers updates (§6.4)
 └── tests/
 ```
 

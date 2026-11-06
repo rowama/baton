@@ -1,0 +1,25 @@
+# Maintainer-only research recipe (§6.4, Decision 0083). Never shipped: tools/ is
+# outside the wheel. Run it with tools/worker-research/research.py.
+id: worker-research
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Research which models and routes Baton should know about, and propose an updated known-workers file.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: research
+    title: Research models and routes
+    requires: { capabilities: [structured_output, web_access, file_write, technical_reasoning], tier: strong }
+    prompt: prompts/research.md
+    inputs:
+      - { name: known_workers, from: run.inputs.known_workers, required: true }
+      - { name: today,         from: run.inputs.today,         required: true }
+      - { name: adapters,      from: run.inputs.adapters,      required: true }
+      - { name: capabilities,  from: run.inputs.capabilities,  required: true }
+    output_schema: schemas/report.json
+    artifacts:
+      - { name: known_workers, required: true, media_type: application/yaml }
+    gates: [ { type: schema } ]
