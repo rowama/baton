@@ -272,7 +272,9 @@ def due(ctx: RunContext) -> list[Due]:
             out.append(Due(sid, art.name, ev, reg["sha256"], None, str(e), True))
             continue
         out.append(Due(sid, art.name, ev, reg["sha256"], target, conflict_reason(ctx, sid, target, reg["sha256"])))
-    return out
+    from .frame import plan_due
+
+    return out + plan_due(ctx, events, done)  # a framing run's process plan, rendered by the runtime (§11.6)
 
 
 def conflict_reason(ctx: RunContext, step_path: str, target: str, sha: str) -> str | None:

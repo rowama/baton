@@ -345,6 +345,65 @@ def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
     assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
 
 
+PLAN = "docs/i-want-to-start-a-pure-water-vending-process-plan.md"
+
+
+def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
+    cli, project = fresh(tmp_path)
+    fr = _frame(cli, project)
+    manual(cli, project, fr, "frame", frame_output())
+    sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "The setup and the first site. Yes.")
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
+    assert sel["plan"] == PLAN and sel["state"] == "completed"
+    text = (project / PLAN).read_text(encoding="utf-8")
+    sections = text.split("\n## ")[1:]
+    assert [s.splitlines()[0] for s in sections] == [p["label"] for p in frame_output()["parts"]]
+    by = {s.splitlines()[0]: s for s in sections}
+    runs = {r["part"]: r["run"] for r in sel["runs"]}
+    assert f"started (fit-check, run {runs['setup']})" in by["Setting up the business"]
+    assert f"started (backyard-project, run {runs['kiosk']})" in by["Building the first machine site"]
+    assert "Registering it, banking, insurance and permits." in by["Setting up the business"]
+    for label in ("Signs for the sites", "Running the machines day to day"):
+        assert "**Status:** for later" in by[label] and "**Choosing it starts:**" in by[label]
+    assert "a fit check: a few questions and a recommendation, no commitment" in by["Running the machines day to day"]
+    assert f"`{fr}/running`" in by["Running the machines day to day"]
+    assert "Nothing here is scheduled" in text
+    ev = [json.loads(line) for line in (project / ".baton" / "runs" / fr / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    pub = [e for e in ev if e["type"] == "artifact_published"]
+    assert [(e["step_path"], e["data"]["artifact"], e["data"]["path"]) for e in pub] == [("frame", "process_plan", PLAN)]
+    assert git(project, "status", "--porcelain").strip() == ""  # the plan is in the selection's checkpoint
+    assert cli.run("frame", "--note", "x")["started"] is True  # a new framing run; the finished one is not reported
+    assert cli.run("check")["ok"]
+
+
+def test_a_file_already_at_the_process_plan_path_is_a_conflict(tmp_path):
+    cli, project = fresh(tmp_path)
+    (project / PLAN).parent.mkdir(parents=True, exist_ok=True)
+    (project / PLAN).write_text("my own notes\n", encoding="utf-8")
+    fr = _frame(cli, project)
+    manual(cli, project, fr, "frame", frame_output())
+    sel = cli.run("decide", fr, "frame", "select", "--items", "setup", "--note", "Just the setup. Yes.", expect=4)
+    assert sel["state"] == "active"  # the conflict holds completion
+    pd = status(cli, fr)["pending_decisions"]
+    assert [p["ref"] for p in pd] == ["publish:frame.process_plan"]
+    out = cli.run("decide", fr, "publish:frame.process_plan", "alternate", "--note", "Put it beside mine.")
+    alt = PLAN.replace(".md", f".{fr}.md")
+    assert out["reasons"] == [f"alternate: {alt}"] and (project / alt).is_file()
+    assert (project / PLAN).read_text(encoding="utf-8") == "my own notes\n"
+    assert status(cli, fr)["state"] == "completed"
+
+
+def test_unmapped_process_plan_path_uses_the_default(tmp_path):
+    cli, project = fresh(tmp_path)
+    pyaml = project / ".baton" / "project.yaml"
+    pyaml.write_text(pyaml.read_text(encoding="utf-8").replace("paths: { process_plans: docs, notes: docs }", "paths: {}", 1), encoding="utf-8")
+    git(project, "commit", "-qam", "no paths")
+    fr = _frame(cli, project)
+    manual(cli, project, fr, "frame", frame_output())
+    sel = cli.run("decide", fr, "frame", "select", "--items", "", "--note", "None for now.")
+    assert sel["plan"] == PLAN and (project / PLAN).is_file()
+
+
 def test_selecting_nothing_ends_framing_with_no_runs(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)

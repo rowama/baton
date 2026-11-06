@@ -275,7 +275,7 @@ def test_adoption_with_a_crosswalk_needs_exactly_one_owner_decision(tmp_path):
 
     # Configuration and agent pointer; the repository checks clean.
     pyaml = yaml.safe_load((project / ".baton" / "project.yaml").read_text(encoding="utf-8"))
-    assert pyaml["paths"] == {"specs": "docs/features"} and pyaml["project"]["test_command"] == TEST_COMMAND
+    assert pyaml["paths"] == {"process_plans": "docs", "notes": "docs", "specs": "docs/features"} and pyaml["project"]["test_command"] == TEST_COMMAND
     assert "# Baton project configuration" in (project / ".baton" / "project.yaml").read_text(encoding="utf-8")  # comments kept
     assert adopt.AGENTS_POINTER in (project / "AGENTS.md").read_text(encoding="utf-8")
     assert cli.run("check")["ok"]
@@ -381,7 +381,7 @@ def test_detect(tmp_path):
     cli.run("init", str(project))
     cli.run("vendor", str(recipe))
     pyaml = project / ".baton" / "project.yaml"
-    pyaml.write_text(pyaml.read_text(encoding="utf-8").replace("paths: {}", "paths: { specs: docs/specs, designs: docs/design }", 1), encoding="utf-8")
+    pyaml.write_text(pyaml.read_text(encoding="utf-8").replace("paths: { process_plans: docs, notes: docs }", "paths: { process_plans: docs, notes: docs, specs: docs/specs, designs: docs/design }", 1), encoding="utf-8")
     git(project, "add", "-A")
     git(project, "commit", "-q", "-m", "Baton")
     run = cli.run("start", "software-feature", "--inputs", json.dumps({"title": "Login", "kind": "feature", "feature_request": "Sign in"}))["run_id"]

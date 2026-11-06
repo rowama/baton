@@ -161,3 +161,18 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
   - Tests: `test_every_frame_option_says_what_choosing_it_triggers` (status and board, all four water-vending parts, the selection unchanged). The existing framing tests are unchanged apart from the label, and show that a `baton-frame@1` run decides as before.
 - **Review:** clean.
 - **Accepted:** pending (owner).
+
+### The process plan is published at selection
+
+- **Commit:** `2026-11-framing-perspective: The process plan is published at selection`
+- **Summary:**
+  - Applying a selection renders the framing run's process plan from the record (`frame.render_plan`): the goal, then each part's label, description and status (started / chosen but a gap / for later), what choosing it starts, and its ref. The rendering is stored in CAS and named in `framing_selected.plan`.
+  - `publish.due` includes it (`frame.plan_due`) as artifact `process_plan` of the `frame` step, so the existing publishing, conflict, decision and checkpoint machinery applies unchanged.
+  - The target is `<paths.process_plans>/<goal-slug>-process-plan.md`, defaulting to `docs`. `init` now writes `paths: { process_plans: docs, notes: docs }`.
+  - Tests:
+    - `test_selection_publishes_the_process_plan_with_every_part`: all four water-vending parts; choosing two starts exactly their proposals; the other two are listed for later with what they would start; committed in the checkpoint.
+    - `test_a_file_already_at_the_process_plan_path_is_a_conflict`: the conflict holds completion; `alternate` resolves it.
+    - `test_unmapped_process_plan_path_uses_the_default`.
+  - Two adoption tests were updated for the new `init` paths line.
+- **Review:** clean.
+- **Accepted:** pending (owner).

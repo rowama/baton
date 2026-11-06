@@ -50,7 +50,7 @@ GITATTRIBUTES = f"# Written by baton init: stored bytes are hashed; never conver
 
 DEFAULT_PROJECT_YAML = """\
 # Baton project configuration (§4.3). Commit this file; never put secrets here.
-paths: {}                     # logical path keys for publishing, e.g. specs: docs/specs
+paths: { process_plans: docs, notes: docs }   # logical path keys (folders) for publishing, e.g. specs: docs/specs
 project: {}                   # project variables, e.g. test_command: "pytest -q"
 run_slug: "{{ run.inputs.title | slugify }}"
 leases: { minutes: 60 }       # renewed on activity

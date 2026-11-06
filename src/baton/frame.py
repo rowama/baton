@@ -174,6 +174,78 @@ def _plan_part(api: Any, part: dict[str, Any], active: int) -> tuple[dict[str, A
             "title": inputs.get("title") or part.get("label")}, None
 
 
+PLAN_ARTIFACT = "process_plan"
+#: Folders used when project.yaml maps no ``paths.process_plans`` / ``paths.notes`` (Decision 0069).
+DEFAULT_PATHS = {"process_plans": "docs", "notes": "docs"}
+
+
+def plan_target(paths: dict[str, Any] | None, words: str) -> str:
+    """Where a framing run's process plan goes: ``<paths.process_plans>/<goal-slug>-process-plan.md`` (Decision 0069)."""
+    from .project import slugify
+
+    folder = str((paths or {}).get("process_plans") or DEFAULT_PATHS["process_plans"]).replace("\\", "/").rstrip("/")
+    slug = slugify(words, 200)
+    if len(slug) > 40:
+        cut = slug[:41]
+        slug = cut[: cut.rfind("-")] if "-" in cut else slug[:40]
+    return f"{folder}/{slug or 'goal'}-process-plan.md"
+
+
+def started_parts(events: list[Any]) -> dict[str, dict[str, Any]]:
+    """Every part of a framing run that has a run, ``{part: {part, run, recipe}}``, from the record."""
+    out: dict[str, dict[str, Any]] = {}
+    for e in events:
+        if e.type == "framing_selected":
+            for r in e.data.get("runs") or []:
+                out[r["part"]] = r
+        elif e.type == "framing_started_later":
+            out[e.data["part"]] = {k: e.data[k] for k in ("part", "run", "recipe")}
+    return out
+
+
+def render_plan(api: Any, run_id: str, out: dict[str, Any], started: dict[str, dict[str, Any]], gaps: dict[str, dict[str, Any]]) -> str:
+    """The process plan (Decisions 0064, 0068, 0069): every part, what choosing it starts, and where it stands.
+
+    Rendered from the record, never by a worker. It lists; it never orders or schedules."""
+    active = _active_others(api, run_id)
+    lines = [f"# Process plan: {out.get('goal') or ''}".rstrip(), "",
+             "The parts of this goal, what choosing each one starts, and where each stands. "
+             "Nothing here is scheduled: a part starts only when you choose it.", ""]
+    for p in out.get("parts") or []:
+        pid = p.get("id")
+        lines += [f"## {p.get('label') or pid}", ""]
+        if (p.get("description") or "").strip():
+            lines += [str(p["description"]).strip(), ""]
+        if pid in started:
+            r = started[pid]
+            lines.append(f"- **Status:** started ({str(r['recipe']).split('@')[0]}, run {r['run']})")
+        else:
+            if pid in gaps:
+                lines.append(f"- **Status:** chosen, but it could not start: {gaps[pid].get('reason')}")
+            else:
+                lines.append("- **Status:** for later")
+            lines.append(f"- **Choosing it starts:** {part_next(api, p, active)}")
+        lines += [f"- **Ref:** `{run_id}/{pid}`", ""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def plan_due(ctx: Any, events: list[Any], done: set[Any]) -> list[Any]:
+    """The framing run's process plan, when its latest rendering is not yet published (§10.4; Decision 0068)."""
+    from . import publish
+
+    if not is_framing(events):
+        return []
+    ev = next((e for e in reversed(events) if e.type in ("framing_selected", "framing_started_later") and e.data.get("plan")), None)
+    if ev is None or (FRAME_STEP, PLAN_ARTIFACT, ev.seq) in done:
+        return []
+    plan = ev.data["plan"]
+    try:
+        target = publish.check_target(publish.project_root(ctx), plan["path"])
+    except EngineError as e:
+        return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True)]
+    return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], target, publish.conflict_reason(ctx, FRAME_STEP, target, plan["sha256"]))]
+
+
 FIT_CHECK_NEXT = "a fit check: a few questions and a recommendation, no commitment"
 REJECT_NEXT = "the breakdown is redone with what you said"
 
@@ -280,12 +352,27 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
         docs.write_records(wctx)
         paths.append(wctx.run_dir)
         runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": loaded.recipe.ref})
+    words = run_words(ctx)
+    content = render_plan(api, ctx.run_id, out, {r["part"]: r for r in runs}, {g["part"]: g for g in gaps})
+    plan_ref = {"path": plan_target(api.project.config.paths, words or out.get("goal") or ctx.run_id),
+                "sha256": log.cas.put(content.encode("utf-8"))}
     log.append("framing_selected", actor="human", data={
         "decision_id": decision_id, "selected": chosen, "runs": runs, "gaps": gaps, **({"vendored": vendored} if vendored else {}),
+        "plan": plan_ref,
     })
-    refresh(ctx)
+    refresh(ctx)  # publishes the process plan, or holds completion on its conflict (§10.4)
     return {"framing": ctx.run_id, "decision_id": decision_id, "selected": chosen, "runs": runs, "gaps": gaps, "vendored": vendored,
-            "state": log.state().state, "outcome": "selected", "step_path": FRAME_STEP, "attempt": n}
+            "plan": plan_ref["path"], "state": log.state().state, "outcome": "selected", "step_path": FRAME_STEP, "attempt": n}
+
+
+def run_words(ctx: Any) -> str | None:
+    """The owner's words a framing run started from."""
+    import json
+
+    try:
+        return json.loads(ctx.log.cas.read(ctx.record().started["inputs_sha256"])).get("words")
+    except Exception:  # noqa: BLE001 - informational only
+        return None
 
 
 def status(api: Any, run_id: str) -> dict[str, Any]:
@@ -301,13 +388,7 @@ def status(api: Any, run_id: str) -> dict[str, Any]:
         "framing": run_id, "state": st["state"], "step": step.state, "words": None,
         "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"], "ready": st["ready"],
     }
-    import json
-
-    started = ctx.record().started
-    try:
-        out["words"] = json.loads(ctx.log.cas.read(started["inputs_sha256"])).get("words")
-    except Exception:  # noqa: BLE001 - informational only
-        pass
+    out["words"] = run_words(ctx)
     if step.state == "awaiting_human" or sel is not None:
         fo = frame_output(ctx, step.attempt)
         out["goal"] = fo.get("goal")
@@ -315,6 +396,8 @@ def status(api: Any, run_id: str) -> dict[str, Any]:
         out["assumptions"] = fo.get("assumptions") or []
     if sel is not None:
         out.update(selected=sel.data.get("selected"), runs=sel.data.get("runs"), gaps=sel.data.get("gaps"))
+        if sel.data.get("plan"):
+            out["plan"] = sel.data["plan"]["path"]
         out["next"] = "framing finished"
     elif step.state == "awaiting_human":
         out["next"] = (f"confirm the goal with the owner, let them choose parts, confirm back, then "

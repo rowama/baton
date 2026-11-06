@@ -49,7 +49,7 @@
 
 - Not an agent framework. Baton runs no LLM loop of its own. Iteration *inside* a worker (a coding agent looping until its tests pass) is the worker's business; Baton supplies the exit criteria and a time budget.
 - Not a general scheduler. Steps run when the Director dispatches them; the runtime only supervises dispatched work.
-- No GUI; no backlog or idea management (owners use tools of their choice).
+- No GUI. No backlog or idea management as a feature: Baton does not prioritize, track or organize ideas (owners use tools of their choice). A backlog and notes are valid project deliverables, and Baton may write them: framing's process plan (§11.6) and the owner's notes file (§13.1) (Decision: [0063](decisions/0063-backlog-and-notes-are-deliverables.md)).
 
 ### 1.4 Key design decisions
 
@@ -93,7 +93,7 @@ Experts (§12) add none either: a *consultation* is a series of SME dispatches (
 
 Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
 
-Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
+Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
 
 These concepts are **internal vocabulary**: recipe authors, Directors and the runtime use them; owners never need them. The Director speaks in the owner's terms (§13.8) unless the owner chooses the terse operator style (§13.6).
 

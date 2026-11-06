@@ -82,7 +82,7 @@ baton/
 │   ├── .gitattributes                # `* -text`: git never converts line endings in hashed files (§15.1)
 │   ├── workers.local.yaml            # GITIGNORED: project-specific profile overrides
 │   └── cache/                        # GITIGNORED: SQLite, running markers, locks
-├── <published deliverables at the project's own paths>
+├── <published deliverables at the project's own paths>   # incl. framing's process plans (paths.process_plans) and the owner's notes file (paths.notes); init maps both to docs (§11.6, §13.1)
 └── .gitattributes                    # LFS rules for large blobs and binary deliverables
 ```
 

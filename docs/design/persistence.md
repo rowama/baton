@@ -34,7 +34,7 @@ project: { test_command: "pytest -q", preflight: "pytest -q --collect-only" }
 run_slug: "{{ run.inputs.title | slugify }}"
 ```
 
-Publishing is for artifacts a worker returns in `result/artifacts/` (documents, drawings, photos). **Workspace steps' output *is* the project tree** (code a coding agent writes and commits in place, recorded by `commit_sha`) and does not use `publish`.
+Publishing is for artifacts a worker returns in `result/artifacts/` (documents, drawings, photos), plus one document the runtime renders itself: a framing run's process plan (§11.6), published as the `frame` step's `process_plan` under the same rules. **Workspace steps' output *is* the project tree** (code a coding agent writes and commits in place, recorded by `commit_sha`) and does not use `publish`.
 
 Decision: [0038](../decisions/0038-publishing.md).
 - **Start.** A `paths.*` key a recipe publishes to that `project.yaml` does not map refuses `start` (`configuration.publish_path`). Targets must stay inside the project and outside `.git` and `.baton`.
