@@ -345,7 +345,7 @@ def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
     assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
 
 
-PLAN = "docs/i-want-to-start-a-pure-water-vending-process-plan.md"
+PLAN = "docs/pure-water-vending-business-self-serve-process-plan.md"
 
 
 def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
@@ -463,6 +463,25 @@ def test_unmapped_process_plan_path_uses_the_default(tmp_path):
     manual(cli, project, fr, "frame", frame_output())
     sel = cli.run("decide", fr, "frame", "select", "--items", "", "--note", "None for now.")
     assert sel["plan"] == PLAN and (project / PLAN).is_file()
+
+
+
+@pytest.mark.parametrize(("words", "slug"), [
+    ("Pure-water vending in Tucson", "pure-water-vending-in-tucson"),  # fits: kept whole, lead-in and all
+    ("I want a water business", "i-want-a-water-business"),
+    ("I want to start a pure-water vending business in Tucson", "pure-water-vending-business-in-tucson"),  # lead-in cut
+    ("help me build a website for the church choir and its concerts", "website-church-choir-concerts"),  # common words dropped
+    ("I need a plan for converting the garage into a home office with a bathroom", "converting-garage-home-office-bathroom"),
+    ("I want to start a pure-water vending business in Tucson, with three machines at first", "pure-water-vending-business-tucson-three"),  # cut at a word
+    ("Ich möchte ein Geschäft für reines Wasser gründen und betreiben", "ich-mochte-ein-geschaft-fur-reines"),  # accents folded
+    ("I want to start to build to make to open to launch a", "i-want-start-build-make-open-launch"),  # all lead-in: kept, common words dropped
+    ("Supercalifragilisticexpialidociousandmorewordsjoinedtogether here", "supercalifragilisticexpialidociousandmor"),
+])
+def test_the_goal_slug_keeps_a_short_goal_and_shortens_a_long_one_without_summarizing(words, slug):
+    from baton.frame import SLUG_MAX, goal_slug, plan_target
+
+    assert goal_slug(words) == slug and len(slug) <= SLUG_MAX
+    assert plan_target({"process_plans": "plans/"}, words) == f"plans/{slug}-process-plan.md"
 
 
 def test_selecting_nothing_ends_framing_with_no_runs(tmp_path):

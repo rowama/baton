@@ -3,7 +3,7 @@ id: 2026-11-framing-perspective
 title: "The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents"
 status: done
 level: standard
-decisions: ["0062", "0063", "0064", "0065", "0066", "0067", "0068", "0069", "0070", "0071", "0072"]
+decisions: ["0062", "0063", "0064", "0065", "0066", "0067", "0068", "0069", "0070", "0071", "0072", "0073"]
 touches: [principles.md, design/adoption-and-framing.md, design/director-interface.md, design/persistence.md, design/runtime.md, design/layouts.md]   # §1.3, §2, §11.6, §13.1, §13.3, §10.4, §8.2, §4.3; also defaults/labels.yaml and skills/baton-director/SKILL.md
 ---
 
@@ -103,6 +103,7 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
 - 0062–0070 (all accepted 2026-11-05): see the Request and Open questions.
 - [0071](../decisions/0071-next-on-framing-options.md): `next` is an optional option field; only framing's options carry it in this change.
 - [0072](../decisions/0072-plan-republish-conflict-on-started-run.md): a process-plan conflict at `--from-plan` waits on the run it started.
+- [0073](../decisions/0073-goal-slug-shortened-not-summarized.md) (owner, 2026-11-06, after the change was done): the plan's goal slug is shortened by rule (lead-in cut, then common words dropped, then cut at a word), never summarized.
 
 ## Plan
 
@@ -147,6 +148,12 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
 - **Criteria:**
   - the shipped skill equals the §13.3 text;
   - every call it names is in the API (the existing test), including `note` and `start --from-plan`.
+- **Effort:** S
+
+### The process plan's file name is shortened by rule
+
+- **Outcome:** a long opening request gives a readable plan file name: the lead-in is cut before anything else (0073).
+- **Criteria:** a goal of at most 40 characters is kept whole; a longer one loses its lead-in, then its common words, then is cut at a word; accents are folded; nothing is summarized.
 - **Effort:** S
 
 ## Log
@@ -221,6 +228,17 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
     - *Before you ask* gains the **Rewording** check;
     - a new *Notes* section (only when asked; verbatim; offered once; never passed to the work; recall through the project SME).
   - Tests: `test_director_skill_names_every_call_it_relies_on` asserts the new text and the `note` and `start` calls; `test_shipped_director_skill_is_the_guides_text` holds the copies identical.
+- **Review:** clean.
+- **Accepted:** pending (owner).
+
+### The process plan's file name is shortened by rule
+
+- **Commit:** `2026-11-framing-perspective: The process plan's file name is shortened by rule`
+- **Summary:**
+  - Asked by the owner on 2026-11-06, after the first five slices: a long opening statement only kept its first 40 characters, which were mostly lead-in.
+  - `frame.goal_slug` (used by `plan_target`): accents folded; kept whole at 40 characters or fewer; otherwise `LEAD_WORDS` are cut from the start, then `COMMON_WORDS` are dropped, then it is cut at a word. Decision 0073; §11.6 item 5 updated.
+  - The water-vending plan is now `docs/pure-water-vending-business-self-serve-process-plan.md`.
+  - Tests: `test_the_goal_slug_keeps_a_short_goal_and_shortens_a_long_one_without_summarizing` (each rule, accents, an all-lead-in goal, one over-long word); the process-plan tests use the new name.
 - **Review:** clean.
 - **Accepted:** pending (owner).
 

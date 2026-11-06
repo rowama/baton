@@ -179,16 +179,56 @@ PLAN_ARTIFACT = "process_plan"
 DEFAULT_PATHS = {"process_plans": "docs", "notes": "docs"}
 
 
-def plan_target(paths: dict[str, Any] | None, words: str) -> str:
-    """Where a framing run's process plan goes: ``<paths.process_plans>/<goal-slug>-process-plan.md`` (Decision 0069)."""
+SLUG_MAX = 40
+# Words an opening request starts with before it names the goal: a subject pronoun, wanting or
+# asking verbs, an action verb, an article ("I want to start a", "help me build a", "I need a").
+LEAD_WORDS = frozenset(
+    "i we me us my our you im d m ll ve s please can could would will shall should let lets "
+    "want wanna wants need needs like love hope help plan planning going gonna try trying "
+    "to start starting begin build create make launch open set up get run figure out "
+    "write develop design do a an the".split()
+)
+# Common words dropped, anywhere, when the goal still does not fit.
+COMMON_WORDS = frozenset(
+    "a an the and or but nor of in on at to for with by from as into onto about over so "
+    "my our your their its his her this that these those some few is are be been will "
+    "it them then than once just very".split()
+)
+
+
+def goal_slug(words: str) -> str:
+    """The goal slug of a process plan's file name (Decision 0073).
+
+    Accents are folded, then: at most ``SLUG_MAX`` characters it is kept whole; otherwise the
+    request's lead-in words are cut; if still too long, common words are dropped and the rest is
+    cut at the last whole word that fits. Never summarized."""
+    import unicodedata
+
     from .project import slugify
 
+    folded = "".join(c for c in unicodedata.normalize("NFKD", str(words)) if not unicodedata.combining(c))
+    slug = slugify(folded, 10_000)
+    if len(slug) <= SLUG_MAX:
+        return slug
+    parts = slug.split("-")
+    i = 0
+    while i < len(parts) and parts[i] in LEAD_WORDS:
+        i += 1
+    if i < len(parts):
+        parts = parts[i:]
+    if len("-".join(parts)) > SLUG_MAX:
+        parts = [w for w in parts if w not in COMMON_WORDS] or parts
+    slug = "-".join(parts)
+    if len(slug) > SLUG_MAX:
+        cut = slug[: SLUG_MAX + 1]
+        slug = cut[: cut.rfind("-")] if "-" in cut else slug[:SLUG_MAX]
+    return slug
+
+
+def plan_target(paths: dict[str, Any] | None, words: str) -> str:
+    """Where a framing run's process plan goes: ``<paths.process_plans>/<goal-slug>-process-plan.md`` (Decisions 0069, 0073)."""
     folder = str((paths or {}).get("process_plans") or DEFAULT_PATHS["process_plans"]).replace("\\", "/").rstrip("/")
-    slug = slugify(words, 200)
-    if len(slug) > 40:
-        cut = slug[:41]
-        slug = cut[: cut.rfind("-")] if "-" in cut else slug[:40]
-    return f"{folder}/{slug or 'goal'}-process-plan.md"
+    return f"{folder}/{goal_slug(words) or 'goal'}-process-plan.md"
 
 
 def started_parts(events: list[Any]) -> dict[str, dict[str, Any]]:

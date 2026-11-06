@@ -205,3 +205,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0070 The owner's answer to the notes-file offer is a project decision](decisions/0070-notes-offer-recorded-as-project-decision.md) | accepted |
 | [0071 next is an optional option field; framing's options carry it first](decisions/0071-next-on-framing-options.md) | accepted |
 | [0072 A process-plan conflict at --from-plan waits on the run it started](decisions/0072-plan-republish-conflict-on-started-run.md) | accepted |
+| [0073 A process plan's goal slug is shortened by rule, never summarized](decisions/0073-goal-slug-shortened-not-summarized.md) | accepted |
