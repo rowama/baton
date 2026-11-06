@@ -13,6 +13,7 @@ baton/
 │   ├── vocab.py             # capability vocabulary
 │   ├── profiles.py          # worker profiles, secrets, env construction, PATH resolution
 │   ├── routing.py           # eligibility, preferences, independence
+│   ├── known_workers.py     # known-workers data: schema and validation (§6.4)
 │   ├── store.py             # event logs (run + project), CAS, SQLite cache rebuild
 │   ├── state.py             # the one state machine
 │   ├── groups.py            # foreach / repeat_until expansion and aggregate state
@@ -47,6 +48,7 @@ baton/
 ├── defaults/communication.md        # default owner communication contract, conversational (written by `baton init`)
 ├── defaults/communication-operator.md   # the terse operator style, for owners who choose it (§13.6)
 ├── defaults/labels.yaml     # plain-language labels for decision options (§13.8)
+├── defaults/known-workers.yaml   # shared, read-only data about models and routes (§6.4)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/   # the catalog: shipped in the package (§11.6)
 └── tests/
 ```

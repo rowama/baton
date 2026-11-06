@@ -16,4 +16,6 @@ A capability must be true on this machine (§6.1). Some, such as `loopback_netwo
 ## Decision
 
 - Known-workers data lists only model- and harness-intrinsic capabilities.
-- A machine-dependent capability (the vocabulary marks which; `loopback_network` to start with) is added to a generated profile only when the owner declares it for that resource, recorded as declared, or when a probe on this machine passes, recorded as probed.
+- A machine-dependent capability (the known-workers data lists which, under `machine_dependent`; `loopback_network` to start with) is added to a generated profile only when the owner declares it for that resource, recorded as declared, or when a probe on this machine passes, recorded as probed.
+
+Amended 2026-11-06 while building it: the list lives in the known-workers data, not the capability vocabulary, because a published vocabulary version is never edited (§5.6) and a new one would make every recipe re-pin.

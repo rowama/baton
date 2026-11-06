@@ -1,0 +1,90 @@
+# Known workers (baton-known-workers/1; §6.4, Decision 0080).
+#
+# Shared, read-only data about models and the routes that reach them. The
+# worker resource manager (`baton workers setup`) turns supported routes into
+# profiles; it never changes this file. Maintainers update it through the
+# research utility in tools/worker-research/ and review the change.
+#
+# sources / researched: what research found, with where and when.
+# verified:             only an actual live check (date, tool, version).
+# This seed was researched on 2026-11-06; no route has been live-verified.
+# Capabilities and tiers are the maintainer's judgment from the sources.
+format: baton-known-workers/1
+
+# Never listed below: they depend on the machine (0082).
+machine_dependent: [loopback_network]
+
+models:
+  anthropic/claude-opus-5-5:
+    creator: anthropic
+    category: llm
+    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  anthropic/claude-sonnet-5-5:
+    creator: anthropic
+    category: llm
+    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]
+    tier: standard
+    context_tokens: 1000000
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+providers:
+  anthropic:
+    kind: direct_api
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+  openrouter:
+    kind: intermediary
+    sources:
+      - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  claude_code:
+    kind: harness
+  codex:
+    kind: harness
+
+routes:
+  # Direct API: the model page says every Claude model ID, dateless ones
+  # included, is a pinned snapshot. LiteLLM's provider prefix is anthropic/.
+  - model_id: anthropic/claude-opus-5-5
+    provider: anthropic
+    adapter: litellm_api
+    invocation: anthropic/claude-opus-5-5
+    supported: true
+  - model_id: anthropic/claude-sonnet-5-5
+    provider: anthropic
+    adapter: litellm_api
+    invocation: anthropic/claude-sonnet-5-5
+    supported: true
+  # The same model through an intermediary: one identity, another route.
+  # OpenRouter's id is anthropic/claude-opus-5.5; LiteLLM 1.106.6 lists the
+  # openrouter provider. OpenRouter does not state which host serves it.
+  - model_id: anthropic/claude-opus-5-5
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/anthropic/claude-opus-5.5
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  # Harnesses on their own default model: a mutable alias, so no model_id.
+  # Capabilities are the harness's (§6.1), checked against claude 2.1.316
+  # and codex-cli 0.166.0 for the adapters (§6.3).
+  - creator: anthropic
+    provider: claude_code
+    adapter: claude_code
+    alias: true
+    supported: true
+    capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    tier: strong
+  - creator: openai
+    provider: codex
+    adapter: codex
+    alias: true
+    supported: true
+    capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    tier: strong

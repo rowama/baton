@@ -99,3 +99,19 @@ class WorkerAdapter(Protocol):
 - **`manual`**: prints the packet path and waits for `submit`. Used for humans and physical-world work.
 
 Adapters never interpret results; intake does.
+
+### 6.4 Worker setup
+
+Writing profiles by hand needs knowledge that is not the owner's: model strings, capabilities, which adapter reaches which model. Three parts keep that work out of the owner's way, each with its own job (Decision: [0074](../decisions/0074-worker-research-and-resources-separate.md)): maintainers research models into shared data; the worker resource manager turns that data, plus what this machine has and what the owner declares, into profiles; `init` and `doctor` only confirm the machine is ready.
+
+**Known-workers data** (`defaults/known-workers.yaml`, `baton-known-workers/1`; Decision: [0080](../decisions/0080-known-workers-format.md)) ships with the runtime, read-only, beside the adapters (`known_workers.py` validates it):
+
+| Section | Holds |
+|---|---|
+| `machine_dependent` | Capabilities never listed in this data, because they depend on the machine (`loopback_network`): a profile gets one only from the owner's declaration or a probe (Decision: [0082](../decisions/0082-machine-dependent-capabilities.md)) |
+| `models` | Keyed by `model_id` (§6.1): `creator`, intrinsic `capabilities`, `tier`, `context_tokens`, `category` (`llm`, `vision`, `transcription`…), `sources` (`url`, `retrieved`), `researched`, `retired` |
+| `providers` | How access is obtained: `kind` `direct_api` \| `intermediary` \| `harness` \| `local`, with sources |
+| `routes` | One way to run a model: `model_id` (or, for a mutable alias, `alias: true` and a `creator`), `provider`, `adapter`, `invocation` (the profile's `model`; empty only for a harness's default model), `supported`, the capabilities the route adds (a harness's tools), `tier`/`context_tokens` for an alias route, `sources`, and `verified` (`date`, `tool`, `version`) only for an actual live check |
+
+Research claims and live checks are separate fields, so an unverified finding is never shown as tested. Research may cover models no adapter can run yet: such a route is `supported: false` and never becomes a profile. Validation checks the schema, the capability and tier vocabulary, that a supported route names an existing adapter, that every route's model and provider exist, that a `model_id` starts with its creator, that machine-dependent capabilities are absent, provenance on every model, and duplicate routes. Vendors and models here are profile data, like the adapters; recipes stay model-neutral and their lint is unchanged (§5.3).
+

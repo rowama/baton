@@ -62,6 +62,7 @@ The design files:
 | §6.1 | [design/workers.md](design/workers.md) | Profiles (`~/.baton/workers.yaml`, overridable by `.baton/workers.local.yaml`) |
 | §6.2 | [design/workers.md](design/workers.md) | Environment and PATH |
 | §6.3 | [design/workers.md](design/workers.md) | Adapters |
+| §6.4 | [design/workers.md](design/workers.md) | Worker setup |
 | §7 | [design/packets.md](design/packets.md) | The Packet Protocol |
 | §7.1 | [design/packets.md](design/packets.md) | Packet (runtime → worker) |
 | §7.2 | [design/packets.md](design/packets.md) | Result (worker → runtime) |
