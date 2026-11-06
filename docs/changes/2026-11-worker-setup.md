@@ -226,3 +226,10 @@ New execution adapters for additional modalities, project-specific exceptions, w
 - **Summary:** The owner answered the eight open questions (2026-11-06); recorded as decisions 0074–0082 and listed in `docs/README.md`. The change is `in-progress`; criterion 3 now names `~/.baton/workers/` (0079). Design text for each part lands with the slice that implements it. No code; the docs tests cover the new links.
 - **Review:** clean
 - **Accepted:** yes, 2026-11-06, the owner's answers: strict unknown identity, unverified-but-flagged eligibility, "New directory ~/.baton/workers; one yaml file per worker profile. Owner edited files are untouched.", and for resources.yaml an explicit resource kind so future kinds can drop in; the rest concurred.
+
+### 2. Runtime identity, execution and persisted records
+
+- **Commit:** 2026-11-worker-setup: Runtime identity, execution and persisted records
+- **Summary:** `WorkerProfile` gains `creator` (required; `vendor` read as its legacy alias, both differing is a load error), `model_id` (canonical, `<creator>/<name>`, must start with the creator), `provider` and `resource`; `canonical_model()` gives `human/<person>` for `manual` profiles. `model` stays the invocation identifier the adapters pass on, so execution is unchanged. `routing.identity_record` writes the identity-and-route snapshot into `worker_selected` and `sme_requested` (still writing `vendor` and `model`); `identity_from_record` reads older events as creator = vendor, model identity unknown. `profile_sha256` keeps the key name `vendor`, so existing profile hashes are unchanged. Independence still compares as before; slice 3 changes it. Tests: alias, conflict and `model_id` errors; direct and OpenRouter profiles sharing one identity; the pre-change hash pinned; the recorded snapshot; legacy event reading; the expert snapshot.
+- **Review:** clean
+- **Accepted:** pending owner review

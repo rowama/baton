@@ -153,6 +153,8 @@ def test_packet_holds_only_selected_refs_plus_index_with_hashes(tmp_path: Path) 
     assert answer["answer"] == "Saw: project:README.md, step:describe" and answer["sources_used"] == ["project:README.md", "step:describe"]
     req = [e for e in s.run_events() if e["type"] == "sme_requested"][0]["data"]
     assert req["packet_sha256"] == m["packet_sha256"] and {r["ref"] for r in req["refs"]} == {"step:describe", "project:README.md"}
+    # The expert's identity and route as at dispatch (0075).
+    assert req["creator"] == req["vendor"] and req["adapter"] and "worker" in req and "profile" not in req
     # The packet hash is reproducible from the files (same formula as step packets).
     from baton.packet import verify_packet
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator, model_validator
 
 STEP_ID = r"^[a-z][a-z0-9_]*$"
 RECIPE_ID = r"^[a-z][a-z0-9-]*$"
@@ -402,9 +402,25 @@ class ProfileArgs(_Strict):
     none: list[str] | None = None
 
 
+#: A canonical model identity (0075): ``<creator>/<name>``, lower case.
+MODEL_ID = r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:@+-]*$"
+
+
 class WorkerProfile(_Strict):
+    """One worker (§6.1). Identity and route are separate fields (Decision 0075):
+
+    ``creator`` made the model (``different_vendor``); ``model_id`` is its
+    canonical identity across routes (``different_model``; absent = unknown);
+    ``provider`` is the access provider; ``model`` is the invocation
+    identifier the adapter passes on; ``resource`` the machine resource.
+    ``vendor`` is read as a legacy alias for ``creator``.
+    """
+
     adapter: str
-    vendor: str
+    creator: str
+    model_id: str | None = Field(default=None, pattern=MODEL_ID)
+    provider: str | None = None
+    resource: str | None = None
     model: str | None = None
     person: str | None = None
     capabilities: list[str] = Field(default_factory=list)
@@ -421,6 +437,37 @@ class WorkerProfile(_Strict):
     command: str | None = None  # for the `command` adapter
     #: Non-secret adapter options (e.g. ``base_url``, ``temperature`` for ``litellm_api``).
     options: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_vendor(cls, data: Any) -> Any:
+        """``vendor`` (the field before 0075) is ``creator``; both, differing, is an error."""
+        if isinstance(data, dict) and "vendor" in data:
+            data = dict(data)
+            vendor = data.pop("vendor")
+            if "creator" in data and data["creator"] != vendor:
+                raise ValueError(f"vendor {vendor!r} and creator {data['creator']!r} differ; vendor is the old name for creator, give only creator")
+            data.setdefault("creator", vendor)
+        return data
+
+    @model_validator(mode="after")
+    def _model_id_matches_creator(self) -> "WorkerProfile":
+        if self.model_id is not None and self.model_id.split("/", 1)[0] != self.creator.lower():
+            raise ValueError(f"model_id {self.model_id!r} must start with its creator, {self.creator.lower()}/")
+        return self
+
+    @property
+    def vendor(self) -> str:
+        """The legacy name for ``creator``."""
+        return self.creator
+
+    def canonical_model(self) -> str | None:
+        """The canonical model identity: ``model_id``; for a ``manual`` profile, ``human/<person>`` (0075)."""
+        if self.model_id is not None:
+            return self.model_id
+        if self.adapter == "manual" and self.person:
+            return f"{self.creator.lower()}/{self.person.lower()}"
+        return None
 
 
 class PreferOrder(_Strict):

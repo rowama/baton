@@ -153,4 +153,26 @@ def test_worker_selected_records_vendor_and_model(routed):
     api, root, run = routed
     api.dispatch(run, "draft", "carol")
     ev = [e for e in api.project.store.run(run).events() if e.type == "worker_selected"][-1]
-    assert ev.data == {"profile": "carol", "vendor": "zenith"}
+    # Identity and route as at dispatch (0075); vendor is still written, equal to creator.
+    assert ev.data == {"profile": "carol", "vendor": "zenith", "creator": "zenith", "adapter": "manual"}
+
+
+
+def test_worker_selected_records_identity_and_route(tmp_path):
+    from baton.models import WorkerProfile
+    from baton.routing import identity_from_record, identity_record
+
+    p = WorkerProfile.model_validate({"adapter": "litellm_api", "creator": "anthropic", "model_id": "anthropic/claude-opus-5-5",
+                                      "provider": "openrouter", "model": "openrouter/anthropic/claude-opus-5.5"})
+    rec = identity_record("routed", p)
+    assert rec == {"profile": "routed", "vendor": "anthropic", "creator": "anthropic", "model_id": "anthropic/claude-opus-5-5",
+                   "provider": "openrouter", "model": "openrouter/anthropic/claude-opus-5.5", "adapter": "litellm_api"}
+    assert identity_from_record(rec).model_id == "anthropic/claude-opus-5-5"
+
+
+def test_an_event_from_before_0075_has_unknown_model_identity():
+    from baton.routing import identity_from_record
+
+    old = identity_from_record({"profile": "api", "vendor": "openai", "model": "openai/some-model"})
+    # creator is the recorded vendor; the model string is a route, never an identity.
+    assert old.creator == "openai" and old.model_id is None and old.model == "openai/some-model"

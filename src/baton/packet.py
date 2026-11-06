@@ -187,6 +187,7 @@ def profile_sha256(profile: WorkerProfile) -> str:
     Empty ``options`` are left out, so adding that field kept earlier hashes.
     """
     body = profile.model_dump(mode="json", exclude_none=True)
+    body["vendor"] = body.pop("creator")  # its name before 0075, so earlier hashes hold
     if not body.get("options"):
         body.pop("options", None)
     auth = body.get("auth") or {}

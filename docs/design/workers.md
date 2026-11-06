@@ -5,8 +5,10 @@
 ```yaml
 openai-api-strong:
   adapter: litellm_api
-  vendor: openai                       # used for independence checks
-  model: "openai/…"                    # [VERIFY current model strings]
+  creator: openai                      # who made the model: different_vendor
+  model_id: openai/…                   # the model's identity on every route: different_model
+  provider: openai                     # the access provider
+  model: "openai/…"                    # what the adapter passes on [VERIFY current model strings]
   capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]
   tier: strong
   context_tokens: 200000
@@ -14,7 +16,7 @@ openai-api-strong:
 
 codex-sub:
   adapter: codex
-  vendor: openai
+  creator: openai                      # no model_id: the CLI's default model is a mutable alias
   capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
   tier: strong
   context_tokens: 200000
@@ -26,7 +28,7 @@ codex-sub:
 
 claude-code-sub:
   adapter: claude_code
-  vendor: anthropic
+  creator: anthropic
   capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, loopback_network, long_form_writing, technical_reasoning]
   tier: strong
   context_tokens: 200000
@@ -38,7 +40,7 @@ claude-code-sub:
 
 owner:
   adapter: manual
-  vendor: human
+  creator: human                       # a person's identity is human/<person>
   person: owner
   capabilities: [human_judgment, long_form_writing, vision, file_write]
   tier: strong
@@ -46,6 +48,11 @@ owner:
 
 | Field | Notes |
 |---|---|
+| `creator` | Who made the model (`human` for people). Required. `vendor`, its name before, is still read (giving both, differing, is a load error). Compared by `different_vendor` (§8.4) |
+| `model_id` | The model's canonical identity, `<creator>/<name>` in lower case, the same on every route (direct API, OpenRouter, a harness). Revisions are part of it when the creator distinguishes them; fine-tunes and quantizations take their base model's id; a mutable alias (a harness's default model, `latest`) or a route whose underlying model is unknown has none. Absent means **unknown**, and nothing is inferred from `model`. A `manual` profile's identity is `human/<person>`. Compared by `different_model` (§8.4) |
+| `provider` | The access provider (`openai`, `openrouter`, `local`…). Route only: never used for independence |
+| `model` | The provider- or harness-specific invocation identifier the adapter passes on (§6.3) |
+| `resource` | The machine resource the profile uses |
 | `auth.mode` | `api_key` (resolved secrets injected) \| `cli_login` (CLI's stored credentials) \| `none` |
 | `env_mode` | `clean` (default for `api_key`) \| `allowlist` (default for `cli_login`; passes `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `LANG`, `TERM` plus `env_allow`) \| `inherit` (escape hatch). `env_deny` is always applied last. |
 | `auth.config_home` | Relocated CLI config dir so several logins coexist: `CLAUDE_CONFIG_DIR` for `claude_code`, `CODEX_HOME` for `codex` (both seen in the installed CLIs; switching logins with them is untested) |
@@ -56,6 +63,8 @@ owner:
 | `env_deny` | Exact names or `fnmatch` patterns (`*_API_KEY`); removes a name whatever put it there (inherit, `env_allow`, `auth.env`) |
 | `options` | Non-secret adapter options (`litellm_api`: keyword arguments for the completion call, e.g. `base_url`, `temperature`) |
 | secrets | `secret:<name>`, allowed only in `auth.env`; resolved at spawn time from the variable `BATON_SECRET_<NAME>` (upper-cased, other characters `_`), then the OS keyring (service `baton`; needs the optional `keyring` package), then the file `~/.baton/secrets/<name>`. A missing secret refuses the dispatch as `configuration`, naming all three places. Never written to packets, events or logs; resolved values are redacted from anything the runtime records |
+
+Decision: [0075](../decisions/0075-model-identity-separate-from-route.md). Identity (`creator`, `model_id`) and route (`provider`, `model`, `adapter`, `resource`) are separate: the same model reached directly and through OpenRouter has one identity and two routes. A profile's hash (`worker_profile_sha256`, §7.1) still names the creator `vendor`, so profiles written before the rename keep their hashes.
 
 CLI logins are usually files under the home directory; some platforms use an OS keychain that needs the user's session **[VERIFY]**. `doctor` (§13.4) proves each profile works on each machine.
 

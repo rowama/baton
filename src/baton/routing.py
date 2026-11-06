@@ -90,15 +90,56 @@ def load_preferences(baton_dir: Path) -> Preferences:
 
 @dataclass(frozen=True)
 class WorkerIdentity:
-    """Who produced a result, as recorded in ``worker_selected``."""
+    """Who produced a result, as recorded at dispatch (``worker_selected``; 0075).
+
+    ``creator`` and ``model_id`` decide independence; ``provider``, ``model``
+    (the invocation identifier) and ``adapter`` describe the route. ``None``
+    is unknown.
+    """
 
     profile: str
-    vendor: str | None
-    model: str | None
+    creator: str | None
+    model_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    adapter: str | None = None
+
+    @property
+    def vendor(self) -> str | None:
+        return self.creator
 
 
 def identity_of(profile_name: str, profile: WorkerProfile) -> WorkerIdentity:
-    return WorkerIdentity(profile_name, profile.vendor, profile.model)
+    return WorkerIdentity(profile_name, profile.creator, profile.canonical_model(), profile.provider, profile.model, profile.adapter)
+
+
+def identity_record(profile_name: str, profile: WorkerProfile) -> dict[str, Any]:
+    """The identity and route snapshot recorded with a dispatch (0075).
+
+    ``vendor`` is still written (equal to ``creator``) and ``model`` is the
+    invocation identifier, so a runtime that knows only those reads it as before.
+    """
+    ident = identity_of(profile_name, profile)
+    out: dict[str, Any] = {"profile": profile_name, "vendor": ident.creator, "creator": ident.creator}
+    for key in ("model_id", "provider", "model", "adapter"):
+        value = getattr(ident, key)
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def identity_from_record(d: dict[str, Any], profile_key: str = "profile") -> WorkerIdentity:
+    """Read a recorded snapshot. An event from before 0075 has only ``vendor``
+    and ``model``: its creator is the vendor, its model identity unknown (never
+    guessed from the invocation string)."""
+    return WorkerIdentity(
+        d.get(profile_key, "?"),
+        d.get("creator", d.get("vendor")),
+        d.get("model_id"),
+        d.get("provider"),
+        d.get("model"),
+        d.get("adapter"),
+    )
 
 
 def same_at(level: str, a: WorkerIdentity, b: WorkerIdentity) -> bool:
@@ -136,8 +177,7 @@ def result_worker(events: list[Any], step_path: str, own: bool) -> WorkerIdentit
         return None
     for ev in reversed(events):
         if ev.type == "worker_selected" and ev.step_path == step_path and ev.attempt == attempt:
-            d = ev.data
-            return WorkerIdentity(d.get("profile", "?"), d.get("vendor"), d.get("model"))
+            return identity_from_record(ev.data)
     return None
 
 

@@ -47,6 +47,7 @@ from .packet import (
     view_of,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
+from .routing import identity_record
 from .redact import redact_text
 from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, StoreError, canonical_json
@@ -573,9 +574,7 @@ def begin_attempt(
         head = reviews.repo_head(ctx.store.root)
         if head:
             dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it)
-    selected: dict[str, Any] = {"profile": profile_name, "vendor": profile.vendor}  # recorded for independence (§8.4)
-    if profile.model:
-        selected["model"] = profile.model
+    selected = identity_record(profile_name, profile)  # identity and route, for independence (§8.4, 0075)
     log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data=selected)
     pb = {"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]}
     if guidance:
@@ -3563,7 +3562,7 @@ class Api:
             data: dict[str, Any] = {
                 "consultation": c_id, "turn": turn, "subject": subject, "mode": "relay", "question": redact_text(question or ""),
                 "refs": ents("selected"), "auto": ents("auto"), "attachments": ents("attachments"), "index": len(idx),
-                "worker": chosen, "vendor": profile.vendor, "model": profile.model, "adapter": profile.adapter,
+                **{("worker" if k == "profile" else k): v for k, v in identity_record(chosen, profile).items()},
                 "packet_sha256": built.sha256, "dispatch_id": dispatch_id, "deadline": deadline, "workspace": mode,
                 "env": env.describe(),
             }
