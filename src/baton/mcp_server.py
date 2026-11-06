@@ -132,9 +132,10 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     # -- runs ----------------------------------------------------------------
 
     @tool
-    def start(recipe: str, inputs: dict[str, Any], title: str | None = None) -> dict[str, Any]:
-        """Start a run (a work item) of a vendored recipe with its run inputs; claims its lease."""
-        return t.call(lambda api: api.start(recipe, inputs, title=title))
+    def start(recipe: str | None = None, inputs: dict[str, Any] | None = None, title: str | None = None,
+              from_plan: str | None = None) -> dict[str, Any]:
+        """Start a run (a work item) of a vendored recipe with its run inputs, or a process plan's part as proposed (from_plan); claims its lease."""
+        return t.call(lambda api: api.start(recipe, inputs, title=title, from_plan=from_plan))
 
     @tool
     def status(run: str) -> dict[str, Any]:

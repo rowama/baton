@@ -499,7 +499,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "human": ("human_decision", "human_revision_ingested"),
     "deliverables": ("artifact_published", "drift_detected"),
     "adoption": ("situation_detected", "research_recorded", "step_imported", "baseline_established"),
-    "framing": ("framing_selected",),
+    "framing": ("framing_selected", "framing_started_later"),
     "experts": ("sme_requested", "sme_answered", "sme_promoted"),
     "machinery": (
         "completion_hook_fired", "completion_hook_failed", "checkpoint_committed",

@@ -240,6 +240,7 @@ class Due:
     target: str | None
     conflict: str | None  # why it cannot be written silently
     unrenderable: bool = False
+    owner: Any = None  # the run whose log records the publication, when not the deciding run (a process plan, Decision 0072)
 
     @property
     def ref(self) -> str:
@@ -272,9 +273,11 @@ def due(ctx: RunContext) -> list[Due]:
             out.append(Due(sid, art.name, ev, reg["sha256"], None, str(e), True))
             continue
         out.append(Due(sid, art.name, ev, reg["sha256"], target, conflict_reason(ctx, sid, target, reg["sha256"])))
-    from .frame import plan_due
+    from .frame import plan_due, plan_due_started
 
-    return out + plan_due(ctx, events, done)  # a framing run's process plan, rendered by the runtime (§11.6)
+    # A framing run's process plan, rendered by the runtime (§11.6); re-published for a part started later,
+    # its conflict is decided on the run that start began (Decision 0072).
+    return out + plan_due(ctx, events, done) + plan_due_started(ctx, events)
 
 
 def conflict_reason(ctx: RunContext, step_path: str, target: str, sha: str) -> str | None:
@@ -308,13 +311,14 @@ def publish_due(ctx: RunContext) -> list[str]:
 
 
 def _write(ctx: RunContext, d: Due, target: str, *, actor: str = "runtime", extra: dict[str, Any] | None = None) -> None:
+    oc = d.owner or ctx
     full = project_root(ctx) / target
     unchanged = file_sha(full) == d.sha256
     if not unchanged:
-        write_file(full, ctx.log.cas.read(d.sha256))
+        write_file(full, oc.log.cas.read(d.sha256))
     data = {"artifact": d.artifact, "path": target, "sha256": d.sha256, "attempt": d.passed.attempt, "passed_seq": d.passed.seq,
             **({"unchanged": True} if unchanged else {}), **(extra or {})}
-    ctx.log.append("artifact_published", actor=actor, step_path=d.step_path, data=data)
+    oc.log.append("artifact_published", actor=actor, step_path=d.step_path, data=data)
 
 
 def conflicts(ctx: RunContext) -> list[Due]:
@@ -401,7 +405,7 @@ def decide_conflict(ctx: RunContext, ref: str, decision: str, note: str, actor: 
             raise EngineError("decide.needs_path", f"{ref}: the target cannot be rendered; give the path to publish at with --path")
         else:
             target = alternate_name(d.target, ctx.run_id)
-        why = conflict_reason(ctx, d.step_path, target, d.sha256)
+        why = conflict_reason(d.owner or ctx, d.step_path, target, d.sha256)
         if why is not None:
             raise EngineError("publish.conflict", f"the alternate target conflicts too: {why}; give another --path")
     decision_id = f"d{ctx.log.state().last_seq + 1}"
@@ -410,7 +414,7 @@ def decide_conflict(ctx: RunContext, ref: str, decision: str, note: str, actor: 
         "path": target, "reason": d.conflict, **extra,
     })
     if decision == "keep":
-        ctx.log.append("artifact_published", actor=actor, step_path=d.step_path, data={
+        (d.owner or ctx).log.append("artifact_published", actor=actor, step_path=d.step_path, data={
             "artifact": d.artifact, "path": d.target, "sha256": d.sha256, "attempt": d.passed.attempt, "passed_seq": d.passed.seq,
             "kept": True, "decision_id": decision_id,
         })

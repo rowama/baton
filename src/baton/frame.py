@@ -236,14 +236,50 @@ def plan_due(ctx: Any, events: list[Any], done: set[Any]) -> list[Any]:
     if not is_framing(events):
         return []
     ev = next((e for e in reversed(events) if e.type in ("framing_selected", "framing_started_later") and e.data.get("plan")), None)
-    if ev is None or (FRAME_STEP, PLAN_ARTIFACT, ev.seq) in done:
-        return []
+    if ev is None or ev.type != "framing_selected" or (FRAME_STEP, PLAN_ARTIFACT, ev.seq) in done:
+        return []  # a later rendering belongs to the run that start began (plan_due_started)
     plan = ev.data["plan"]
     try:
         target = publish.check_target(publish.project_root(ctx), plan["path"])
     except EngineError as e:
         return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True)]
     return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], target, publish.conflict_reason(ctx, FRAME_STEP, target, plan["sha256"]))]
+
+
+def _framing_ctx(ctx: Any, run_id: str) -> Any:
+    from .packet import RunContext
+    from .project import builtin_recipe
+
+    return RunContext(ctx.store, run_id, builtin_recipe(FRAME_RECIPE), ctx.project)
+
+
+def plan_due_started(ctx: Any, events: list[Any]) -> list[Any]:
+    """For a run started later from a process plan: the plan's re-publication, while it is due (Decision 0072).
+
+    The publication is recorded on the framing run (it stays the plan's publisher); a conflict is
+    this run's pending decision and holds its completion."""
+    from . import publish
+
+    if not events or events[0].type != "run_started":
+        return []
+    origin = events[0].data.get("framing") or {}
+    fr = origin.get("run")
+    if not fr or fr not in ctx.store.run_ids():
+        return []
+    fevents = ctx.store.run(fr).events()
+    ev = next((e for e in reversed(fevents) if e.type in ("framing_selected", "framing_started_later") and e.data.get("plan")), None)
+    if ev is None or ev.type != "framing_started_later" or ev.data.get("run") != ctx.run_id:
+        return []
+    if any(e.type == "artifact_published" and e.data.get("artifact") == PLAN_ARTIFACT and e.data.get("passed_seq") == ev.seq for e in fevents):
+        return []
+    octx = _framing_ctx(ctx, fr)
+    plan = ev.data["plan"]
+    try:
+        target = publish.check_target(publish.project_root(ctx), plan["path"])
+    except EngineError as e:
+        return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True, owner=octx)]
+    return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], target,
+                        publish.conflict_reason(octx, FRAME_STEP, target, plan["sha256"]), owner=octx)]
 
 
 FIT_CHECK_NEXT = "a fit check: a few questions and a recommendation, no commitment"
@@ -284,11 +320,91 @@ def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dic
     return pending
 
 
+def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any], actor: str = "runtime") -> tuple[Any, str, list[str]]:
+    """Start one planned part (vendoring a shipped recipe first): ``(run context, recipe ref, recipes vendored)``."""
+    from .engine import start
+    from .project import vendor
+
+    loaded = plan["recipe"]
+    vendored: list[str] = []
+    if plan["vendor_from"] is not None:
+        res = vendor(api.project, plan["vendor_from"])
+        if res["changed"]:
+            vendored.append(res["recipe"])
+        loaded = api.project.recipe(res["recipe"])
+        paths += [api.project.recipes_dir / res["recipe"], api.project.baton / "baton.lock"]
+    inputs = plan["inputs"]
+    wctx = start(
+        api.project.store, loaded, inputs, title=plan["title"], project=api.project.variables(), actor=actor,
+        work_item={"kind": inputs.get("kind"), "slug": api.project.render_slug(inputs, plan["title"]),
+                   "branch": api.project.branch(), "framing": {"run": framing_run, "part": plan["part"]}},
+    )
+    return wctx, loaded.recipe.ref, vendored
+
+
+def find_part(api: Any, ref: str) -> tuple[Any, dict[str, Any]]:
+    """``<framing run>/<part>`` or a part id unique across finished framing runs: ``(framing run context, part)``."""
+    store = api.project.store
+    fr, _, pid = ref.rpartition("/")
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    for rid in ([fr] if fr else store.run_ids()):
+        if rid not in store.run_ids():
+            raise EngineError("frame.unknown_run", f"no run {rid!r}")
+        events = store.run(rid).events()
+        if not is_framing(events) or not any(e.type == "framing_selected" for e in events):
+            if fr:
+                raise EngineError("frame.not_selected", f"run {rid} is not a framing run whose selection was made")
+            continue
+        fctx = api._ctx(rid)
+        part = next((p for p in frame_output(fctx, fctx.log.state().step(FRAME_STEP).attempt).get("parts") or [] if p.get("id") == pid), None)
+        if part is not None:
+            candidates.append((rid, part))
+    if not candidates:
+        raise EngineError("frame.unknown_part", f"no framing run's process plan has a part {pid!r}" + (f" (looked in {fr})" if fr else ""))
+    if len(candidates) > 1:
+        raise EngineError("frame.ambiguous_part", f"part {pid!r} is in more than one process plan; name one of "
+                          + ", ".join(f"{r}/{pid}" for r, _ in candidates))
+    rid, part = candidates[0]
+    return api._ctx(rid), part
+
+
+def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str, Any]]:
+    """``start --from-plan <part>`` (Decision 0066): start a part exactly as its framing run recorded it.
+
+    Reads the proposal from the record, never from the published file. Returns ``(new run context, result)``."""
+    from . import docs
+
+    fctx, part = find_part(api, ref)
+    log = fctx.log
+    if log.state().state != "completed":
+        raise EngineError("frame.not_finished", f"framing run {fctx.run_id} is still waiting on the owner; settle that first")
+    events = log.events()
+    started = started_parts(events)
+    pid = part["id"]
+    if pid in started:
+        raise EngineError("frame.part_started", f"{part.get('label') or pid} was already started, as run {started[pid]['run']}")
+    plan, why = _plan_part(api, part, _active_others(api, fctx.run_id))
+    if plan is None:
+        raise EngineError("frame.gap", f"{part.get('label') or pid} cannot start: {why}")
+    wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor)
+    started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
+    sel = next(e for e in events if e.type == "framing_selected")
+    out = frame_output(fctx, log.state().step(FRAME_STEP).attempt)
+    content = render_plan(api, fctx.run_id, out, started, {g["part"]: g for g in sel.data.get("gaps") or []})
+    target = (sel.data.get("plan") or {}).get("path") or plan_target(api.project.config.paths, run_words(fctx) or out.get("goal") or fctx.run_id)
+    plan_ref = {"path": target, "sha256": log.cas.put(content.encode("utf-8"))}
+    log.append("framing_started_later", actor=api.director.actor, data={
+        "part": pid, "run": wctx.run_id, "recipe": recipe_ref, "plan": plan_ref, **({"vendored": vendored} if vendored else {}),
+    })
+    docs.write_records(fctx)
+    paths.append(fctx.run_dir)
+    return wctx, {"framing": fctx.run_id, "part": pid, "recipe": recipe_ref, "plan": target, "vendored": vendored}
+
+
 def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[str] | None, paths: list[Any]) -> dict[str, Any]:
     """``decide <framing run> frame select --items <ids> --note "<owner's words>"`` (§11.6)."""
     from . import docs
-    from .engine import _registered, refresh, start
-    from .project import vendor
+    from .engine import _registered, refresh
 
     log = ctx.log
     if not is_framing(log.events()):
@@ -336,22 +452,11 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
     vendored: list[str] = []
     runs: list[dict[str, Any]] = []
     for plan in plans:
-        loaded = plan["recipe"]
-        if plan["vendor_from"] is not None:
-            res = vendor(api.project, plan["vendor_from"])
-            if res["changed"]:
-                vendored.append(res["recipe"])
-            loaded = api.project.recipe(res["recipe"])
-            paths += [api.project.recipes_dir / res["recipe"], api.project.baton / "baton.lock"]
-        inputs = plan["inputs"]
-        wctx = start(
-            store, loaded, inputs, title=plan["title"], project=api.project.variables(), actor="runtime",
-            work_item={"kind": inputs.get("kind"), "slug": api.project.render_slug(inputs, plan["title"]),
-                       "branch": api.project.branch(), "framing": {"run": ctx.run_id, "part": plan["part"]}},
-        )
+        wctx, ref, changed = start_part(api, ctx.run_id, plan, paths)
+        vendored += changed
         docs.write_records(wctx)
         paths.append(wctx.run_dir)
-        runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": loaded.recipe.ref})
+        runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": ref})
     words = run_words(ctx)
     content = render_plan(api, ctx.run_id, out, {r["part"]: r for r in runs}, {g["part"]: g for g in gaps})
     plan_ref = {"path": plan_target(api.project.config.paths, words or out.get("goal") or ctx.run_id),

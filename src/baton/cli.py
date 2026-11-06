@@ -468,14 +468,15 @@ def board(
 
 @app.command()
 def start(
-    recipe: Annotated[str, typer.Argument(help="Vendored recipe (id or id@version).")],
-    inputs: Annotated[str, typer.Option("--inputs", help="Run inputs: a JSON object, or @file.json.")] = "{}",
+    recipe: Annotated[Optional[str], typer.Argument(help="Vendored recipe (id or id@version).")] = None,
+    inputs: Annotated[Optional[str], typer.Option("--inputs", help="Run inputs: a JSON object, or @file.json.")] = None,
     title: Annotated[Optional[str], typer.Option(help="Work item title (default: inputs.title).")] = None,
+    from_plan: Annotated[Optional[str], typer.Option("--from-plan", help="A part of a process plan (<part> or <framing run>/<part>), started as proposed.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Start a run (a work item) and claim its lease."""
-    values = _parse_inputs(inputs, as_json)
-    out = _call(as_json, lambda: _api().start(recipe, values, title=title))
+    values = _parse_inputs(inputs, as_json) if inputs is not None else None
+    out = _call(as_json, lambda: _api().start(recipe, values, title=title, from_plan=from_plan))
     _done(out, as_json, f"Started {out['run_id']}\n" + _status_text(out))
 
 

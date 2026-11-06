@@ -1770,6 +1770,7 @@ def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> Non
 #: is included so a handoff travels through git.
 CHECKPOINT_TRIGGERS = (
     "human_decision", "step_passed", "step_escalated", "iteration_limit_reached", "run_completed", "run_abandoned", "lease_released",
+    "framing_started_later",
 )
 
 
@@ -2003,7 +2004,13 @@ class Api:
 
     # -- runs ---------------------------------------------------------------
 
-    def start(self, recipe: str, inputs: dict[str, Any], *, title: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+    def start(self, recipe: str | None, inputs: dict[str, Any] | None = None, *, title: str | None = None, run_id: str | None = None,
+              from_plan: str | None = None) -> dict[str, Any]:
+        if from_plan is not None:
+            return self._start_from_plan(from_plan, recipe, inputs, title)
+        if not recipe:
+            raise EngineError("start.no_recipe", "start needs a recipe, or --from-plan <part>")
+        inputs = inputs if inputs is not None else {}
         loaded = self.project.recipe(recipe)
         limit = self.project.config.limits.active_runs
         if limit is not None:
@@ -2029,6 +2036,32 @@ class Api:
         leases.ensure()
         out: dict[str, Any] = {"run_id": ctx.run_id}
         self._after(ctx, leases, 0, out)
+        out.update(self.status(ctx.run_id))
+        return out
+
+    def _start_from_plan(self, ref: str, recipe: str | None, inputs: dict[str, Any] | None, title: str | None) -> dict[str, Any]:
+        """``start --from-plan <part>``: a part of a process plan, started as its framing run recorded it (§11.6; Decision 0066)."""
+        from . import frame as framing
+
+        if recipe or inputs or title:
+            raise EngineError("start.from_plan_alone", "--from-plan starts the part's recorded proposal; give no recipe, --inputs or --title with it")
+        paths: list[Path] = [self.project.baton / "baton.lock"]
+        ctx, res = framing.start_from_plan(self, ref, paths)
+        fctx = self._ctx(res["framing"])
+        fr_before = next(e.seq for e in reversed(fctx.log.events()) if e.type == "framing_started_later") - 1
+        leases = self._leases(ctx)
+        leases.ensure()
+        out: dict[str, Any] = {"run_id": ctx.run_id, "from_plan": res}
+        self._after(ctx, leases, 0, out, paths)  # publishes the plan, or holds this run on its conflict (Decision 0072)
+        # One checkpoint holds the framing run's record, the new run, the plan and anything vendored.
+        from . import docs
+
+        docs.write_records(fctx)
+        plan_file = self.project.root / res["plan"]
+        extra = [p for p in paths if p != plan_file] + [ctx.run_dir] + ([plan_file] if plan_file.is_file() else [])
+        cp = self._checkpoint(fctx, [e for e in fctx.log.events() if e.seq > fr_before], extra)
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
         out.update(self.status(ctx.run_id))
         return out
 
@@ -4171,6 +4204,8 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
             phrases.append(f"{e.step_path} decision {e.data.get('decision')}" + (f" [attempt {e.attempt}]" if e.attempt else ""))
         elif e.type == "iteration_limit_reached":
             phrases.append(f"{e.step_path} reached {e.data.get('max_iterations')} iterations")
+        elif e.type == "framing_started_later":
+            phrases.append(f"part {e.data.get('part')} started later as {e.data.get('run')}")
         elif e.type == "run_completed":
             phrases.append("run completed")
         elif e.type == "run_abandoned":

@@ -176,3 +176,21 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
   - Two adoption tests were updated for the new `init` paths line.
 - **Review:** clean.
 - **Accepted:** pending (owner).
+
+### A part is started later from the plan
+
+- **Commit:** `2026-11-framing-perspective: A part is started later from the plan`
+- **Summary:**
+  - `start --from-plan <part>` (CLI), `start(from_plan=…)` (API, MCP).
+    - `frame.find_part`: a part id unique across finished framing runs, or `<framing run>/<part>`.
+    - `frame.start_from_plan` plans the part from the record with the same code as `select`; `frame.start_part` is factored out of `select`.
+    - It refuses a part already started, a gap, a framing run still waiting on the owner, or a recipe/inputs/title given alongside.
+  - Recording and re-publishing:
+    - The framing run records `framing_started_later` (a new `baton-events/1` type, additive as in 0019), and the plan is rendered again.
+    - `publish.Due.owner` lets the re-publication be recorded on the framing run while `plan_due_started` makes its conflict a pending decision of the newly started run (0072).
+    - One checkpoint (the new trigger `framing_started_later`) holds the framing record, the new run, the plan and anything vendored.
+  - Tests:
+    - `test_parts_left_in_the_plan_start_later_exactly_as_proposed`: the other two water-vending parts start exactly what they proposed after the owner edited the plan. The edit is a conflict on the new run, decided by `overwrite`. The next start re-publishes silently. Started and unknown parts are refused, and the tree is committed clean.
+    - `test_a_part_id_in_two_plans_must_be_named_with_its_framing_run`.
+- **Review:** clean.
+- **Accepted:** pending (owner).

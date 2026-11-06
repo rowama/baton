@@ -393,6 +393,67 @@ def test_a_file_already_at_the_process_plan_path_is_a_conflict(tmp_path):
     assert status(cli, fr)["state"] == "completed"
 
 
+def _selected_two(tmp_path):
+    cli, project = fresh(tmp_path)
+    fr = _frame(cli, project)
+    out = frame_output()
+    out["parts"][2]["proposal"]["inputs"]["description"] = "Signs at each site."  # a part that can start later
+    manual(cli, project, fr, "frame", out)
+    sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "The setup and the first site. Yes.")
+    return cli, project, fr, sel, out
+
+
+def test_parts_left_in_the_plan_start_later_exactly_as_proposed(tmp_path):
+    cli, project, fr, sel, proposed = _selected_two(tmp_path)
+    # The owner edits the plan (rewording a part's proposal); the record, not the file, decides what starts.
+    plan = project / PLAN
+    plan.write_text(plan.read_text(encoding="utf-8").replace("Signs that tell passers-by what the machine is.", "Neon signs everywhere."), encoding="utf-8")
+    git(project, "commit", "-qam", "my edits")
+    later = cli.run("start", "--from-plan", "signage", expect=None)
+    assert later["from_plan"]["framing"] == fr and later["from_plan"]["recipe"] == "backyard-project@1"
+    sig = later["run_id"]
+    ev0 = json.loads((project / ".baton" / "runs" / sig / "events.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert ev0["data"]["framing"] == {"run": fr, "part": "signage"} and ev0["data"]["recipe"].startswith("backyard-project")
+    st = cli.run("status", sig, expect=None)
+    assert st["title"] == "Signs"
+    # The edited plan is a conflict, decided on the run that was just started; it holds that run.
+    pd = [p for p in st["pending_decisions"] if p["kind"] == "publish_conflict"]
+    assert [p["ref"] for p in pd] == ["publish:frame.process_plan"] and "edited since" in pd[0]["reasons"][0]
+    cli.run("decide", sig, "publish:frame.process_plan", "overwrite", "--note", "Yes, replace my edits.")
+    text = plan.read_text(encoding="utf-8")
+    assert f"started (backyard-project, run {sig})" in text and "Neon" not in text
+    assert all(p["kind"] != "publish_conflict" for p in cli.run("status", sig, expect=None)["pending_decisions"])
+
+    # Untouched since Baton wrote it: re-published silently. By <framing run>/<part> this time.
+    run2 = cli.run("start", "--from-plan", f"{fr}/running", expect=None)
+    assert run2["from_plan"]["recipe"].startswith("fit-check")
+    ev0 = json.loads((project / ".baton" / "runs" / run2["run_id"] / "events.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert ev0["data"]["framing"] == {"run": fr, "part": "running"}
+    assert all(p["kind"] != "publish_conflict" for p in run2["pending_decisions"])
+    text = plan.read_text(encoding="utf-8")
+    assert f"run {run2['run_id']})" in text and "for later" not in text
+    fev = [json.loads(line) for line in (project / ".baton" / "runs" / fr / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [e["data"]["part"] for e in fev if e["type"] == "framing_started_later"] == ["signage", "running"]
+    assert sum(1 for e in fev if e["type"] == "artifact_published") == 3  # selection, then each later start
+    assert git(project, "status", "--porcelain", "--", ".baton/", "docs/").strip() == ""
+    assert cli.run("check")["ok"]
+
+    # Started parts are refused, naming their run.
+    again = cli.run("start", "--from-plan", "kiosk", expect=1)
+    assert again["error"] == "frame.part_started" and sel["runs"][1]["run"] in again["message"]
+    assert cli.run("start", "--from-plan", "nope", expect=1)["error"] == "frame.unknown_part"
+    assert cli.run("start", "fit-check", "--from-plan", "setup", expect=1)["error"] == "start.from_plan_alone"
+
+
+def test_a_part_id_in_two_plans_must_be_named_with_its_framing_run(tmp_path):
+    cli, project, fr, sel, _ = _selected_two(tmp_path)
+    fr2 = cli.run("frame", "--note", "Also a second goal.")["framing"]
+    manual(cli, project, fr2, "frame", frame_output())
+    cli.run("decide", fr2, "frame", "select", "--items", "", "--note", "None yet.")
+    amb = cli.run("start", "--from-plan", "running", expect=1)
+    assert amb["error"] == "frame.ambiguous_part" and f"{fr}/running" in amb["message"] and f"{fr2}/running" in amb["message"]
+
+
 def test_unmapped_process_plan_path_uses_the_default(tmp_path):
     cli, project = fresh(tmp_path)
     pyaml = project / ".baton" / "project.yaml"
