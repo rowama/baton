@@ -104,6 +104,24 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.doctor(profile, run_noop=not no_run))
 
     @tool
+    def workers_status() -> dict[str, Any]:
+        """This machine's workers: discovered harnesses, declared resources, generated profiles, setup state. Changes nothing."""
+        return t.call(lambda api: api.workers_status())
+
+    @tool
+    def workers_setup(verify: list[str] | None = None) -> dict[str, Any]:
+        """Generate profiles from what this machine has and the owner declared. verify: profiles to live-check ([] = all; costs quota)."""
+        return t.call(lambda api: api.workers_setup(verify))
+
+    @tool
+    def workers_declare(name: str | None = None, provider: str | None = None, credential: str | None = None, base_url: str | None = None,
+                        models: list[str] | None = None, capabilities: list[str] | None = None, note: str | None = None,
+                        remove: bool = False, nothing_more: bool | None = None) -> dict[str, Any]:
+        """Add, change or remove a worker resource (credential only as secret:<name>), or record that there is nothing more to add."""
+        return t.call(lambda api: api.workers_declare(name, provider=provider, credential=credential, base_url=base_url, models=models,
+                                                      capabilities=capabilities, note=note, remove=remove, nothing_more=nothing_more))
+
+    @tool
     def check(strict: bool = False) -> dict[str, Any]:
         """Repository consistency (hash chains, CAS, lockfile, secrets, drift); ok is false when any error is found."""
         from .check import check as run_check

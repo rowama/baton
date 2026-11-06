@@ -64,6 +64,8 @@ owner:
 | `options` | Non-secret adapter options (`litellm_api`: keyword arguments for the completion call, e.g. `base_url`, `temperature`) |
 | secrets | `secret:<name>`, allowed only in `auth.env`; resolved at spawn time from the variable `BATON_SECRET_<NAME>` (upper-cased, other characters `_`), then the OS keyring (service `baton`; needs the optional `keyring` package), then the file `~/.baton/secrets/<name>`. A missing secret refuses the dispatch as `configuration`, naming all three places. Never written to packets, events or logs; resolved values are redacted from anything the runtime records |
 
+Profiles load from `~/.baton/workers/` (generated, one file per profile, named by the file; §6.4), then `~/.baton/workers.yaml` (the owner's), then `.baton/workers.local.yaml`; a later file wins on a name. A generated profile carries a `generated` marker, which is not part of its hash.
+
 Decision: [0075](../decisions/0075-model-identity-separate-from-route.md). Identity (`creator`, `model_id`) and route (`provider`, `model`, `adapter`, `resource`) are separate: the same model reached directly and through OpenRouter has one identity and two routes. A profile's hash (`worker_profile_sha256`, §7.1) still names the creator `vendor`, so profiles written before the rename keep their hashes.
 
 CLI logins are usually files under the home directory; some platforms use an OS keychain that needs the user's session **[VERIFY]**. `doctor` (§13.4) proves each profile works on each machine.
@@ -116,4 +118,32 @@ Writing profiles by hand needs knowledge that is not the owner's: model strings,
 Research claims and live checks are separate fields, so an unverified finding is never shown as tested. Research may cover models no adapter can run yet: such a route is `supported: false` and never becomes a profile. Validation checks the schema, the capability and tier vocabulary, that a supported route names an existing adapter, that every route's model and provider exist, that a `model_id` starts with its creator, that machine-dependent capabilities are absent, provenance on every model, and duplicate routes. Vendors and models here are profile data, like the adapters; recipes stay model-neutral and their lint is unchanged (§5.3).
 
 **Research** (Decision: [0083](../decisions/0083-researcher-dispatches-through-a-profile.md)) is for maintainers, in the source checkout only: `python tools/worker-research/research.py --profile <name>` runs the one-step `worker-research` recipe in a scratch project, dispatched to a profile on the maintainer's machine (`web_access`, `file_write`, `structured_output`, `technical_reasoning`). The worker covers the landscape systematically (frontier and alternative creators, open-weight models, intermediaries, distribution hubs and local runtimes, every category that can do a bounded job on its own) and returns the proposed file plus a report of its inclusion criteria, coverage and coverage gaps. The script validates the proposal and refuses one that touches `verified`; a valid one replaces `defaults/known-workers.yaml` for review with `git diff`, and the report goes to `tools/worker-research/reports/<date>.md`. The wheel ships `defaults/` and nothing from `tools/` (a test builds it).
+
+**The worker resource manager** (`resources.py`; `baton workers status | setup | declare`, §13.1; Decisions: [0077](../decisions/0077-workers-command.md), [0078](../decisions/0078-machine-resources-file.md), [0079](../decisions/0079-generated-profiles-directory.md), [0081](../decisions/0081-live-verification-on-request.md)) combines three inputs:
+
+1. The known-workers data, read-only.
+2. **Discovery**: for each harness provider with a supported route, is its CLI found (the minimal PATH, then `nvm` and `~/.local/bin`, §6.2), and does it report a login (the adapter's auth status; no model call)? Not installed, or not logged in, is reported in plain words with what to do.
+3. **Declarations** in `~/.baton/resources.yaml` (`baton-resources/1`), for what discovery cannot find:
+
+```yaml
+format: baton-resources/1
+resources:
+  openrouter-main:
+    kind: worker                     # required; the only kind so far
+    provider: openrouter
+    credential: secret:openrouter_main   # only ever a reference (§6.1)
+    models: []                       # optional allowlist of model_ids
+  claude-here:
+    kind: worker
+    provider: claude_code            # facts about a discovered harness
+    capabilities: [loopback_network] # machine-dependent only, declared by the owner (0082)
+setup:
+  worker: { completed: 2026-11-06, runtime: 0.1.0, nothing_more: true }
+```
+
+Every resource names its `kind`, and setup state is kept per kind, so later kinds of resource share the file; an unknown kind, a missing kind, a literal credential or a capability that is not machine-dependent is refused.
+
+`baton workers setup` turns each supported route into a profile when its provider is reachable: a harness that discovery found logged in (availability `detected`), or a declared resource for that provider, within its `models` (`declared`). The profile takes the model's capabilities, tier and context size plus the route's, the owner's declared machine-dependent capabilities, the provider's `env_deny`, and for an API route `auth: {mode: api_key, env: {<provider's api_key_env>: <credential>}}` and the resource's `base_url`. Names are `<provider>` for a harness default, else `<resource or provider>-<model name>`. A name an owner profile already has is skipped and reported. New files are written atomically to `~/.baton/workers/<name>.yaml` with `generated: {by, known_workers_sha256, availability, verified?, content_sha256}`; an existing generated file is kept as it is (refresh rules: below). The run records `setup.worker.completed`.
+
+**Live checks** run only for `--verify <profile>` / `--verify-all`: one no-op round trip through the adapter, as `doctor`'s (§13.4). A pass records `verified {date, adapter, runtime}`; a new profile that fails is not written, and an existing one keeps its file, with the failure reported. Unverified profiles are eligible for dispatch, and `workers status` lists them as unverified.
 

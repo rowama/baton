@@ -437,6 +437,9 @@ class WorkerProfile(_Strict):
     command: str | None = None  # for the `command` adapter
     #: Non-secret adapter options (e.g. ``base_url``, ``temperature`` for ``litellm_api``).
     options: dict[str, Any] = Field(default_factory=dict)
+    #: Set only by ``baton workers setup`` (§6.4, 0079): ``by``, ``known_workers_sha256``,
+    #: ``content_sha256``, ``availability``, ``verified``. Not part of the profile's hash.
+    generated: dict[str, Any] | None = None
 
     @model_validator(mode="before")
     @classmethod

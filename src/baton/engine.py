@@ -1013,6 +1013,17 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
     return Outcome(step_path, n, "escalated", reasons)
 
 
+def _resources_call(fn: Callable[[], Any]) -> Any:
+    """Machine resource files are configuration: their problems are refusals, not bugs."""
+    from .known_workers import KnownWorkersError
+    from .resources import ResourcesError
+
+    try:
+        return fn()
+    except (ResourcesError, KnownWorkersError) as e:
+        raise EngineError("configuration.resources", str(e)) from e
+
+
 def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Failure class for a worker that exited without a result (§8.8; rules in ``classify.py``)."""
     return classify.classify_exit(child.exit_code, child.tail, signals)
@@ -2888,6 +2899,23 @@ class Api:
         from .doctor import doctor
 
         return doctor(self.project, profile, run_noop=run_noop)
+
+    # -- the worker resource manager (§6.4, 0077): machine scope ------------
+
+    def workers_status(self) -> dict[str, Any]:
+        from . import resources
+
+        return _resources_call(lambda: resources.status(self.project.home))
+
+    def workers_setup(self, verify: list[str] | None = None) -> dict[str, Any]:
+        from . import resources
+
+        return _resources_call(lambda: resources.setup(self.project.home, verify=verify))
+
+    def workers_declare(self, name: str | None = None, **fields: Any) -> dict[str, Any]:
+        from . import resources
+
+        return _resources_call(lambda: resources.declare(self.project.home, name, **fields))
 
     def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None, *, wait: bool = False) -> dict[str, Any]:
         """A new attempt of a step whose previous attempt was not accepted. Guidance is additive only."""

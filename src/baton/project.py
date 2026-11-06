@@ -41,6 +41,7 @@ COMM_FILE = "communication.md"
 LOCK_FILE = "baton.lock"
 LOCAL_PROFILES = "workers.local.yaml"
 MACHINE_PROFILES = "workers.yaml"
+GENERATED_PROFILES = "workers"  # one generated profile per file (§6.4)
 GITIGNORE_LINES = (".baton/cache/", ".baton/workers.local.yaml")
 #: ``.baton/.gitattributes``: git must never rewrite line endings under .baton/
 #: (hash-chained logs, content-addressed blobs, hashed recipes), whatever a
@@ -267,10 +268,21 @@ class Project:
     # -- profiles -----------------------------------------------------------
 
     def profiles(self) -> dict[str, WorkerProfile]:
-        """Machine profiles, then project-local overrides by name (§6.1)."""
+        """Generated profiles (``workers/``, one per file), then the owner's machine profiles, then
+        project-local overrides, each by name (§6.1, §6.4)."""
         vocab = load_vocab(DEFAULT_VOCAB)
         out: dict[str, WorkerProfile] = {}
         issues: list[Issue] = []
+        gen = self.home / GENERATED_PROFILES
+        for path in sorted(gen.glob("*.yaml")) if gen.is_dir() else []:
+            try:
+                raw = load_yaml(path)
+            except YamlError as e:
+                issues.append(Issue(code="yaml.invalid", where=str(path), message=str(e)))
+                continue
+            found, problems = validate_profiles({path.stem: raw}, vocab, source=str(path))
+            out.update(found)
+            issues += problems
         for path in (self.home / MACHINE_PROFILES, self.baton / LOCAL_PROFILES):
             if not path.is_file():
                 continue

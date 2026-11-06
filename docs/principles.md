@@ -95,6 +95,8 @@ Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe
 
 Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
 
+Worker setup (§6.4) adds none either: a *resource declaration* is the owner's input for generating worker profiles, the *known-workers data* is shipped profile knowledge, and a *generated profile* is a worker profile written by `baton workers setup` (Decision: [0077](decisions/0077-workers-command.md)).
+
 These concepts are **internal vocabulary**: recipe authors, Directors and the runtime use them; owners never need them. The Director speaks in the owner's terms (§13.8) unless the owner chooses the terse operator style (§13.6).
 
 Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache.

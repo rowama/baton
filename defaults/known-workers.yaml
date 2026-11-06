@@ -37,16 +37,20 @@ models:
 providers:
   anthropic:
     kind: direct_api
+    api_key_env: ANTHROPIC_API_KEY     # read by LiteLLM 1.106.6
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
   openrouter:
     kind: intermediary
+    api_key_env: OPENROUTER_API_KEY    # read by LiteLLM 1.106.6
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
   claude_code:
     kind: harness
+    env_deny: [ANTHROPIC_API_KEY]
   codex:
     kind: harness
+    env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
 
 routes:
   # Direct API: the model page says every Claude model ID, dateless ones

@@ -61,6 +61,10 @@ class KnownModel(_Strict):
 
 class KnownProvider(_Strict):
     kind: Literal["direct_api", "intermediary", "harness", "local"]
+    #: The variable its adapter reads the API key from (direct APIs, intermediaries).
+    api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
+    #: Variables a generated profile always removes (a stray key could switch a CLI login's billing, §6.1).
+    env_deny: list[str] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
 
 

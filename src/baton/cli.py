@@ -1092,6 +1092,87 @@ def mcp(
         _fail(False, EXIT_PROBLEM, e.code, str(e))
 
 
+# ---------------------------------------------------------------------------
+# The worker resource manager (§6.4, 0077): machine scope, no project needed
+# ---------------------------------------------------------------------------
+
+workers_app = typer.Typer(no_args_is_help=True, help="This machine's workers: what is found, declared and generated (§6.4).")
+app.add_typer(workers_app, name="workers")
+
+
+def _resources(as_json: bool, fn: Callable[[Path], Any]) -> Any:
+    from .known_workers import KnownWorkersError
+    from .project import machine_home
+    from .resources import ResourcesError
+
+    try:
+        return fn(machine_home())
+    except (ResourcesError, KnownWorkersError) as e:
+        _fail(as_json, EXIT_PROBLEM, "configuration.resources", str(e))
+
+
+@workers_app.command("status")
+def workers_status(as_json: JsonOpt = False) -> None:
+    """What is discovered, declared and generated, and whether setup is complete. Changes nothing."""
+    from . import resources
+
+    out = _resources(as_json, lambda h: resources.status(h))
+    lines = [f"Machine setup: {'complete' if out['setup_complete'] else 'not done yet (`baton workers setup`)'}"]
+    for d in out["detected"]:
+        lines.append(f"found {d['provider']}: " + ("ready" if d["usable"] else d["problem"] or "not usable"))
+    for n, r in out["declared"].items():
+        lines.append(f"declared {n}: {r['provider']}")
+    for n, g in out["generated"].items():
+        state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
+        lines.append(f"profile {n}: {state}")
+    if out["available_not_generated"]:
+        lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
+    _emit(out, as_json, "\n".join(lines))
+
+
+@workers_app.command("setup")
+def workers_setup(
+    verify: Annotated[Optional[list[str]], typer.Option("--verify", help="Live-check this profile (repeatable; costs one small model call each).")] = None,
+    verify_all: Annotated[bool, typer.Option("--verify-all", help="Live-check every generated profile.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Generate profiles for what this machine has and the owner declared; new models appear only here."""
+    from . import resources
+
+    which = [] if verify_all else verify
+    out = _resources(as_json, lambda h: resources.setup(h, verify=which))
+    lines = [f"wrote {n}" for n in out["written"]] + [f"verified {n}" for n in out["verified"]]
+    lines += [f"FAILED {f['profile']}: {f['reason']}" for f in out["failed"]]
+    lines += [f"left alone {c['profile']}: {c['reason']}" for c in out["collisions"]]
+    lines += [f"not available: {s['route']}: {s['reason']}" for s in out["skipped"]]
+    _emit(out, as_json, "\n".join(lines) or "Nothing new.")
+    raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
+
+
+@workers_app.command("declare")
+def workers_declare(
+    name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,
+    provider: Annotated[Optional[str], typer.Option("--provider", help="Its provider, e.g. openrouter.")] = None,
+    credential: Annotated[Optional[str], typer.Option("--credential", help="secret:<name> (never the key itself, §6.1).")] = None,
+    base_url: Annotated[Optional[str], typer.Option("--base-url")] = None,
+    model: Annotated[Optional[list[str]], typer.Option("--model", help="Limit to this model_id (repeatable).")] = None,
+    capability: Annotated[Optional[list[str]], typer.Option("--capability", help="A machine-dependent capability it has here (repeatable).")] = None,
+    note: Annotated[Optional[str], typer.Option("--note")] = None,
+    remove: Annotated[bool, typer.Option("--remove", help="Remove this resource.")] = False,
+    nothing_more: Annotated[Optional[bool], typer.Option("--nothing-more/--more", help="Record that there is nothing more to add (or undo that).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Add, change or remove a resource discovery cannot find, or say there is nothing more."""
+    from . import resources
+
+    if name is None and nothing_more is None:
+        _fail(as_json, EXIT_USAGE, "usage.declare", "name a resource, or pass --nothing-more")
+    out = _resources(as_json, lambda h: resources.declare(h, name, provider=provider, credential=credential, base_url=base_url, models=model,
+                                                          capabilities=capability, note=note, remove=remove, nothing_more=nothing_more))
+    text = [f"{k}: {v}" for k, v in out.items() if k in ("declared", "removed", "nothing_more", "warning")]
+    _emit(out, as_json, "\n".join(text + [f"saved {out['path']}"]))
+
+
 def main() -> None:
     """The ``baton`` command: the launcher picks the runtime version first (§14.1)."""
     from . import launcher
