@@ -3015,7 +3015,59 @@ class Api:
         b = self.project.baton
         return [p for p in (b / "project", b / "platform", b / "process") if p.exists()]
 
-    def _project_checkpoint(self, phrase: str) -> Any:
+    def note(self, text: str | None = None, *, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
+        """The owner's note, kept only when they asked for it (Decisions 0065, 0067, 0070).
+
+        Until the owner has answered the one-time offer of a notes file, nothing is recorded and the
+        result is ``notes: offer``; after a no, ``notes: declined``. With the file accepted, ``text``
+        is appended verbatim under a dated heading. No input reference resolves to notes: no packet
+        ever contains one."""
+        from . import publish
+        from .frame import DEFAULT_PATHS
+        from .redact import redact_text
+
+        plog = self.project.store.project_log()
+        out: dict[str, Any] = {}
+        if keep_file is not None:
+            if keep_file not in ("yes", "no"):
+                raise EngineError("note.bad_answer", f"--keep-file is yes or no, got {keep_file!r}")
+            if not (note or "").strip():
+                raise EngineError("note.note_required", "--note is required with --keep-file: the owner's words")
+            decision_id = f"d{len(plog.events()) + 1}"
+            plog.append("human_decision", actor="human", data={
+                "kind": "notes", "decision": keep_file, "accepted": keep_file == "yes", "note": note,
+                "decision_id": decision_id, "recorded_by": self.director.actor,
+            })
+            out["decision_id"] = decision_id
+        answer = next((e for e in reversed(plog.events()) if e.type == "human_decision" and e.data.get("kind") == "notes"), None)
+        state = "offer" if answer is None else ("kept" if answer.data.get("accepted") else "declined")
+        folder = str((self.project.config.paths or {}).get("notes") or DEFAULT_PATHS["notes"]).replace("\\", "/").rstrip("/")
+        rel = publish.check_target(self.project.root, f"{folder}/notes.md")
+        out.update(notes=state, path=rel, recorded=False)
+        if text is not None and not text.strip():
+            raise EngineError("note.empty", "a note needs the owner's words")
+        if text is not None and state == "kept":
+            full = self.project.root / rel
+            at = plog.clock().astimezone().strftime("%Y-%m-%d %H:%M")
+            existing = full.read_text(encoding="utf-8") if full.is_file() else (
+                "# Notes\n\nThings you asked to have noted, word for word. Edit freely; new notes are added at the end.\n")
+            entry = f"\n## {at}\n\n{text}" + ("" if text.endswith("\n") else "\n")
+            publish.write_file(full, (existing if existing.endswith("\n") else existing + "\n").encode("utf-8") + entry.encode("utf-8"))
+            ev = plog.append("note_recorded", actor="human", data={"text": redact_text(text), "at": at, "path": rel})
+            out.update(recorded=True, at=at, seq=getattr(ev, "seq", None))
+        out["needs_owner"] = state == "offer"  # the offer is a question for the owner
+        if state == "offer":
+            out["next"] = ("offer once to keep a simple notes file for this project (they may keep notes anywhere they like); "
+                           "record their answer with `baton note --keep-file yes|no --note \"<their words>\"`")
+        elif state == "declined" and text is not None:
+            out["next"] = "the owner chose not to keep a notes file here: say they can keep the note anywhere they like"
+        if keep_file is not None or out["recorded"]:
+            cp = self._project_checkpoint("owner note" if out["recorded"] else f"notes file {state}", extra=[self.project.root / rel] if out["recorded"] else None)
+            if cp is not None:
+                out["checkpoint"] = cp.as_dict()
+        return out
+
+    def _project_checkpoint(self, phrase: str, extra: list[Path] | None = None) -> Any:
         """Commit project-level records after a call that touches no run (§10.1)."""
         from . import gitops
         from .locks import project_lock
@@ -3023,7 +3075,7 @@ class Api:
         if not self.project.config.checkpoints.commit:
             return gitops.Checkpoint(False, reason="checkpoint commits are off in project.yaml")
         with project_lock(self.project.baton):
-            paths = self._project_paths()
+            paths = self._project_paths() + list(extra or [])
             if not paths:
                 return None
             pf = gitops.preflight(self.project.root, paths)

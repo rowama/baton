@@ -194,3 +194,18 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
     - `test_a_part_id_in_two_plans_must_be_named_with_its_framing_run`.
 - **Review:** clean.
 - **Accepted:** pending (owner).
+
+### Owner notes
+
+- **Commit:** `2026-11-framing-perspective: Owner notes`
+- **Summary:**
+  - `note(text?, keep_file?, note?)`: the API in `Api.note`, CLI `baton note`, an MCP tool. Until the owner has answered the one-time offer it records nothing and returns `notes: offer` with `needs_owner`.
+  - `--keep-file yes|no --note` records `human_decision {kind: notes}` in the project log; a later yes is allowed.
+  - With the file accepted, the text is appended verbatim to `<paths.notes>/notes.md` under a `## <date time>` heading. The file is created with a short header. `note_recorded` (text redacted, as all project-log text is) goes to the project log, and a project checkpoint includes the file.
+  - No input reference was added, so notes cannot reach a packet.
+  - Tests:
+    - `test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file`: offer, decline, nothing kept, a later yes, a multi-line note appended verbatim and dated, committed.
+    - `test_no_packet_ever_contains_a_note`: fit-check and framing packets.
+  - The MCP tool-set test now includes `note`.
+- **Review:** clean.
+- **Accepted:** pending (owner).

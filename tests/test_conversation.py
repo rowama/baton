@@ -531,6 +531,53 @@ def test_frame_output_schema_requires_one_kind_of_proposal(tmp_path):
     assert res["outcome"] == "retry"
 
 
+# -- owner notes (Decisions 0065, 0067, 0070) ------------------------------------
+
+NOTE = "Remember: ask the council about\n  permits for the *corner* site — before May.\n"
+
+
+def test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file(tmp_path):
+    cli, project = fresh(tmp_path)
+    notes = project / "docs" / "notes.md"
+    offer = cli.run("note", NOTE, expect=4)  # the offer is a question for the owner
+    assert offer["notes"] == "offer" and offer["recorded"] is False and not notes.exists()
+    # Declined: nothing is kept, and the offer is not made again.
+    no = cli.run("note", "--keep-file", "no", "--note", "No thanks, I keep my own.")
+    assert no["notes"] == "declined"
+    later = cli.run("note", NOTE)
+    assert later["notes"] == "declined" and later["recorded"] is False and not notes.exists() and "anywhere" in later["next"]
+    # The owner changes their mind.
+    yes = cli.run("note", NOTE, "--keep-file", "yes", "--note", "Actually yes, keep one for me.")
+    assert yes["notes"] == "kept" and yes["recorded"] is True and yes["path"] == "docs/notes.md"
+    text = notes.read_text(encoding="utf-8")
+    assert text.startswith("# Notes\n") and f"\n## {yes['at']}\n\n{NOTE}" in text
+    import re
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", yes["at"])
+    cli.run("note", "Second thought.")
+    assert notes.read_text(encoding="utf-8").endswith("\n\nSecond thought.\n") and text in notes.read_text(encoding="utf-8")
+    plog = [json.loads(line) for line in (project / ".baton" / "project" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    answers = [e["data"]["decision"] for e in plog if e["type"] == "human_decision" and e["data"].get("kind") == "notes"]
+    assert answers == ["no", "yes"]
+    assert [e["data"]["text"] for e in plog if e["type"] == "note_recorded"] == [NOTE, "Second thought."]
+    assert git(project, "status", "--porcelain").strip() == ""  # each note is committed
+    assert cli.run("check")["ok"]
+    assert cli.run("note", "--keep-file", "maybe", "--note", "x", expect=1)["error"] == "note.bad_answer"
+    assert cli.run("note", "--keep-file", "yes", expect=1)["error"] == "note.note_required"
+
+
+def test_no_packet_ever_contains_a_note(tmp_path):
+    cli, project = fresh(tmp_path)
+    cli.run("note", "Unique-note-marker 7f3a", "--keep-file", "yes", "--note", "Yes please.")
+    run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
+    fr = _frame(cli, project)
+    for r, step in ((run, "describe"), (fr, "frame")):
+        d = cli.run("dispatch", r, step, "--worker", "owner")
+        pdir = packet_dir(project, r, step, d["attempt"])
+        for f in pdir.rglob("*"):
+            if f.is_file():
+                assert "Unique-note-marker" not in f.read_text(encoding="utf-8", errors="replace"), f
+
+
 # -- communication defaults -----------------------------------------------------
 
 

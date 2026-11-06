@@ -301,6 +301,11 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.platform_incident(action, incident, fix))
 
     @tool
+    def note(text: str | None = None, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
+        """Keep a note the owner asked for, verbatim, in the project's notes file; keep_file (yes | no) with note records their answer to the one-time offer."""
+        return t.call(lambda api: api.note(text, keep_file=keep_file, note=note))
+
+    @tool
     def feedback(kind: str, text: str, run: str | None = None, step: str | None = None, gate: str | None = None,
                  informed_owner: bool = False) -> dict[str, Any]:
         """Record process feedback (friction | skipped_step | waste | confusing)."""
