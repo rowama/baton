@@ -1,119 +1,228 @@
 ---
 id: 2026-11-worker-setup
-title: "Worker profiles set themselves up from the harnesses already logged in on the machine"
-status: proposed
+title: "Machine-wide worker resources are maintained separately from project setup"
+status: in-progress
 level: standard
-decisions: []               # 0062+ recorded once the owner answers the open questions below
-touches: [design/workers.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md, principles.md]   # design/runtime.md too if Q6 is accepted
+decisions: ["0074", "0075", "0076", "0077", "0078", "0079", "0080", "0081", "0082"]
+touches: [design/workers.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md, design/runtime.md, design/versioning.md, principles.md]
 ---
 
-# Worker profiles set themselves up from the harnesses already logged in on the machine
+# Machine-wide worker resources are maintained separately from project setup
 
 ## Request
 
 ### Problem
 
-Before any work can run, the owner must write `~/.baton/workers.yaml` by hand: one profile per model, each with adapter, vendor, model string, tier, capabilities, context size, auth mode, `env_deny` and PATH sources (§6.1). Almost all of it is well-known data. If a machine has `claude` and `codex` logged in, Baton can already tell (each harness adapter has `auth_status_argv` / `parse_auth_status`, used by `doctor`, §13.4). The models those CLIs offer and what they can do are documented by their vendors.
+Before any work can run, the owner must write `~/.baton/workers.yaml` by hand: one profile per model, each with adapter, vendor, model string, tier, capabilities, context size, auth mode, `env_deny` and PATH sources (§6.1). Much of this is shared knowledge about models and harnesses; the rest describes resources available on a particular machine or account. Neither belongs to an individual project.
 
-Baton ships nothing that turns this into profiles. Nothing writes `workers.yaml`; `project.py` only reads it. §11.6 says that right after `init` "what a machine still needs is a worker profile able to do the framing step", so the first thing a new owner meets is hand-writing YAML. That breaks principle 1 (invisible when healthy) and principle 2 (friction must pay for itself): the owner supplies nothing Baton couldn't know.
+Baton currently has no mechanism that combines those inputs into maintained profiles. Harness adapters can inspect local authentication through `auth_status_argv` / `parse_auth_status`, but inspection cannot discover every resource an owner can use. An OpenRouter account, for example, must be declared by the owner. Requiring hand-written YAML for both kinds of resources adds avoidable friction before framing can begin (§11.6).
 
-Routing a step to one model rather than another of the same vendor (e.g. a strong model for design, a cheaper one for summaries) also needs one profile per model (§6.3: a profile's `model` is passed as `--model`; with no `model`, the CLI picks). Today each of those is another hand-written profile.
+Researching available models, matching resources to a machine, and confirming project readiness are distinct responsibilities. Research should update shared repository data for all installations. Machine setup should consume that data and maintain machine-wide profiles. Project initialization should confirm readiness without starting research or owning machine configuration.
+
+Worker identity also currently conflates model identity with the identifier used to invoke it. `WorkerProfile` has `vendor` and `model`, but no explicit access provider; the API adapter passes `model` directly to LiteLLM. Independence checks compare declared model strings literally. The same underlying model accessed directly and through OpenRouter can therefore appear to be different models. This proposal extends to runtime identity and compatibility, not just research data and setup.
 
 ### Acceptance criteria
 
-1. On a machine with no `~/.baton/workers.yaml` and a logged-in `claude` and/or `codex`, setup writes one profile per model listed for that harness in the shipped known-workers file. The framing step then has an eligible worker, and the owner has edited no file.
-2. A harness that is not installed, or not logged in, gets no profiles. Setup says so in one plain line, with the login command.
-3. Setup never changes or removes a profile it did not write. Profiles it did write can be refreshed when the known-workers file changes; any profile the owner has edited is left alone.
-4. After setup, `doctor` is silent (one line) on a healthy machine.
-5. The known-workers file is validated by a test: every capability and tier is in the pinned vocabulary, every adapter exists, every model string carries the CLI version and date it was checked against (ground rule 1).
-6. The director skill and §13.3 say how and when the Director offers setup, consistent with its rule against editing profiles without the owner's instruction.
-7. `pytest` green.
+1. A maintainer can explicitly launch a research AI agent in a source checkout to propose updates to `defaults/known-workers.yaml`, with sources, dates and verification evidence. Research systematically covers frontier providers, reasonably popular alternatives, hosted and open-weight models, and model categories capable of autonomous jobs, with explicit inclusion criteria and coverage gaps. The result is a reviewable repository change.
+2. The researcher and any research-only dependencies are excluded from ordinary runtime installations. The reviewed known-workers file ships as read-only input. No separate private repository or special source-access restrictions are required.
+3. An explicitly invoked worker resource manager combines the shipped list, locally discovered resources and persistent owner declarations to maintain generated profiles in `~/.baton/workers/`, one file per profile (0079; the owner's `~/.baton/workers.yaml` is never written). Initial harness support includes Claude Code and Codex; owner-declared providers such as OpenRouter are supported through the relevant adapters.
+4. On a machine without completed resource setup, the Director offers a short setup conversation: it reports discovered resources and asks about additional providers or endpoints. Answers, including an explicit answer that there are no additional resources, persist machine-wide and are reused across projects.
+5. Resource declarations reference credentials through the supported secret mechanism; they do not contain credential values. The resource manager distinguishes owner-declared availability, local detection and successful live verification.
+6. The manager never changes or removes a profile it did not generate. Owner-edited generated profiles are preserved. Untouched generated profiles may receive metadata refreshes for existing resources, but adding newly available models requires an explicit resource-manager run. Installing a Baton update does not expand the worker pool.
+7. `baton init` and `baton doctor` primarily confirm readiness and explain missing setup. Neither starts research or silently maintains profiles. A healthy `doctor` result remains one plain line.
+8. Profiles and resource declarations are machine-wide and available to all projects. Project exceptions and cost-based worker selection are deferred; existing project budgeting remains unchanged.
+9. Validation checks the known-workers schema, pinned capability and tier vocabulary, execution support, provenance and verification metadata. Entries eligible for profile generation must resolve to an existing adapter; researched entries without execution support are explicitly marked. Packaging checks confirm that the data ships and the researcher does not. Relevant tests and `pytest` pass.
+
+10. Profiles distinguish model creator, canonical model identity, access provider, provider-specific invocation identifier, adapter and machine resource/account. The same underlying model reached directly and through an intermediary has the same canonical identity while retaining distinct execution routes.
+11. `different_model` compares canonical model identities across routes; `different_vendor` compares model creators. Switching access providers alone satisfies neither constraint. Unknown identities and mutable aliases must not be treated as proof of independence.
+12. Dispatch, worker-selection and expert-consultation records preserve the identity and execution route used at the time. Independence and replay use recorded facts rather than reinterpreting historical records through the latest known-workers list. Existing profiles and event histories have an explicit compatibility/migration policy with no guessed identity mappings.
+
+### Agreed direction
+
+1. **Separate repository research from installed resource management.** A maintainer-only utility under a proposed `tools/worker-research/` directory runs the research agent and produces changes to `defaults/known-workers.yaml`. Maintainers review those changes before release. Ordinary installations receive the data, not the researcher. Source users may deliberately run the utility; this is a packaging boundary, not an access-control system.
+2. **Use a machine-wide worker resource manager.** This separate utility consumes shared known-worker data and machine-specific inputs, then maintains the generated profiles in `~/.baton/workers/`. It owns discovery, declarations, profile generation, verification and refresh rules. The Director provides a conversational interface to it.
+3. **Persist owner declarations separately from generated profiles.** Resources that inspection cannot discover must be expressible by the owner. The persistent input records the provider or endpoint, credential reference and owner-known availability restrictions. Generated profiles are output, not the only record of the owner's intent.
+4. **Offer onboarding when machine setup is missing or incomplete.** The first Director to encounter that state offers setup, reports what was discovered, and asks about additional resources. Persisted completion state prevents repeated questions in each project. The owner can revisit resource setup later.
+5. **Keep project initialization and diagnosis focused on confirmation.** `init` remains per-project. `doctor` reports machine readiness and provides actionable setup information. Neither launches the research agent; profile maintenance is delegated to the resource manager under the owner's instruction.
+6. **Bound refreshes.** Untouched generated profiles can receive metadata refreshes for existing resources. Newly available models are added only during an explicit resource-manager run. Owner-created and owner-edited profiles remain protected. A runtime upgrade alone does not add models.
+7. **Keep resources machine-wide.** All projects use the machine's available profiles. Per-project exceptions are deferred. Projects continue to set budgets using existing mechanisms; this change adds no worker pricing data or cost-based routing policy.
+
+8. **Separate model identity from access route throughout Baton.** Canonical model identity and creator support independence checks; provider-specific identifiers, adapters and resource bindings support execution. Apply this distinction consistently to profiles, known-workers data, routing, diagnostics and persisted worker identities.
+9. **Implement in dependency-ordered slices.** Establish the identity and compatibility contract before generating profiles against it. Deliver each slice with its own reviewable outcome and meaningful checks; broad research coverage does not imply adding every modality's execution adapter in this change.
 
 ### Open questions
 
-Each has a suggested answer and its rationale. Each becomes a decision record (`status: proposed` until answered).
+All eight were answered by the owner on 2026-11-06 (suggestions given with rationale, in one batch):
 
-1. **Name of the shipped file.** "Catalog" already means the recipes shipped with the runtime (§2, §11.6).
-   *Suggested:* `defaults/known-workers.yaml` ("known workers"), and no new concept in §2: it is data the runtime ships, like the recipe catalog and starter recipes. One sentence added to §2 says so.
-   *Rationale:* avoids overloading "catalog"; keeps the concept budget flat.
+1. Installed interface → [0077](../decisions/0077-workers-command.md): `baton workers status | setup | declare`, with engine calls and MCP tools.
+2. Machine input format → [0078](../decisions/0078-machine-resources-file.md): `~/.baton/resources.yaml`; the owner asked that each resource name its `kind` explicitly so later kinds fit the same file, and setup state is kept per kind.
+3. Identifiers and evidence, and 7. known-workers schema → [0080](../decisions/0080-known-workers-format.md).
+4. Verification and quota → [0081](../decisions/0081-live-verification-on-request.md): live checks only on `--verify`; unverified generated profiles are eligible, flagged.
+5. Machine-dependent capabilities → [0082](../decisions/0082-machine-dependent-capabilities.md).
+6. Generated ownership and refresh → [0079](../decisions/0079-generated-profiles-directory.md): the owner chose a directory `~/.baton/workers/` with one file per profile, so owner-edited files are simply left alone (this amends criterion 3, which named `workers.yaml`).
+8. Identity schema and compatibility → [0075](../decisions/0075-model-identity-separate-from-route.md) and, strict, [0076](../decisions/0076-unknown-identity-not-independent.md).
 
-2. **When setup runs and who approves.** The skill says "Never edit profiles … without the owner's instruction" (§13.3).
-   *Suggested:* `doctor` reports a missing or empty machine profile file as one problem, `no_workers`, with a plain-language message naming what it found ("Claude Code and Codex are signed in on this computer") and one option, "Use them". The Director relays it once. On the owner's yes it calls `doctor --setup` (MCP: `doctor(setup=true)`), which writes the file. No new command; `init` stays per-project and does not touch the machine file.
-   *Rationale:* `doctor` already owns machine readiness and already queries auth. One short owner yes keeps the skill rule honest. The alternative, writing silently when no file exists, is less friction but makes a billing-relevant choice without the owner.
-
-3. **Model strings: exact ids or CLI aliases.**
-   *Suggested:* exact model ids, each with `checked: {cli: "<name> <version>", date}`.
-   *Rationale:* `worker_selected` records the model, and `different_model` independence compares declared `model` fields (§8.4). An alias that silently moves to a new model makes both records misleading. Cost: the file needs updating when vendors release models. Whether each CLI's `--model` accepts the exact ids is **[VERIFY]** against the installed versions.
-
-4. **Which models setup writes.** I have not confirmed that every model a CLI offers is usable on every subscription plan; treat that as unknown.
-   *Suggested:* for each candidate model, run `doctor`'s existing no-op round trip, and write only the profiles that succeed. A model that fails is listed in one line, not written.
-   *Rationale:* the claim "capabilities must be true on this machine" (§6.1) extends naturally to "the model is usable on this login". Cost: one small call per model at setup, against the owner's quota.
-
-5. **Machine-dependent capabilities.** Some capabilities depend on the machine or sandbox, not the model (e.g. `loopback_network`).
-   *Suggested:* the known-workers file lists only model- and harness-intrinsic capabilities. Machine-dependent ones are added by setup only when a probe confirms them, or are left for the owner.
-   *Rationale:* §6.1 forbids claiming what isn't true on this machine, and a wrong claim routes a step to a worker that will fail it.
-
-6. **Default ordering among eligible profiles.** Tier is a minimum (§8.4 "sufficient tier"), so a `strong` profile is eligible for `standard` steps too. With several generated profiles, cheap steps will often land on the strongest model unless preferences say otherwise.
-   *Suggested:* when `.baton/preferences.yaml` doesn't decide, order eligible profiles lowest sufficient tier first. Preferences still win.
-   *Rationale:* gives sensible cost behaviour with no owner configuration. If you'd rather keep this separate, it can be its own change.
-
-7. **Telling generated profiles from hand-written ones.**
-   *Suggested:* generated profiles carry `generated: known-workers@<version>` plus a hash of their generated content. Setup refreshes a profile only when the marker is present and the content still matches the hash; otherwise it leaves the profile alone (criterion 3).
-   *Rationale:* lets the known-workers file evolve without ever overwriting the owner's edits. Adds one optional profile field.
-
-8. **API-key workers (`litellm_api`).**
-   *Suggested:* out of scope. Setup covers harness CLI logins only. API profiles still need a secret the owner chooses to provide.
-   *Rationale:* keys are billing decisions and secrets; detecting them from the environment would undercut isolation by construction (§1.4 #6).
-
-9. **Vendor neutrality.** The known-workers file names vendors and models inside the runtime.
-   *Suggested:* allowed. §0 rule 4 places vendors "only in worker profiles and adapters", and this file is profile data shipped beside the adapters. The `vendor_denylist` lint still applies to recipes only.
-   *Rationale:* recipes stay model-neutral, which is what the rule protects.
+The agreed direction is recorded as [0074](../decisions/0074-worker-research-and-resources-separate.md).
 
 ## Design
 
-Filled in after the owner answers the open questions. Expected doc edits:
+The boundaries are recorded in 0074; interfaces and schemas in 0075–0082. Each slice writes its part of the design into the design docs listed below. The concept tables in this section give the reasoning; the decision records hold the rules.
 
-### Doc edits
+### Runtime model identity and execution routes
 
-- `design/workers.md` §6.1: profiles may be generated; the `generated` marker (Q7). A new section, the next free number in the file, *Setup from known workers*: file format, detection via each adapter's auth status, probe (Q4), write and refresh rules.
-- `design/director-interface.md` §13.1: `doctor(profile?, setup?)`. §13.3: the skill's profile rule gains "except setup the owner approved". §13.4: the `no_workers` problem and `--setup`.
-- `design/adoption-and-framing.md` §11.6: after `init`, a machine without profiles is set up through `doctor`, not by hand.
-- `design/layouts.md` §4.1: `defaults/known-workers.yaml`. §4.4: `workers.yaml` may be written by setup.
-- `principles.md` §2: one sentence: worker setup adds no concept.
-- `design/runtime.md` §8.4 (only if Q6 is accepted): default ordering.
+The following concepts are distinct; final field names remain open:
+
+| Concept | Purpose |
+|---|---|
+| Model creator | Organization responsible for the model; used by `different_vendor` |
+| Canonical model identity | Stable identity of the underlying model/revision across access routes; used by `different_model` |
+| Access provider | Service through which the owner obtains access, such as OpenRouter or a direct model API |
+| Provider-specific invocation identifier | Exact identifier passed to that service or harness; may differ from canonical identity |
+| Adapter | Baton execution mechanism, such as `litellm_api` or a harness adapter |
+| Machine resource/account | Owner's configured access binding, endpoint and credential reference |
+
+For example, an Anthropic model accessed directly and the same model accessed through OpenRouter have the same creator and canonical identity, but different access providers, invocation identifiers and resource bindings. The known-workers list maps supported routes to canonical identities using attributable evidence. An aggregator may conceal or vary the underlying serving host; represent that uncertainty rather than equating the access provider with a known host or creator.
+
+Adapters receive the route-specific invocation identifier. Authentication resolves against the machine resource. Capabilities and availability reflect the selected route and machine as well as the model; canonical identity alone does not establish that a route supports a capability.
+
+Routing preserves the existing same-profile exclusion and compares canonical identities for `different_model` and creators for `different_vendor`. A change of endpoint, account, adapter or access provider does not establish model or creator independence. Define conservative behavior for unresolved identities and mutable aliases, with actionable diagnostics and the existing explicit waiver mechanism where applicable.
+
+Persist identity and route snapshots wherever worker identity is recorded, including worker-selection and expert-consultation events. Historical comparisons must use those snapshots. A later catalog update must not rewrite the identity of a completed result. Profile loading, event readers/replay, diagnostics and migration must agree on a documented policy for legacy records; unknown historical identity remains unknown unless an explicit evidence-backed migration resolves it.
+
+### Repository research utility
+
+- Proposed location: `tools/worker-research/`, outside the installed runtime package and shipped skill directories.
+- Invoked explicitly by a maintainer, including routine scheduled or manually launched research-agent runs.
+- Reads vendor documentation and other attributable evidence, updates known-worker data, and runs its validation checks.
+- Produces a reviewable source change. Research does not directly publish a release or modify machine profiles.
+- Uses separate research-only dependencies if needed. The current package includes `src/baton` and explicitly shipped data directories; retain that boundary and test the resulting installation artifact.
+- No private repository split is needed. A person with the source can intentionally run the utility, but it is absent from normal runtime installations.
+
+### Research coverage and model inclusion
+
+The researcher aims for comprehensive, systematic coverage rather than a shortlist of the initial supported harnesses. It covers frontier providers such as xAI, Anthropic, OpenAI, Google/Gemini and Meta, plus reasonably popular alternative providers, open-source and open-weight models, and hosting or distribution platforms such as Hugging Face and OpenRouter. These examples are a starting point, not a fixed allowlist. Each research run should reassess the landscape and record its sources, inclusion criteria and known coverage gaps; it must not claim exhaustive coverage without evidence.
+
+Distinguish model creators, model identities, distribution platforms and execution providers/endpoints. A model distributed through Hugging Face or offered through multiple OpenRouter routes must not be mistaken for unrelated model identities. Availability and verification evidence belong to the relevant execution route as well as the model.
+
+Model size and modality do not determine inclusion. Cover LLMs, SLMs, vision models and other model categories that can perform a bounded job autonomously. For example, processing images or transcribing a supplied audio file can qualify. An ongoing interactive session, such as live conversational transcription, has different runtime requirements and is outside this job-based scope unless separately supported. Record the capabilities and input/output requirements needed to route such jobs correctly.
+
+Research coverage may exceed current adapter support. Distinguish researched models from models that the installed runtime can execute; unsupported entries must not generate dispatch-eligible profiles merely because they appear in the known-workers file. The schema and validation must express that distinction rather than requiring an executable adapter for every researched entry.
+
+### Installed worker resource manager
+
+Inputs:
+
+- The installed version of `defaults/known-workers.yaml`, consumed read-only.
+- Local discovery, including installed harnesses and authentication status.
+- Persistent machine-wide owner declarations, credential references and setup state.
+
+Output: one file per generated profile in `~/.baton/workers/` (0079), with provenance sufficient to preserve owner changes and distinguish declared, detected and live-verified availability.
+
+An explicit manager run can discover resources, accept owner declarations, offer verification and add model profiles. Metadata refreshes are limited to untouched generated profiles for existing resources. Runtime installation or upgrade does not itself add models. The manager must explain unavailable harnesses or failed verification in plain language, offering installation or login instructions appropriate to the failure.
+
+### Director onboarding and readiness
+
+Missing or incomplete machine setup triggers an offer, not an automatic research or maintenance run. The Director describes discovered resources and asks whether the owner wants to use additional providers or endpoints. It passes the answers to the resource manager and records completion at machine scope, including a decision to add nothing else.
+
+The Director's rule against editing profiles without the owner's instruction remains in force. An owner-approved resource-manager invocation supplies that instruction. `init` and `doctor` confirm readiness and expose enough structured information for this conversation; they do not own profile writes. A completed setup with no usable workers still reports a readiness problem without repeating answered onboarding questions.
+
+### Scope and budgeting
+
+Resource availability is shared by all projects on the machine. Per-project profile exceptions are deferred. Existing project budget controls remain as they are; known-workers data does not yet capture costs, and this proposal does not introduce price-based selection or change default tier ordering.
+
+### Expected doc edits
+
+- `design/workers.md` §6.1 and adapters: canonical identity, model creator, access provider, invocation identifier and compatibility for existing profiles. A new setup section covers resource declarations, generated profiles, provenance, ownership, discovery, verification and bounded refresh rules.
+- `design/director-interface.md` §13.1–§13.4: resource-manager interface, onboarding conversation, profile-edit authorization and readiness reporting. Remove the original proposal's `doctor --setup` approach.
+- `design/adoption-and-framing.md` §11.6: machine resource setup supports framing; project initialization confirms availability rather than requiring hand-written profiles.
+- `design/layouts.md` §4.1 and §4.4: maintainer research tooling, shipped known-worker data, machine declarations/setup state and generated profiles.
+- `design/runtime.md` §8: independence semantics, identity/route snapshots and historical comparisons, including expert worker records.
+- `design/versioning.md`: profile and event compatibility, migration and any format-version changes required by the identity split.
+- `principles.md`: shared model knowledge and machine resource management avoid repeated owner configuration while preserving owner control over resource use.
 
 ### Decisions
 
-- 0062 onward, one per open question above.
+- 0074: the boundaries between research, the resource manager and project setup.
+- 0075: identity fields (`creator`, `model_id`, `provider`, `model`, `resource`), canonical-identity rules, `vendor` as legacy alias, event snapshots, no format bump.
+- 0076: unknown identity is never proof of independence.
+- 0077: `baton workers status | setup | declare`.
+- 0078: `~/.baton/resources.yaml` (`baton-resources/1`), explicit `kind`, setup state per kind.
+- 0079: generated profiles one per file in `~/.baton/workers/`, content-hash ownership, bounded refresh.
+- 0080: `defaults/known-workers.yaml` (`baton-known-workers/1`): models, providers, routes.
+- 0081: live verification on request only; unverified profiles eligible, flagged.
+- 0082: machine-dependent capabilities need a declaration or a probe.
 
 ## Plan
 
-### Known-workers file and its checks
+Implement as separately reviewable slices in the order below. Each slice must preserve a usable runtime and land its relevant design updates and checks. Do not combine schema migration, researcher automation and onboarding into one implementation change.
 
-- **Outcome:** `defaults/known-workers.yaml` ships, with entries for the `claude_code` and `codex` presets, each model string checked against the installed CLI.
-- **Criteria:**
-  - criterion 5
+### 1. Identity and compatibility contract
+
+- **Outcome:** settle schema, canonical identity rules, unknown/alias behavior, route mapping, legacy profile/event handling and any version changes. Define examples covering direct access and OpenRouter access to the same model, distinct models from one creator, and unresolved identities.
+- **Depends on:** no implementation slice.
+- **Criteria:** design contracts for 10–12; resolve open question 8.
 - **Effort:** S
 
-### Setup writes profiles for logged-in harnesses
+### 2. Runtime identity, execution and persisted records
 
-- **Outcome:** `doctor --setup` detects logged-in harnesses, probes their models (if Q4 is accepted) and writes the profiles, marked as generated.
-- **Criteria:**
-  - criteria 1, 2, 3 and 4
+- **Outcome:** implement profile parsing/compatibility, adapter invocation mapping, identity/route snapshots, event readers and migrations as required. Existing supported execution paths remain usable under the documented compatibility policy.
+- **Depends on:** slice 1.
+- **Criteria:** 10, 12 and relevant portions of 9. Verify profile compatibility, route-specific invocation and historical record handling.
 - **Effort:** M
 
-### Director offers setup
+### 3. Independence and diagnostics
 
-- **Outcome:** `doctor` reports `no_workers` with its plain-language message and option. The skill and §13.3 tell the Director to relay it and run setup on the owner's yes.
-- **Criteria:**
-  - criterion 6
-- **Effort:** S
+- **Outcome:** route by canonical model identity and creator; expose identity and access route in diagnostics. Preserve same-profile exclusions and handle unresolved identities according to the contract.
+- **Depends on:** slice 2.
+- **Criteria:** 11 and relevant portions of 12. Tests show that the same model through direct access and OpenRouter satisfies neither `different_model` nor `different_vendor`, that distinct models from one creator can satisfy only the former, and that historical comparisons remain stable after catalog updates.
+- **Effort:** M
 
-### Default ordering by lowest sufficient tier (only if Q6 is accepted)
+### 4. Known-workers schema, seed data and packaging
 
-- **Outcome:** with no preference deciding, `eligible` lists the lowest sufficient tier first.
-- **Criteria:**
-  - a test with generated profiles of two tiers and a `standard` step
-- **Effort:** S
+- **Outcome:** validated read-only data representing canonical models, creators and execution routes, with provenance and unsupported-model markers. Establish a small representative seed spanning harness, direct API and intermediary access before broad research population.
+- **Depends on:** slice 1 for schema; slices 2–3 before using the data to create profiles.
+- **Criteria:** data and packaging portions of 2, 9 and 10. Check route mappings, supported adapters and identity consistency.
+- **Effort:** M
+
+### 5. Maintainer researcher and broad coverage
+
+- **Outcome:** separately invoked research utility proposes repository updates with attributable evidence, broad provider and model-category coverage, and explicit coverage gaps. Research-only dependencies and tooling stay outside runtime installations.
+- **Depends on:** slice 4. Can proceed independently of machine onboarding once the data contract is stable.
+- **Criteria:** 1, 2 and relevant portions of 9. Check the built installation artifact and validate researcher output.
+- **Effort:** M
+
+### 6. Machine resources and profile generation
+
+- **Outcome:** an explicit resource-manager interface combines discovery and persistent owner declarations, resolves secret references and generates route-aware profiles with verification provenance. Owner-created profiles and naming collisions are preserved.
+- **Depends on:** slices 2–4.
+- **Criteria:** 3, 5, 8, 10 and relevant portions of 9. Verify direct and intermediary resources produce the same canonical identity for the same model without sharing credentials or invocation identifiers.
+- **Effort:** M
+
+### 7. Protected refresh and repeat runs
+
+- **Outcome:** generated ownership/hash tracking, bounded metadata refreshes, owner-edit preservation and defined partial-failure/retirement behavior. Repeat runs are safe; runtime upgrades do not add models.
+- **Depends on:** slice 6.
+- **Criteria:** 6 and relevant portions of 9. Check unchanged reruns, edited profiles, metadata updates and newly listed models that remain absent until an explicit manager run.
+- **Effort:** M
+
+### 8. Director onboarding and readiness confirmation
+
+- **Outcome:** the Director offers machine setup when needed, persists answers across projects and invokes the manager with owner authorization. `init` and `doctor` confirm readiness and explain missing resources.
+- **Depends on:** slices 6–7; does not require exhaustive research coverage from slice 5.
+- **Criteria:** 4, 7 and relevant portions of 9. Check onboarding across two projects, completed setup with no usable workers, and healthy diagnostics.
+- **Effort:** M
+
+New execution adapters for additional modalities, project-specific exceptions, worker cost data and price-based routing remain outside these slices. Broad research can describe unsupported autonomous job categories without making them dispatch eligible.
 
 ## Log
+
+- Revised after owner discussion: separate repository research from installed machine resource management; include owner-declared resources such as OpenRouter; make onboarding and profiles machine-wide; retain existing budgeting; allow bounded metadata refreshes while requiring an explicit manager run to add newly available models. Keep research tooling in the source repository and exclude it from normal installations without introducing repository access restrictions.
+
+- Extended after owner discussion: separate canonical model identity and creator from access provider and invocation identifiers throughout the runtime, including independence and historical records. Split implementation into eight dependent slices so identity/compatibility foundations precede resource generation and onboarding.
+
+### 1. Identity and compatibility contract
+
+- **Commit:** 2026-11-worker-setup: Identity and compatibility contract
+- **Summary:** The owner answered the eight open questions (2026-11-06); recorded as decisions 0074–0082 and listed in `docs/README.md`. The change is `in-progress`; criterion 3 now names `~/.baton/workers/` (0079). Design text for each part lands with the slice that implements it. No code; the docs tests cover the new links.
+- **Review:** clean
+- **Accepted:** yes, 2026-11-06, the owner's answers: strict unknown identity, unverified-but-flagged eligibility, "New directory ~/.baton/workers; one yaml file per worker profile. Owner edited files are untouched.", and for resources.yaml an explicit resource kind so future kinds can drop in; the rest concurred.

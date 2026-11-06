@@ -206,3 +206,12 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0071 next is an optional option field; framing's options carry it first](decisions/0071-next-on-framing-options.md) | accepted |
 | [0072 A process-plan conflict at --from-plan waits on the run it started](decisions/0072-plan-republish-conflict-on-started-run.md) | accepted |
 | [0073 A process plan's goal slug is shortened by rule, never summarized](decisions/0073-goal-slug-shortened-not-summarized.md) | accepted |
+| [0074 Worker research, machine resource management and project setup are separate](decisions/0074-worker-research-and-resources-separate.md) | accepted |
+| [0075 Profiles separate a model's identity from the route used to reach it](decisions/0075-model-identity-separate-from-route.md) | accepted |
+| [0076 An unknown model identity is never proof of independence](decisions/0076-unknown-identity-not-independent.md) | accepted |
+| [0077 The resource manager is baton workers status, setup and declare](decisions/0077-workers-command.md) | accepted |
+| [0078 Machine resources are declared in ~/.baton/resources.yaml, each with an explicit kind](decisions/0078-machine-resources-file.md) | accepted |
+| [0079 Generated profiles live one per file in ~/.baton/workers/, owned by content hash](decisions/0079-generated-profiles-directory.md) | accepted |
+| [0080 Known-workers data: models, providers and routes, with research and verification kept apart](decisions/0080-known-workers-format.md) | accepted |
+| [0081 Live verification runs only on request; unverified generated profiles are eligible, flagged](decisions/0081-live-verification-on-request.md) | accepted |
+| [0082 Machine-dependent capabilities need an owner declaration or a passing probe](decisions/0082-machine-dependent-capabilities.md) | accepted |
