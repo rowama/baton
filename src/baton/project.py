@@ -405,6 +405,11 @@ def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dic
         notes.append("not a git repository: checkpoint commits start once it is one")
     elif not lfs_available(r):
         notes.append("git-lfs is not installed: large stored blobs will be committed to git directly")
+    from .resources import readiness
+
+    worker_setup = readiness(machine_home())
+    if worker_setup["offer_setup"]:
+        notes.append("this machine's workers are not set up yet: `baton workers setup`, or ask the Director to walk you through it")
     vendored: list[str] = []
     if not bare:
         shipped = catalog()
@@ -420,7 +425,7 @@ def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dic
                     created.append(f"{BATON_DIR}/recipes/{out['recipe']}/")
         finally:
             project.store.close()
-    return {"root": str(r), "created": created, "notes": notes, "vendored": vendored}
+    return {"root": str(r), "created": created, "notes": notes, "vendored": vendored, "worker_setup": worker_setup}
 
 
 def signature_flags(lock: dict[str, Any], recipe_id: str, version: int, steps: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

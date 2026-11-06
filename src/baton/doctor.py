@@ -60,6 +60,9 @@ from .models import Group, Step
 from .packet import EngineError
 
 NOOP_TIMEOUT_S = 120
+#: No worker is ready (§6.4): before machine setup, and after it.
+NO_WORKER_SETUP_OFFER = "no worker on this machine is ready yet: set them up with `baton workers setup` (the Director can walk you through it)"
+NO_WORKER_SETUP_DONE = "no worker on this machine is ready: `baton workers status` shows what was found and why"
 AUTH_TIMEOUT_S = 60
 PREFLIGHT_TIMEOUT_S = 600
 
@@ -529,8 +532,18 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
             if i["status"] == "open":
                 warnings.append(f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}")
     warnings += [f"no healthy profile on this machine can do {s}" for s in uncovered]
+    from .resources import readiness
+
+    worker_setup = readiness(project.home)
+    if only is None:
+        if worker_setup.get("problem"):
+            problems.append(f"worker setup: {worker_setup['problem']}")
+        elif not healthy:
+            # Never repeats the setup questions: it says where to look (§6.4).
+            problems.append(NO_WORKER_SETUP_DONE if not worker_setup["offer_setup"] else NO_WORKER_SETUP_OFFER)
     if "microsoft" in platform.uname().release.lower() and str(project.root).startswith("/mnt/") and os.name == "posix":
         warnings.append(f"{project.root} is on a Windows drive under WSL; keep repos on the Linux filesystem for speed (§15.1)")
     ok = not problems
     line = f"doctor: {len(reports)} profile(s) ready" if ok else f"doctor: {len(problems)} problem(s)"
-    return {"ok": ok, "line": line, "problems": problems, "warnings": warnings, "profiles": reports, "uncovered_steps": uncovered}
+    return {"ok": ok, "line": line, "problems": problems, "warnings": warnings, "profiles": reports, "uncovered_steps": uncovered,
+            "worker_setup": worker_setup}

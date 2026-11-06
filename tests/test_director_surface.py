@@ -318,6 +318,12 @@ def test_director_skill_names_every_call_it_relies_on():
     assert "offer once to keep a simple notes file" in notes and "--keep-file yes|no" in notes
     assert "never pass one to a step" in notes and "`ask_sme project` with the notes file as a reference" in notes
     assert "`start --from-plan <part>`" in text
+    # Machine worker setup (change 2026-11-worker-setup; decisions 0074, 0077, 0081).
+    workers = text[text.index("## This machine's workers"):text.index("## Pushing and other repo actions")]
+    for call in ("workers_status", "workers_declare", "workers_setup"):
+        assert f"`{call}" in workers, call
+    assert "`workers_declare --nothing-more`" in workers and "`workers_setup --verify <profile>`" in workers
+    assert "once per machine, never per project" in workers and "Never take a key in conversation" in workers
 
 
 def test_shipped_director_skill_is_the_guides_text():

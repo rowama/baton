@@ -41,6 +41,13 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Exit 4 (or `needs_owner: true`) from `dispatch --wait` or `wait` means the work finished and the owner is needed now: go to the owner. It is not a failure. Exit codes: 0 done, 1 problem, 2 usage, 3 lease held elsewhere, 4 finished and the owner is needed. If your harness treats any non-zero exit as failure, run with `BATON_OWNER_EXIT=0` and read `needs_owner`.
 - A Director that ends its turn while work runs sets `BATON_DIRECTOR` (a stable identity for its leases) and `BATON_HARNESS` (its harness, never `cli`).
 
+## This machine's workers
+- When `doctor` shows `worker_setup.offer_setup`, offer once, in the owner's terms, to set up the AI helpers on this computer. It is asked once per machine, never per project; a `doctor` problem that no worker is ready is reported plainly, without asking the setup questions again.
+- If they agree: `workers_status`, then tell them what was found (each helper, ready or not, and the fix it names) and ask whether they have other accounts to use, such as an OpenRouter account or an API key. Never take a key in conversation: ask them to store it as a secret themselves (`BATON_SECRET_<NAME>`, the OS keyring, or `~/.baton/secrets/<name>`), then `workers_declare <name> --provider <provider> --credential secret:<name>`. Then `workers_setup`, and tell them what is ready now.
+- When they say there is nothing else, or decline setup, `workers_declare --nothing-more`. Don't ask again on this machine; revisit only when they ask.
+- A live check costs a small model call each: run `workers_setup --verify <profile>` only when they agree to it.
+- These calls are the only way you change profiles, each only on the owner's instruction.
+
 ## Pushing and other repo actions
 - Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.
 - Before a tag, merge, deploy or force push, call `permission <action> --detail "<what you will do>"`.

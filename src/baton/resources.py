@@ -634,3 +634,27 @@ def declare(
         changed["nothing_more"] = nothing_more
     path = save_resources(home, res)
     return {**changed, "path": str(path)}
+
+
+def readiness(home: Path) -> dict[str, Any]:
+    """Machine worker setup at a glance, for ``doctor``, ``detect`` and ``init`` (§13.4). Reads files only: no discovery.
+
+    ``offer_setup`` is true until the owner has run setup or said there is nothing
+    to add, so the Director offers the setup conversation once per machine, not per project.
+    """
+    home = Path(home)
+    try:
+        data = kw_mod.load(vocab_mod.load(vocab_mod.DEFAULT))
+        res = load_resources(home, data.machine_dependent)
+    except (ResourcesError, kw_mod.KnownWorkersError) as e:
+        return {"setup_complete": False, "nothing_more": False, "offer_setup": False, "generated": 0, "problem": str(e)}
+    state = res.setup.get("worker") or SetupState()
+    gen = generated_profiles(home)
+    return {
+        "setup_complete": state.completed is not None,
+        "nothing_more": state.nothing_more,
+        "offer_setup": state.completed is None and not state.nothing_more,
+        "generated": sum(1 for g in gen.values() if g["ownership"] != "owner"),
+        "declared": len(res.workers()),
+    }
+

@@ -74,6 +74,8 @@ It is blameless: it records what exists, what is assumed and what is missing. Th
 
 ### 11.6 Framing new work
 
+Framing needs a worker that can do its step, so it rests on machine worker setup (§6.4), not on hand-written profiles: the first Director on a machine without it offers the setup conversation, and its answers serve every project there. `init` confirms readiness and says when setup is still to do; it never writes profiles (Decision: [0074](../decisions/0074-worker-research-and-resources-separate.md)).
+
 Owners bring goals, not work items. "Start a pure-water vending business" holds several pieces of work of different kinds: setting up the business, buying sites and equipment, marketing, and running it day to day. Forcing such a goal through one recipe (or one `fit-check` profile) produces questions the owner cannot answer. **Framing** turns the owner's goal into work items they choose from. It is ordinary Baton work, like adoption (§11.1), and adds no concept.
 
 1. `frame(words)` (`baton frame --note "<owner's words>"`) starts a **framing run** of the built-in recipe `baton-frame@1` (in `builtin/`, loaded like `baton-adopt`, never vendored). Its run inputs are the owner's words verbatim, a summary of each recipe a part may propose (id, version, description, levels, run-input schema, `vendored`): every vendored recipe (its newest version) and every recipe shipped with the runtime that is not vendored (the **catalog**, `examples/recipes/`, shipped in the package), plus `fit-check`'s rubric (from the vendored `fit-check`, else the shipped one). While a framing run is active, `frame` returns its status (goal, parts, what to do next) instead of starting another.

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-worker-setup
 title: "Machine-wide worker resources are maintained separately from project setup"
-status: in-progress
+status: done
 level: standard
 decisions: ["0074", "0075", "0076", "0077", "0078", "0079", "0080", "0081", "0082", "0083"]
 touches: [design/workers.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md, design/runtime.md, design/versioning.md, principles.md]
@@ -268,3 +268,12 @@ New execution adapters for additional modalities, project-specific exceptions, w
 - **Summary:** `resources.setup` now handles existing generated files: an edited file (hash mismatch) or one without a marker is never changed; an untouched one gets only `capabilities`, `tier` and `context_tokens` refreshed (`resources.refresh`), and is left as it is with the reason when its binding (`adapter`, `creator`, `model_id`, `provider`, `model`, `resource`, `auth`, `options`) would change. Profiles the inputs no longer offer, retired models included, are kept and flagged (`not_offered`; `status` shows a `flag`). Each profile is handled on its own, so a write error or failed check on one is reported while the others go ahead. Verifying a name that is not offered reports that nothing was checked. Unchanged reruns write nothing. Newer data adds no profile until `setup` runs. CLI lines for refreshed and kept. Tests (`tests/test_resources_refresh.py`, 7): byte-identical rerun; metadata refresh of an untouched profile that stays untouched while an edited one is byte-identical; a changed invocation leaves the profile alone with the reason; a retired model kept and flagged; a newly listed model absent from the project's profiles until an explicit run; one failing write does not stop a refresh; verifying an unknown name.
 - **Review:** clean
 - **Accepted:** pending owner review
+
+### 8. Director onboarding and readiness confirmation
+
+- **Commit:** 2026-11-worker-setup: Director onboarding and readiness confirmation
+- **Summary:** `resources.readiness` reads the setup state from files alone. `doctor` returns it as `worker_setup`; `offer_setup` is structured only, so a healthy `doctor` stays one line and `detect` stays quiet. With no ready worker, `doctor` reports a problem: before setup it points to `baton workers setup`, after setup to `baton workers status`, without asking the setup questions again. `init` returns `worker_setup` and adds a note while setup is still to do; it writes no profile and runs no research. The director skill gains *This machine's workers*: offer once per machine; report what was found; ask about other accounts; never take a key in conversation; `workers_declare` / `workers_setup` / `--nothing-more`; live checks only with the owner's agreement; these calls are the only way it changes profiles. The skill and its §13.3 copy stay identical. Tests (`tests/test_worker_onboarding.py`, 7): the offer appears in one project and is gone in a second once setup ran there; "nothing more" ends the offer; no worker before setup points to setup; a completed setup with no usable worker is a problem that does not reopen onboarding; a healthy machine is one line; `init` mentions setup only while it is not done, and writes nothing; `detect` carries the state without a warning. The skill test checks the new section.
+- **Review:** clean
+- **Accepted:** pending owner review
+
+All acceptance criteria are covered by tests. Not done here: a real broad research run (it needs a maintainer and a web-capable profile; criterion 1 asks that one *can* be launched) and a live `--verify` against a real account (each costs quota; 0081).
