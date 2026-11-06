@@ -290,7 +290,7 @@ def test_adopt_leaves_agents_md_to_the_baseline(tmp_path):
 def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
-                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame"):
+                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame", "note", "start"):
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
     assert "## Before you ask the owner anything" in text   # change 2026-11-director-question-check
@@ -308,6 +308,16 @@ def test_director_skill_names_every_call_it_relies_on():
     assert "4 finished and the owner is needed" in wake  # the exit-code table, in brief
     assert "sets `BATON_DIRECTOR`" in wake and "`BATON_HARNESS` (its harness, never `cli`)" in wake
     assert "the completion hook or the next `board` brings you back" not in text  # no longer assumes a hook exists
+    # Two perspectives, honest rewording, silent confusion feedback and notes (change 2026-11-framing-perspective).
+    assert "## Two perspectives" in text and "Use each option's `next`" in text and "never guess what \"start\" means" in text
+    assert "check Promise and Fit again. Never make a question more comfortable by making it untrue." in text
+    assert "Show labels, never internal ids" in text and "Don't narrate Baton's mechanics" in text
+    assert "record `feedback confusing` silently, with the question as you showed it and the owner's words" in text
+    notes = text[text.index("## Notes"):]
+    assert "only when the owner asks you to remember or note something" in notes and "`note \"<owner's words>\"`" in notes
+    assert "offer once to keep a simple notes file" in notes and "--keep-file yes|no" in notes
+    assert "never pass one to a step" in notes and "`ask_sme project` with the notes file as a reference" in notes
+    assert "`start --from-plan <part>`" in text
 
 
 def test_shipped_director_skill_is_the_guides_text():

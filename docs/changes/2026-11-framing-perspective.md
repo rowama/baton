@@ -1,7 +1,7 @@
 ---
 id: 2026-11-framing-perspective
 title: "The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents"
-status: in-progress
+status: done
 level: standard
 decisions: ["0062", "0063", "0064", "0065", "0066", "0067", "0068", "0069", "0070", "0071", "0072"]
 touches: [principles.md, design/adoption-and-framing.md, design/director-interface.md, design/persistence.md, design/runtime.md, design/layouts.md]   # §1.3, §2, §11.6, §13.1, §13.3, §10.4, §8.2, §4.3; also defaults/labels.yaml and skills/baton-director/SKILL.md
@@ -209,3 +209,24 @@ Asked of the owner up front, 2026-11-05 (suggestions in the session; recorded as
   - The MCP tool-set test now includes `note`.
 - **Review:** clean.
 - **Accepted:** pending (owner).
+
+### The director skill bridges the two perspectives
+
+- **Commit:** `2026-11-framing-perspective: The director skill bridges the two perspectives`
+- **Summary:**
+  - `skills/baton-director/SKILL.md` and its §13.3 copy (identical):
+    - a new *Two perspectives* section;
+    - the framing step in *Per run* uses each part's `next` and mentions the plan and `start --from-plan`;
+    - *Talking to the owner* gains: labels never ids, no narrating mechanics or feedback, and silent `feedback confusing` when the owner is confused or objects;
+    - *Before you ask* gains the **Rewording** check;
+    - a new *Notes* section (only when asked; verbatim; offered once; never passed to the work; recall through the project SME).
+  - Tests: `test_director_skill_names_every_call_it_relies_on` asserts the new text and the `note` and `start` calls; `test_shipped_director_skill_is_the_guides_text` holds the copies identical.
+- **Review:** clean.
+- **Accepted:** pending (owner).
+
+### Acceptance criteria, where each is shown
+
+- The water-vending framing publishes the breakdown with all four parts, and choosing two starts exactly their proposals: `test_selection_publishes_the_process_plan_with_every_part`. The other two remain in the document and start later exactly as proposed: `test_parts_left_in_the_plan_start_later_exactly_as_proposed`.
+- Every frame option in `status --json` carries `next`: `test_every_frame_option_says_what_choosing_it_triggers`.
+- A note is appended verbatim and dated only after the owner accepts the notes file: `test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file`. No packet contains one: `test_no_packet_ever_contains_a_note`.
+- A `baton-frame@1` run still decides as before: the existing framing tests in `tests/test_conversation.py` (select, gaps, nothing selected, reject, single part, vendoring on selection), unchanged but for the new label.
