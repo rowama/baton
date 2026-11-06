@@ -1124,7 +1124,7 @@ def workers_status(as_json: JsonOpt = False) -> None:
         lines.append(f"declared {n}: {r['provider']}")
     for n, g in out["generated"].items():
         state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
-        lines.append(f"profile {n}: {state}")
+        lines.append(f"profile {n}: {state}" + (f"; {g['flag']}" if g.get("flag") else ""))
     if out["available_not_generated"]:
         lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
     _emit(out, as_json, "\n".join(lines))
@@ -1141,7 +1141,9 @@ def workers_setup(
 
     which = [] if verify_all else verify
     out = _resources(as_json, lambda h: resources.setup(h, verify=which))
-    lines = [f"wrote {n}" for n in out["written"]] + [f"verified {n}" for n in out["verified"]]
+    lines = [f"wrote {n}" for n in out["written"]] + [f"refreshed {n}" for n in out["refreshed"]] + [f"verified {n}" for n in out["verified"]]
+    lines += [f"kept {k['profile']}: {k['reason']}" for k in out["kept"]]
+    lines += [f"kept {n}: {why}" for n, why in out["not_offered"].items()]
     lines += [f"FAILED {f['profile']}: {f['reason']}" for f in out["failed"]]
     lines += [f"left alone {c['profile']}: {c['reason']}" for c in out["collisions"]]
     lines += [f"not available: {s['route']}: {s['reason']}" for s in out["skipped"]]
