@@ -296,7 +296,8 @@ def _profile_report(project: Any, name: str, profile: Any, run_noop: bool) -> di
     from . import adapters
     from .profiles import SetupError, build_env, effective_env_mode, executable_for
 
-    rep: dict[str, Any] = {"adapter": profile.adapter, "vendor": profile.vendor, "auth_mode": profile.auth.mode, "env_mode": effective_env_mode(profile), "problems": [], "warnings": []}
+    rep: dict[str, Any] = {"adapter": profile.adapter, "vendor": profile.creator, "creator": profile.creator,
+                           "model_id": profile.canonical_model(), "provider": profile.provider, "auth_mode": profile.auth.mode, "env_mode": effective_env_mode(profile), "problems": [], "warnings": []}
     adapter = adapters.ADAPTERS.get(profile.adapter)
     if adapter is None:
         rep["problems"].append(f"adapter {profile.adapter!r} is not available in this runtime (available: {', '.join(sorted(adapters.ADAPTERS))})")

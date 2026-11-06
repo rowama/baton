@@ -425,7 +425,7 @@ def workspace_mode(req: Requires) -> str:
 
 
 def eligible(subject: str, req: Requires, profiles: dict[str, WorkerProfile], vocab: Any, preferred: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from .routing import requirement_gaps
+    from .routing import requirement_gaps, route_summary
 
     kept: dict[str, dict[str, Any]] = {}
     excluded = []
@@ -437,7 +437,7 @@ def eligible(subject: str, req: Requires, profiles: dict[str, WorkerProfile], vo
         if reasons:
             excluded.append({"profile": name, "reasons": reasons})
         else:
-            kept[name] = {"profile": name, "adapter": p.adapter, "vendor": p.vendor, "reasons": [f"meets the {subject} expert requirements"]}
+            kept[name] = {**route_summary(name, p), "reasons": [f"meets the {subject} expert requirements"]}
     order = [n for n in preferred if n in kept]
     for n in order:
         kept[n]["reasons"].append(f"preferred for {subject} in project.yaml")

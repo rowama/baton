@@ -80,7 +80,15 @@ Each event is one line of canonical JSON (sorted keys, no insignificant whitespa
 4. Order by `.baton/preferences.yaml` (`prefer.by_step`, `prefer.by_capability`, `exclude`). Preferences reorder or exclude only; they never add an ineligible profile.
 5. Return the ordered list with reasons and exclusion reasons. Empty → `escalated` (`no_eligible_worker`; §18 #2: the run never fails for this). `eligible` records the escalation for a ready step; the owner's `decide <step> retry` readies it again once a capable profile exists.
 
-The worker of a result is read from the run's record, not from the current machine or the known-workers data: `worker_selected` records the profile's identity and route as they were at dispatch (§6.1). An event from before these fields has only `vendor` and `model`: its creator is the vendor and its model identity is unknown, never guessed from the invocation string (Decision: [0075](../decisions/0075-model-identity-separate-from-route.md)). For `different_model`, two workers match when they are the same profile or both declare the same `model`; for `different_vendor`, when vendors match case-insensitively. `dispatch` refuses a worker outside the eligible set, with its exclusion reasons. `by_step` keys are step ids or step paths.
+The worker of a result is read from the run's record, not from the current machine or the known-workers data: `worker_selected` records the profile's identity and route as they were at dispatch (§6.1). An event from before these fields has only `vendor` and `model`: its creator is the vendor and its model identity is unknown, never guessed from the invocation string (Decision: [0075](../decisions/0075-model-identity-separate-from-route.md)). Two workers match (are not independent) when (Decision: [0076](../decisions/0076-unknown-identity-not-independent.md)):
+
+| Level | Match when |
+|---|---|
+| `different_profile` | the same profile |
+| `different_model` | the same profile; both `model_id`s known and equal; or either unknown while the creators are not known to differ |
+| `different_vendor` | the same profile; the same creator (case-insensitive); or either creator unknown |
+
+An unknown identity is never proof of independence, and a route is not a model: the same model reached directly and through OpenRouter satisfies neither level, while two models of one creator satisfy only `different_model`. An exclusion that rests on an unknown identity says so and names the fixes (set `model_id`, §6.1, or the one-dispatch waiver, §9.3). Eligibility lists, `doctor`'s profile reports and SME eligibility show each profile's creator, model identity and provider. `dispatch` refuses a worker outside the eligible set, with its exclusion reasons. `by_step` keys are step ids or step paths.
 
 ### 8.5 Groups at runtime
 

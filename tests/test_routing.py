@@ -119,7 +119,7 @@ def test_independence_uses_the_recorded_worker(routed):
     out = api.eligible(run, "review")
     assert names(out) == ["carol"]  # weak lacks structured_output
     ex = excluded(out)
-    assert any("independence: different_vendor from draft (done by alice, vendor acme)" in r for r in ex["alice"])
+    assert any("independence: different_vendor from draft (done by alice, creator acme" in r for r in ex["alice"])
     assert any("independence" in r for r in ex["bob"])  # vendor match is case-insensitive
     # The record, not this machine's profiles, says who did draft.
     (Path(api.project.home) / "workers.yaml").write_text(PROFILES.replace("vendor: acme", "vendor: renamed"), encoding="utf-8")
@@ -176,3 +176,106 @@ def test_an_event_from_before_0075_has_unknown_model_identity():
     old = identity_from_record({"profile": "api", "vendor": "openai", "model": "openai/some-model"})
     # creator is the recorded vendor; the model string is a route, never an identity.
     assert old.creator == "openai" and old.model_id is None and old.model == "openai/some-model"
+
+
+# ---------------------------------------------------------------------------
+# Independence by identity, not route (0076)
+# ---------------------------------------------------------------------------
+
+from baton.routing import WorkerIdentity, independence_reason, same_at  # noqa: E402
+
+DIRECT = WorkerIdentity("direct", "anthropic", "anthropic/claude-opus-5-5", "anthropic", "anthropic/claude-opus-5-5", "litellm_api")
+ROUTED = WorkerIdentity("routed", "anthropic", "anthropic/claude-opus-5-5", "openrouter", "openrouter/anthropic/claude-opus-5.5", "litellm_api")
+SONNET = WorkerIdentity("sonnet", "anthropic", "anthropic/claude-sonnet-5-5", "anthropic", "anthropic/claude-sonnet-5-5", "litellm_api")
+GPT = WorkerIdentity("gpt", "openai", None, "openai", "openai/some-model", "litellm_api")
+LEGACY_A = WorkerIdentity("a", "acme", None, None, "acme/one", "litellm_api")
+LEGACY_B = WorkerIdentity("b", "acme", None, None, "acme/two", "litellm_api")
+
+
+def test_the_same_model_on_another_route_satisfies_neither_level():
+    assert same_at("different_model", DIRECT, ROUTED)
+    assert same_at("different_vendor", DIRECT, ROUTED)
+    assert not same_at("different_profile", DIRECT, ROUTED)
+
+
+def test_distinct_models_of_one_creator_satisfy_only_different_model():
+    assert not same_at("different_model", DIRECT, SONNET)
+    assert same_at("different_vendor", DIRECT, SONNET)
+
+
+def test_unknown_identity_is_never_proof_of_independence():
+    # Same creator, model strings differ, no model_id: not proven different (no fallback to strings).
+    assert same_at("different_model", LEGACY_A, LEGACY_B)
+    assert "set model_id" in independence_reason("different_model", "draft", LEGACY_B, LEGACY_A)
+    # Known, differing creators are different models even without model_id.
+    assert not same_at("different_model", GPT, DIRECT)
+    assert not same_at("different_vendor", GPT, DIRECT)
+    # An unknown creator proves nothing.
+    nobody = WorkerIdentity("x", None, None)
+    assert same_at("different_vendor", nobody, GPT) and same_at("different_model", nobody, GPT)
+
+
+def test_people_are_different_models_but_one_creator():
+    from baton.models import WorkerProfile
+    from baton.routing import identity_of
+
+    ann = identity_of("ann", WorkerProfile.model_validate({"adapter": "manual", "creator": "human", "person": "ann"}))
+    ben = identity_of("ben", WorkerProfile.model_validate({"adapter": "manual", "creator": "human", "person": "ben"}))
+    assert not same_at("different_model", ann, ben) and same_at("different_vendor", ann, ben)
+
+
+MODEL_PROFILES = """\
+direct:
+  adapter: manual
+  creator: anthropic
+  model_id: anthropic/claude-opus-5-5
+  provider: anthropic
+  capabilities: [structured_output]
+  tier: strong
+routed:
+  adapter: manual
+  creator: anthropic
+  model_id: anthropic/claude-opus-5-5
+  provider: openrouter
+  capabilities: [structured_output]
+  tier: strong
+sonnet:
+  adapter: manual
+  creator: anthropic
+  model_id: anthropic/claude-sonnet-5-5
+  capabilities: [structured_output]
+  tier: strong
+legacy:
+  adapter: manual
+  vendor: anthropic
+  capabilities: [structured_output]
+  tier: strong
+"""
+
+
+def test_different_model_routing_uses_recorded_identity_and_stays_stable(tmp_path):
+    recipe = make_recipe(
+        tmp_path / "toy",
+        [
+            {"id": "draft", "requires": {"capabilities": ["structured_output"]}, "output_schema": "schemas/out.json"},
+            {"id": "review", "depends_on": ["draft"], "requires": {"capabilities": ["structured_output"]},
+             "independence": {"from_step": "draft", "level": "different_model"}, "output_schema": "schemas/out.json"},
+        ],
+        schemas={"out.json": {"type": "object"}},
+    )
+    root = tmp_path / "proj"
+    root.mkdir()
+    init(root)
+    home = make_home(tmp_path / "home", MODEL_PROFILES)
+    api = Api.open(root, director_id="alice@host1", home=home, clock=Clock())
+    api.vendor(recipe)
+    run = api.start("toy", {"title": "Models"})["run_id"]
+    pass_step(api, root, run, "draft", "direct")
+    out = api.eligible(run, "review")
+    assert names(out) == ["sonnet"]
+    ex = excluded(out)
+    assert "routed" in ex and "direct" in ex and any("set model_id" in r for r in ex["legacy"])
+    # Changing this machine's profiles later does not reinterpret the recorded worker.
+    (Path(api.project.home) / "workers.yaml").write_text(
+        MODEL_PROFILES.replace("model_id: anthropic/claude-opus-5-5\n  provider: anthropic", "model_id: anthropic/other\n  provider: anthropic"), encoding="utf-8")
+    assert "routed" in excluded(api.eligible(run, "review"))

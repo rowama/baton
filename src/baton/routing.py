@@ -9,8 +9,10 @@ requirement part (``requirement_gaps``) before it builds anything (§8.6).
    ``workspace_read`` for read steps).
 3. Independence: when the step declares ``independence: {from_step, level}``,
    drop profiles that match the worker of ``from_step``'s current result at
-   that level. The worker's vendor and model are read from the run's record
-   (``worker_selected``), not from this machine's profiles.
+   that level (``same_at``: creators and canonical model identities; an unknown
+   identity is never proof of independence, 0076). The worker's identity is
+   read from the run's record (``worker_selected``), not from this machine's
+   profiles or the known-workers data.
 4. Order by ``.baton/preferences.yaml``: ``exclude`` removes, ``prefer.by_step``
    then ``prefer.by_capability`` put named profiles first; the rest follow by
    name. Preferences never add an ineligible profile.
@@ -128,6 +130,12 @@ def identity_record(profile_name: str, profile: WorkerProfile) -> dict[str, Any]
     return out
 
 
+def route_summary(profile_name: str, profile: WorkerProfile) -> dict[str, Any]:
+    """Identity and route as shown in eligibility and diagnostics (§8.4)."""
+    return {"profile": profile_name, "adapter": profile.adapter, "vendor": profile.creator, "creator": profile.creator,
+            "model_id": profile.canonical_model(), "provider": profile.provider}
+
+
 def identity_from_record(d: dict[str, Any], profile_key: str = "profile") -> WorkerIdentity:
     """Read a recorded snapshot. An event from before 0075 has only ``vendor``
     and ``model``: its creator is the vendor, its model identity unknown (never
@@ -143,18 +151,39 @@ def identity_from_record(d: dict[str, Any], profile_key: str = "profile") -> Wor
 
 
 def same_at(level: str, a: WorkerIdentity, b: WorkerIdentity) -> bool:
-    """Whether ``a`` and ``b`` count as the same worker at an independence level.
+    """Whether ``a`` and ``b`` count as the same worker at an independence level (0076).
 
-    ``different_model``: the same profile, or both declare the same ``model``.
-    ``different_vendor``: the same vendor (case-insensitive), or the same profile.
+    Unknown is never proof of independence:
+
+    * ``different_profile``: the same profile.
+    * ``different_vendor``: the same profile, the same creator
+      (case-insensitive), or either creator unknown.
+    * ``different_model``: the same profile; both ``model_id``s known and
+      equal; or either unknown while the creators are not known to differ.
+
+    Provider, endpoint, account and adapter never count: a route is not a model.
     """
     if a.profile == b.profile:
         return True
     if level == "different_profile":
         return False
-    if level == "different_model":
-        return a.model is not None and a.model == b.model
-    return a.vendor is not None and b.vendor is not None and a.vendor.lower() == b.vendor.lower()
+    ca, cb = (a.creator or "").lower() or None, (b.creator or "").lower() or None
+    same_creator = ca is None or cb is None or ca == cb
+    if level == "different_vendor":
+        return same_creator
+    if a.model_id is not None and b.model_id is not None:
+        return a.model_id == b.model_id
+    return same_creator
+
+
+def independence_reason(level: str, from_step: str, mine: WorkerIdentity, other: WorkerIdentity) -> str:
+    """Why a profile is not independent of ``from_step``'s worker, with the fix when identity is unknown."""
+    text = f"independence: {level} from {from_step} (done by {other.profile}, creator {other.creator or '?'}, model {other.model_id or 'unknown'})"
+    if level == "different_model" and mine.profile != other.profile and (mine.model_id is None or other.model_id is None):
+        text += "; a model identity is unknown, so the models are not proven different: set model_id on the profile, or waive for one dispatch (§9.3)"
+    elif level == "different_vendor" and mine.profile != other.profile and (not mine.creator or not other.creator):
+        text += "; a creator is unknown, so not proven different"
+    return text
 
 
 def result_worker(events: list[Any], step_path: str, own: bool) -> WorkerIdentity | None:
@@ -238,7 +267,7 @@ def eligible_workers(
         waived = False
         if other is not None and indep is not None and same_at(indep.level, identity_of(name, p), other):
             if independence_waiver is None:
-                reasons.append(f"independence: {indep.level} from {indep.from_step} (done by {other.profile}, vendor {other.vendor or '?'})")
+                reasons.append(independence_reason(indep.level, indep.from_step, identity_of(name, p), other))
             else:
                 waived = True
         if name in prefs.exclude:
@@ -251,7 +280,7 @@ def eligible_workers(
             why.append(f"not independent of {indep.from_step} ({indep.level}), waived for one dispatch ({independence_waiver})")
         elif other is not None and indep:
             why.append(f"independent of {indep.from_step} ({indep.level})")
-        kept[name] = {"profile": name, "adapter": p.adapter, "vendor": p.vendor, "reasons": why}
+        kept[name] = {**route_summary(name, p), "reasons": why}
 
     ordered: list[str] = []
     for name in prefs.prefer.by_step.get(step_path, prefs.prefer.by_step.get(step.id, [])):

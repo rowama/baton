@@ -45,6 +45,16 @@ class _Opts:
 _opts = _Opts()
 
 
+def _route(e: dict) -> str:
+    """``adapter, creator[, model_id][ via provider]`` for an eligibility line (§8.4)."""
+    out = f"{e['adapter']}, {e.get('creator', e.get('vendor'))}"
+    if e.get("model_id"):
+        out += f", {e['model_id']}"
+    if e.get("provider"):
+        out += f" via {e['provider']}"
+    return out
+
+
 def _version(value: bool) -> None:
     if value:
         typer.echo(__version__)
@@ -544,7 +554,7 @@ def cancel(run: Annotated[str, typer.Argument(help="Run id.")], step: Annotated[
 def eligible(run: Annotated[str, typer.Argument(help="Run id.")], step: Annotated[str, typer.Argument(help="Step path.")], as_json: JsonOpt = False) -> None:
     """Workers that may do a step, in preference order, with every exclusion's reasons."""
     out = _call(as_json, lambda: _api().eligible(run, step))
-    lines = [f"{i}. {e['profile']} ({e['adapter']}, {e['vendor']}): {'; '.join(e['reasons'])}" for i, e in enumerate(out["eligible"], 1)]
+    lines = [f"{i}. {e['profile']} ({_route(e)}): {'; '.join(e['reasons'])}" for i, e in enumerate(out["eligible"], 1)]
     if not lines:
         lines.append(f"No eligible worker for {step}." + (" The step is escalated." if out["escalated"] else ""))
     lines += [f"   excluded {e['profile']}: {'; '.join(e['reasons'])}" for e in out["excluded"]]
@@ -929,7 +939,7 @@ def sme_eligible(
 ) -> None:
     """Profiles that may answer as this subject's expert, in order."""
     out = _call(as_json, lambda: _api().sme_eligible(subject, run))
-    lines = [f"{e['profile']} ({e['adapter']}, {e['vendor']}): {'; '.join(e['reasons'])}" for e in out["eligible"]] or ["No eligible profile."]
+    lines = [f"{e['profile']} ({_route(e)}): {'; '.join(e['reasons'])}" for e in out["eligible"]] or ["No eligible profile."]
     lines += [f"  excluded {x['profile']}: {'; '.join(x['reasons'])}" for x in out["excluded"]]
     lines += _wake_lines(out.get("wake"))
     _done(out, as_json, "\n".join(lines))
