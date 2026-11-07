@@ -125,3 +125,11 @@ def test_by_default_it_updates_the_checkout_it_was_installed_from(tmp_path):
     assert _research().default_checkout() == ROOT
     rc = subprocess.run([sys.executable, str(CLI), "--profile", "x", "--repo", str(tmp_path)], capture_output=True, text=True)
     assert rc.returncode == 2 and "is not a Baton checkout" in rc.stderr
+
+
+def test_an_unknown_profile_is_a_plain_usage_error(tmp_path, capsys):
+    repo, home, reports = _setup(tmp_path, _seed())
+    rc = _research().main(["--profile", "nope", "--home", str(home), "--repo", str(repo), "--reports", str(reports)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "no worker profile 'nope'" in err and "baton workers status" in err and "Traceback" not in err

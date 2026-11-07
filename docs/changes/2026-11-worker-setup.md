@@ -283,4 +283,11 @@ New execution adapters for additional modalities, project-specific exceptions, w
 - **Review:** clean
 - **Accepted:** pending owner review
 
+### Follow-up: researcher errors in one line
+
+- **Commit:** 2026-11-worker-setup: Researcher reports Baton errors in one line
+- **Summary:** An unknown or ineligible profile ended `baton-worker-research` in an `EngineError` traceback. It now prints the message with a hint (`baton workers status`; the capabilities the research step needs) and exits 2 for configuration and routing errors, 1 otherwise; the pointer to `baton eligible` on the deleted scratch run is dropped. Found while trying it: no profile on this machine, hand-written or generated, declares `web_access`, and the `claude_code` and `codex` adapters do not enable web tools for `none` steps, so the research step cannot yet be routed. How the researcher gets a web-capable profile is open with the owner. Test (`tests/test_worker_research.py`): an unknown profile exits 2 with the hint and no traceback.
+- **Review:** clean
+- **Accepted:** pending owner review
+
 All acceptance criteria are covered by tests. Not done here: a real broad research run (it needs a maintainer and a web-capable profile; criterion 1 asks that one *can* be launched) and a live `--verify` against a real account (each costs quota; 0081).

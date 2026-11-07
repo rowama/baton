@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -95,7 +96,26 @@ def report_markdown(output: dict[str, Any], today: str, profile: str, problems: 
     return "\n".join(lines) + "\n"
 
 
+HINTS = {
+    "configuration.unknown_profile": "`baton workers status` lists what this machine has and can set up",
+    "routing.ineligible": "the research step needs a strong profile with structured_output, web_access, file_write and technical_reasoning",
+}
+
+
 def main(argv: list[str] | None = None) -> int:
+    from baton.packet import EngineError
+
+    try:
+        return _main(argv)
+    except EngineError as e:
+        hint = HINTS.get(e.code)
+        # The scratch run is gone by now, so its `baton eligible` pointer is no use.
+        msg = re.sub(r" \(see `baton eligible [^`]*`\)", "", str(e))
+        print(f"baton-worker-research: {msg}" + (f"\n  {hint}" if hint else ""), file=sys.stderr)
+        return 2 if e.code.startswith(("configuration.", "routing.")) else 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="baton-worker-research", description=__doc__.split("\n\n")[0])
     ap.add_argument("--profile", required=True, help="the worker profile to dispatch to")
     ap.add_argument("--home", help="the Baton home holding the profiles (default: BATON_HOME or ~/.baton)")
