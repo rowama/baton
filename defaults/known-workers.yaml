@@ -9,16 +9,33 @@
 # verified:             only an actual live check (date, tool, version).
 # This seed was researched on 2026-11-06; no route has been live-verified.
 # Capabilities and tiers are the maintainer's judgment from the sources.
+# Research update 2026-11-06 (run r_20261107_b862): added models and routes
+# across creators and categories; still no route is live-verified.
+# LiteLLM prefixes and key variables below come from the LiteLLM docs, with
+# litellm 1.108.2 (PyPI, released 2026-11-06) the latest release seen.
 format: baton-known-workers/1
 
 # Never listed below: they depend on the machine (0082).
 machine_dependent: [loopback_network]
 
 models:
+  # --- Anthropic -----------------------------------------------------------
+  # The overview: "All current models support text and image input ...
+  # vision, and tool use"; every Claude model ID is a pinned snapshot.
+  anthropic/claude-fable-5-1:
+    creator: anthropic
+    category: llm
+    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+      - { url: "https://platform.claude.com/docs/en/about-claude/model-deprecations", retrieved: 2026-11-06 }
+    researched: 2026-11-06
   anthropic/claude-opus-5-5:
     creator: anthropic
     category: llm
-    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]
+    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
     tier: strong
     context_tokens: 1000000
     sources:
@@ -27,11 +44,281 @@ models:
   anthropic/claude-sonnet-5-5:
     creator: anthropic
     category: llm
-    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]
+    capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
     tier: standard
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  anthropic/claude-haiku-5-5:
+    creator: anthropic
+    category: llm
+    capabilities: [structured_output, tool_use, vision]
+    tier: basic
+    context_tokens: 1000000
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+      - { url: "https://platform.claude.com/docs/en/about-claude/model-deprecations", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- OpenAI ----------------------------------------------------------------
+  # The models page: "All latest OpenAI models support text and image input";
+  # tools listed include functions. It does not say whether the dateless IDs
+  # are aliases or snapshots, so the direct routes below are alias: true and
+  # these entries describe the models those IDs name today.
+  openai/gpt-6-astra:
+    creator: openai
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    tier: strong
+    context_tokens: 1050000
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  openai/gpt-6.1-sol:
+    creator: openai
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    tier: standard
+    context_tokens: 1050000
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  openai/gpt-6-luna:
+    creator: openai
+    category: llm
+    capabilities: [tool_use, vision]
+    tier: basic
+    context_tokens: 1050000
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  # Open-weight (Apache-2.0 on the Hub); text only per Ollama's page.
+  openai/gpt-oss-120b:
+    creator: openai
+    category: llm
+    # open-weight
+    capabilities: [tool_use, technical_reasoning]
+    tier: standard
+    context_tokens: 131072
+    sources:
+      - { url: "https://huggingface.co/openai/gpt-oss-120b", retrieved: 2026-11-06 }
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://ollama.com/library/gpt-oss", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  openai/gpt-oss-20b:
+    creator: openai
+    category: llm
+    # open-weight
+    capabilities: [tool_use]
+    tier: basic
+    context_tokens: 131072
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://ollama.com/library/gpt-oss", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  # Open-weight speech-to-text (transcribes a supplied file).
+  openai/whisper-large-v3:
+    creator: openai
+    category: transcription
+    # open-weight
+    capabilities: []
+    tier: standard
+    sources:
+      - { url: "https://huggingface.co/openai/whisper-large-v3", retrieved: 2026-11-06 }
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- Google ----------------------------------------------------------------
+  # ai.google.dev/gemini-api/docs/models now redirects to aistudio.google.com.
+  # Codes without -preview/-latest/-exp are stable (pinned) versions.
+  google/gemini-4-argon:
+    creator: google
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning, vision]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  google/gemini-3.8-flash:
+    creator: google
+    category: llm
+    capabilities: [technical_reasoning]
+    tier: standard
+    context_tokens: 1048576
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://openrouter.ai/google/gemini-3.8-flash", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  google/gemini-3.6-flash:
+    creator: google
+    category: llm
+    capabilities: [technical_reasoning]
+    tier: standard
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  google/gemini-3.5-flash-lite:
+    creator: google
+    category: llm
+    capabilities: []
+    tier: basic
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://aistudio.google.com/docs/deprecations", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  google/gemini-3.5-transcribe:
+    creator: google
+    category: transcription
+    capabilities: []
+    tier: standard
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  # Open-weight (Google DeepMind); Ollama shows vision, tools, thinking.
+  google/gemma4:
+    creator: google
+    category: llm
+    # open-weight
+    capabilities: [tool_use, vision]
+    tier: basic
+    context_tokens: 262144
+    sources:
+      - { url: "https://ollama.com/library/gemma4", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- Mistral ---------------------------------------------------------------
+  mistral/mistral-large-4:
+    creator: mistral
+    category: llm
+    # open-weight
+    capabilities: [long_form_writing, technical_reasoning, vision]
+    tier: standard
+    sources:
+      - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
+      - { url: "https://docs.mistral.ai/inference/model-selection-guide", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  # Document OCR (a supplied file in, text out).
+  mistral/mistral-ocr-4-1:
+    creator: mistral
+    category: ocr
+    capabilities: [vision]
+    tier: standard
+    sources:
+      - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
+      - { url: "https://docs.mistral.ai/inference/model-selection-guide", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- DeepSeek --------------------------------------------------------------
+  # The API names deepseek-flash and deepseek-v4-pro are re-pointed over time
+  # (changelog), so the routes are aliases; these entries name the models
+  # the pricing page says they serve today. Weights are MIT (Mistral's page).
+  deepseek/deepseek-v4-pro-0813:
+    creator: deepseek
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
+      - { url: "https://api-docs.deepseek.com/updates", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  deepseek/deepseek-v4.1-flash-1017:
+    creator: deepseek
+    category: llm
+    # open-weight
+    capabilities: [technical_reasoning, vision]
+    tier: standard
+    context_tokens: 1000000
+    sources:
+      - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
+      - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- xAI ---------------------------------------------------------------------
+  # docs.x.ai: <name> and <name>-latest are moving aliases; <name>-<date>
+  # is fixed. Only the dated id is recorded as a model.
+  xai/grok-4.20-0309-reasoning:
+    creator: xai
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- Qwen (Alibaba) ------------------------------------------------------------
+  qwen/qwen3.8-max:
+    creator: qwen
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning, vision]
+    tier: strong
+    context_tokens: 1000000
+    sources:
+      - { url: "https://www.alibabacloud.com/help/en/model-studio/models", retrieved: 2026-11-06 }
+      - { url: "https://www.alibabacloud.com/help/en/model-studio/text-generation-model", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  # Open-weight; Groq lists it as a preview model.
+  qwen/qwen3.8-27b:
+    creator: qwen
+    category: llm
+    # open-weight
+    capabilities: [vision]
+    tier: basic
+    context_tokens: 131072
+    sources:
+      - { url: "https://huggingface.co/Qwen", retrieved: 2026-11-06 }
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+
+  # --- Other creators (no supported route confirmed this run) -----------------
+  meta/muse-spark-1.3:
+    creator: meta
+    category: llm
+    capabilities: [vision]
+    tier: strong
+    context_tokens: 1048576
+    sources:
+      - { url: "https://dev.meta.ai/docs/models.md", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  cohere/command-a-plus-05-2026:
+    creator: cohere
+    category: llm
+    capabilities: [vision]
+    tier: standard
+    context_tokens: 128000
+    sources:
+      - { url: "https://docs.cohere.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  cohere/cohere-transcribe-03-2026:
+    creator: cohere
+    category: transcription
+    capabilities: []
+    tier: standard
+    sources:
+      - { url: "https://docs.cohere.com/docs/models", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  moonshotai/kimi-k3:
+    creator: moonshotai
+    category: llm
+    capabilities: []
+    tier: strong
+    context_tokens: 1048576
+    sources:
+      - { url: "https://platform.kimi.ai/docs/pricing/chat", retrieved: 2026-11-06 }
+    researched: 2026-11-06
+  zai/glm-5:
+    creator: zai
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: standard
+    context_tokens: 200000
+    sources:
+      - { url: "https://docs.z.ai/guides/llm/glm-5", retrieved: 2026-11-06 }
+      - { url: "https://docs.z.ai/guides/overview/pricing", retrieved: 2026-11-06 }
     researched: 2026-11-06
 
 providers:
@@ -40,6 +327,43 @@ providers:
     api_key_env: ANTHROPIC_API_KEY     # read by LiteLLM 1.106.6
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+  openai:
+    kind: direct_api
+    api_key_env: OPENAI_API_KEY        # LiteLLM docs, providers/openai
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/openai", retrieved: 2026-11-06 }
+  gemini:
+    kind: direct_api
+    api_key_env: GEMINI_API_KEY        # LiteLLM docs, providers/gemini
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+  mistral:
+    kind: direct_api
+    api_key_env: MISTRAL_API_KEY       # LiteLLM docs, providers/mistral
+    sources:
+      - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/mistral", retrieved: 2026-11-06 }
+  deepseek:
+    kind: direct_api
+    api_key_env: DEEPSEEK_API_KEY      # LiteLLM docs, providers/deepseek
+    sources:
+      - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/deepseek", retrieved: 2026-11-06 }
+  xai:
+    kind: direct_api
+    api_key_env: XAI_API_KEY           # LiteLLM docs, providers/xai
+    sources:
+      - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/xai", retrieved: 2026-11-06 }
+  # Groq hosts other creators' (mostly open-weight) models.
+  groq:
+    kind: intermediary
+    api_key_env: GROQ_API_KEY          # LiteLLM docs, providers/groq
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/groq", retrieved: 2026-11-06 }
   openrouter:
     kind: intermediary
     api_key_env: OPENROUTER_API_KEY    # read by LiteLLM 1.106.6
@@ -65,6 +389,20 @@ routes:
     adapter: litellm_api
     invocation: anthropic/claude-sonnet-5-5
     supported: true
+  - model_id: anthropic/claude-fable-5-1
+    provider: anthropic
+    adapter: litellm_api
+    invocation: anthropic/claude-fable-5-1
+    supported: true
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
+  - model_id: anthropic/claude-haiku-5-5
+    provider: anthropic
+    adapter: litellm_api
+    invocation: anthropic/claude-haiku-5-5
+    supported: true
+    sources:
+      - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
   # The same model through an intermediary: one identity, another route.
   # OpenRouter's id is anthropic/claude-opus-5.5; LiteLLM 1.106.6 lists the
   # openrouter provider. OpenRouter does not state which host serves it.
@@ -75,6 +413,251 @@ routes:
     supported: true
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  - model_id: anthropic/claude-sonnet-5-5
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/anthropic/claude-sonnet-5.5
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/anthropic/claude-sonnet-5.5", retrieved: 2026-11-06 }
+  - model_id: anthropic/claude-haiku-5-5
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/anthropic/claude-haiku-5.5
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/anthropic/claude-haiku-5.5", retrieved: 2026-11-06 }
+  - model_id: anthropic/claude-fable-5-1
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/anthropic/claude-fable-5.1
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/anthropic/claude-fable-5.1", retrieved: 2026-11-06 }
+
+  # OpenAI direct. The models page does not say whether these dateless IDs
+  # are pinned, so they are treated as aliases (no model_id).
+  - creator: openai
+    provider: openai
+    adapter: litellm_api
+    invocation: openai/gpt-6-astra
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    tier: strong
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+  - creator: openai
+    provider: openai
+    adapter: litellm_api
+    invocation: openai/gpt-6.1-sol
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    tier: standard
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+  - creator: openai
+    provider: openai
+    adapter: litellm_api
+    invocation: openai/gpt-6-luna
+    alias: true
+    supported: true
+    capabilities: [tool_use, vision]
+    tier: basic
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
+  - creator: openai
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/openai/gpt-6-astra
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    tier: strong
+    sources:
+      - { url: "https://openrouter.ai/openai/gpt-6-astra", retrieved: 2026-11-06 }
+  # gpt-oss: named open-weight releases, hosted by intermediaries.
+  - model_id: openai/gpt-oss-120b
+    provider: groq
+    adapter: litellm_api
+    invocation: groq/openai/gpt-oss-120b
+    supported: true
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/groq", retrieved: 2026-11-06 }
+  - model_id: openai/gpt-oss-20b
+    provider: groq
+    adapter: litellm_api
+    invocation: groq/openai/gpt-oss-20b
+    supported: true
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/groq", retrieved: 2026-11-06 }
+  - model_id: openai/gpt-oss-120b
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/openai/gpt-oss-120b
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/openai/gpt-oss-120b", retrieved: 2026-11-06 }
+  # Transcription goes through litellm.transcription(), not completion();
+  # not confirmed that the litellm_api adapter makes that call.
+  - model_id: openai/whisper-large-v3
+    provider: groq
+    adapter: litellm_api
+    invocation: groq/whisper-large-v3
+    supported: false
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/groq", retrieved: 2026-11-06 }
+
+  # Google direct (AI Studio key; LiteLLM prefix gemini/).
+  - model_id: google/gemini-4-argon
+    provider: gemini
+    adapter: litellm_api
+    invocation: gemini/gemini-4-argon
+    supported: true
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+  - model_id: google/gemini-3.8-flash
+    provider: gemini
+    adapter: litellm_api
+    invocation: gemini/gemini-3.8-flash
+    supported: true
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+  - model_id: google/gemini-3.6-flash
+    provider: gemini
+    adapter: litellm_api
+    invocation: gemini/gemini-3.6-flash
+    supported: true
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+  - model_id: google/gemini-3.5-flash-lite
+    provider: gemini
+    adapter: litellm_api
+    invocation: gemini/gemini-3.5-flash-lite
+    supported: true
+    sources:
+      - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+  - model_id: google/gemini-3.8-flash
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/google/gemini-3.8-flash
+    supported: true
+    sources:
+      - { url: "https://openrouter.ai/google/gemini-3.8-flash", retrieved: 2026-11-06 }
+  # Transcription call; see the whisper note above.
+  - model_id: google/gemini-3.5-transcribe
+    provider: gemini
+    adapter: litellm_api
+    invocation: gemini/gemini-3.5-transcribe
+    supported: false
+    sources:
+      - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
+
+  # Mistral direct.
+  - model_id: mistral/mistral-large-4
+    provider: mistral
+    adapter: litellm_api
+    invocation: mistral/mistral-large-4
+    supported: true
+    sources:
+      - { url: "https://docs.mistral.ai/inference/model-selection-guide", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/mistral", retrieved: 2026-11-06 }
+
+  # DeepSeek direct: names re-pointed over time, so aliases.
+  - creator: deepseek
+    provider: deepseek
+    adapter: litellm_api
+    invocation: deepseek/deepseek-v4-pro
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    sources:
+      - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/deepseek", retrieved: 2026-11-06 }
+  - creator: deepseek
+    provider: deepseek
+    adapter: litellm_api
+    invocation: deepseek/deepseek-flash
+    alias: true
+    supported: true
+    capabilities: [technical_reasoning, vision]
+    tier: standard
+    sources:
+      - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
+      - { url: "https://api-docs.deepseek.com/updates", retrieved: 2026-11-06 }
+  # OpenRouter's page titles this "DeepSeek V4 Pro 0423" while DeepSeek
+  # says deepseek-v4-pro serves V4-Pro-0813: underlying model unknown.
+  - creator: deepseek
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/deepseek/deepseek-v4-pro
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    sources:
+      - { url: "https://openrouter.ai/deepseek/deepseek-v4-pro", retrieved: 2026-11-06 }
+
+  # xAI direct.
+  - model_id: xai/grok-4.20-0309-reasoning
+    provider: xai
+    adapter: litellm_api
+    invocation: xai/grok-4.20-0309-reasoning
+    supported: true
+    sources:
+      - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
+      - { url: "https://docs.litellm.ai/docs/providers/xai", retrieved: 2026-11-06 }
+  - creator: xai
+    provider: xai
+    adapter: litellm_api
+    invocation: xai/grok-4.7
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    sources:
+      - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
+  - creator: xai
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/x-ai/grok-4.7
+    alias: true
+    supported: true
+    capabilities: [long_form_writing, technical_reasoning]
+    tier: strong
+    sources:
+      - { url: "https://openrouter.ai/x-ai/grok-4.7", retrieved: 2026-11-06 }
+
+  # Qwen open-weight via Groq (preview: "may be discontinued at short notice").
+  - model_id: qwen/qwen3.8-27b
+    provider: groq
+    adapter: litellm_api
+    invocation: groq/qwen/qwen3.8-27b
+    supported: true
+    sources:
+      - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
+
+  # OpenRouter's router: picks a model per request.
+  - creator: openrouter
+    provider: openrouter
+    adapter: litellm_api
+    invocation: openrouter/openrouter/auto
+    alias: true
+    supported: true
+    capabilities: [long_form_writing]
+    tier: standard
+    sources:
+      - { url: "https://openrouter.ai/openrouter/auto", retrieved: 2026-11-06 }
+
   # A harness pinned to a model: the profile's model is passed as --model.
   # The pinned IDs, not aliases such as opus, so the identity holds (the
   # model-config page: a full model name pins the version; 5.x models run
