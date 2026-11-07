@@ -276,4 +276,11 @@ New execution adapters for additional modalities, project-specific exceptions, w
 - **Review:** clean
 - **Accepted:** pending owner review
 
+### Follow-up: `baton-worker-research` command
+
+- **Commit:** 2026-11-worker-setup: baton-worker-research command
+- **Summary:** Run with a system `python3`, `research.py` died on a missing `pydantic`. The owner chose to make the researcher a command installed like `baton` (0083 amended): `tools/worker-research/` is now its own package (`pyproject.toml`, `src/baton_worker_research/` with `cli.py` and the recipe as package data), depending on Baton by an editable path, installed with `uv tool install --editable tools/worker-research` as `~/.local/bin/baton-worker-research`. `--repo` defaults to the checkout it was installed from, and reports to `<repo>/tools/worker-research/reports/`, so it runs from any directory; a directory that is not a Baton checkout is a usage error. Design docs: `workers.md` §6.4, `layouts.md` §4.1; the tool README and the seed file's comment name the command. Tests (`tests/test_worker_research.py`): the researcher's own wheel holds the recipe, declares `baton-worker-research` and requires Baton; Baton's wheel still ships nothing from `tools/`; the default checkout is this repository and a non-checkout `--repo` exits 2; the existing proposal tests run against the moved module.
+- **Review:** clean
+- **Accepted:** pending owner review
+
 All acceptance criteria are covered by tests. Not done here: a real broad research run (it needs a maintainer and a web-capable profile; criterion 1 asks that one *can* be launched) and a live `--verify` against a real account (each costs quota; 0081).

@@ -1,5 +1,5 @@
 # Maintainer-only research recipe (§6.4, Decision 0083). Never shipped: tools/ is
-# outside the wheel. Run it with tools/worker-research/research.py.
+# outside the wheel. Run it with baton-worker-research.
 id: worker-research
 version: 1
 format: baton-recipe/1

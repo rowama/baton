@@ -1,0 +1,23 @@
+# Maintainer-only researcher (§6.4, Decisions 0074, 0083). A separate package so
+# Baton's own wheel never ships it. Install from the checkout, editable, so it
+# always runs this checkout's Baton and recipe:
+#   uv tool install --editable tools/worker-research
+[project]
+name = "baton-worker-research"
+version = "0.1.0"
+description = "Propose updates to Baton's known-workers data (maintainers only)"
+requires-python = ">=3.11"
+dependencies = ["baton"]
+
+[project.scripts]
+baton-worker-research = "baton_worker_research.cli:main"
+
+[tool.uv.sources]
+baton = { path = "../..", editable = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/baton_worker_research"]

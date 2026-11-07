@@ -2,8 +2,8 @@
 #
 # Shared, read-only data about models and the routes that reach them. The
 # worker resource manager (`baton workers setup`) turns supported routes into
-# profiles; it never changes this file. Maintainers update it through the
-# research utility in tools/worker-research/ and review the change.
+# profiles; it never changes this file. Maintainers update it with
+# baton-worker-research (tools/worker-research/) and review the change.
 #
 # sources / researched: what research found, with where and when.
 # verified:             only an actual live check (date, tool, version).

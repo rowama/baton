@@ -1,13 +1,16 @@
 """Propose an update to defaults/known-workers.yaml (maintainers only; §6.4, Decision 0083).
 
-    python tools/worker-research/research.py --profile <name> [--home DIR] [--repo DIR] [--reports DIR] [--timeout S]
+    baton-worker-research --profile <name> [--home DIR] [--repo DIR] [--reports DIR] [--timeout S]
+
+Installed from a source checkout with ``uv tool install --editable tools/worker-research``.
 
 Runs the one-step ``worker-research`` recipe in a scratch Baton project and
 dispatches it to ``--profile`` (a profile on this machine). The proposed file
 is validated with ``baton.known_workers``; a proposal that adds or changes a
 ``verified`` entry is refused too, because research is not a live check. A
 valid proposal replaces ``<repo>/defaults/known-workers.yaml`` for review with
-``git diff``; the report is written to ``reports/<date>.md`` here. Anything
+``git diff``; the report is written to ``<repo>/tools/worker-research/reports/<date>.md``.
+``--repo`` defaults to the checkout this package was installed from. Anything
 refused is saved under ``reports/`` and the repository file is left alone.
 
 Exit codes: 0 written, 1 refused or the worker failed, 2 usage.
@@ -26,11 +29,18 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
+RECIPE = HERE / "recipe"
+KNOWN_WORKERS = Path("defaults") / "known-workers.yaml"
+REPORTS = Path("tools") / "worker-research" / "reports"
+
+
+def default_checkout() -> Path | None:
+    """The source checkout an editable install runs from (tools/worker-research/src/<pkg>)."""
+    root = HERE.parents[3] if len(HERE.parents) > 3 else None
+    return root if root is not None and (root / KNOWN_WORKERS).is_file() else None
 
 
 def _baton():
-    sys.path.insert(0, str(REPO / "src"))
     from baton import known_workers, vocab
     from baton.adapters import ADAPTERS
     from baton.data import load_yaml
@@ -86,18 +96,22 @@ def report_markdown(output: dict[str, Any], today: str, profile: str, problems: 
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="research.py", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="baton-worker-research", description=__doc__.split("\n\n")[0])
     ap.add_argument("--profile", required=True, help="the worker profile to dispatch to")
     ap.add_argument("--home", help="the Baton home holding the profiles (default: BATON_HOME or ~/.baton)")
-    ap.add_argument("--repo", default=str(REPO), help="the source checkout to update (default: this one)")
-    ap.add_argument("--reports", default=str(HERE / "reports"), help="where the report goes (default: reports/ here)")
+    ap.add_argument("--repo", help="the source checkout to update (default: the one this was installed from)")
+    ap.add_argument("--reports", help="where the report goes (default: <repo>/tools/worker-research/reports)")
     ap.add_argument("--timeout", type=float, default=None, help="seconds to wait for the worker")
     ap.add_argument("--today", default=dt.date.today().isoformat(), help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     known_workers, vocab, ADAPTERS, _load_yaml, Api, init = _baton()
 
-    repo = Path(args.repo).resolve()
-    target = repo / "defaults" / "known-workers.yaml"
+    repo = Path(args.repo).resolve() if args.repo else default_checkout()
+    if repo is None:
+        ap.error("not installed from a Baton checkout; name one with --repo")
+    target = repo / KNOWN_WORKERS
+    if not target.is_file():
+        ap.error(f"{repo} is not a Baton checkout (no {KNOWN_WORKERS})")
     current = target.read_text(encoding="utf-8")
     voc = vocab.load(vocab.DEFAULT)
     machine_dependent = (_load_yaml(target) or {}).get("machine_dependent") or []
@@ -108,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         "adapters": sorted(ADAPTERS),
         "capabilities": {"capabilities": voc.capabilities, "tiers": voc.tiers, "machine_dependent": machine_dependent},
     }
-    reports = Path(args.reports)
+    reports = Path(args.reports) if args.reports else repo / REPORTS
     scratch = Path(tempfile.mkdtemp(prefix="baton-worker-research-"))
     try:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=scratch, check=True)
@@ -116,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             subprocess.run(["git", "config", k, v], cwd=scratch, check=True)
         init(scratch, bare=True)
         api = Api.open(scratch, director_id="worker-research@localhost", home=args.home)
-        ref = api.vendor(HERE / "recipe")["recipe"]
+        ref = api.vendor(RECIPE)["recipe"]
         run = api.start(ref, inputs)["run_id"]
         out = api.dispatch(run, "research", args.profile, wait=True)
         if out.get("outcome") is None and args.timeout is not None:
@@ -129,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         art = next(a for a in doc["artifacts"] if a["name"] == "known_workers")
         proposal = (result / art["path"]).read_text(encoding="utf-8")
         problems = check(proposal, current, repo)
-        reports.mkdir(exist_ok=True)
+        reports.mkdir(parents=True, exist_ok=True)
         (reports / f"{args.today}.md").write_text(report_markdown(doc.get("output") or {}, args.today, args.profile, problems), encoding="utf-8")
         if problems:
             (reports / f"{args.today}.refused-known-workers.yaml").write_text(proposal, encoding="utf-8")
