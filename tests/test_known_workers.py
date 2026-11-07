@@ -30,12 +30,16 @@ def test_the_shipped_seed_validates_and_spans_harness_direct_and_intermediary():
     kinds = {kw.providers[r.provider].kind for r in kw.routes if r.supported}
     assert {"harness", "direct_api", "intermediary"} <= kinds
     opus = [r for r in kw.routes if r.model_id == "anthropic/claude-opus-5-5"]
-    # One identity, two routes with their own invocation identifiers.
-    assert {r.provider for r in opus} == {"anthropic", "openrouter"} and len({r.invocation for r in opus}) == 2
-    # Harness defaults are mutable aliases: no identity, a creator.
+    # One identity, several routes with their own invocation identifiers: direct,
+    # an intermediary, and a harness pinned to it.
+    assert {r.provider for r in opus} == {"anthropic", "openrouter", "claude_code"} and len({r.invocation for r in opus}) == 3
+    # A harness either runs its default (a mutable alias: no identity, a creator)
+    # or is pinned to a known model by its full ID.
     for r in kw.routes:
-        if kw.providers[r.provider].kind == "harness":
+        if kw.providers[r.provider].kind == "harness" and r.invocation is None:
             assert r.alias and r.model_id is None and r.creator
+        elif kw.providers[r.provider].kind == "harness":
+            assert not r.alias and r.model_id in kw.models and r.invocation == r.model_id.split("/", 1)[1]
     # Research and verification are separate: nothing in the seed claims a live check.
     assert all(r.verified is None for r in kw.routes)
     assert all(m.sources and m.researched for m in kw.models.values())

@@ -64,6 +64,34 @@ def test_detected_harnesses_become_profiles_and_missing_ones_say_why(home):
     assert resources.ownership(body) == "untouched"
 
 
+
+def test_a_harness_can_be_pinned_to_a_model(home):
+    out = run_setup(home, found("claude_code"))
+    assert sorted(out["written"]) == ["claude-code", "claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"]
+    opus = gen(home, "claude-code-claude-opus-5-5")
+    # The identity is the model's; the route is the harness, with the model passed as --model.
+    assert opus["adapter"] == "claude_code" and opus["provider"] == "claude_code"
+    assert opus["model_id"] == "anthropic/claude-opus-5-5" and opus["model"] == "claude-opus-5-5"
+    assert opus["creator"] == "anthropic" and opus["auth"] == {"mode": "cli_login"}
+    assert opus["env_deny"] == ["ANTHROPIC_API_KEY"]
+    assert {"shell", "file_write", "repo_workspace", "technical_reasoning"} <= set(opus["capabilities"])
+    assert opus["tier"] == "strong" and gen(home, "claude-code-claude-sonnet-5-5")["tier"] == "standard"
+    # The default-model profile stays an alias, with no model identity.
+    default = gen(home, "claude-code")
+    assert "model" not in default and "model_id" not in default
+
+
+def test_a_pinned_harness_profile_runs_its_model(home, tmp_path):
+    from baton.adapters import ADAPTERS
+    from baton.models import WorkerProfile
+
+    run_setup(home, found("claude_code"))
+    body = gen(home, "claude-code-claude-sonnet-5-5")
+    profile = WorkerProfile.model_validate({k: v for k, v in body.items()})
+    argv = ADAPTERS["claude_code"].argv("claude", "do it", [], profile)
+    assert argv[-2:] == ["--model", "claude-sonnet-5-5"]
+
+
 def test_not_logged_in_is_not_a_profile(home):
     out = run_setup(home, found("claude_code", logged_in=False))
     assert out["written"] == [] and any("not logged in" in s["reason"] for s in out["skipped"])
@@ -128,7 +156,9 @@ def test_owner_profiles_are_never_touched(home):
     mine = "adapter: claude_code\ncreator: anthropic\nauth: { mode: cli_login }\n"
     (home / "workers" / "claude-code.yaml").write_text(mine, encoding="utf-8")
     out = run_setup(home, found("codex", "claude_code"))
-    assert out["written"] == [] and {c["profile"] for c in out["collisions"]} == {"codex", "claude-code"}
+    # Only the pinned-model profiles, which no owner file claims, are written.
+    assert sorted(out["written"]) == ["claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"]
+    assert {c["profile"] for c in out["collisions"]} == {"codex", "claude-code"}
     assert (home / "workers" / "claude-code.yaml").read_text(encoding="utf-8") == mine
     assert not (home / "workers" / "codex.yaml").exists()
 

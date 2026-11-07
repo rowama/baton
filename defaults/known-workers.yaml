@@ -75,6 +75,27 @@ routes:
     supported: true
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  # A harness pinned to a model: the profile's model is passed as --model.
+  # The pinned IDs, not aliases such as opus, so the identity holds (the
+  # model-config page: a full model name pins the version; 5.x models run
+  # with the 1M window by default). The model's capabilities plus the
+  # harness's tools.
+  - model_id: anthropic/claude-opus-5-5
+    provider: claude_code
+    adapter: claude_code
+    invocation: claude-opus-5-5
+    supported: true
+    capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    sources:
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-07 }
+  - model_id: anthropic/claude-sonnet-5-5
+    provider: claude_code
+    adapter: claude_code
+    invocation: claude-sonnet-5-5
+    supported: true
+    capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    sources:
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-07 }
   # Harnesses on their own default model: a mutable alias, so no model_id.
   # Capabilities are the harness's (§6.1), checked against claude 2.1.316
   # and codex-cli 0.166.0 for the adapters (§6.3).

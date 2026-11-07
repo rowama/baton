@@ -38,6 +38,17 @@ claude-code-sub:
   path: { search: [nvm] }
   args: { write: ["--permission-mode", "bypassPermissions"] }   # the preset's default; shown as an example
 
+claude-code-opus:                      # the same harness pinned to one model
+  adapter: claude_code
+  creator: anthropic
+  model_id: anthropic/claude-opus-5-5  # the model's identity, the same as on the direct API
+  model: claude-opus-5-5               # passed as --model; the full ID pins the version, an alias such as opus does not
+  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+  tier: strong
+  context_tokens: 1000000
+  auth: { mode: cli_login }
+  env_deny: [ANTHROPIC_API_KEY]
+
 owner:
   adapter: manual
   creator: human                       # a person's identity is human/<person>
@@ -113,7 +124,7 @@ Writing profiles by hand needs knowledge that is not the owner's: model strings,
 | `machine_dependent` | Capabilities never listed in this data, because they depend on the machine (`loopback_network`): a profile gets one only from the owner's declaration or a probe (Decision: [0082](../decisions/0082-machine-dependent-capabilities.md)) |
 | `models` | Keyed by `model_id` (§6.1): `creator`, intrinsic `capabilities`, `tier`, `context_tokens`, `category` (`llm`, `vision`, `transcription`…), `sources` (`url`, `retrieved`), `researched`, `retired` |
 | `providers` | How access is obtained: `kind` `direct_api` \| `intermediary` \| `harness` \| `local`, with sources |
-| `routes` | One way to run a model: `model_id` (or, for a mutable alias, `alias: true` and a `creator`), `provider`, `adapter`, `invocation` (the profile's `model`; empty only for a harness's default model), `supported`, the capabilities the route adds (a harness's tools), `tier`/`context_tokens` for an alias route, `sources`, and `verified` (`date`, `tool`, `version`) only for an actual live check |
+| `routes` | One way to run a model: `model_id` (or, for a mutable alias, `alias: true` and a `creator`), `provider`, `adapter`, `invocation` (the profile's `model`; empty only for a harness's default model, and a harness pinned to a model is a route like any other: `model_id` plus the invocation it passes as `--model`), `supported`, the capabilities the route adds (a harness's tools), `tier`/`context_tokens` for an alias route, `sources`, and `verified` (`date`, `tool`, `version`) only for an actual live check |
 
 Research claims and live checks are separate fields, so an unverified finding is never shown as tested. Research may cover models no adapter can run yet: such a route is `supported: false` and never becomes a profile. Validation checks the schema, the capability and tier vocabulary, that a supported route names an existing adapter, that every route's model and provider exist, that a `model_id` starts with its creator, that machine-dependent capabilities are absent, provenance on every model, and duplicate routes. Vendors and models here are profile data, like the adapters; recipes stay model-neutral and their lint is unchanged (§5.3).
 

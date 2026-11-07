@@ -290,4 +290,11 @@ New execution adapters for additional modalities, project-specific exceptions, w
 - **Review:** clean
 - **Accepted:** pending owner review
 
+### Follow-up: Claude Code pinned to a model
+
+- **Commit:** 2026-11-worker-setup: Claude Code routes pinned to a model
+- **Summary:** The owner asked where a CLI worker's model is set. Profiles and adapters already pass `model` as `--model`, and a harness route could already carry a `model_id`, but the seed listed the harnesses only on their default model, so setup generated no pinned CLI profiles. The seed now adds `claude_code` routes for `anthropic/claude-opus-5-5` and `anthropic/claude-sonnet-5-5` with the full IDs as invocation (Claude Code's model-config page: a full model name pins the version, an alias moves; 5.x models run with the 1M window by default). Setup generates `claude-code-claude-opus-5-5` and `claude-code-claude-sonnet-5-5` beside `claude-code`; they share identity with the direct-API profiles, so independence treats them as the same model. Codex stays on its default until its model IDs are researched (owner's call). Design docs: `workers.md` §6.1 example, §6.4 routes row. Tests: setup writes the pinned profiles with model, model_id, harness capabilities and the model's tier, and the default stays an alias; the adapter passes `--model`; the seed check allows a harness route pinned to a known model; owner files still win.
+- **Review:** clean
+- **Accepted:** pending owner review
+
 All acceptance criteria are covered by tests. Not done here: a real broad research run (it needs a maintainer and a web-capable profile; criterion 1 asks that one *can* be launched) and a live `--verify` against a real account (each costs quota; 0081).
