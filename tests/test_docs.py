@@ -17,7 +17,7 @@ from conftest import ROOT
 
 DOCS = ROOT / "docs"
 INDEX = DOCS / "README.md"
-SCANNED = ["src", "tests", "skills", "examples", "defaults", "builtin", "docs", "README.md", "CLAUDE.md"]
+SCANNED = ["src", "tests", "skills", "examples", "defaults", "builtin", "docs", "README.md", "CLAUDE.md", "AGENTS.md"]
 TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".json", ".j2", ".txt", ".toml"}
 REFERENCE = re.compile(r"§(\d+(?:\.\d+)?)(?: #(\d+))?")
 INDEX_ROW = re.compile(r"^\| §(\d+(?:\.\d+)?)(?: #(\d+))? \| \[[^\]]*\]\(([^)#]+)\)")
@@ -25,6 +25,8 @@ HEADING = re.compile(r"^(?:## (\d+)\. |### (\d+\.\d+) )")
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 STATUSES = {"proposed", "accepted", "deferred", "superseded"}
 CHANGE_STATUSES = {"proposed", "accepted", "in-progress", "done", "abandoned"}
+NOT_CHANGE_DOCS = {"TEMPLATE.md", "REGISTER.md"}
+REGISTER_ROW = re.compile(r"^\| \[([^\]]+)\]\(([^)]+)\) \| (.*?) \| (\S+) \| (\S+) \| .*\|$")
 
 
 def _index() -> tuple[dict[str, Path], dict[int, Path]]:
@@ -152,7 +154,7 @@ def test_decision_records_are_well_formed():
 
 def test_change_docs_name_existing_design_docs_and_decisions():
     decisions = {p.name[:4] for p in (DOCS / "decisions").glob("*.md")}
-    changes = [p for p in sorted((DOCS / "changes").glob("*.md")) if p.name != "TEMPLATE.md"]
+    changes = [p for p in sorted((DOCS / "changes").glob("*.md")) if p.name not in NOT_CHANGE_DOCS]
     for path in changes:
         meta = _front_matter(path)
         assert meta["id"] == path.stem, path.name
@@ -164,3 +166,26 @@ def test_change_docs_name_existing_design_docs_and_decisions():
         text = path.read_text(encoding="utf-8")
         for heading in ("## Request", "## Design", "## Plan", "## Log"):
             assert f"\n{heading}\n" in text, f"{path.name}: missing {heading}"
+
+
+def test_change_register_matches_change_docs():
+    """docs/changes/REGISTER.md has one row per change doc, matching its front matter (AGENTS.md)."""
+    rows: dict[str, list[tuple[str, str, str, str]]] = {}
+    for line in (DOCS / "changes" / "REGISTER.md").read_text(encoding="utf-8").splitlines():
+        m = REGISTER_ROW.match(line)
+        if m:
+            rows.setdefault(m.group(1), []).append(m.group(2, 3, 4, 5))
+    problems = []
+    changes = [p for p in sorted((DOCS / "changes").glob("*.md")) if p.name not in NOT_CHANGE_DOCS]
+    for path in changes:
+        found = rows.pop(path.stem, [])
+        if len(found) != 1:
+            problems.append(f"{path.name}: {len(found)} register rows (want 1)")
+            continue
+        link, title, status, level = found[0]
+        meta = _front_matter(path)
+        expected = (path.name, meta["title"], meta["status"], meta["level"])
+        if (link, title, status, level) != expected:
+            problems.append(f"{path.name}: register row {(link, title, status, level)} != front matter {expected}")
+    problems += [f"register row {name} has no change doc" for name in rows]
+    assert not problems, "docs/changes/REGISTER.md is out of date (see AGENTS.md):\n" + "\n".join(problems)

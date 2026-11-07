@@ -9,7 +9,7 @@ How the docs are laid out, and where every § lives. Section numbers (§) are st
 | [principles.md](principles.md) | Ground rules (§0), principles, guarantees, non-goals and key design decisions (§1), the concept budget (§2) | Always |
 | [design/](design/) | The design, one file per topic (§3–§15), plus the testing strategy and definition of done (§17, §19) | The files a change doc lists under `touches:`, and any § you follow from them |
 | [decisions/](decisions/) | One record per owner decision (`NNNN-<slug>.md`: context, decision, date, status). `status: proposed` is an open decision: never decide it silently | The records a change doc lists under `decisions:`; any `proposed` record the work touches |
-| [changes/](changes/) | One change doc per piece of work (`YYYY-MM-<slug>.md`), from [TEMPLATE.md](changes/TEMPLATE.md): request, design, plan and log | The one you are working on |
+| [changes/](changes/) | One change doc per piece of work (`YYYY-MM-<slug>.md`), from [TEMPLATE.md](changes/TEMPLATE.md): request, design, plan and log. [REGISTER.md](changes/REGISTER.md) lists every change with its status | The register, to find work or a status; then the one you are working on |
 | [history/build-phases.md](history/build-phases.md) | §16: the build order of Phases 1–17, frozen | When you need to know how something was first built |
 
 The design files:
