@@ -1,7 +1,7 @@
 ---
 id: 2026-11-capability-confidence
 title: "Capabilities are likely until used; harness tooling is turned on per step and verified by use"
-status: in-progress
+status: done
 level: standard
 decisions: ["0081", "0082", "0084", "0085", "0086", "0087"]   # amends 0081
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/layouts.md, principles.md]
@@ -161,5 +161,17 @@ Answered by the owner, 2026-11-08 (all four as suggested):
   - `capability_states.schema_gate` counts failures per profile machine-wide (`failures` on the `structured_output` entry); a pass resets the count; the third failure in a row records `absent`. `engine.observe_schema_gate` runs after every intake (supervised completion and `submit`) and records `capability_observed` on the change.
   - Docs: §6.1.
   - Tests (`tests/test_capability_states.py`): two failures change nothing, the third makes it absent and routes to the other profile with one event carrying attempt 3; a pass resets the count; counts are per profile; a tool map may not name a model-quality capability.
+- **Review:** clean (self-review)
+- **Accepted:** pending owner review
+
+### 4. Web-step recommendation
+
+- **Commit:** 2026-11-capability-confidence: Web-step recommendation
+- **Summary:**
+  - `routing.py`: `web_steps`, `web_capable` (claims `web_access` in any state but `absent`) and `web_advice`, with one plain-words `WEB_ADVICE` (install Claude Code or the Codex CLI, log in with the subscription, `baton workers setup`; why: Baton turns their web tools on for exactly those steps).
+  - `doctor` adds one warning and `web_advice {steps, advice}` while a vendored recipe has web steps no worker can do; nothing when one can, so a healthy `doctor` stays one line. `start` and `start --from-plan` carry `web_advice` for the recipe started; framing's pending select decision carries it for the proposed parts whose recipes need the web (`frame.py`).
+  - fit-check proposes a next step in words, not a recipe in the record, so its runs get the advice at `start` of the recipe that follows, not when its verdict is shown.
+  - The Director skill (§13.3) and §13.4 say to pass the advice on before that work starts, and in onboarding.
+  - Tests (`tests/test_web_advice.py`): `doctor` advises only while no worker can search, and again once the only one is `absent`; `start` carries it and a recipe without web steps does not; framing's choice names the parts that need the web; the skill says to pass it on.
 - **Review:** clean (self-review)
 - **Accepted:** pending owner review

@@ -2128,7 +2128,19 @@ class Api:
         out: dict[str, Any] = {"run_id": ctx.run_id}
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
+        self._add_web_advice(out, loaded.recipe)
         return out
+
+    def _add_web_advice(self, out: dict[str, Any], recipe: Any) -> None:
+        """A recipe the owner is about to run has web steps no worker here can do: say how to get one (§13.4)."""
+        from .routing import web_advice
+
+        try:
+            adv = web_advice(recipe, self.project.profiles())
+        except EngineError:
+            return
+        if adv is not None:
+            out["web_advice"] = adv
 
     def _start_from_plan(self, ref: str, recipe: str | None, inputs: dict[str, Any] | None, title: str | None) -> dict[str, Any]:
         """``start --from-plan <part>``: a part of a process plan, started as its framing run recorded it (§11.6; Decision 0066)."""
@@ -2144,6 +2156,7 @@ class Api:
         leases.ensure()
         out: dict[str, Any] = {"run_id": ctx.run_id, "from_plan": res}
         self._after(ctx, leases, 0, out, paths)  # publishes the plan, or holds this run on its conflict (Decision 0072)
+        self._add_web_advice(out, ctx.recipe.recipe)
         # One checkpoint holds the framing run's record, the new run, the plan and anything vendored.
         from . import docs
 

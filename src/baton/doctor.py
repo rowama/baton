@@ -532,6 +532,9 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
             if i["status"] == "open":
                 warnings.append(f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}")
     warnings += [f"no healthy profile on this machine can do {s}" for s in uncovered]
+    web = _web_advice(project, profiles) if only is None else None
+    if web is not None:
+        warnings.append(f"steps that search the web have no worker here ({', '.join(web['steps'])}): {web['advice']}")
     from .resources import readiness
 
     worker_setup = readiness(project.home)
@@ -545,5 +548,23 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         warnings.append(f"{project.root} is on a Windows drive under WSL; keep repos on the Linux filesystem for speed (§15.1)")
     ok = not problems
     line = f"doctor: {len(reports)} profile(s) ready" if ok else f"doctor: {len(problems)} problem(s)"
-    return {"ok": ok, "line": line, "problems": problems, "warnings": warnings, "profiles": reports, "uncovered_steps": uncovered,
-            "worker_setup": worker_setup}
+    out = {"ok": ok, "line": line, "problems": problems, "warnings": warnings, "profiles": reports, "uncovered_steps": uncovered,
+           "worker_setup": worker_setup}
+    if web is not None:
+        out["web_advice"] = web
+    return out
+
+
+def _web_advice(project: Any, profiles: dict[str, Any]) -> dict[str, Any] | None:
+    """Vendored recipes' web steps when no profile here can do the web (criterion 10 of 2026-11-capability-confidence)."""
+    from .routing import WEB_ADVICE, web_advice
+
+    steps: list[str] = []
+    for ref in project.vendored():
+        try:
+            adv = web_advice(project.recipe(ref).recipe, profiles)
+        except EngineError:
+            continue
+        if adv is not None:
+            steps += [f"{ref}/{s}" for s in adv["steps"]]
+    return {"steps": steps, "advice": WEB_ADVICE} if steps else None

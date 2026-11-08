@@ -317,3 +317,45 @@ def eligible_workers(
     ordered += sorted(rest, key=lambda n: (-sum(st == "verified" for st in kept[n]["capabilities"].values()), n))
     out.eligible = [kept[n] for n in ordered]
     return out
+
+
+# ---------------------------------------------------------------------------
+# Web steps (§13.4; 2026-11-capability-confidence criterion 10)
+# ---------------------------------------------------------------------------
+
+#: What to tell the owner when a step needs the web and no worker here has it.
+WEB_ADVICE = (
+    "Some steps of this work search the web, and no worker on this machine can. The simplest fix is a subscription "
+    "coding assistant: install Claude Code (then run `claude` once and log in) or the Codex CLI (then `codex login`), "
+    "and run `baton workers setup`. Baton turns on their web tools for exactly the steps that need them."
+)
+
+
+def web_steps(recipe: Any) -> list[str]:
+    """Paths of a recipe's steps that require ``web_access``, groups included."""
+    from .models import Group
+
+    out: list[str] = []
+
+    def visit(nodes: list[Any], prefix: str) -> None:
+        for n in nodes:
+            if isinstance(n, Group):
+                visit(n.steps, f"{prefix}{n.id}/")
+            elif isinstance(n, Step) and "web_access" in n.requires.capabilities:
+                out.append(f"{prefix}{n.id}")
+
+    visit(recipe.steps, "")
+    return out
+
+
+def web_capable(profiles: dict[str, WorkerProfile]) -> list[str]:
+    """Profiles that claim ``web_access`` with any state but ``absent`` (0084)."""
+    return sorted(n for n, p in profiles.items() if "web_access" in p.capabilities and p.capability_state("web_access") != "absent")
+
+
+def web_advice(recipe: Any, profiles: dict[str, WorkerProfile]) -> dict[str, Any] | None:
+    """``{steps, advice}`` when ``recipe`` has web steps and no profile here can do the web; else ``None``."""
+    steps = web_steps(recipe)
+    if not steps or web_capable(profiles):
+        return None
+    return {"recipe": recipe.ref, "steps": steps, "advice": WEB_ADVICE}

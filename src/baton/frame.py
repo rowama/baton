@@ -342,6 +342,22 @@ def part_next(api: Any, part: dict[str, Any], active: int) -> str:
     return f"starts {r.id}: {r.description or ''}".rstrip(": ")
 
 
+def _web_advice(api: Any, parts: list[dict[str, Any]], active: int) -> dict[str, Any] | None:
+    """When the proposed parts' recipes have web steps no worker here can do: which parts, and how to get one (§11.6, §13.4)."""
+    from .routing import WEB_ADVICE, web_advice
+
+    try:
+        profiles = api.project.profiles()
+    except Exception:  # noqa: BLE001 - advice never stops framing
+        return None
+    hit = []
+    for q in parts:
+        plan, _why = _plan_part(api, q, active)
+        if plan is not None and web_advice(plan["recipe"].recipe, profiles) is not None:
+            hit.append({"part": q.get("id"), "label": q.get("label"), "recipe": plan["recipe"].recipe.ref})
+    return {"parts": hit, "advice": WEB_ADVICE} if hit else None
+
+
 def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Give a framing run's select options their ``next``, computed from the record (Decision 0071)."""
     if not pending or not is_framing(ctx.log.events()):
@@ -351,6 +367,9 @@ def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dic
             continue
         out = frame_output(ctx, p["attempt"])
         active = _active_others(api, ctx.run_id)
+        advice = _web_advice(api, out.get("parts") or [], active)
+        if advice is not None:
+            p["web_advice"] = advice
         for o in p.get("options") or []:
             if o["decision"] == "select":
                 o["next"] = [{"part": q.get("id"), "label": q.get("label"), "next": part_next(api, q, active)}
