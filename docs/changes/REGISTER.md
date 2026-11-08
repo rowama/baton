@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | in-progress | standard | |
 | [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | in-progress | standard | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-fast-tests](2026-11-fast-tests.md) | Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish | proposed | standard | |
@@ -15,6 +14,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) | Become a Baton director: setup with as little owner effort as possible | proposed | major | On hold (owner, 2026-11-05): not to be designed further or implemented until the owner accepts it |
 | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |
 | [2026-11-change-register](2026-11-change-register.md) | Change statuses are tracked in one register that every agent keeps up to date | done | minor | |
+| [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | done | standard | |
 | [2026-11-director-question-check](2026-11-director-question-check.md) | The Director checks its questions before asking the owner, and the framing label tells the truth | done | minor | |
 | [2026-11-director-wake](2026-11-director-wake.md) | A detached Director notices when work finishes, or tells the owner first that it might not | done | standard | |
 | [2026-11-framing-perspective](2026-11-framing-perspective.md) | The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents | done | standard | |

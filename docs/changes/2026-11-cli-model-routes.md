@@ -1,7 +1,7 @@
 ---
 id: 2026-11-cli-model-routes
 title: "Research proposes a route for every model each harness can run, and the capabilities that should be present"
-status: in-progress
+status: done
 level: standard
 decisions: ["0080", "0083", "0088", "0089", "0090", "0091"]   # extends 0080 and 0083
 touches: [design/workers.md, design/layouts.md]
@@ -151,4 +151,15 @@ Harness CLIs other than Claude Code and Codex (Gemini, Grok, …) are not exclud
   - Docs: none beyond slice 2's §6.4 text.
   - Tests: `tests/test_worker_research.py` (route or gap required; gap must name the model, on that harness or in a gap line; the alias is not a pinned route; retired models exempt; a harness with new data only is covered; a run is refused and leaves the file alone).
 - **Review:** clean (self-review)
+- **Accepted:** pending owner review
+
+### 4. Real run and setup
+
+- **Commit:** 2026-11-cli-model-routes: Real research run and setup
+- **Summary:**
+  - Run of 2026-11-08 on the `claude-code` profile (report `tools/worker-research/reports/2026-11-08.md`). It accepted the proposal: Claude Code now has pinned routes for Fable 5.1 and Haiku 5.5 (with Opus 5.5 and Sonnet 5.5), Codex for gpt-6-astra, gpt-6.1-sol, gpt-6.1-terra (a new model) and gpt-6-luna; gpt-oss-120b/20b and whisper-large-v3 are named as not routed. The first attempt was ineligible (the profile predated tool maps and did not claim `web_access`); `baton workers setup` refreshed it.
+  - `baton workers setup` then wrote `claude-code-claude-fable-5-1`, `claude-code-claude-haiku-5-5` and `codex-gpt-6-astra`, `-gpt-6-1-sol`, `-gpt-6-1-terra`, `-gpt-6-luna` beside the API-model profiles.
+  - Found by the run: `tool_maps` held YAML dates once a tool map had `sources`, which broke the run inputs' JSON (the slice 2 test's seed had none). Fixed in `cli.py`, and the researcher now depends on `baton[api]` so LiteLLM is present.
+  - Tests: `test_worker_onboarding.py` (setup makes one profile per documented model for each logged-in CLI; the init test no longer assumes one Codex profile); the independence rule for a CLI and an API profile of one model is unchanged (0075) and still covered by its tests.
+- **Review:** clean (self-review). Limits of the run, all in its report: LiteLLM was not installed in the tool's environment, so no `catalog` basis was produced (all `judgment`); the worker's session denied running the validator, so the file was validated only by the tool afterwards, which passed; the Codex model IDs and flags come from a summarised docs page and the pinned/alias status of the OpenAI ids is unconfirmed; `codex exec` honouring `--search` is still [VERIFY]; no tool maps beyond `web_access` were found. The maintainer should confirm these in the data diff.
 - **Accepted:** pending owner review

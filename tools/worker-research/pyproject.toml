@@ -7,7 +7,7 @@ name = "baton-worker-research"
 version = "0.1.0"
 description = "Propose updates to Baton's known-workers data (maintainers only)"
 requires-python = ">=3.11"
-dependencies = ["baton"]
+dependencies = ["baton[api]"]   # litellm: the researcher reads its model map for catalog facts (0091)
 
 [project.scripts]
 baton-worker-research = "baton_worker_research.cli:main"

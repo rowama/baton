@@ -9,6 +9,8 @@
 # verified:             only an actual live check (date, tool, version).
 # This seed was researched on 2026-11-06; no route has been live-verified.
 # Capabilities and tiers are the maintainer's judgment from the sources.
+# Research update 2026-11-08: harness routes for claude_code and codex added
+# from their docs; no other provider re-researched (see report coverage gaps).
 # Research update 2026-11-06 (run r_20261107_b862): added models and routes
 # across creators and categories; still no route is live-verified.
 # LiteLLM prefixes and key variables below come from the LiteLLM docs, with
@@ -32,7 +34,8 @@ models:
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
       - { url: "https://platform.claude.com/docs/en/about-claude/model-deprecations", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   anthropic/claude-opus-5-5:
     creator: anthropic
     category: llm
@@ -42,7 +45,8 @@ models:
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   anthropic/claude-sonnet-5-5:
     creator: anthropic
     category: llm
@@ -52,7 +56,8 @@ models:
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   anthropic/claude-haiku-5-5:
     creator: anthropic
     category: llm
@@ -63,7 +68,8 @@ models:
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
       - { url: "https://platform.claude.com/docs/en/about-claude/model-deprecations", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+    researched: 2026-11-08
 
   # --- OpenAI ----------------------------------------------------------------
   # The models page: "All latest OpenAI models support text and image input";
@@ -79,7 +85,8 @@ models:
     context_tokens: 1050000
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   openai/gpt-6.1-sol:
     creator: openai
     category: llm
@@ -89,7 +96,19 @@ models:
     context_tokens: 1050000
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+    researched: 2026-11-08
+  openai/gpt-6.1-terra:
+    creator: openai
+    category: llm
+    capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "current OpenAI flagship-family LLMs normally write long-form text" }, technical_reasoning: { kind: judgment, reason: "current OpenAI flagship-family LLMs normally reason over technical material" }, tool_use: { kind: judgment, reason: "API models page lists function tools for the latest OpenAI models" }, vision: { kind: judgment, reason: "API models page: all latest OpenAI models accept image input" } }
+    tier: standard
+    context_tokens: 1050000
+    sources:
+      - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-08 }
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   openai/gpt-6-luna:
     creator: openai
     category: llm
@@ -99,7 +118,8 @@ models:
     context_tokens: 1050000
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
-    researched: 2026-11-06
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+    researched: 2026-11-08
   # Open-weight (Apache-2.0 on the Hub); text only per Ollama's page.
   openai/gpt-oss-120b:
     creator: openai
@@ -397,10 +417,18 @@ providers:
   # until the first research run under 2026-11-cli-model-routes replaces them.
   # The other tooling capabilities come from the adapters' permission and
   # sandbox modes (§6.3).
+  # Research 2026-11-08 read the docs only (no CLI was run): the web_access
+  # maps are unchanged; no documented flag was found that switches shell,
+  # file_write, code_exec, repo_workspace or workspace_read on (they are the
+  # adapters' permission/sandbox modes), so no further tools entries.
+  # Machine-readable events: --output-format stream-json (with --verbose).
   claude_code:
     kind: harness
     creators: [anthropic]
     env_deny: [ANTHROPIC_API_KEY]
+    sources:
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+      - { url: "https://code.claude.com/docs/en/cli-reference.md", retrieved: 2026-11-08 }
     tools:
       web_access:
         args: ["--allowedTools", "WebSearch,WebFetch"]
@@ -408,11 +436,17 @@ providers:
         off_args: ["--disallowedTools", "WebSearch,WebFetch"]
         evidence: [WebSearch, WebFetch]
         versions: "2.1.319"
+        sources:
+          - { url: "https://code.claude.com/docs/en/cli-reference.md", retrieved: 2026-11-08 }
         note: "--allowedTools pre-approves the tools, so print mode does not deny them; --disallowedTools removes them from steps that do not need the web."
+  # Machine-readable events: codex exec --json.
   codex:
     kind: harness
     creators: [openai]
     env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
+    sources:
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+      - { url: "https://learn.chatgpt.com/docs/developer-commands?surface=cli", retrieved: 2026-11-08 }
     tools:
       web_access:
         args: ["--search"]
@@ -420,7 +454,9 @@ providers:
         flag: "--search"
         evidence: [web_search]
         versions: "0.166.0"
-        note: "Web search is off unless --search is given. [VERIFY] that exec honours the top-level flag; the first observed use records it."
+        sources:
+          - { url: "https://learn.chatgpt.com/docs/developer-commands?surface=cli", retrieved: 2026-11-08 }
+        note: "Web search is off unless --search is given (docs: sets web_search = live instead of the default cached). [VERIFY] that exec honours the top-level flag; the first observed use records it."
 
 routes:
   # Direct API: the model page says every Claude model ID, dateless ones
@@ -737,6 +773,66 @@ routes:
     capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, file_write: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, shell: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, code_exec: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, repo_workspace: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, workspace_read: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     sources:
       - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-07 }
+  # New 2026-11-08: the other current Claude models the CLI documents.
+  # The full IDs claude-fable-5-1 and claude-haiku-5-5 appear verbatim on the
+  # model-config page.
+  - model_id: anthropic/claude-fable-5-1
+    provider: claude_code
+    adapter: claude_code
+    invocation: claude-fable-5-1
+    supported: true
+    capabilities: [structured_output, tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "Claude models normally return schema-conforming JSON" }, tool_use: { kind: judgment, reason: "Claude Code calls tools with the model" }, vision: { kind: judgment, reason: "Claude models accept image input" }, file_write: { kind: judgment, reason: "Claude Code's Edit/Write tools" }, shell: { kind: judgment, reason: "Claude Code's Bash tool" }, code_exec: { kind: judgment, reason: "Claude Code runs code through Bash" }, repo_workspace: { kind: judgment, reason: "Claude Code works in a git tree and commits" }, workspace_read: { kind: judgment, reason: "Claude Code's Read tool" }, long_form_writing: { kind: judgment, reason: "flagship Claude model" }, technical_reasoning: { kind: judgment, reason: "flagship Claude model" } }
+    sources:
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+  - model_id: anthropic/claude-haiku-5-5
+    provider: claude_code
+    adapter: claude_code
+    invocation: claude-haiku-5-5
+    supported: true
+    capabilities: [structured_output, tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read]
+    capability_basis: { structured_output: { kind: judgment, reason: "Claude models normally return schema-conforming JSON" }, tool_use: { kind: judgment, reason: "Claude Code calls tools with the model" }, vision: { kind: judgment, reason: "Claude models accept image input" }, file_write: { kind: judgment, reason: "Claude Code's Edit/Write tools" }, shell: { kind: judgment, reason: "Claude Code's Bash tool" }, code_exec: { kind: judgment, reason: "Claude Code runs code through Bash" }, repo_workspace: { kind: judgment, reason: "Claude Code works in a git tree and commits" }, workspace_read: { kind: judgment, reason: "Claude Code's Read tool" } }
+    sources:
+      - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-08 }
+  # Codex pinned routes: the four models the Codex models page lists, passed
+  # as `-m <value>`. The pages do not say whether these ids are aliases or
+  # snapshots; they are named by the id the CLI documents.
+  - model_id: openai/gpt-6-astra
+    provider: codex
+    adapter: codex
+    invocation: gpt-6-astra
+    supported: true
+    capabilities: [structured_output, tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "OpenAI flagship models normally return schema-conforming JSON" }, tool_use: { kind: judgment, reason: "Codex calls tools with the model" }, vision: { kind: judgment, reason: "API models page: latest OpenAI models accept image input" }, file_write: { kind: judgment, reason: "Codex writes files in workspace-write sandbox" }, shell: { kind: judgment, reason: "Codex runs shell commands" }, code_exec: { kind: judgment, reason: "Codex runs code via shell" }, repo_workspace: { kind: judgment, reason: "Codex works in a git tree" }, workspace_read: { kind: judgment, reason: "Codex reads the workspace" }, long_form_writing: { kind: judgment, reason: "flagship OpenAI model" }, technical_reasoning: { kind: judgment, reason: "flagship OpenAI model" } }
+    sources:
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+  - model_id: openai/gpt-6.1-sol
+    provider: codex
+    adapter: codex
+    invocation: gpt-6.1-sol
+    supported: true
+    capabilities: [structured_output, tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "OpenAI flagship models normally return schema-conforming JSON" }, tool_use: { kind: judgment, reason: "Codex calls tools with the model" }, vision: { kind: judgment, reason: "API models page: latest OpenAI models accept image input" }, file_write: { kind: judgment, reason: "Codex writes files in workspace-write sandbox" }, shell: { kind: judgment, reason: "Codex runs shell commands" }, code_exec: { kind: judgment, reason: "Codex runs code via shell" }, repo_workspace: { kind: judgment, reason: "Codex works in a git tree" }, workspace_read: { kind: judgment, reason: "Codex reads the workspace" }, long_form_writing: { kind: judgment, reason: "flagship OpenAI model" }, technical_reasoning: { kind: judgment, reason: "flagship OpenAI model" } }
+    sources:
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+  - model_id: openai/gpt-6.1-terra
+    provider: codex
+    adapter: codex
+    invocation: gpt-6.1-terra
+    supported: true
+    capabilities: [structured_output, tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "OpenAI flagship models normally return schema-conforming JSON" }, tool_use: { kind: judgment, reason: "Codex calls tools with the model" }, vision: { kind: judgment, reason: "API models page: latest OpenAI models accept image input" }, file_write: { kind: judgment, reason: "Codex writes files in workspace-write sandbox" }, shell: { kind: judgment, reason: "Codex runs shell commands" }, code_exec: { kind: judgment, reason: "Codex runs code via shell" }, repo_workspace: { kind: judgment, reason: "Codex works in a git tree" }, workspace_read: { kind: judgment, reason: "Codex reads the workspace" }, long_form_writing: { kind: judgment, reason: "OpenAI GPT-6.1 family model" }, technical_reasoning: { kind: judgment, reason: "OpenAI GPT-6.1 family model" } }
+    sources:
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
+  - model_id: openai/gpt-6-luna
+    provider: codex
+    adapter: codex
+    invocation: gpt-6-luna
+    supported: true
+    capabilities: [tool_use, vision, file_write, shell, code_exec, repo_workspace, workspace_read]
+    capability_basis: { tool_use: { kind: judgment, reason: "Codex calls tools with the model" }, vision: { kind: judgment, reason: "API models page: latest OpenAI models accept image input" }, file_write: { kind: judgment, reason: "Codex writes files in workspace-write sandbox" }, shell: { kind: judgment, reason: "Codex runs shell commands" }, code_exec: { kind: judgment, reason: "Codex runs code via shell" }, repo_workspace: { kind: judgment, reason: "Codex works in a git tree" }, workspace_read: { kind: judgment, reason: "Codex reads the workspace" } }
+    sources:
+      - { url: "https://learn.chatgpt.com/docs/models", retrieved: 2026-11-08 }
   # Harnesses on their own default model: a mutable alias, so no model_id.
   # Capabilities are the harness's (§6.1), checked against claude 2.1.316
   # and codex-cli 0.166.0 for the adapters (§6.3).

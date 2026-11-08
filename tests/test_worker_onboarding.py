@@ -74,12 +74,14 @@ def test_init_mentions_setup_only_while_it_is_not_done(tmp_path, home):
     out = init(root, bare=True)
     assert any("workers setup" in n for n in out["notes"]) and out["worker_setup"]["offer_setup"]
     run_setup(home, found("codex"))
+    profiles = sorted(p.name for p in (home / "workers").glob("*.yaml"))
+    assert "codex.yaml" in profiles   # setup also writes one profile per pinned Codex model (2026-11-cli-model-routes)
     root2 = tmp_path / "q"
     root2.mkdir()
     out = init(root2, bare=True)
     assert not any("workers setup" in n for n in out["notes"])
     # init writes no profile and runs no research.
-    assert sorted(p.name for p in (home / "workers").glob("*.yaml")) == ["codex.yaml"]
+    assert sorted(p.name for p in (home / "workers").glob("*.yaml")) == profiles
 
 
 def test_detect_carries_the_setup_state(tmp_path, home):
@@ -90,3 +92,10 @@ def test_detect_carries_the_setup_state(tmp_path, home):
     out = detect(p.root, home=home)
     assert out["machine"]["worker_setup"]["offer_setup"] is True
     assert not any("setup" in w for w in out["warnings"])  # detect stays quiet: the offer is structured
+
+
+def test_setup_makes_one_profile_per_documented_model_for_each_logged_in_cli(home):
+    """Criterion 8 (2026-11-cli-model-routes): per-model CLI profiles beside the default-alias one."""
+    run_setup(home, found("claude_code", "codex"))
+    names = {p.stem for p in (home / "workers").glob("*.yaml")}
+    assert {"claude-code", "claude-code-claude-haiku-5-5", "claude-code-claude-fable-5-1", "codex", "codex-gpt-6-astra"} <= names

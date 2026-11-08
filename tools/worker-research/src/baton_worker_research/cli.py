@@ -246,7 +246,8 @@ def _main(argv: list[str] | None = None) -> int:
     litellm_version, catalog = litellm_entries(raw_current)
     inputs = {
         "title": f"Worker research {args.today}",
-        "tool_maps": {n: {c: t for c, t in (p.get("tools") or {}).items()} for n, p in (raw_current.get("providers") or {}).items() if p.get("kind") == "harness"},
+        # YAML dates (a tool map's sources) become ISO strings: run inputs are JSON.
+        "tool_maps": json.loads(json.dumps({n: p.get("tools") or {} for n, p in (raw_current.get("providers") or {}).items() if p.get("kind") == "harness"}, default=str)),
         "tooling_capabilities": list(TOOLING),
         "harness_docs": harness_docs(repo),
         "litellm": {"version": litellm_version, "entries": catalog},
