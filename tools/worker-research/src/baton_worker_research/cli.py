@@ -13,7 +13,9 @@ valid proposal replaces ``<repo>/defaults/known-workers.yaml`` for review with
 ``--repo`` defaults to the checkout this package was installed from. Anything
 refused is saved under ``reports/`` and the repository file is left alone.
 
-Exit codes: 0 written, 1 refused or the worker failed, 2 usage.
+``--check FILE`` validates a proposal file the same way and stops; the worker is
+given it as a command to run on its own proposal. Exit codes: 0 written (or
+accepted), 1 refused or the worker failed, 2 usage.
 """
 
 from __future__ import annotations
@@ -81,13 +83,75 @@ def check(proposal_text: str, current_text: str, repo: Path) -> list[str]:
     return problems
 
 
-def report_markdown(output: dict[str, Any], today: str, profile: str, problems: list[str]) -> str:
-    lines = [f"# Worker research, {today}", "", f"Worker profile: `{profile}`.", ""]
+def litellm_entries(raw: Any) -> tuple[str | None, dict[str, dict[str, Any]]]:
+    """The installed LiteLLM's model-map entry for every API route in the data (0091).
+
+    Returns (LiteLLM version, {invocation: the catalog fields}); the fields are the
+    ones that show a capability (``CATALOG_FIELDS``) plus ``max_input_tokens``.
+    A route LiteLLM does not know has an empty entry; no LiteLLM gives (None, {})."""
+    try:
+        import importlib.metadata as md
+
+        import litellm
+
+        version = md.version("litellm")
+        table = litellm.model_cost
+    except Exception:
+        return None, {}
+    known_workers = _baton()[0]
+    fields = [*known_workers.CATALOG_FIELDS, "max_input_tokens"]
+    providers = (raw or {}).get("providers") or {}
+    out: dict[str, dict[str, Any]] = {}
+    for r in (raw or {}).get("routes") or []:
+        inv = r.get("invocation")
+        if not inv or r.get("adapter") != "litellm_api" or providers.get(r.get("provider"), {}).get("kind") == "harness":
+            continue
+        entry = table.get(inv) or table.get(inv.split("/", 1)[-1]) or {}
+        out[inv] = {f: entry[f] for f in fields if f in entry}
+    return version, out
+
+
+def harness_docs(repo: Path) -> dict[str, list[str]]:
+    path = repo / "tools" / "worker-research" / "harness-docs.yaml"
+    return _baton()[3](path) or {} if path.is_file() else {}
+
+
+def validator_command(repo: Path) -> str:
+    """A command the worker may run to validate a proposal file: ``<command> <file>`` (criterion 6)."""
+    import shlex
+
+    return " ".join(shlex.quote(a) for a in (sys.executable, str(Path(__file__).resolve()), "--repo", str(repo), "--check"))
+
+
+def check_file(path: Path, repo: Path) -> int:
+    """``--check FILE``: print why a proposal would be refused; exit 0 when it would be accepted."""
+    if not path.is_file():
+        print(f"baton-worker-research: no file {path}", file=sys.stderr)
+        return 2
+    problems = check(path.read_text(encoding="utf-8"), (repo / KNOWN_WORKERS).read_text(encoding="utf-8"), repo)
+    for p in problems:
+        print(f"- {p}")
+    print("refused" if problems else "accepted")
+    return 1 if problems else 0
+
+
+def report_markdown(output: dict[str, Any], today: str, profile: str, problems: list[str], litellm_version: str | None = None) -> str:
+    lines = [f"# Worker research, {today}", "", f"Worker profile: `{profile}`.", "",
+             f"LiteLLM model map: {litellm_version or 'not installed (no catalog facts were given)'}.", ""]
     if problems:
         lines += ["**Refused** (the repository file was not changed):", "", *[f"- {p}" for p in problems], ""]
     for key, title in (("inclusion_criteria", "Inclusion criteria"), ("providers_covered", "Providers covered"),
                        ("categories_covered", "Categories covered"), ("coverage_gaps", "Coverage gaps")):
         lines += [f"## {title}", "", *[f"- {x}" for x in output.get(key) or ["(none given)"]], ""]
+    for h in output.get("harnesses") or []:
+        lines += [f"## Harness: {h.get('provider')}", "",
+                  f"- Models routed: {', '.join(h.get('models_routed') or []) or '(none)'}"]
+        for n in h.get("models_not_routed") or []:
+            lines.append(f"- Not routed: {n.get('model_id')}: {n.get('reason')}")
+        lines.append(f"- Tools proposed: {', '.join(h.get('tools_proposed') or []) or '(none)'}")
+        for w in h.get("widens_permissions") or []:
+            lines.append(f"- **Widens permissions:** {w}")
+        lines.append("")
     lines += ["## Changes", ""]
     for c in output.get("changes") or []:
         lines.append(f"- {c.get('what')}: {c.get('why')} ({', '.join(c.get('sources') or []) or 'no sources'})")
@@ -117,7 +181,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="baton-worker-research", description=__doc__.split("\n\n")[0])
-    ap.add_argument("--profile", required=True, help="the worker profile to dispatch to")
+    ap.add_argument("--profile", help="the worker profile to dispatch to")
+    ap.add_argument("--check", metavar="FILE", help="validate a proposal file as the tool would after a run, and stop")
     ap.add_argument("--home", help="the Baton home holding the profiles (default: BATON_HOME or ~/.baton)")
     ap.add_argument("--repo", help="the source checkout to update (default: the one this was installed from)")
     ap.add_argument("--reports", help="where the report goes (default: <repo>/tools/worker-research/reports)")
@@ -132,11 +197,24 @@ def _main(argv: list[str] | None = None) -> int:
     target = repo / KNOWN_WORKERS
     if not target.is_file():
         ap.error(f"{repo} is not a Baton checkout (no {KNOWN_WORKERS})")
+    if args.check:
+        return check_file(Path(args.check), repo)
+    if not args.profile:
+        ap.error("--profile is required (or --check FILE)")
     current = target.read_text(encoding="utf-8")
     voc = vocab.load(vocab.DEFAULT)
     machine_dependent = (_load_yaml(target) or {}).get("machine_dependent") or []
+    from baton.capability_states import TOOLING
+
+    raw_current = _load_yaml(target) or {}
+    litellm_version, catalog = litellm_entries(raw_current)
     inputs = {
         "title": f"Worker research {args.today}",
+        "tool_maps": {n: {c: t for c, t in (p.get("tools") or {}).items()} for n, p in (raw_current.get("providers") or {}).items() if p.get("kind") == "harness"},
+        "tooling_capabilities": list(TOOLING),
+        "harness_docs": harness_docs(repo),
+        "litellm": {"version": litellm_version, "entries": catalog},
+        "validator": validator_command(repo),
         "known_workers": current,
         "today": args.today,
         "adapters": sorted(ADAPTERS),
@@ -164,7 +242,7 @@ def _main(argv: list[str] | None = None) -> int:
         proposal = (result / art["path"]).read_text(encoding="utf-8")
         problems = check(proposal, current, repo)
         reports.mkdir(parents=True, exist_ok=True)
-        (reports / f"{args.today}.md").write_text(report_markdown(doc.get("output") or {}, args.today, args.profile, problems), encoding="utf-8")
+        (reports / f"{args.today}.md").write_text(report_markdown(doc.get("output") or {}, args.today, args.profile, problems, litellm_version), encoding="utf-8")
         if problems:
             (reports / f"{args.today}.refused-known-workers.yaml").write_text(proposal, encoding="utf-8")
             print(f"Refused; nothing written to {target}. See {reports / (args.today + '.md')}:", file=sys.stderr)

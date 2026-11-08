@@ -144,3 +144,11 @@ def test_research_requires_a_basis_but_the_format_does_not():
     raw["models"]["anthropic/claude-opus-5-5"]["capability_basis"].pop("vision")
     assert _validate(raw) == set()
     assert _validate(raw, require_basis=True) == {"known_workers.basis_missing"}
+
+
+def test_only_a_harness_names_creators():
+    raw = copy.deepcopy(shipped())
+    raw["providers"]["anthropic"]["creators"] = ["anthropic"]
+    assert "known_workers.creators_not_harness" in codes(raw)
+    kw = known_workers.load(VOCAB)
+    assert kw.providers["claude_code"].creators == ["anthropic"] and kw.providers["codex"].creators == ["openai"]

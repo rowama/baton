@@ -399,6 +399,7 @@ providers:
   # sandbox modes (§6.3).
   claude_code:
     kind: harness
+    creators: [anthropic]
     env_deny: [ANTHROPIC_API_KEY]
     tools:
       web_access:
@@ -410,6 +411,7 @@ providers:
         note: "--allowedTools pre-approves the tools, so print mode does not deny them; --disallowedTools removes them from steps that do not need the web."
   codex:
     kind: harness
+    creators: [openai]
     env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
     tools:
       web_access:

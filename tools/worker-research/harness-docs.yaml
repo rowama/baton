@@ -1,0 +1,9 @@
+# Starting documentation for the researcher, per harness provider (Decision 0091).
+# Maintainer data: add a page when a harness gains one, drop one that has moved.
+# Only a place to start: the worker follows links, and the report names the pages it used.
+# Seeded with pages the known-workers data already cites; add each harness's
+# CLI reference and non-interactive-mode pages when you first review a run.
+claude_code:
+  - https://code.claude.com/docs/en/model-config.md
+codex:
+  - https://developers.openai.com/api/docs/models

@@ -5,7 +5,12 @@
     "known_workers",
     "today",
     "adapters",
-    "capabilities"
+    "capabilities",
+    "tool_maps",
+    "tooling_capabilities",
+    "harness_docs",
+    "litellm",
+    "validator"
   ],
   "properties": {
     "title": {
@@ -29,6 +34,29 @@
     "capabilities": {
       "type": "object",
       "description": "The capability vocabulary: name -> meaning, tiers, machine-dependent ones"
+    },
+    "tool_maps": {
+      "type": "object",
+      "description": "Harness provider -> its current tool map (capability -> how to turn it on)"
+    },
+    "tooling_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The vocabulary capabilities a harness tool map may cover"
+    },
+    "harness_docs": {
+      "type": "object",
+      "description": "Harness provider -> starting documentation URLs (maintainer-kept)"
+    },
+    "litellm": {
+      "type": "object",
+      "description": "version, and entries: invocation -> the installed LiteLLM model-map fields for every API route in the data"
+    },
+    "validator": {
+      "type": "string",
+      "description": "A command; append a proposal file path to validate it as the tool will"
     }
   }
 }

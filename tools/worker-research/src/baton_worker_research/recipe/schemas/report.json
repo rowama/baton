@@ -1,19 +1,124 @@
 {
   "type": "object",
-  "required": ["inclusion_criteria", "providers_covered", "categories_covered", "coverage_gaps", "changes"],
+  "required": [
+    "inclusion_criteria",
+    "providers_covered",
+    "categories_covered",
+    "coverage_gaps",
+    "changes",
+    "harnesses"
+  ],
   "properties": {
-    "inclusion_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-    "providers_covered": { "type": "array", "items": { "type": "string" } },
-    "categories_covered": { "type": "array", "items": { "type": "string" } },
-    "coverage_gaps": { "type": "array", "items": { "type": "string" }, "description": "What was not covered, or could not be confirmed, and why" },
+    "inclusion_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "providers_covered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "categories_covered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What was not covered, or could not be confirmed, and why"
+    },
     "changes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["what", "why", "sources"],
-        "properties": { "what": { "type": "string" }, "why": { "type": "string" }, "sources": { "type": "array", "items": { "type": "string" } } }
+        "required": [
+          "what",
+          "why",
+          "sources"
+        ],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       }
     },
-    "notes": { "type": "string" }
+    "notes": {
+      "type": "string"
+    },
+    "harnesses": {
+      "type": "array",
+      "description": "One entry per harness provider in the data",
+      "items": {
+        "type": "object",
+        "required": [
+          "provider",
+          "models_routed",
+          "models_not_routed",
+          "tools_proposed"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "models_routed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "model_ids with a pinned route on this harness"
+          },
+          "models_not_routed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "model_id",
+                "reason"
+              ],
+              "properties": {
+                "model_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tools_proposed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tooling capabilities the tool map covers"
+          },
+          "widens_permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Any flag in the tool map that widens what the harness may do, and what it widens"
+          }
+        }
+      }
+    }
   }
 }

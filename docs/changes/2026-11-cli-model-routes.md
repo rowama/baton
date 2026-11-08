@@ -129,3 +129,15 @@ Harness CLIs other than Claude Code and Codex (Gemini, Grok, …) are not exclud
   - Tests: `tests/test_known_workers.py` (the shipped data passes `require_basis`, each kind's required parts, an unclaimed basis, research strictness against the format's leniency).
 - **Review:** clean (self-review)
 - **Accepted:** pending owner review
+
+### 2. Researcher inputs and prompt
+
+- **Commit:** 2026-11-cli-model-routes: Researcher inputs and prompt
+- **Summary:**
+  - `baton-worker-research`: the packet now carries `tool_maps`, `tooling_capabilities`, `harness_docs` (from `tools/worker-research/harness-docs.yaml`, seeded only with pages the data already cites), `litellm` (version and the model-map fields for every API route; none if LiteLLM is not installed) and `validator`, a command `--check FILE` that runs the tool's own checks on a proposal. The report records the LiteLLM version and a section per harness (routed, not routed with reason, tools proposed, permission-widening flags); `harnesses` is required in the report schema.
+  - Prompt: capability basis rules replace "only with documented evidence"; a Harness section (creators, one pinned route per documented model, tool map, event flag, permission report); a Check your work section. The recipe's `requires` is unchanged: a worker that cannot run commands simply cannot self-check.
+  - `known_workers.py`: a harness provider's `creators` (only harnesses may have it); the data names anthropic for `claude_code` and openai for `codex`. The coverage check that uses it is slice 3.
+  - Docs: §6.4, §4.1.
+  - Tests: `tests/test_worker_research.py` (the new inputs reach the worker, LiteLLM entries cover every API route, `--check` accepts and refuses, the validator command runs as the worker would, the report lists harnesses), `tests/test_known_workers.py` (creators).
+- **Review:** clean (self-review). Not verified live: that a real worker follows the prompt; the slice 4 run shows it.
+- **Accepted:** pending owner review

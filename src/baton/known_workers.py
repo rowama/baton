@@ -105,6 +105,8 @@ class ToolArgs(_Strict):
 
 class KnownProvider(_Strict):
     kind: Literal["direct_api", "intermediary", "harness", "local"]
+    #: A harness's creators: whose models it can run (0089); research must route each of their models or name the gap.
+    creators: list[str] = Field(default_factory=list)
     #: A harness's tool map: tooling capability -> how to turn it on (0085).
     tools: dict[str, ToolArgs] = Field(default_factory=dict)
     #: The variable its adapter reads the API key from (direct APIs, intermediaries).
@@ -213,6 +215,8 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
     from .capability_states import TOOLING
 
     for pname, prov in kw.providers.items():
+        if prov.creators and prov.kind != "harness":
+            issues.append(issue("creators_not_harness", f"providers.{pname}.creators", "only a harness provider names the creators it can run"))
         for cap in prov.tools:
             where = f"providers.{pname}.tools.{cap}"
             if prov.kind != "harness":

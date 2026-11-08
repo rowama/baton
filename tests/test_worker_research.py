@@ -33,7 +33,7 @@ def _cmd(argv):
     return shlex.join(argv) if os.name == "posix" else subprocess.list2cmdline(argv)
 
 
-def _setup(tmp_path: Path, proposal: dict) -> tuple[Path, Path, Path]:
+def _setup(tmp_path: Path, proposal: dict, dump: Path | None = None) -> tuple[Path, Path, Path]:
     repo = tmp_path / "repo"
     (repo / "defaults").mkdir(parents=True)
     shutil.copy(ROOT / "defaults" / "known-workers.yaml", repo / "defaults" / "known-workers.yaml")
@@ -41,7 +41,7 @@ def _setup(tmp_path: Path, proposal: dict) -> tuple[Path, Path, Path]:
     prop.write_text(yaml.safe_dump(proposal, sort_keys=False), encoding="utf-8")
     home = tmp_path / "home"
     home.mkdir()
-    line = _cmd([sys.executable, str(FAKE), "{packet}", "{result}", str(prop)])
+    line = _cmd([sys.executable, str(FAKE), "{packet}", "{result}", str(prop), *([str(dump)] if dump else [])])
     (home / "workers.yaml").write_text(
         f"researcher:\n  adapter: command\n  creator: acme\n  command: {json.dumps(line)}\n"
         "  capabilities: [structured_output, web_access, file_write, technical_reasoning]\n  tier: strong\n",
@@ -133,3 +133,59 @@ def test_an_unknown_profile_is_a_plain_usage_error(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 2
     assert "no worker profile 'nope'" in err and "baton workers status" in err and "Traceback" not in err
+
+
+def test_the_worker_gets_tool_maps_urls_litellm_entries_and_a_validator(tmp_path):
+    dump = tmp_path / "dump.json"
+    repo, home, reports = _setup(tmp_path, _seed(), dump)
+    (repo / "tools" / "worker-research").mkdir(parents=True)
+    (repo / "tools" / "worker-research" / "harness-docs.yaml").write_text("claude_code:\n  - https://example.org/cc\n", encoding="utf-8")
+    rc = _research().main(["--profile", "researcher", "--home", str(home), "--repo", str(repo), "--reports", str(reports), "--today", "2026-11-08"])
+    assert rc == 0
+    text = "\n".join(json.loads(dump.read_text(encoding="utf-8")).values())
+    for needle in ("tool_maps", "tooling_capabilities", "web_access", "https://example.org/cc", "supports_function_calling", "--check"):
+        assert needle in text, needle
+    report = (reports / "2026-11-08.md").read_text(encoding="utf-8")
+    assert "LiteLLM model map: 1." in report
+
+
+def test_litellm_entries_cover_every_api_route_and_name_the_version():
+    version, entries = _research().litellm_entries(_seed())
+    assert version and entries
+    api = {r["invocation"] for r in _seed()["routes"] if r["adapter"] == "litellm_api" and r.get("invocation")}
+    assert set(entries) == api
+    assert all(set(e) <= {"supports_response_schema", "supports_function_calling", "supports_vision", "max_input_tokens"} for e in entries.values())
+    assert any(entries.values())
+
+
+def test_check_reports_what_the_tool_would_refuse(tmp_path, capsys):
+    repo, _home, _reports = _setup(tmp_path, _seed())
+    bad = _seed()
+    bad["models"]["anthropic/claude-opus-5-5"]["capability_basis"].pop("vision")
+    f = tmp_path / "p.yaml"
+    f.write_text(yaml.safe_dump(bad, sort_keys=False), encoding="utf-8")
+    assert _research().main(["--repo", str(repo), "--check", str(f)]) == 1
+    out = capsys.readouterr().out
+    assert "no basis" in out and out.rstrip().endswith("refused")
+    f.write_text(yaml.safe_dump(_seed(), sort_keys=False), encoding="utf-8")
+    assert _research().main(["--repo", str(repo), "--check", str(f)]) == 0
+    assert capsys.readouterr().out.rstrip().endswith("accepted")
+
+
+def test_the_validator_command_runs_as_the_worker_would_run_it(tmp_path):
+    import shlex
+
+    repo, _home, _reports = _setup(tmp_path, _seed())
+    f = tmp_path / "p.yaml"
+    f.write_text(yaml.safe_dump(_seed(), sort_keys=False), encoding="utf-8")
+    proc = subprocess.run([*shlex.split(_research().validator_command(repo)), str(f)], capture_output=True, text=True)
+    assert proc.returncode == 0 and proc.stdout.strip() == "accepted"
+
+
+def test_the_report_lists_each_harness(tmp_path):
+    out = {"harnesses": [{"provider": "claude_code", "models_routed": ["anthropic/claude-haiku-5-5"],
+                          "models_not_routed": [{"model_id": "anthropic/claude-x", "reason": "not documented"}],
+                          "tools_proposed": ["web_access"], "widens_permissions": ["--allowedTools WebFetch reaches any URL"]}]}
+    md = _research().report_markdown(out, "2026-11-08", "p", [], "1.2.3")
+    for needle in ("## Harness: claude_code", "anthropic/claude-haiku-5-5", "Not routed: anthropic/claude-x: not documented", "Tools proposed: web_access", "Widens permissions", "LiteLLM model map: 1.2.3"):
+        assert needle in md, needle

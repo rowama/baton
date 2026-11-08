@@ -19,6 +19,11 @@ steps:
       - { name: today,         from: run.inputs.today,         required: true }
       - { name: adapters,      from: run.inputs.adapters,      required: true }
       - { name: capabilities,  from: run.inputs.capabilities,  required: true }
+      - { name: tool_maps,     from: run.inputs.tool_maps,     required: true }
+      - { name: tooling_capabilities, from: run.inputs.tooling_capabilities, required: true }
+      - { name: harness_docs,  from: run.inputs.harness_docs,  required: true }
+      - { name: litellm,       from: run.inputs.litellm,       required: true }
+      - { name: validator,     from: run.inputs.validator,     required: true }
     output_schema: schemas/report.json
     artifacts:
       - { name: known_workers, required: true, media_type: application/yaml }
