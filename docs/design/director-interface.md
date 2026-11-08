@@ -39,7 +39,7 @@ Every call is available as a CLI command (`--json` output; exit codes below) and
 | `resume(run)` / `lease(…)` / `abandon(run, reason)` | Continuity |
 | `record(run, step_path)` / `summary(run)` / `trace(run)` | Records; readable event tail |
 | `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
-| `workers_status()` / `workers_setup(verify?)` / `workers_declare(name?, provider?, credential?, base_url?, models?, capabilities?, note?, remove?, nothing_more?)` | The worker resource manager (§6.4), machine scope: what is found, declared and generated; the explicit run that generates profiles (live checks only for `verify`); declarations and "nothing more". `baton workers …` needs no project (Decision: [0077](../decisions/0077-workers-command.md)) |
+| `workers_status()` / `workers_setup(verify?)` / `workers_declare(name?, provider?, credential?, base_url?, models?, capabilities?, note?, remove?, nothing_more?)` / `workers_declare(profile, likely?, absent?)` | The worker resource manager (§6.4), machine scope: what is found, declared and generated, with each generated profile's capability states; the explicit run that generates profiles (live checks only for `verify`); declarations and "nothing more"; or, with `profile`, the owner's reset of capabilities to `likely` or declaration of them `absent` (§6.1; Decision: [0084](../decisions/0084-capability-states.md)). `baton workers …` needs no project (Decision: [0077](../decisions/0077-workers-command.md)) |
 | `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
 | `init(bare?)` / `vendor(recipe_dir, approved?, note?)` / `upgrade(to?)` / `migrate(dry_run?)` | Setup and versioning (§14): `init` also vendors the starter recipes unless `bare` (§11.6); a vendoring that changes or reuses step ids returns `needs_owner` until repeated with `approved` and the owner's words; `upgrade` pins this runtime (the launcher runs `--to <v>` under `<v>`); `migrate` brings stored files below the readable window to the current formats |
 
@@ -75,7 +75,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
 - Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - Retry guidance is additive; never restate or summarize inputs.
-- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction.
+- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
 - Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
 - Act only within the project's action permissions. `ask` means request it; `deny` means never.
 

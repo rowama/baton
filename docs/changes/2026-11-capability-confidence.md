@@ -1,10 +1,10 @@
 ---
 id: 2026-11-capability-confidence
 title: "Capabilities are likely until used; harness tooling is turned on per step and verified by use"
-status: proposed
+status: in-progress
 level: standard
-decisions: ["0081", "0082"]   # amends 0081; new records listed under Design > Decisions
-touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, principles.md]
+decisions: ["0081", "0082", "0084", "0085", "0086", "0087"]   # amends 0081
+touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/layouts.md, principles.md]
 ---
 
 # Capabilities are likely until used; harness tooling is turned on per step and verified by use
@@ -47,10 +47,12 @@ Owners should not need to edit YAML to get a worker that can search the web. A c
 
 ### Open questions
 
-1. `structured_output`: how many consecutive schema-gate failures on one profile mark it `absent` (suggest 3, counted across projects)? And does a pass reset the count?
-2. Should a `verified` state expire (e.g., after 90 days), or stand until a failure or a harness version change?
-3. Evidence of tool use needs the harness's machine-readable output. Claude Code `--output-format stream-json` and `codex exec --json` **[VERIFY]**. Is switching the harness adapters to those formats acceptable, given that today intake reads only `result.json`?
-4. When a tooling capability is `absent` on every profile, should a step requiring it escalate at once (as `no_eligible_worker` does now, Decision 0002), or wait for the owner to add a worker?
+Answered by the owner, 2026-11-08 (all four as suggested):
+
+1. `structured_output`: three schema-gate failures in a row on one profile, counted machine-wide; a pass resets the count ([0087](../decisions/0087-structured-output-by-schema-gate.md)).
+2. A `verified` state does not expire; it stands until a failure or a harness version change, which returns it to `likely` ([0084](../decisions/0084-capability-states.md)).
+3. The harness adapters switch to their event streams (`claude --output-format stream-json`, `codex exec --json`, both seen in the installed CLIs). Intake still reads only `result.json`; the stream is the attempt's log, scanned for tool evidence ([0085](../decisions/0085-harness-tool-maps.md)).
+4. A tooling capability `absent` on every profile escalates at once, like `no_eligible_worker` (0002), with the subscription-CLI advice for web steps ([0086](../decisions/0086-capability-absent-reroutes.md)).
 
 ## Design
 
@@ -80,11 +82,12 @@ Owners should not need to edit YAML to get a worker that can search the web. A c
 
 ### Decisions
 
-- **New:** capabilities carry a state (`likely` / `verified` / `absent`), kept machine-wide outside profiles; routing excludes only `absent` and prefers `verified`.
-- **New:** tooling capabilities belong to the harness, not the model. Their flags are researched data checked against the installed CLI. Adapters turn on only what a step requires, and verify by use. Flag drift goes through a platform incident and the platform SME.
-- **New:** `capability_absent` re-routes without spending an attempt; reset on harness version change.
-- **Amend 0081:** real dispatches are verification evidence; still no extra calls without `--verify`.
-- **Unchanged 0082:** machine-dependent capabilities still need a declaration or a probe. A probe or a real use that passes records `verified` in the same store.
+- [0084](../decisions/0084-capability-states.md): capabilities carry a state (`likely` / `verified` / `absent`), kept machine-wide outside profiles; routing excludes only `absent` and prefers `verified`; `verified` does not expire.
+- [0085](../decisions/0085-harness-tool-maps.md): tooling capabilities belong to the harness, not the model. Their flags are researched data checked against the installed CLI. Adapters turn on only what a step requires, and verify by use, read from the harness event stream. Flag drift goes through a platform incident and the platform SME.
+- [0086](../decisions/0086-capability-absent-reroutes.md): `capability_absent` re-routes without spending an attempt; reset on harness version change; absent everywhere escalates at once.
+- [0087](../decisions/0087-structured-output-by-schema-gate.md): `structured_output` is absent after three schema-gate failures in a row on one profile.
+- **Amend [0081](../decisions/0081-live-verification-on-request.md):** real dispatches are verification evidence; still no extra calls without `--verify`.
+- **Unchanged [0082](../decisions/0082-machine-dependent-capabilities.md):** machine-dependent capabilities still need a declaration or a probe. A probe or a real use that passes records `verified` in the same store.
 
 ## Plan
 
@@ -122,4 +125,17 @@ Owners should not need to edit YAML to get a worker that can search the web. A c
 
 ## Log
 
-<One entry per slice, written in the slice's own commit together with its code, tests and design doc edits.>
+### 1. Capability states and routing
+
+- **Commit:** 2026-11-capability-confidence: Capability states and routing
+- **Summary:**
+  - `capability_states.py`: the machine-wide store `~/.baton/capability-states.yaml` (`baton-capability-states/1`), locked writes; a claimed capability with no entry is `likely`; a state never adds a capability; an owner's reset to `likely` forgets the observation.
+  - `WorkerProfile` carries the states as a private attribute that `Project.profiles` attaches, so profile files, content hashes and `worker_profile_sha256` are untouched.
+  - Routing (`routing.py`): `absent` counts as missing, with when, how and the reset command in the reason; the profiles no preference names are ordered by how many required capabilities are `verified`, then by name; eligible entries show `capabilities` states. The packet builder, SME eligibility and `doctor` share the rule through `requirement_gaps`.
+  - `baton workers status` shows each generated profile's states and every recorded one; `baton workers declare --profile <p> --likely|--absent <cap>`, the engine's `workers_declare(profile=…)` and the MCP tool set them.
+  - `engine.observe_capability` records a dispatch's observation and, when the state changes, `capability_observed` in the project log with the run, step and attempt (used by slices 2 and 3).
+  - Decisions 0084–0087 recorded from the owner's answers; 0081 amended. Docs: §6.1, §8.2, §8.4, §4.4, §13.1, the Director skill (§13.3), §2.
+  - Also fixed `tests/test_resources_refresh.py`, which broke when the 2026-11-06 data added more OpenRouter routes: the reroute now changes one route, and the "new model" is one the data does not have.
+  - Tests: `tests/test_capability_states.py` (likely by default, absent excluded with the reset hint, verified preferred after preferences, no profile file or hash change, no added capability, engine and CLI declare, one event per change with its attempt, a broken state file is configuration).
+- **Review:** clean (self-review)
+- **Accepted:** pending owner review

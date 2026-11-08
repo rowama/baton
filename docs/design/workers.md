@@ -70,10 +70,28 @@ owner:
 | `executable`, `path.search`, `path.prepend` | Harness CLI resolution (§6.2) |
 | `args.write` / `args.read` / `args.none` | Adapter args per workspace mode (permission and sandbox modes). Each replaces the preset's built-in default for that mode only (§6.3) |
 | `isolation` | `none` \| `user` \| `container` |
-| `capabilities` | Must be **true on this machine** (e.g. a sandbox that cannot bind localhost must not claim `loopback_network`) |
+| `capabilities` | Must be **true on this machine** (e.g. a sandbox that cannot bind localhost must not claim `loopback_network`). Each claim carries a state, `likely` until observed (below) |
 | `env_deny` | Exact names or `fnmatch` patterns (`*_API_KEY`); removes a name whatever put it there (inherit, `env_allow`, `auth.env`) |
 | `options` | Non-secret adapter options (`litellm_api`: keyword arguments for the completion call, e.g. `base_url`, `temperature`) |
 | secrets | `secret:<name>`, allowed only in `auth.env`; resolved at spawn time from the variable `BATON_SECRET_<NAME>` (upper-cased, other characters `_`), then the OS keyring (service `baton`; needs the optional `keyring` package), then the file `~/.baton/secrets/<name>`. A missing secret refuses the dispatch as `configuration`, naming all three places. Never written to packets, events or logs; resolved values are redacted from anything the runtime records |
+
+**Capability states** (Decision: [0084](../decisions/0084-capability-states.md)). A profile *claims* its capabilities; whether each claim has been seen to hold here is a separate fact, kept machine-wide in `~/.baton/capability-states.yaml` (`baton-capability-states/1`), never in a profile file, so recording one changes no profile's content hash (0079) or `worker_profile_sha256` (§7.1):
+
+```yaml
+format: baton-capability-states/1
+profiles:
+  codex:                               # by profile name
+    web_access: { state: verified, date: 2026-11-08, by: observed, evidence: "web_search call", run: …, step_path: …, attempt: 1, harness_version: 0.166.0 }
+    structured_output: { state: likely, failures: 2 }
+```
+
+| State | Meaning | Routing (§8.4) |
+|---|---|---|
+| `likely` | Claimed (from the known-workers data, a declaration or the owner's file), not yet observed. A claimed capability with no entry is `likely` | Eligible |
+| `verified` | Observed working, with date and evidence (`by: observed` from a real dispatch, `probe` from a passing probe, 0082) | Eligible, preferred |
+| `absent` | Observed failing, or declared absent by the owner (`by: owner`) | Not eligible for steps that need it |
+
+A state qualifies only a capability the profile claims; it never adds one. `verified` does not expire: it stands until a failure is observed or the harness's version changes. `baton workers status` shows each generated profile's states; `baton workers declare --profile <name> --likely <capability>` resets one (forgetting the observation, so it is tried again) and `--absent <capability>` declares one absent. Writes are locked, so concurrent runs on one machine never lose each other's observations. A change of state that a dispatch produced is recorded in the project log as `capability_observed` (§8.2).
 
 Profiles load from `~/.baton/workers/` (generated, one file per profile, named by the file; §6.4), then `~/.baton/workers.yaml` (the owner's), then `.baton/workers.local.yaml`; a later file wins on a name. A generated profile carries a `generated` marker, which is not part of its hash.
 

@@ -1024,6 +1024,30 @@ def _resources_call(fn: Callable[[], Any]) -> Any:
         raise EngineError("configuration.resources", str(e)) from e
 
 
+def observe_capability(project: Any, profile: str, capability: str, state: str, evidence: str, *, run_id: str | None,
+                       step_path: str | None, attempt: int | None, harness_version: str | None = None) -> dict[str, Any] | None:
+    """Record what a real dispatch showed about a capability (0084, 0085).
+
+    A change of state is written to the machine's capability states and, with
+    the attempt that produced it, to the project log (``capability_observed``,
+    §8.2). A re-observation of the same state records nothing. Returns the
+    event's data, or ``None`` when nothing changed.
+    """
+    from . import capability_states as cs
+    from .sme import project_append
+
+    before, after = cs.record(project.home, profile, capability, state, by="observed", evidence=evidence, run=run_id,
+                              step_path=step_path, attempt=attempt, harness_version=harness_version)
+    if before == after:
+        return None
+    data = {"profile": profile, "capability": capability, "state": state, "previous": before.state, "evidence": redact_text(evidence),
+            "run": run_id, "step_path": step_path, "attempt": attempt}
+    if harness_version:
+        data["harness_version"] = harness_version
+    project_append(project, "capability_observed", data)
+    return data
+
+
 def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Failure class for a worker that exited without a result (§8.8; rules in ``classify.py``)."""
     return classify.classify_exit(child.exit_code, child.tail, signals)
@@ -2912,9 +2936,22 @@ class Api:
 
         return _resources_call(lambda: resources.setup(self.project.home, verify=verify))
 
-    def workers_declare(self, name: str | None = None, **fields: Any) -> dict[str, Any]:
+    def workers_declare(self, name: str | None = None, *, profile: str | None = None, likely: list[str] | None = None,
+                        absent: list[str] | None = None, **fields: Any) -> dict[str, Any]:
+        """Declare a resource (``name``), or reset capability states on a ``profile`` (0084)."""
         from . import resources
 
+        if profile is not None:
+            claimed = None
+            try:
+                found = self.project.profiles().get(profile)
+            except EngineError:
+                found = None
+            if found is not None:
+                claimed = list(found.capabilities)
+            if name is not None or any(v not in (None, False) for v in fields.values()):
+                raise EngineError("usage.declare", "declare either a resource (name) or capability states on a profile, not both in one call")
+            return _resources_call(lambda: resources.declare_capabilities(self.project.home, profile, likely=likely, absent=absent, claimed=claimed))
         return _resources_call(lambda: resources.declare(self.project.home, name, **fields))
 
     def retry(self, run_id: str, step_path: str, worker: str | None = None, guidance: str | None = None, *, wait: bool = False) -> dict[str, Any]:

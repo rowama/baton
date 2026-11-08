@@ -14,8 +14,10 @@ requirement part (``requirement_gaps``) before it builds anything (§8.6).
    read from the run's record (``worker_selected``), not from this machine's
    profiles or the known-workers data.
 4. Order by ``.baton/preferences.yaml``: ``exclude`` removes, ``prefer.by_step``
-   then ``prefer.by_capability`` put named profiles first; the rest follow by
-   name. Preferences never add an ineligible profile.
+   then ``prefer.by_capability`` put named profiles first; the rest follow with
+   more of the step's capabilities ``verified`` first (0084), then by name.
+   Preferences never add an ineligible profile.
+   A capability recorded ``absent`` on this machine counts as missing (step 2).
 5. An empty list escalates the step (``no_eligible_worker``; §18 #2: escalate,
    never fail the run). The engine records that.
 """
@@ -37,16 +39,30 @@ WORKSPACE_CAPABILITY = {"read": "workspace_read", "write": "repo_workspace"}
 PREFERENCES_FILE = "preferences.yaml"
 
 
-def requirement_gaps(requires: Requires, workspace: str, profile: WorkerProfile, vocab: Vocabulary) -> list[str]:
-    """Why ``profile`` cannot do a step with these requirements; empty when it can."""
-    gaps: list[str] = []
+def needed_capabilities(requires: Requires, workspace: str) -> list[str]:
+    """The step's required capabilities plus its workspace mode's (§8.4 step 2)."""
     needed = list(requires.capabilities)
     ws_cap = WORKSPACE_CAPABILITY.get(workspace)
     if ws_cap and ws_cap not in needed:
         needed.append(ws_cap)
+    return needed
+
+
+def requirement_gaps(requires: Requires, workspace: str, profile: WorkerProfile, vocab: Vocabulary) -> list[str]:
+    """Why ``profile`` cannot do a step with these requirements; empty when it can.
+
+    A claimed capability whose recorded state is ``absent`` counts as missing (0084).
+    """
+    gaps: list[str] = []
+    needed = needed_capabilities(requires, workspace)
     missing = [c for c in needed if c not in profile.capabilities]
     if missing:
         gaps.append(f"missing capabilities: {', '.join(missing)}")
+    for c in needed:
+        if c in profile.capabilities and profile.capability_state(c) == "absent":
+            rec = profile.capability_record(c)
+            gaps.append(f"capability {c} is absent here ({rec.describe()}); "
+                        f"`baton workers declare --profile <name> --likely {c}` lets it be tried again")
     if requires.tier is not None:
         if profile.tier is None:
             gaps.append(f"needs tier {requires.tier}; profile declares no tier")
@@ -276,11 +292,15 @@ def eligible_workers(
             out.excluded.append({"profile": name, "reasons": reasons})
             continue
         why = ["meets requirements"]
+        caps = {c: p.capability_state(c) for c in needed_capabilities(step.requires, step.workspace)}
+        verified = [c for c, st in caps.items() if st == "verified"]
+        if verified:
+            why.append(f"verified here: {', '.join(verified)}")
         if waived:
             why.append(f"not independent of {indep.from_step} ({indep.level}), waived for one dispatch ({independence_waiver})")
         elif other is not None and indep:
             why.append(f"independent of {indep.from_step} ({indep.level})")
-        kept[name] = {**route_summary(name, p), "reasons": why}
+        kept[name] = {**route_summary(name, p), "capabilities": caps, "reasons": why}
 
     ordered: list[str] = []
     for name in prefs.prefer.by_step.get(step_path, prefs.prefer.by_step.get(step.id, [])):
@@ -292,6 +312,8 @@ def eligible_workers(
             if name in kept and name not in ordered:
                 ordered.append(name)
                 kept[name]["reasons"].append(f"preferred for {cap}")
-    ordered += [n for n in kept if n not in ordered]
+    # Among the rest, more of the step's capabilities verified first, then by name (0084).
+    rest = [n for n in kept if n not in ordered]
+    ordered += sorted(rest, key=lambda n: (-sum(st == "verified" for st in kept[n]["capabilities"].values()), n))
     out.eligible = [kept[n] for n in ordered]
     return out

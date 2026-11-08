@@ -13,7 +13,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
 - Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - Retry guidance is additive; never restate or summarize inputs.
-- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction.
+- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
 - Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
 - Act only within the project's action permissions. `ask` means request it; `deny` means never.
 

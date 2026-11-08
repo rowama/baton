@@ -491,6 +491,10 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
     unverified = sorted(n for n, g in gen.items() if g["ownership"] != "owner" and not g.get("verified"))
     for name, why in _not_offered(data, gen, {p.name for p in planned}, home).items():
         gen[name]["flag"] = why
+    states = _states_or_problem(home)
+    claims = machine_claims(home)
+    for name, g in gen.items():
+        g["capabilities"] = cs_summary(states, name, claims.get(name, []))
     return {
         "setup_complete": state.completed is not None,
         "setup": state.model_dump(mode="json"),
@@ -500,7 +504,24 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         "available_not_generated": new,
         "unverified": unverified,
         "skipped": skipped,
+        "capability_states": {n: {c: st.as_dict() for c, st in caps.items()} for n, caps in states.items()},
     }
+
+
+def _states_or_problem(home: Path) -> dict[str, Any]:
+    from . import capability_states as cs
+
+    try:
+        return cs.load(home)
+    except cs.CapabilityStatesError as e:
+        raise ResourcesError([Issue(code="resources.capability_states", where=str(cs.path(home)), message=str(e))]) from e
+
+
+def cs_summary(states: dict[str, Any], profile: str, claimed: list[str]) -> dict[str, str]:
+    """Each claimed capability's state word, for ``workers status`` (0084)."""
+    from . import capability_states as cs
+
+    return {c: cs.state_of(states, profile, c).state for c in claimed}
 
 
 def setup(
@@ -634,6 +655,47 @@ def declare(
         changed["nothing_more"] = nothing_more
     path = save_resources(home, res)
     return {**changed, "path": str(path)}
+
+
+def machine_claims(home: Path) -> dict[str, list[str]]:
+    """Each machine profile's claimed capabilities (generated files, then ``workers.yaml``), read without validation."""
+    from .project import MACHINE_PROFILES
+
+    out: dict[str, list[str]] = {}
+    for name, (_p, body) in read_generated_dir(home).items():
+        if isinstance(body, dict):
+            out[name] = list(body.get("capabilities") or [])
+    path = Path(home) / MACHINE_PROFILES
+    if path.is_file():
+        try:
+            raw = load_yaml(path) or {}
+        except YamlError:
+            raw = {}
+        for name, body in raw.items() if isinstance(raw, dict) else []:
+            if isinstance(body, dict):
+                out[str(name)] = list(body.get("capabilities") or [])
+    return out
+
+
+def declare_capabilities(home: Path, profile: str, *, likely: list[str] | None = None, absent: list[str] | None = None,
+                         claimed: list[str] | None = None, today: dt.date | None = None) -> dict[str, Any]:
+    """The owner resets capability states to ``likely`` or declares them ``absent`` on one profile (0084).
+
+    ``claimed``: the profile's capabilities when the caller already has them
+    (a project's profiles include ``.baton/workers.local.yaml``); otherwise the machine's.
+    """
+    from . import capability_states as cs
+
+    if claimed is None:
+        claims = machine_claims(home)
+        if profile not in claims:
+            raise ResourcesError([Issue(code="resources.unknown_profile", where=profile, message=f"no profile named {profile!r} on this machine")])
+        claimed = claims[profile]
+    try:
+        changes = cs.declare(home, profile, claimed, likely=likely or [], absent=absent or [], today=today)
+    except cs.CapabilityStatesError as e:
+        raise ResourcesError([Issue(code="resources.capability_state", where=profile, message=str(e))]) from e
+    return {"profile": profile, "capability_states": changes, "path": str(cs.path(home))}
 
 
 def readiness(home: Path) -> dict[str, Any]:

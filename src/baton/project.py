@@ -296,7 +296,13 @@ class Project:
             issues += problems
         if issues:
             raise EngineError("configuration.profiles", str(ProfileError(issues)))
-        return out
+        from . import capability_states
+
+        try:
+            states = capability_states.load(self.home)
+        except capability_states.CapabilityStatesError as e:
+            raise EngineError("configuration.capability_states", str(e)) from e
+        return {n: p.with_capability_states(states.get(n, {})) for n, p in out.items()}
 
     # -- git ----------------------------------------------------------------
 

@@ -116,8 +116,12 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     @tool
     def workers_declare(name: str | None = None, provider: str | None = None, credential: str | None = None, base_url: str | None = None,
                         models: list[str] | None = None, capabilities: list[str] | None = None, note: str | None = None,
-                        remove: bool = False, nothing_more: bool | None = None) -> dict[str, Any]:
-        """Add, change or remove a worker resource (credential only as secret:<name>), or record that there is nothing more to add."""
+                        remove: bool = False, nothing_more: bool | None = None, profile: str | None = None,
+                        likely: list[str] | None = None, absent: list[str] | None = None) -> dict[str, Any]:
+        """Add, change or remove a worker resource (credential only as secret:<name>), or record that there is nothing more to add.
+        Or, with profile (and nothing else): reset its capabilities to likely, or declare them absent, on the owner's instruction only."""
+        if profile is not None:
+            return t.call(lambda api: api.workers_declare(profile=profile, likely=likely, absent=absent))
         return t.call(lambda api: api.workers_declare(name, provider=provider, credential=credential, base_url=base_url, models=models,
                                                       capabilities=capabilities, note=note, remove=remove, nothing_more=nothing_more))
 

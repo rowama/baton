@@ -1125,6 +1125,12 @@ def workers_status(as_json: JsonOpt = False) -> None:
     for n, g in out["generated"].items():
         state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
         lines.append(f"profile {n}: {state}" + (f"; {g['flag']}" if g.get("flag") else ""))
+        observed = {st: [c for c, s in g.get("capabilities", {}).items() if s == st] for st in ("verified", "absent")}
+        if any(observed.values()):
+            lines.append("  " + "; ".join(f"{st}: {', '.join(cs)}" for st, cs in observed.items() if cs))
+    for n, caps in out.get("capability_states", {}).items():
+        if n not in out["generated"]:
+            lines.append(f"profile {n}: " + "; ".join(f"{c} {s['state']}" for c, s in caps.items()))
     if out["available_not_generated"]:
         lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
     _emit(out, as_json, "\n".join(lines))
@@ -1162,11 +1168,24 @@ def workers_declare(
     note: Annotated[Optional[str], typer.Option("--note")] = None,
     remove: Annotated[bool, typer.Option("--remove", help="Remove this resource.")] = False,
     nothing_more: Annotated[Optional[bool], typer.Option("--nothing-more/--more", help="Record that there is nothing more to add (or undo that).")] = None,
+    profile: Annotated[Optional[str], typer.Option("--profile", help="Set capability states on this profile instead (with --likely / --absent).")] = None,
+    likely: Annotated[Optional[list[str]], typer.Option("--likely", help="Reset this capability to likely, so it is tried again (repeatable).")] = None,
+    absent: Annotated[Optional[list[str]], typer.Option("--absent", help="Declare this capability absent on the profile (repeatable).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Add, change or remove a resource discovery cannot find, or say there is nothing more."""
+    """Add, change or remove a resource discovery cannot find, or say there is nothing more.
+    With --profile: reset a capability to likely, or declare it absent (§6.1)."""
     from . import resources
 
+    if profile is not None or likely or absent:
+        if profile is None or not (likely or absent):
+            _fail(as_json, EXIT_USAGE, "usage.declare", "capability states need --profile and at least one --likely or --absent")
+        if name is not None or any(v not in (None, False) for v in (provider, credential, base_url, model, capability, note, nothing_more)) or remove:
+            _fail(as_json, EXIT_USAGE, "usage.declare", "declare either a resource or capability states on a profile, not both")
+        out = _resources(as_json, lambda h: resources.declare_capabilities(h, profile, likely=likely, absent=absent))
+        text = [f"{c['capability']}: {c['from']} -> {c['to']}" + ("" if c["changed"] else " (unchanged)") for c in out["capability_states"]]
+        _emit(out, as_json, "\n".join(text + [f"saved {out['path']}"]))
+        return
     if name is None and nothing_more is None:
         _fail(as_json, EXIT_USAGE, "usage.declare", "name a resource, or pass --nothing-more")
     out = _resources(as_json, lambda h: resources.declare(h, name, provider=provider, credential=credential, base_url=base_url, models=model,

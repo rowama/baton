@@ -81,7 +81,7 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Packet / Result** | The files a worker receives / returns. |
 | **Gate** | A check a step must pass: schema, script, review findings, human approval (plus implicit provenance, workspace and protected-file checks). |
 | **Worker profile** | Machine-local definition of one worker: adapter, model or CLI, capabilities, auth, environment. |
-| **Capability** | A named ability from a versioned vocabulary; recipes require them, profiles claim them. |
+| **Capability** | A named ability from a versioned vocabulary; recipes require them, profiles claim them. A claim is `likely` until the work shows it `verified` or `absent` on this machine: a capability that should be there is usable, and the work checks it (Decision: [0084](decisions/0084-capability-states.md)). |
 | **Director** | The coordinating agent. Process expert; never does step work. |
 | **SME** | An expert worker consulted by subject: `project`, `platform` or `process`. |
 | **Event log** | Append-only, hash-chained JSONL per run and per project; the source of truth. |

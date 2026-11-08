@@ -73,7 +73,7 @@ def test_a_refresh_never_changes_the_binding(setup_home):
 
     def reroute(raw):
         for r in raw["routes"]:
-            if r["provider"] == "openrouter":
+            if r["provider"] == "openrouter" and r.get("model_id") == "anthropic/claude-opus-5-5":
                 r["invocation"] = "openrouter/anthropic/claude-opus-5.5-preview"
     change(reroute)
     out = run_setup(home, found("codex"))
@@ -95,17 +95,17 @@ def test_new_models_appear_only_with_an_explicit_run(setup_home, tmp_path):
     home, change = setup_home
 
     def add(raw):
-        raw["models"]["anthropic/claude-haiku-5-5"] = {**raw["models"]["anthropic/claude-sonnet-5-5"], "tier": "basic"}
-        raw["routes"].append({"model_id": "anthropic/claude-haiku-5-5", "provider": "anthropic", "adapter": "litellm_api",
-                              "invocation": "anthropic/claude-haiku-5-5", "supported": True})
+        raw["models"]["anthropic/claude-newer-9-9"] = {**raw["models"]["anthropic/claude-sonnet-5-5"], "tier": "basic"}
+        raw["routes"].append({"model_id": "anthropic/claude-newer-9-9", "provider": "anthropic", "adapter": "litellm_api",
+                              "invocation": "anthropic/claude-newer-9-9", "supported": True})
     change(add)  # what installing a runtime with newer data amounts to
     root = tmp_path / "proj"
     root.mkdir()
     init(root, bare=True)
-    assert "anthropic-key-claude-haiku-5-5" not in Project.open(root, home=home).profiles()
-    assert "anthropic-key-claude-haiku-5-5" in resources.status(home, discover_fn=found("codex"))["available_not_generated"]
+    assert "anthropic-key-claude-newer-9-9" not in Project.open(root, home=home).profiles()
+    assert "anthropic-key-claude-newer-9-9" in resources.status(home, discover_fn=found("codex"))["available_not_generated"]
     run_setup(home, found("codex"))
-    assert "anthropic-key-claude-haiku-5-5" in Project.open(root, home=home).profiles()
+    assert "anthropic-key-claude-newer-9-9" in Project.open(root, home=home).profiles()
 
 
 def test_one_failing_profile_does_not_stop_the_others(setup_home, monkeypatch):

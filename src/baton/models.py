@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, PrivateAttr, Tag, field_validator, model_validator
 
 STEP_ID = r"^[a-z][a-z0-9_]*$"
 RECIPE_ID = r"^[a-z][a-z0-9-]*$"
@@ -440,6 +440,9 @@ class WorkerProfile(_Strict):
     #: Set only by ``baton workers setup`` (§6.4, 0079): ``by``, ``known_workers_sha256``,
     #: ``content_sha256``, ``availability``, ``verified``. Not part of the profile's hash.
     generated: dict[str, Any] | None = None
+    #: Capability states recorded on this machine (0084), attached by ``Project.profiles``:
+    #: capability -> ``CapabilityState``. Never read from or written to a profile file, never hashed.
+    _capability_states: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -463,6 +466,20 @@ class WorkerProfile(_Strict):
     def vendor(self) -> str:
         """The legacy name for ``creator``."""
         return self.creator
+
+    def capability_state(self, capability: str) -> str:
+        """``likely`` (the default for a claimed capability), ``verified`` or ``absent`` (0084)."""
+        st = self._capability_states.get(capability)
+        return st.state if st is not None else "likely"
+
+    def capability_record(self, capability: str) -> Any:
+        return self._capability_states.get(capability)
+
+    def with_capability_states(self, states: dict[str, Any]) -> "WorkerProfile":
+        """A copy carrying the recorded states of the capabilities it claims."""
+        out = self.model_copy()
+        out._capability_states = {c: s for c, s in states.items() if c in self.capabilities}
+        return out
 
     def canonical_model(self) -> str | None:
         """The canonical model identity: ``model_id``; for a ``manual`` profile, ``human/<person>`` (0075)."""
@@ -557,7 +574,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     ),
     "project_log": (
         "platform_fact_recorded", "platform_incident_opened", "platform_incident_resolved",
-        "process_feedback", "step_skip_recorded", "note_recorded",
+        "process_feedback", "step_skip_recorded", "note_recorded", "capability_observed",
     ),
 }
 EVENT_TYPES: frozenset[str] = frozenset(t for ts in EVENT_TYPES_BY_AREA.values() for t in ts)

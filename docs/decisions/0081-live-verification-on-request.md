@@ -19,3 +19,5 @@ A no-op round trip proves a model is usable on the owner's account but costs quo
 - Each generated profile records its availability as `declared` (by the owner), `detected` (local discovery) or `verified` (a successful live check, with its date and tool version).
 - Unverified generated profiles are eligible for dispatch, as hand-written ones are; `workers status` and `doctor` show them as unverified.
 - A failed live check keeps the profile out of the generated set and explains why in plain words, with login or install instructions where they apply.
+
+Amended 2026-11-08 by change 2026-11-capability-confidence ([0085](0085-harness-tool-maps.md)): real dispatches are verification evidence too. A tool call observed in a real step records its capability `verified` in the capability states (0084); still no extra model call is made without `--verify`.

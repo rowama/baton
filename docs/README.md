@@ -217,3 +217,7 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0081 Live verification runs only on request; unverified generated profiles are eligible, flagged](decisions/0081-live-verification-on-request.md) | accepted |
 | [0082 Machine-dependent capabilities need an owner declaration or a passing probe](decisions/0082-machine-dependent-capabilities.md) | accepted |
 | [0083 The maintainer researcher is one Baton dispatch through a profile the maintainer names](decisions/0083-researcher-dispatches-through-a-profile.md) | accepted |
+| [0084 Capabilities carry a state, likely, verified or absent, kept machine-wide outside profiles](decisions/0084-capability-states.md) | accepted |
+| [0085 Tooling capabilities belong to the harness: researched tool maps, least privilege, verified by use](decisions/0085-harness-tool-maps.md) | accepted |
+| [0086 capability_absent re-routes without spending an attempt; absent everywhere escalates at once](decisions/0086-capability-absent-reroutes.md) | accepted |
+| [0087 structured_output is absent after three schema-gate failures in a row on one profile](decisions/0087-structured-output-by-schema-gate.md) | accepted |

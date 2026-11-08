@@ -107,6 +107,7 @@ baton/
 ├── workers.yaml      # the owner's worker profiles; never written by Baton
 ├── workers/          # generated profiles, one <name>.yaml each, written only by `baton workers setup` (§6.4)
 ├── resources.yaml    # the owner's resource declarations and setup state (baton-resources/1, §6.4)
+├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
 ├── homes/<profile>/  # optional relocated CLI config homes [VERIFY per CLI]
