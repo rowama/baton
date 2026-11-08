@@ -1153,6 +1153,8 @@ def workers_setup(
     lines += [f"FAILED {f['profile']}: {f['reason']}" for f in out["failed"]]
     lines += [f"left alone {c['profile']}: {c['reason']}" for c in out["collisions"]]
     lines += [f"not available: {s['route']}: {s['reason']}" for s in out["skipped"]]
+    lines += [f"not offered by {d['provider']} here: {c} (its --help does not show the flag; a newer version may add it)"
+              for d in out["detected"] for c, ok in (d.get("tools") or {}).items() if not ok]
     _emit(out, as_json, "\n".join(lines) or "Nothing new.")
     raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
 

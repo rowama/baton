@@ -10,7 +10,8 @@ Three sections:
 * ``models``, keyed by ``model_id`` (0075): creator, intrinsic capabilities,
   tier, context size, category, sources and research date.
 * ``providers``: how access is obtained (``direct_api``, ``intermediary``,
-  ``harness``, ``local``), with sources.
+  ``harness``, ``local``), with sources; a harness's ``tools`` map says which
+  args turn each tooling capability on (0085).
 * ``routes``: one way to run a model: provider, adapter, invocation
   identifier, whether it is a mutable alias, whether this runtime can execute
   it (``supported``), route-level capabilities, and ``verified`` only for an
@@ -59,8 +60,31 @@ class KnownModel(_Strict):
     retired: bool = False
 
 
+class ToolArgs(_Strict):
+    """How a harness turns on one tooling capability (0085): researched data, not adapter code."""
+
+    #: Args that turn the tool on, placed by the adapter.
+    args: list[str] = Field(min_length=1)
+    #: ``with_args``: among the mode args (after a subcommand); ``before_subcommand``: right after the executable.
+    position: Literal["with_args", "before_subcommand"] = "with_args"
+    #: Args that print the help that must mention ``flag`` (``workers setup`` checks it, 0085).
+    help: list[str] = Field(default_factory=lambda: ["--help"])
+    flag: str
+    #: Args that turn the tool off when a step does not require it (least privilege); empty: off by default.
+    off_args: list[str] = Field(default_factory=list)
+    off_position: Literal["with_args", "before_subcommand"] = "with_args"
+    #: Tool or event names in the harness's event stream that show the capability used (§6.3).
+    evidence: list[str] = Field(min_length=1)
+    #: The CLI versions the args were checked against, e.g. ``2.1.319``; informational.
+    versions: str | None = None
+    sources: list[Source] = Field(default_factory=list)
+    note: str | None = None
+
+
 class KnownProvider(_Strict):
     kind: Literal["direct_api", "intermediary", "harness", "local"]
+    #: A harness's tool map: tooling capability -> how to turn it on (0085).
+    tools: dict[str, ToolArgs] = Field(default_factory=dict)
     #: The variable its adapter reads the API key from (direct APIs, intermediaries).
     api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
     #: Variables a generated profile always removes (a stray key could switch a CLI login's billing, §6.1).
@@ -95,6 +119,11 @@ class KnownWorkers(_Strict):
     models: dict[str, KnownModel] = Field(default_factory=dict)
     providers: dict[str, KnownProvider] = Field(default_factory=dict)
     routes: list[KnownRoute] = Field(default_factory=list)
+
+    def tool_map(self, provider: str | None) -> dict[str, ToolArgs]:
+        """The harness provider's tool map; empty when it has none."""
+        prov = self.providers.get(provider or "")
+        return dict(prov.tools) if prov is not None else {}
 
     def route_creator(self, route: KnownRoute) -> str | None:
         if route.model_id is not None and route.model_id in self.models:
@@ -139,6 +168,17 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
         if tier is not None and tier not in vocab.tiers:
             issues.append(issue("unknown_tier", where, f"tier {tier!r} is not in {vocab.id} ({', '.join(vocab.tiers)})"))
 
+    from .capability_states import TOOLING
+
+    for pname, prov in kw.providers.items():
+        for cap in prov.tools:
+            where = f"providers.{pname}.tools.{cap}"
+            if prov.kind != "harness":
+                issues.append(issue("tools_not_harness", where, "only a harness provider has a tool map"))
+            elif cap not in TOOLING:
+                issues.append(issue("not_tooling", where, f"{cap!r} is not a tooling capability ({', '.join(TOOLING)}); a tool map covers only those"))
+            else:
+                check_caps([cap], where)
     for mid, m in kw.models.items():
         where = f"models.{mid}"
         if not _is_model_id(mid):

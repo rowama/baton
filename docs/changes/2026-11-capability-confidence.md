@@ -139,3 +139,16 @@ Answered by the owner, 2026-11-08 (all four as suggested):
   - Tests: `tests/test_capability_states.py` (likely by default, absent excluded with the reset hint, verified preferred after preferences, no profile file or hash change, no added capability, engine and CLI declare, one event per change with its attempt, a broken state file is configuration).
 - **Review:** clean (self-review)
 - **Accepted:** pending owner review
+
+### 2. Harness tool maps, least-privilege flags, observed evidence
+
+- **Commit:** 2026-11-capability-confidence: Harness tool maps, least-privilege flags, observed evidence
+- **Summary:**
+  - `known_workers.py`: a harness provider's `tools` map (`ToolArgs`: args, position, off args, help args and flag, evidence names, versions, sources), validated to tooling capabilities on harness providers only. `defaults/known-workers.yaml` seeds `web_access` for `claude_code` (`--allowedTools` / `--disallowedTools WebSearch,WebFetch`) and `codex` (`--search` before `exec`, marked [VERIFY]), entered by hand from the installed CLIs' `--help` until 2026-11-cli-model-routes research replaces them.
+  - Adapters (`adapters/harness.py`): `ToolPlan` / `plan_tools` turn on the mapped tools a step needs and the profile claims and turn the others off; dispatches use the event streams (`--output-format stream-json --verbose`, `--json`); `--version` parsing; `harness_flag_rejected` failure signals.
+  - Engine: dispatches (and SME turns) record `tools` and `harness_version`; at completion `tool_evidence.py` scans the attempt's log, and `observe_capability` records `verified` or `absent`. A denial discards the attempt as `capability_absent`, readies the step with `not_counted` (state.py moves the budget base), opens no incident, and escalates at once as `no_eligible_worker` when nobody is left. A rejected flag is a platform incident and marks the tools absent. Routing first resets states observed under another harness version.
+  - Setup (`resources.py`): discovery reads each CLI's version and checks each mapped flag in its `--help`; a harness profile gets a tool-map capability only when the flag is shown, and `workers setup` reports the ones not offered.
+  - Docs: §6.3, §6.4, §8.4, §8.8, §5.6.
+  - Tests: `tests/test_tool_evidence.py` (Claude Code uses, denials, non-denial errors, noise; Codex events); `tests/test_harness_tools.py` (web tools turned on and verified with the attempt recorded, no record without use, denial re-routes without spending an attempt and opens no incident, absent everywhere escalates at once, rejected flag opens an incident and marks absent, a new harness version resets observed states but not the owner's, setup offers a tool only when `--help` shows its flag); `tests/test_harness.py` updated for the stream and off args, with tool-plan and version tests. The fake harness answers `--version` and `--help`, prints scripted events, rejects a scripted flag, and accepts flags before `exec`.
+- **Review:** clean (self-review). Not verified live: that `codex exec` honours the top-level `--search`, and the exact event shapes of the real CLIs' streams; the first real web step records what it sees.
+- **Accepted:** pending owner review

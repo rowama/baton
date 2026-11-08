@@ -219,14 +219,23 @@ class Detection:
     auth_mode: str | None = None  # cli_login | api_key | none | unknown
     via_search: list[str] = field(default_factory=list)
     problem: str | None = None
+    #: Tool-map capabilities whose flag the installed CLI's ``--help`` shows (True) or lacks (False);
+    #: ``None``: not checked (0085).
+    tools: dict[str, bool] | None = None
+    version: str | None = None
 
     @property
     def usable(self) -> bool:
         return self.found and self.auth_mode in ("cli_login", "api_key")
 
     def as_dict(self) -> dict[str, Any]:
-        return {"provider": self.provider, "adapter": self.adapter, "found": self.found, "executable": self.executable,
-                "auth_mode": self.auth_mode, "usable": self.usable, "problem": self.problem}
+        out = {"provider": self.provider, "adapter": self.adapter, "found": self.found, "executable": self.executable,
+               "auth_mode": self.auth_mode, "usable": self.usable, "problem": self.problem}
+        if self.tools is not None:
+            out["tools"] = dict(self.tools)
+        if self.version:
+            out["version"] = self.version
+        return out
 
 
 #: How to fix what discovery found missing, in plain words.
@@ -270,7 +279,30 @@ def discover(home: Path, data: kw_mod.KnownWorkers) -> dict[str, Detection]:
         det = Detection(route.provider, route.adapter, True, exe, mode, [how.split(":", 1)[1]] if how.startswith("search:") else [])
         if mode not in ("cli_login", "api_key"):
             det.problem = f"installed but not logged in ({LOGIN_HINTS.get(route.adapter, 'log in to it')})"
+        if exe:
+            det.tools = check_tool_flags(exe, data.tool_map(route.provider), env.env)
+            from .engine import harness_version
+
+            det.version = harness_version(exe, adapter, env.env)
         out[route.provider] = det
+    return out
+
+
+def check_tool_flags(exe: str, tool_map: dict[str, Any], env: dict[str, str]) -> dict[str, bool]:
+    """Whether the installed CLI's help shows each mapped flag (0085); a missing flag means the tool is not offered here."""
+    import subprocess
+
+    helps: dict[tuple[str, ...], str] = {}
+    out: dict[str, bool] = {}
+    for cap, t in tool_map.items():
+        key = tuple(t.help)
+        if key not in helps:
+            try:
+                r = subprocess.run([exe, *t.help], env=env, capture_output=True, text=True, timeout=30, check=False)
+                helps[key] = (r.stdout or "") + (r.stderr or "")
+            except (OSError, subprocess.SubprocessError):
+                helps[key] = ""
+        out[cap] = re.search(rf"(?<![\w-]){re.escape(t.flag)}(?![\w-])", helps[key]) is not None
     return out
 
 
@@ -327,7 +359,8 @@ def plan_profiles(data: kw_mod.KnownWorkers, res: Resources, detected: dict[str,
                 skipped.append({"route": label, "reason": det.problem if det else "not checked"})
                 continue
             extra = [c for r in declared.values() if r.provider == route.provider for c in r.capabilities]
-            body = {**base, "capabilities": list(dict.fromkeys(caps + extra))}
+            tools = [c for c, ok in (det.tools or {}).items() if ok]  # the tool map's, when this CLI has the flag (0085)
+            body = {**base, "capabilities": list(dict.fromkeys(caps + tools + extra))}
             if tier:
                 body["tier"] = tier
             if ctx:

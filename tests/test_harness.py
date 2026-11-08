@@ -74,6 +74,8 @@ def setup_with_workspace(tmp_path: Path, step: str, mode: str):
     return cli, project
 
 
+STREAM = ["--output-format", "stream-json", "--verbose"]
+
 # ---------------------------------------------------------------------------
 # Command lines per preset and mode
 # ---------------------------------------------------------------------------
@@ -84,12 +86,13 @@ def test_claude_code_command_per_mode(tmp_path):
     pk, rs = tmp_path / "packet", tmp_path / "result"
     argv = a.command(prof(), pk, rs, None, "none")
     assert argv[:3] == ["claude", "-p", TASK_PROMPT.format(packet=pk.as_posix(), result=rs.as_posix())]
-    assert argv[3:] == ["--permission-mode", "acceptEdits"]
-    assert a.command(prof(), pk, rs, tmp_path, "write")[3:] == ["--permission-mode", "bypassPermissions"]
-    assert a.command(prof(), pk, rs, tmp_path, "read")[3:] == ["--permission-mode", "acceptEdits"]
+    stream = ["--output-format", "stream-json", "--verbose"]  # the event stream, for tool evidence (0085)
+    assert argv[3:] == ["--permission-mode", "acceptEdits", *stream]
+    assert a.command(prof(), pk, rs, tmp_path, "write")[3:] == ["--permission-mode", "bypassPermissions", *stream]
+    assert a.command(prof(), pk, rs, tmp_path, "read")[3:] == ["--permission-mode", "acceptEdits", *stream]
     # A profile's args replace the default for that mode only; model is passed through.
     p = prof(args={"read": ["--permission-mode", "plan"]}, model="some-model")
-    assert a.command(p, pk, rs, tmp_path, "read")[3:] == ["--permission-mode", "plan", "--model", "some-model"]
+    assert a.command(p, pk, rs, tmp_path, "read")[3:] == ["--permission-mode", "plan", *stream, "--model", "some-model"]
     assert a.command(p, pk, rs, tmp_path, "write")[3:5] == ["--permission-mode", "bypassPermissions"]
     assert a.config_home_var == "CLAUDE_CONFIG_DIR"
 
@@ -101,7 +104,39 @@ def test_codex_command_per_mode(tmp_path):
     assert argv[:4] == ["/opt/codex", "exec", "--sandbox", "danger-full-access"]
     assert "--skip-git-repo-check" in argv and argv[-1].startswith("Read ")
     assert a.command(p, tmp_path / "packet", tmp_path / "result", None, "none")[2:4] == ["--sandbox", "workspace-write"]
+    assert "--json" in argv
     assert a.config_home_var == "CODEX_HOME"
+
+
+def test_tool_maps_turn_on_only_what_the_step_requires(tmp_path):
+    from baton import known_workers, vocab
+    from baton.adapters.harness import plan_tools
+
+    data = known_workers.load(vocab.load(vocab.DEFAULT))
+    pk, rs = tmp_path / "packet", tmp_path / "result"
+    claude, codex = ADAPTERS["claude_code"], ADAPTERS["codex"]
+    claims = ["structured_output", "web_access", "file_write"]
+    web = plan_tools(data.tool_map("claude_code"), ["structured_output", "web_access"], claims)
+    argv = claude.command(prof(), pk, rs, None, "none", tools=web)
+    assert argv[argv.index("--allowedTools") + 1] == "WebSearch,WebFetch" and "--disallowedTools" not in argv
+    quiet = plan_tools(data.tool_map("claude_code"), ["structured_output"], claims)
+    argv = claude.command(prof(), pk, rs, None, "none", tools=quiet)
+    assert argv[argv.index("--disallowedTools") + 1] == "WebSearch,WebFetch" and "--allowedTools" not in argv
+    assert quiet.describe() == {"on": [], "off": ["web_access"], "args": ["--disallowedTools", "WebSearch,WebFetch"]}
+    # A profile that does not claim the tool never gets it turned on.
+    assert plan_tools(data.tool_map("claude_code"), ["web_access"], ["structured_output"]).on == {}
+    # Codex's web search is a flag before the subcommand.
+    p = prof(adapter="codex", executable="/opt/codex")
+    argv = codex.command(p, pk, rs, None, "none", tools=plan_tools(data.tool_map("codex"), ["web_access"], claims))
+    assert argv[:3] == ["/opt/codex", "--search", "exec"]
+    assert "--search" not in codex.command(p, pk, rs, None, "none", tools=plan_tools(data.tool_map("codex"), [], claims))
+
+
+def test_harness_versions_are_read_from_their_output():
+    c = ADAPTERS["claude_code"]
+    assert c.parse_version("2.1.319 (Claude Code)") == "2.1.319"
+    assert ADAPTERS["codex"].parse_version("codex-cli 0.166.0\n") == "0.166.0"
+    assert c.parse_version("") is None
 
 
 def test_harness_needs_an_auth_mode():
@@ -188,7 +223,7 @@ def test_cli_login_and_api_key_steps_in_one_run(tmp_path, monkeypatch, litellm_o
     assert "ANTHROPIC_API_KEY" not in call["env"] and "BATON_PACKET_DIR" in call["env"]
     assert "BATON_WORKSPACE" not in call["env"]  # a workspace: none step
     assert Path(call["cwd"]).name == "attempt-1"  # cwd is the attempt directory
-    assert call["argv"][2:] == ["--permission-mode", "acceptEdits"]
+    assert call["argv"][2:] == ["--permission-mode", "acceptEdits", "--disallowedTools", "WebSearch,WebFetch", *STREAM]
     assert git(project, "status", "--porcelain") == ""
     assert SENTINEL not in subprocess.run(["git", "-C", str(project), "log", "-p", "--all"], capture_output=True, text=True).stdout
 
@@ -277,7 +312,7 @@ def test_read_step_that_changes_the_tree_escalates(tmp_path):
     assert (project / "notes.txt").exists()  # never reverted by the runtime
     (call,) = calls(bin_dir)
     assert call["cwd"] == str(project) and "BATON_WORKSPACE" in call["env"]
-    assert call["argv"][2:] == ["--permission-mode", "acceptEdits"]
+    assert call["argv"][2:] == ["--permission-mode", "acceptEdits", "--disallowedTools", "WebSearch,WebFetch", *STREAM]
 
 
 def test_read_step_that_leaves_the_tree_alone_passes(tmp_path):
@@ -297,7 +332,7 @@ def test_write_step_may_change_the_tree(tmp_path):
     cli, project, bin_dir, run = _ws_setup(tmp_path, "write", {"touch": "src.txt"})
     assert cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")["outcome"] == "passed"
     (call,) = calls(bin_dir)
-    assert call["argv"][2:] == ["--permission-mode", "bypassPermissions"]
+    assert call["argv"][2:] == ["--permission-mode", "bypassPermissions", "--disallowedTools", "WebSearch,WebFetch", *STREAM]
 
 
 def test_tree_snapshot_sees_commits_and_edits(tmp_path):

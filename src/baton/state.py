@@ -218,7 +218,8 @@ class RunState:
                 raise IllegalTransition(f"{etype} needs a step_path", code="state.missing_step_path")
             if self.state != "active":
                 raise IllegalTransition(f"{etype} on {path}: run is {self.state}", code="state.run_closed")
-            new_step = next_step_state(self.step(path), etype, attempt, self.max_attempts)
+            not_counted = etype == "step_ready" and bool((event.get("data") or {}).get("not_counted"))
+            new_step = next_step_state(self.step(path), etype, attempt, self.max_attempts, not_counted=not_counted)
         if path is not None and not _STEP_PATH.match(path):
             raise IllegalTransition(f"malformed step_path {path!r}", code="state.bad_step_path")
 
@@ -235,8 +236,13 @@ class RunState:
         self.last_sha256 = event.get("sha256")
 
 
-def next_step_state(current: StepState, etype: str, attempt: int | None, max_attempts: int | None) -> StepState:
-    """The step state after ``etype``, or raise ``IllegalTransition``."""
+def next_step_state(current: StepState, etype: str, attempt: int | None, max_attempts: int | None, *, not_counted: bool = False) -> StepState:
+    """The step state after ``etype``, or raise ``IllegalTransition``.
+
+    ``not_counted``: a retry ``step_ready`` whose failed attempt does not spend
+    the budget (``capability_absent``, Decision 0086): the budget's base moves
+    up by one.
+    """
     frm = current.state
     to: str | None = TRANSITIONS.get(etype, {}).get(frm)
     if to is None:
@@ -266,6 +272,8 @@ def next_step_state(current: StepState, etype: str, attempt: int | None, max_att
         new = replace(new, attempt=n + 1)
     elif etype == "step_ready":
         if frm in _RETRY_FROM:
+            if not_counted:
+                return replace(new, budget_base=current.budget_base + 1)
             if max_attempts is not None and n - current.budget_base >= max_attempts:
                 raise IllegalTransition(
                     f"retry refused: {n - current.budget_base} of {max_attempts} attempts used",

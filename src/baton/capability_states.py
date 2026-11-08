@@ -159,6 +159,23 @@ def _same(a: CapabilityState, b: CapabilityState) -> bool:
     return a.state == b.state and a.by == b.by and a.failures == b.failures and a.harness_version == b.harness_version
 
 
+def reset_on_version(home: Path, profile: str, version: str) -> list[str]:
+    """Observed states recorded under another harness version go back to ``likely`` (0084, 0086).
+
+    An upgrade may add a tool or break one, so neither ``verified`` nor ``absent``
+    outlives the version it was seen on. The owner's own declarations stay.
+    """
+    with _lock(home):
+        states = load(home)
+        caps = states.get(profile, {})
+        stale = [c for c, st in caps.items() if st.by in ("observed", "probe") and st.harness_version and st.harness_version != version]
+        for c in stale:
+            caps.pop(c)
+        if stale:
+            _save(home, states)
+    return stale
+
+
 def declare(home: Path, profile: str, claimed: Iterable[str], *, likely: Iterable[str] = (), absent: Iterable[str] = (),
             today: dt.date | None = None) -> list[dict[str, Any]]:
     """The owner resets capabilities to ``likely`` or declares them ``absent`` (0084).

@@ -11,10 +11,16 @@ Installed by ``harnesskit.install_fake`` as an executable named ``claude`` or
 * tasks: reads the packet named by ``BATON_PACKET_DIR`` and writes the result
   scripted in ``outputs.json`` next to the executable, keyed by step path
   (``output``, ``status``, ``touch`` (a file to change in the cwd),
-  ``no_result``, ``stderr``, ``exit``).
+  ``no_result``, ``stderr``, ``exit``, and ``events``: event-stream lines
+  printed as JSON, e.g. a tool call, §6.3);
+* ``--version``: prints the version in ``version.txt`` next to the executable
+  (default ``9.9.0``), as the real CLIs do; ``--help`` prints ``help.txt``
+  (default: the tool-map flags), neither logged;
+* a ``reject_flag`` in ``outputs.json`` (top level): the CLI fails on that
+  flag the way the real ones do on an unknown option.
 
-Every call is appended to ``calls.jsonl`` next to the executable (argv, cwd and
-environment variable *names*).
+Every call except ``--version`` is appended to ``calls.jsonl`` next to the
+executable (argv, cwd and environment variable *names*).
 """
 
 import json
@@ -46,7 +52,20 @@ def auth():
 
 
 def main():
+    if ARGS == ["--version"]:
+        v = HERE / "version.txt"
+        print((v.read_text(encoding="utf-8").strip() if v.is_file() else "9.9.0") + f" ({NAME})")
+        return 0
+    if "--help" in ARGS:  # the flags the real CLIs show; help.txt next to the executable overrides
+        h = HERE / "help.txt"
+        print(h.read_text(encoding="utf-8") if h.is_file() else
+              "  --allowedTools <tools...>\n  --disallowedTools <tools...>\n  --output-format <format>\n  --search\n  --json\n")
+        return 0
     log_call()
+    reject = json.loads((HERE / "outputs.json").read_text(encoding="utf-8")).get("reject_flag") if (HERE / "outputs.json").is_file() else None
+    if reject and reject in ARGS:
+        print(f"error: unknown option '{reject}'" if NAME == "claude" else f"error: unexpected argument '{reject}' found", file=sys.stderr)
+        return 2
     if NAME == "claude" and ARGS[:2] == ["auth", "status"]:
         a = auth()
         method = {"api_key": "api_key", "login": "claude.ai", None: "none"}[a]
@@ -61,7 +80,7 @@ def main():
         prompt = opt("-p")
         shell_ok = opt("--permission-mode") == "bypassPermissions"
     else:
-        assert ARGS[0] == "exec", ARGS
+        assert "exec" in ARGS and all(a.startswith("--") for a in ARGS[:ARGS.index("exec")]), ARGS
         prompt = ARGS[-1]
         shell_ok = opt("--sandbox") in ("workspace-write", "danger-full-access")
     if auth() is None:
@@ -89,6 +108,8 @@ def main():
         Path(spec["touch"]).write_text("changed by the worker\n", encoding="utf-8")
     if spec.get("stderr"):
         print(spec["stderr"], file=sys.stderr)
+    for ev in spec.get("events") or []:
+        print(json.dumps(ev))
     if not spec.get("no_result"):
         result.mkdir(parents=True, exist_ok=True)
         envelope = {"protocol": "baton-packet/1", "packet_sha256": manifest["packet_sha256"], "status": spec.get("status", "completed"), "output": spec.get("output", {})}

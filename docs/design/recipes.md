@@ -230,6 +230,8 @@ vendor_denylist: ["openai/", "anthropic/", "gpt-", "claude-", "gemini", "grok", 
 
 Unknown names are load errors for recipes and profiles. New capabilities mean a new vocabulary version; the runtime supports several side by side.
 
+**Tooling capabilities** (`web_access`, `shell`, `file_write`, `code_exec`, `repo_workspace`, `workspace_read`) are provided by a harness's tools and the args its adapter passes, not by the model behind it: a harness provider's tool map in the known-workers data says which args turn each one on, and a step gets only the ones it requires (§6.3; Decision: [0085](../decisions/0085-harness-tool-maps.md)). Recipes name them like any other capability; the vocabulary is unchanged.
+
 ### 5.7 Shipped example recipes
 
 | Recipe | Purpose | Exercises |

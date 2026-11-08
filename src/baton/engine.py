@@ -1048,6 +1048,28 @@ def observe_capability(project: Any, profile: str, capability: str, state: str, 
     return data
 
 
+_VERSIONS: dict[tuple[str, float, int], str | None] = {}
+
+
+def harness_version(exe: str, adapter: Any, env: dict[str, str]) -> str | None:
+    """``<exe> --version``, parsed; cached per executable file (path, mtime, size), so an upgrade is seen (0086)."""
+    import os
+    import subprocess
+
+    try:
+        st = os.stat(exe)
+    except OSError:
+        return None
+    key = (exe, st.st_mtime, st.st_size)
+    if key not in _VERSIONS:
+        try:
+            out = subprocess.run(adapter.version_argv(exe), env=env, capture_output=True, text=True, timeout=30, check=False)
+            _VERSIONS[key] = adapter.parse_version(out.stdout or out.stderr)
+        except (OSError, subprocess.SubprocessError):
+            _VERSIONS[key] = None
+    return _VERSIONS[key]
+
+
 def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Failure class for a worker that exited without a result (§8.8; rules in ``classify.py``)."""
     return classify.classify_exit(child.exit_code, child.tail, signals)
@@ -1118,10 +1140,14 @@ def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | Non
     return config.default, "default"
 
 
-def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str, Any]], *, actor: str = "runtime") -> Outcome:
-    """A ready step with no eligible worker escalates (§8.4; §18 #2: never fails the run)."""
+def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str, Any]], *, actor: str = "runtime",
+                       attempt: int | None = None) -> Outcome:
+    """A ready step with no eligible worker escalates (§8.4; §18 #2: never fails the run).
+
+    ``attempt``: the attempt whose ending left no worker (``capability_absent``, 0086), so its result says so.
+    """
     reasons = [f"{e['profile']}: {'; '.join(e['reasons'])}" for e in excluded] or ["no worker profiles on this machine"]
-    ctx.log.append("step_escalated", actor=actor, step_path=step_path, data={"reason": "no_eligible_worker", "reasons": reasons})
+    ctx.log.append("step_escalated", actor=actor, step_path=step_path, attempt=attempt, data={"reason": "no_eligible_worker", "reasons": reasons})
     return Outcome(step_path, ctx.log.state().step(step_path).attempt, "escalated", reasons)
 
 
@@ -2261,7 +2287,7 @@ class Api:
         events = ctx.log.events()
         waiver = reviews.pending_waiver(events, step_path, "independence") if node.independence is not None else None
         return eligible_workers(
-            node, step_path, self.project.profiles(), ctx.recipe.vocab, events=events, preferences=prefs, source_path=source,
+            node, step_path, self._current_profiles(), ctx.recipe.vocab, events=events, preferences=prefs, source_path=source,
             source_own=own, independence_waiver=waiver.data.get("decision_id") if waiver is not None else None,
         ), waiver
 
@@ -2413,6 +2439,12 @@ class Api:
                 extra["effort_source"] = effort_source
             if env is not None:
                 extra["env"] = env.describe()
+            tools = self._tool_plan(profile, getattr(node, "requires", None), mode)
+            if tools is not None:
+                extra["tools"] = tools.describe()
+                version = self._harness_version(profile, env)
+                if version:
+                    extra["harness_version"] = version
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
@@ -2430,7 +2462,8 @@ class Api:
             }
             if locked:
                 out["workspace_lock"] = True
-            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
+            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
+                adapter.command(profile, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
                 return out  # a person does the work (no supervisor, no timeout); the Director submits
             if env.resolved is not None:
@@ -2829,7 +2862,12 @@ class Api:
                 return None
             before = ctx.log.state().last_seq
             signals = getattr(adapters.get(adapter), "failure_signals", None)
-            outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
+            denied = self._observe_tools(ctx, step_path, attempt, worker, child)
+            if denied and not child.timed_out:
+                outcome = self._capability_absent(ctx, step_path, attempt, child, denied, workspace_changes)
+            else:
+                outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
+                self._flag_rejected(ctx, step_path, attempt, worker)
             out = _outcome_dict(outcome)
             # Before the hooks, so on_platform_failure can hand the incident to the platform expert (§12.3).
             self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
@@ -2838,6 +2876,77 @@ class Api:
         self._fire_and_record(ctx, step_path, attempt, dispatch_id, before=before)
         self.start_queued()
         return out
+
+    def _observe_tools(self, ctx: RunContext, step_path: str, attempt: int, worker: str, child: ChildResult) -> list[str]:
+        """Record what the event stream shows about the tools turned on for this attempt (0085).
+
+        A successful call records ``verified``; a denial records ``absent``. A step
+        that did not use a tool records nothing. Returns the denied capabilities.
+        """
+        from .tool_evidence import scan
+
+        dispatched = _last_data(ctx.log.events(), "dispatched", step_path, attempt)
+        on = (dispatched.get("tools") or {}).get("on") or []
+        if not on:
+            return []
+        profiles = self.project.profiles()
+        profile = profiles.get(worker)
+        data = self._known_workers()
+        if profile is None or data is None:
+            return []
+        tool_map = data.tool_map(profile.provider or profile.adapter)
+        try:
+            text = Path(child.log_path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        denied = []
+        for cap in on:
+            t = tool_map.get(cap)
+            if t is None:
+                continue
+            verdict, evidence = scan(text, t.evidence)
+            if verdict is None:
+                continue
+            state = "verified" if verdict == "used" else "absent"
+            observe_capability(self.project, worker, cap, state, evidence, run_id=ctx.run_id, step_path=step_path, attempt=attempt,
+                               harness_version=dispatched.get("harness_version"))
+            if state == "absent":
+                denied.append(cap)
+        return denied
+
+    def _capability_absent(self, ctx: RunContext, step_path: str, attempt: int, child: ChildResult, denied: list[str],
+                           workspace_changes: list[str] | None) -> Outcome:
+        """The worker lacked a tool the step needs: discard the attempt, re-route without spending it (0086).
+
+        With no eligible worker left, the step escalates at once (``no_eligible_worker``).
+        """
+        log = ctx.log
+        message = f"the worker could not use {', '.join(denied)}; another worker is chosen and the attempt is not counted"
+        log.append("attempt_orphaned", step_path=step_path, attempt=attempt, data={**child.as_dict(), "discarded": "capability_absent"})
+        log.append("failure_classified", step_path=step_path, attempt=attempt,
+                   data={"class": "platform", "code": "capability_absent", "message": message, "capabilities": denied})
+        if workspace_changes:
+            reasons = _workspace_reasons(step_path, workspace_changes)
+            log.append("step_escalated", step_path=step_path, attempt=attempt, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
+            return Outcome(step_path, attempt, "escalated", reasons)
+        log.append("step_ready", step_path=step_path, data={"retry_of": attempt, "not_counted": True, "after": "capability_absent"})
+        routing, _w = self._routing(ctx, step_path)
+        if not routing.eligible:
+            return escalate_no_worker(ctx, step_path, routing.excluded, attempt=attempt)
+        return Outcome(step_path, attempt, "retry", [message])
+
+    def _flag_rejected(self, ctx: RunContext, step_path: str, attempt: int, worker: str) -> None:
+        """A harness that rejected a tool flag: those capabilities are absent until the data or the CLI changes (0085).
+
+        The classification is ``platform``, so the usual incident opens and the platform SME is consulted on it.
+        """
+        cls = _last_data(ctx.log.events(), "failure_classified", step_path, attempt)
+        if cls.get("code") != "harness_flag_rejected":
+            return
+        dispatched = _last_data(ctx.log.events(), "dispatched", step_path, attempt)
+        for cap in (dispatched.get("tools") or {}).get("on") or []:
+            observe_capability(self.project, worker, cap, "absent", f"the CLI rejected its flag: {cls.get('message', '')}"[:300],
+                               run_id=ctx.run_id, step_path=step_path, attempt=attempt, harness_version=dispatched.get("harness_version"))
 
     def overdue(self, run_id: str, step_path: str, attempt: int, dispatch_id: str, previous: str, deadline: str, effort: str | None) -> None:
         """An overdue worker got one more band: record it and fire the hook with outcome ``overdue``."""
@@ -2918,6 +3027,63 @@ class Api:
                 )
             if before is not None or fired:
                 self._finish_records(ctx, start, {})
+
+    # -- harness tools (§6.3, 0085) -----------------------------------------
+
+    def _known_workers(self) -> Any:
+        """The shipped known-workers data, or ``None`` when it cannot be read (a dispatch never fails for it)."""
+        from . import known_workers, vocab
+
+        try:
+            return known_workers.load(vocab.load(vocab.DEFAULT))
+        except known_workers.KnownWorkersError:
+            return None
+
+    def _tool_plan(self, profile: WorkerProfile, requires: Any, mode: str) -> Any:
+        """The tool args a harness dispatch gets: on for the step's required tooling, off for the rest (0085)."""
+        from . import adapters
+        from .adapters.harness import plan_tools
+        from .routing import needed_capabilities
+
+        if not getattr(adapters.get(profile.adapter), "uses_tool_map", False):
+            return None
+        data = self._known_workers()
+        tool_map = data.tool_map(profile.provider or profile.adapter) if data is not None else {}
+        needed = needed_capabilities(requires, mode) if requires is not None else []
+        return plan_tools(tool_map, needed, list(profile.capabilities))
+
+    def _current_profiles(self) -> dict[str, WorkerProfile]:
+        """Profiles with their capability states, after resetting states seen under an older harness version (0086)."""
+        from . import adapters
+        from . import capability_states as cs
+        from .profiles import SetupError, build_env
+
+        profiles = self.project.profiles()
+        changed = False
+        for name, p in profiles.items():
+            recs = [p.capability_record(c) for c in p.capabilities]
+            versions = {r.harness_version for r in recs if r is not None and r.harness_version and r.by in ("observed", "probe")}
+            if not versions:
+                continue
+            adapter = adapters.ADAPTERS.get(p.adapter)
+            try:
+                env = build_env(p, home=self.project.home, config_home_var=getattr(adapter, "config_home_var", None), resolve=True)
+            except SetupError:
+                continue
+            current = self._harness_version(p, env)
+            if current and versions - {current} and cs.reset_on_version(self.project.home, name, current):
+                changed = True
+        return self.project.profiles() if changed else profiles
+
+    def _harness_version(self, profile: WorkerProfile, env: Any) -> str | None:
+        """The harness CLI's version (``--version``, cached per executable file), or ``None``."""
+        from . import adapters
+
+        adapter = adapters.get(profile.adapter)
+        exe = env.resolved.executable if env is not None and env.resolved is not None else None
+        if exe is None or not hasattr(adapter, "version_argv"):
+            return None
+        return harness_version(exe, adapter, env.env)
 
     def doctor(self, profile: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
         from .doctor import doctor
@@ -3173,6 +3339,8 @@ class Api:
         for e in new:
             if e.type != "failure_classified" or e.data.get("class") not in ("platform", "unknown"):
                 continue
+            if e.data.get("code") == "capability_absent":
+                continue  # re-routed to another worker, nothing to fix (0086)
             if sme.incident_for(self.project.store.project_log().events(), ctx.run_id, e.step_path, e.attempt) is not None:
                 continue
             data = {"run": ctx.run_id, "step_path": e.step_path, "attempt": e.attempt, "class": e.data.get("class"),
@@ -3635,8 +3803,12 @@ class Api:
                 data["run"] = run_id
             if contact:
                 data["contact"] = redact_text(contact)
+            tools = self._tool_plan(profile, req, mode)
+            if tools is not None:
+                data["tools"] = tools.describe()
             w.log.append("sme_requested", actor=self.director.actor, data=data)
-            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode)
+            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
+                adapter.command(profile, built.dir, built.result_dir, workspace, mode)
             if env.resolved is not None:
                 argv = [env.resolved.executable, *argv[1:]]
             rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()

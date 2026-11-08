@@ -369,12 +369,33 @@ providers:
     api_key_env: OPENROUTER_API_KEY    # read by LiteLLM 1.106.6
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  # Tool maps (0085): the args that turn a tooling capability on. Entered by
+  # hand from the installed CLIs' --help (claude 2.1.319, codex-cli 0.166.0)
+  # until the first research run under 2026-11-cli-model-routes replaces them.
+  # The other tooling capabilities come from the adapters' permission and
+  # sandbox modes (§6.3).
   claude_code:
     kind: harness
     env_deny: [ANTHROPIC_API_KEY]
+    tools:
+      web_access:
+        args: ["--allowedTools", "WebSearch,WebFetch"]
+        flag: "--allowedTools"
+        off_args: ["--disallowedTools", "WebSearch,WebFetch"]
+        evidence: [WebSearch, WebFetch]
+        versions: "2.1.319"
+        note: "--allowedTools pre-approves the tools, so print mode does not deny them; --disallowedTools removes them from steps that do not need the web."
   codex:
     kind: harness
     env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
+    tools:
+      web_access:
+        args: ["--search"]
+        position: before_subcommand   # `codex exec --search` is rejected; `codex --search exec` parses
+        flag: "--search"
+        evidence: [web_search]
+        versions: "0.166.0"
+        note: "Web search is off unless --search is given. [VERIFY] that exec honours the top-level flag; the first observed use records it."
 
 routes:
   # Direct API: the model page says every Claude model ID, dateless ones

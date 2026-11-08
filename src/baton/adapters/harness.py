@@ -17,18 +17,28 @@ agent's writes to ``result/``, so ``read`` and ``none`` steps are enforced by
 the runtime: the working tree is compared before and after (``engine``), and
 any change escalates the step.
 
-Presets (flags checked against ``claude`` 2.1.316 and ``codex-cli`` 0.166.0):
+Presets (flags checked against ``claude`` 2.1.319 and ``codex-cli`` 0.166.0):
 
-* ``claude_code``: ``claude -p <prompt> --permission-mode <mode>``; config
-  home ``CLAUDE_CONFIG_DIR``; auth from ``claude auth status --json``.
-* ``codex``: ``codex exec --sandbox <mode> --skip-git-repo-check <prompt>``;
-  config home ``CODEX_HOME``; auth from ``codex login status``.
+* ``claude_code``: ``claude -p <prompt> --permission-mode <mode> <tool args>
+  --output-format stream-json --verbose``; config home ``CLAUDE_CONFIG_DIR``;
+  auth from ``claude auth status --json``.
+* ``codex``: ``codex <tool args before exec> exec --sandbox <mode> <tool args>
+  --json --skip-git-repo-check <prompt>``; config home ``CODEX_HOME``; auth
+  from ``codex login status``.
+
+**Tools** (0085). The tool args come from the provider's tool map in the
+known-workers data (``ToolPlan``): a step gets the args for the tooling
+capabilities it requires, and the off args for the others. The adapter only
+places them. A dispatch's output is the CLI's event stream, saved as the
+attempt's log; ``tool_evidence`` reads tool use from it, intake never does.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +53,39 @@ TASK_PROMPT = (
     "Do not modify anything under {packet}/."
 )
 NOOP_PROMPT = "Reply with the single word OK. Do not use any tools."
+
+
+@dataclass
+class ToolPlan:
+    """The tool args one dispatch gets (0085): ``on`` for the step's required tooling, ``off`` for the rest."""
+
+    on: dict[str, Any] = field(default_factory=dict)   # capability -> known_workers.ToolArgs
+    off: dict[str, Any] = field(default_factory=dict)
+
+    def split(self) -> tuple[list[str], list[str]]:
+        """``(before_subcommand, with_args)``."""
+        before: list[str] = []
+        with_args: list[str] = []
+        for t in self.on.values():
+            (before if t.position == "before_subcommand" else with_args).extend(t.args)
+        for t in self.off.values():
+            if t.off_args:
+                (before if t.off_position == "before_subcommand" else with_args).extend(t.off_args)
+        return before, with_args
+
+    def describe(self) -> dict[str, Any]:
+        before, with_args = self.split()
+        return {"on": sorted(self.on), "off": sorted(c for c, t in self.off.items() if t.off_args), "args": before + with_args}
+
+
+def plan_tools(tool_map: dict[str, Any], needed: list[str], claimed: list[str]) -> ToolPlan:
+    """Turn on the mapped tools the step needs and the profile claims; turn off the others that can be (least privilege)."""
+    on = {c: t for c, t in tool_map.items() if c in needed and c in claimed}
+    off = {c: t for c, t in tool_map.items() if c not in on}
+    return ToolPlan(on, off)
+
+
+VERSION = re.compile(r"\d+\.\d+(?:\.\d+)?")
 
 
 def mode_args(profile: WorkerProfile, mode: str, defaults: dict[str, list[str]]) -> list[str]:
@@ -63,11 +106,23 @@ class SubprocessHarnessAdapter:
     config_home_var: str | None = None
     default_args: dict[str, list[str]] = {}
     failure_signals: list[dict[str, Any]] = []
+    #: Args that make a dispatch's output the CLI's machine-readable event stream (0085).
+    stream_args: list[str] = []
+    #: Reads a tool map from the known-workers data (0085).
+    uses_tool_map = True
 
     # -- CLI specifics ------------------------------------------------------
 
-    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile) -> list[str]:  # pragma: no cover - abstract
+    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile, before: list[str] | None = None) -> list[str]:  # pragma: no cover - abstract
         raise NotImplementedError
+
+    def version_argv(self, exe: str) -> list[str]:
+        return [exe, "--version"]
+
+    @staticmethod
+    def parse_version(text: str) -> str | None:
+        m = VERSION.search(text or "")
+        return m.group(0) if m else None
 
     def auth_status_argv(self, exe: str) -> list[str] | None:
         return None
@@ -98,8 +153,15 @@ class SubprocessHarnessAdapter:
         assert exe
         return self.argv(exe, prompt, self.mode_args(profile, mode), profile)
 
-    def command(self, profile: WorkerProfile, packet_dir: Path, result_dir: Path, workspace: Path | None, mode: str) -> list[str] | None:
-        return self.task_command(profile, TASK_PROMPT.format(packet=packet_dir.as_posix(), result=result_dir.as_posix()), mode)
+    def command(self, profile: WorkerProfile, packet_dir: Path, result_dir: Path, workspace: Path | None, mode: str,
+                tools: ToolPlan | None = None) -> list[str] | None:
+        """A dispatch: the task prompt, the mode's args, the tool plan's args and the event-stream args."""
+        self.check_profile(profile)
+        exe = executable_for(profile)
+        assert exe
+        before, with_args = (tools or ToolPlan()).split()
+        prompt = TASK_PROMPT.format(packet=packet_dir.as_posix(), result=result_dir.as_posix())
+        return self.argv(exe, prompt, [*self.mode_args(profile, mode), *with_args, *self.stream_args], profile, before)
 
     def noop_command(self, profile: WorkerProfile) -> list[str]:
         return self.task_command(profile, NOOP_PROMPT, "none")
@@ -126,10 +188,12 @@ class ClaudeCodeAdapter(SubprocessHarnessAdapter):
     failure_signals = [
         {"pattern": r"(?i)not logged in|please run /login|invalid api key|authentication_error|oauth token has expired", "class": "platform", "code": "auth_failed"},
         {"pattern": r"(?i)ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network error", "class": "platform", "code": "network"},
+        {"pattern": r"(?i)error: unknown option|unknown option '--", "class": "platform", "code": "harness_flag_rejected"},
     ]
+    stream_args = ["--output-format", "stream-json", "--verbose"]
 
-    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile) -> list[str]:
-        out = [exe, "-p", prompt, *args]
+    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile, before: list[str] | None = None) -> list[str]:
+        out = [exe, *(before or []), "-p", prompt, *args]
         if profile.model:
             out += ["--model", profile.model]
         return out
@@ -166,10 +230,12 @@ class CodexAdapter(SubprocessHarnessAdapter):
     failure_signals = [
         {"pattern": r"(?i)not logged in|401 unauthorized|invalid api key|please log ?in", "class": "platform", "code": "auth_failed"},
         {"pattern": r"(?i)stream disconnected|error sending request|dns error", "class": "platform", "code": "network"},
+        {"pattern": r"(?i)error: unexpected argument '--|unrecognized option", "class": "platform", "code": "harness_flag_rejected"},
     ]
+    stream_args = ["--json"]
 
-    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile) -> list[str]:
-        out = [exe, "exec", *args, "--skip-git-repo-check", "--color", "never"]
+    def argv(self, exe: str, prompt: str, args: list[str], profile: WorkerProfile, before: list[str] | None = None) -> list[str]:
+        out = [exe, *(before or []), "exec", *args, "--skip-git-repo-check", "--color", "never"]
         if profile.model:
             out += ["--model", profile.model]
         return out + [prompt]
