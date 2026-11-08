@@ -61,7 +61,33 @@ def verified_entries(raw: Any) -> dict[tuple, Any]:
     return out
 
 
-def check(proposal_text: str, current_text: str, repo: Path) -> list[str]:
+def coverage_problems(raw: Any, output: dict[str, Any] | None) -> list[str]:
+    """Models of a harness's creators with no pinned route on it and no stated gap (0089).
+
+    A pinned route is a non-alias route of the harness for that model with an
+    invocation. A gap is the model's id in ``models_not_routed`` of that harness
+    or inside a ``coverage_gaps`` line. Retired models need neither."""
+    raw = raw or {}
+    output = output or {}
+    models = raw.get("models") or {}
+    routed = {(r.get("provider"), r.get("model_id")) for r in raw.get("routes") or [] if r.get("model_id") and r.get("invocation")}
+    named = {(h.get("provider"), n.get("model_id")) for h in output.get("harnesses") or [] for n in h.get("models_not_routed") or []}
+    gap_lines = [g for g in output.get("coverage_gaps") or [] if isinstance(g, str)]
+    out = []
+    for pname, prov in (raw.get("providers") or {}).items():
+        if prov.get("kind") != "harness":
+            continue
+        creators = set(prov.get("creators") or [])
+        for mid, m in models.items():
+            if m.get("creator") not in creators or m.get("retired"):
+                continue
+            if (pname, mid) in routed or (pname, mid) in named or any(mid in g for g in gap_lines):
+                continue
+            out.append(f"{mid} has no pinned route on {pname} and no stated gap: add a route, or name it in the harness's models_not_routed with the reason")
+    return out
+
+
+def check(proposal_text: str, current_text: str, repo: Path, output: dict[str, Any] | None = None) -> list[str]:
     """Why a proposal is refused; empty when it may be written."""
     known_workers, vocab, ADAPTERS, _load_yaml, _Api, _init = _baton()
     import yaml
@@ -71,7 +97,7 @@ def check(proposal_text: str, current_text: str, repo: Path) -> list[str]:
     except yaml.YAMLError as e:
         return [f"not YAML: {e}"]
     kw, issues = known_workers.validate(raw, vocab.load(vocab.DEFAULT), set(ADAPTERS), source="proposal", require_basis=True)
-    problems = [str(i) for i in issues]
+    problems = [str(i) for i in issues] + coverage_problems(raw, output)
     old = verified_entries(yaml.safe_load(current_text))
     new = verified_entries(raw)
     for key, value in new.items():
@@ -123,12 +149,21 @@ def validator_command(repo: Path) -> str:
     return " ".join(shlex.quote(a) for a in (sys.executable, str(Path(__file__).resolve()), "--repo", str(repo), "--check"))
 
 
-def check_file(path: Path, repo: Path) -> int:
-    """``--check FILE``: print why a proposal would be refused; exit 0 when it would be accepted."""
+def check_file(path: Path, repo: Path, report: Path | None = None) -> int:
+    """``--check FILE``: print why a proposal would be refused; exit 0 when it would be accepted.
+
+    ``--report FILE`` is the worker's draft report (JSON), which can name coverage gaps."""
     if not path.is_file():
         print(f"baton-worker-research: no file {path}", file=sys.stderr)
         return 2
-    problems = check(path.read_text(encoding="utf-8"), (repo / KNOWN_WORKERS).read_text(encoding="utf-8"), repo)
+    output = None
+    if report is not None:
+        try:
+            output = json.loads(report.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"baton-worker-research: cannot read the report {report}: {e}", file=sys.stderr)
+            return 2
+    problems = check(path.read_text(encoding="utf-8"), (repo / KNOWN_WORKERS).read_text(encoding="utf-8"), repo, output)
     for p in problems:
         print(f"- {p}")
     print("refused" if problems else "accepted")
@@ -181,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="baton-worker-research", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--report", metavar="FILE", help="with --check: the draft report as JSON, so named coverage gaps count")
     ap.add_argument("--profile", help="the worker profile to dispatch to")
     ap.add_argument("--check", metavar="FILE", help="validate a proposal file as the tool would after a run, and stop")
     ap.add_argument("--home", help="the Baton home holding the profiles (default: BATON_HOME or ~/.baton)")
@@ -198,7 +234,7 @@ def _main(argv: list[str] | None = None) -> int:
     if not target.is_file():
         ap.error(f"{repo} is not a Baton checkout (no {KNOWN_WORKERS})")
     if args.check:
-        return check_file(Path(args.check), repo)
+        return check_file(Path(args.check), repo, Path(args.report) if args.report else None)
     if not args.profile:
         ap.error("--profile is required (or --check FILE)")
     current = target.read_text(encoding="utf-8")
@@ -240,7 +276,7 @@ def _main(argv: list[str] | None = None) -> int:
         doc = json.loads((result / "result.json").read_text(encoding="utf-8"))
         art = next(a for a in doc["artifacts"] if a["name"] == "known_workers")
         proposal = (result / art["path"]).read_text(encoding="utf-8")
-        problems = check(proposal, current, repo)
+        problems = check(proposal, current, repo, doc.get("output") or {})
         reports.mkdir(parents=True, exist_ok=True)
         (reports / f"{args.today}.md").write_text(report_markdown(doc.get("output") or {}, args.today, args.profile, problems, litellm_version), encoding="utf-8")
         if problems:

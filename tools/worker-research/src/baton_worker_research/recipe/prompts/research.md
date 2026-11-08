@@ -83,7 +83,7 @@ name the pages you used in `sources`. For each harness provider:
 ## Check your work
 
 If you can run commands, validate the proposal before returning it:
-append the file's path to the `validator` input's command and run it. It
+append the file's path to the `validator` input's command and run it. (Coverage gaps you intend to report count only if you also write the report as JSON to a file and add `--report <file>` after the path.) It
 prints why the tool would refuse the proposal and exits 1, or exits 0 when it
 would accept it. Fix what you can. What you cannot fix goes in the report's
 `coverage_gaps` and `notes`.

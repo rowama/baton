@@ -141,3 +141,14 @@ Harness CLIs other than Claude Code and Codex (Gemini, Grok, …) are not exclud
   - Tests: `tests/test_worker_research.py` (the new inputs reach the worker, LiteLLM entries cover every API route, `--check` accepts and refuses, the validator command runs as the worker would, the report lists harnesses), `tests/test_known_workers.py` (creators).
 - **Review:** clean (self-review). Not verified live: that a real worker follows the prompt; the slice 4 run shows it.
 - **Accepted:** pending owner review
+
+### 3. Coverage check
+
+- **Commit:** 2026-11-cli-model-routes: Coverage check
+- **Summary:**
+  - `baton-worker-research`: `coverage_problems` lists every non-retired model of a creator a harness provider names that has no pinned route (non-alias, with an invocation) on that harness and is not named as a gap (in that harness's `models_not_routed`, or by its id inside a `coverage_gaps` line). `check` includes it, so a run with such a model is refused like an invalid proposal: the repository file is untouched, the proposal saved beside the report. `--check FILE --report FILE` lets the worker's own validation count gaps it intends to report. The check reads `creators` from the data, so a further harness needs data only (0089).
+  - The shipped data fails this check today (Fable 5.1 and Haiku 5.5 have no Claude Code route, Codex has no pinned routes); the slice 4 run fixes the data. The test seed adds the missing routes.
+  - Docs: none beyond slice 2's §6.4 text.
+  - Tests: `tests/test_worker_research.py` (route or gap required; gap must name the model, on that harness or in a gap line; the alias is not a pinned route; retired models exempt; a harness with new data only is covered; a run is refused and leaves the file alone).
+- **Review:** clean (self-review)
+- **Accepted:** pending owner review
