@@ -57,6 +57,7 @@ def test_untouched_profiles_get_metadata_refreshes_edited_ones_never(setup_home)
         m = raw["models"]["anthropic/claude-opus-5-5"]
         m["context_tokens"] = 500000
         m["capabilities"] = [c for c in m["capabilities"] if c != "tool_use"]
+        m["capability_basis"].pop("tool_use", None)
     change(bump)
     out = run_setup(home, found("codex"))
     assert out["refreshed"] == ["openrouter-main-claude-opus-5-5"]
