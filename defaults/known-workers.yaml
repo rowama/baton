@@ -26,6 +26,7 @@ models:
     creator: anthropic
     category: llm
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -36,6 +37,7 @@ models:
     creator: anthropic
     category: llm
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -45,6 +47,7 @@ models:
     creator: anthropic
     category: llm
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 1000000
     sources:
@@ -54,6 +57,7 @@ models:
     creator: anthropic
     category: llm
     capabilities: [structured_output, tool_use, vision]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     context_tokens: 1000000
     sources:
@@ -70,6 +74,7 @@ models:
     creator: openai
     category: llm
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1050000
     sources:
@@ -79,6 +84,7 @@ models:
     creator: openai
     category: llm
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 1050000
     sources:
@@ -88,6 +94,7 @@ models:
     creator: openai
     category: llm
     capabilities: [tool_use, vision]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     context_tokens: 1050000
     sources:
@@ -99,6 +106,7 @@ models:
     category: llm
     # open-weight
     capabilities: [tool_use, technical_reasoning]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 131072
     sources:
@@ -111,6 +119,7 @@ models:
     category: llm
     # open-weight
     capabilities: [tool_use]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     context_tokens: 131072
     sources:
@@ -136,6 +145,7 @@ models:
     creator: google
     category: llm
     capabilities: [long_form_writing, technical_reasoning, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -145,6 +155,7 @@ models:
     creator: google
     category: llm
     capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 1048576
     sources:
@@ -155,6 +166,7 @@ models:
     creator: google
     category: llm
     capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
@@ -183,6 +195,7 @@ models:
     category: llm
     # open-weight
     capabilities: [tool_use, vision]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     context_tokens: 262144
     sources:
@@ -195,6 +208,7 @@ models:
     category: llm
     # open-weight
     capabilities: [long_form_writing, technical_reasoning, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
@@ -205,6 +219,7 @@ models:
     creator: mistral
     category: ocr
     capabilities: [vision]
+    capability_basis: { vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
@@ -219,6 +234,7 @@ models:
     creator: deepseek
     category: llm
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -230,6 +246,7 @@ models:
     category: llm
     # open-weight
     capabilities: [technical_reasoning, vision]
+    capability_basis: { technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 1000000
     sources:
@@ -244,6 +261,7 @@ models:
     creator: xai
     category: llm
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -255,6 +273,7 @@ models:
     creator: qwen
     category: llm
     capabilities: [long_form_writing, technical_reasoning, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1000000
     sources:
@@ -267,6 +286,7 @@ models:
     category: llm
     # open-weight
     capabilities: [vision]
+    capability_basis: { vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     context_tokens: 131072
     sources:
@@ -279,6 +299,7 @@ models:
     creator: meta
     category: llm
     capabilities: [vision]
+    capability_basis: { vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     context_tokens: 1048576
     sources:
@@ -288,6 +309,7 @@ models:
     creator: cohere
     category: llm
     capabilities: [vision]
+    capability_basis: { vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 128000
     sources:
@@ -314,6 +336,7 @@ models:
     creator: zai
     category: llm
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     context_tokens: 200000
     sources:
@@ -465,6 +488,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
@@ -475,6 +499,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
@@ -485,6 +510,7 @@ routes:
     alias: true
     supported: true
     capabilities: [tool_use, vision]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
@@ -495,6 +521,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://openrouter.ai/openai/gpt-6-astra", retrieved: 2026-11-06 }
@@ -600,6 +627,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
@@ -611,6 +639,7 @@ routes:
     alias: true
     supported: true
     capabilities: [technical_reasoning, vision]
+    capability_basis: { technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
@@ -624,6 +653,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://openrouter.ai/deepseek/deepseek-v4-pro", retrieved: 2026-11-06 }
@@ -644,6 +674,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
@@ -654,6 +685,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing, technical_reasoning]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
     sources:
       - { url: "https://openrouter.ai/x-ai/grok-4.7", retrieved: 2026-11-06 }
@@ -675,6 +707,7 @@ routes:
     alias: true
     supported: true
     capabilities: [long_form_writing]
+    capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
     sources:
       - { url: "https://openrouter.ai/openrouter/auto", retrieved: 2026-11-06 }
@@ -690,6 +723,7 @@ routes:
     invocation: claude-opus-5-5
     supported: true
     capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, file_write: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, shell: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, code_exec: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, repo_workspace: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, workspace_read: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     sources:
       - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-07 }
   - model_id: anthropic/claude-sonnet-5-5
@@ -698,6 +732,7 @@ routes:
     invocation: claude-sonnet-5-5
     supported: true
     capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, file_write: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, shell: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, code_exec: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, repo_workspace: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, workspace_read: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     sources:
       - { url: "https://code.claude.com/docs/en/model-config.md", retrieved: 2026-11-07 }
   # Harnesses on their own default model: a mutable alias, so no model_id.
@@ -709,6 +744,7 @@ routes:
     alias: true
     supported: true
     capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, file_write: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, shell: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, code_exec: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, repo_workspace: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, workspace_read: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
   - creator: openai
     provider: codex
@@ -716,4 +752,5 @@ routes:
     alias: true
     supported: true
     capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, file_write: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, shell: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, code_exec: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, repo_workspace: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, workspace_read: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong

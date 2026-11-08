@@ -221,3 +221,7 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0085 Tooling capabilities belong to the harness: researched tool maps, least privilege, verified by use](decisions/0085-harness-tool-maps.md) | accepted |
 | [0086 capability_absent re-routes without spending an attempt; absent everywhere escalates at once](decisions/0086-capability-absent-reroutes.md) | accepted |
 | [0087 structured_output is absent after three schema-gate failures in a row on one profile](decisions/0087-structured-output-by-schema-gate.md) | accepted |
+| [0088 A researched capability needs a basis, not proof, and ships as likely](decisions/0088-capability-basis.md) | accepted |
+| [0089 Research is refused when a harness's creator has a model with no pinned harness route and no stated gap](decisions/0089-harness-coverage-check.md) | accepted |
+| [0090 Harness CLI flags are researched data, reviewed in the diff; drift goes to the platform SME](decisions/0090-harness-flags-are-researched-data.md) | accepted |
+| [0091 The researcher gets tool maps, starting URLs and LiteLLM entries; model availability is verified by use](decisions/0091-researcher-inputs-and-model-listing.md) | accepted |

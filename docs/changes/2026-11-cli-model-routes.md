@@ -1,9 +1,9 @@
 ---
 id: 2026-11-cli-model-routes
 title: "Research proposes a route for every model each harness can run, and the capabilities that should be present"
-status: proposed
+status: in-progress
 level: standard
-decisions: ["0080", "0083"]   # extends; new records listed under Design > Decisions
+decisions: ["0080", "0083", "0088", "0089", "0090", "0091"]   # extends 0080 and 0083
 touches: [design/workers.md, design/layouts.md]
 ---
 
@@ -47,17 +47,21 @@ Which models a harness can run, and which tools it provides, are documented fact
    - the installed LiteLLM model-map entries for every API route already in the data.
 
    It records the LiteLLM version in the report.
-5. **Deterministic coverage check.** After the run, the tool lists every model whose creator matches a harness's creator (anthropic → `claude_code`, openai → `codex`) that has no pinned route on that harness and no coverage-gap entry naming it. Any such model makes the run refused, like an invalid proposal (saved beside the report, not written to the repository).
+5. **Deterministic coverage check.** After the run, the tool lists every model whose creator a harness provider names in its `creators` (data, not code: anthropic for `claude_code`, openai for `codex`, and any other CLI's provider the same way) that has no pinned route on that harness and no coverage-gap entry naming it. Any such model makes the run refused, like an invalid proposal (saved beside the report, not written to the repository).
 6. The worker can validate its proposal during its attempt: the validator is given to it as a command it may run. Failures it cannot fix go into the report.
 7. The report shows, for each harness: models routed, models not routed with the reason, and tools proposed.
 8. A real run on this machine, then `baton workers setup`, generates one profile per model for each logged-in CLI (e.g. `claude-code-claude-haiku-5-5`, `codex-<model>`) next to the API profiles of the same models. Independence still treats a CLI profile and an API profile of one model as the same model (0075).
 9. Tests cover the coverage check, the capability basis validation and the new inputs; `pytest` passes.
 
-### Open questions
+### Decisions on the open questions (owner, 2026-11-08)
 
-1. Account entitlement (which models a ChatGPT or Claude plan allows in its CLI) depends on the owner's plan. Is it enough to leave this to verification by use (an unavailable model is classified `platform` and the profile re-routed)? Or should `workers setup` ask the CLI where it can list models **[VERIFY whether either CLI can]**?
-2. Should `catalog` facts from LiteLLM's model map be read by the researcher (reviewed in the diff), or by `workers setup` at run time from the installed LiteLLM (always current, but unreviewed)? The proposal assumes the researcher.
-3. Starting URL list: kept in `tools/worker-research/` (maintainer data), or in the prompt?
+1. Entitlement is left to verification by use; `workers setup` does not ask a CLI for a model list (no CLI is known to offer one, and a mechanism per CLI would tie setup to particular CLIs). Recorded in [0091](../decisions/0091-researcher-inputs-and-model-listing.md).
+2. The researcher reads LiteLLM's model map; the facts are reviewed in the diff (0091).
+3. The starting URLs are a maintainer file, `tools/worker-research/harness-docs.yaml` (0091).
+
+### Scope
+
+Harness CLIs other than Claude Code and Codex (Gemini, Grok, …) are not excluded by the data or the research: they need a provider entry with `creators`. Dispatching to one needs an adapter preset, which is a separate change; their routes are `supported: false` until then.
 
 ## Design
 
@@ -68,7 +72,7 @@ Which models a harness can run, and which tools it provides, are documented fact
   - routes and models carry a capability basis (`documented` / `catalog` / `judgment`);
   - harness routes are one per model the harness documents;
   - research inputs and the coverage check;
-  - `known-workers` format stays `baton-known-workers/1` if the basis is an optional field, else a version bump (decide in slice 1).
+  - `known-workers` format stays `baton-known-workers/1`: `capability_basis` is an optional field (decided in slice 1).
 - `design/layouts.md` §4.1: maintainer data for the researcher's starting URLs, if kept as a file.
 - Prompt `tools/worker-research/.../prompts/research.md`:
   - a Harness section (the model list and tools per harness);
@@ -78,7 +82,7 @@ Which models a harness can run, and which tools it provides, are documented fact
 ### Decisions
 
 - **New:** a researched capability needs a basis (`documented`, `catalog` or `judgment`), not proof; it ships as `likely`.
-- **New:** the research tool refuses a proposal that leaves a model of a harness's creator without a pinned harness route or a stated gap.
+- **New:** the research tool refuses a proposal that leaves a model of a creator a harness provider names (`creators`) without a pinned harness route or a stated gap.
 - **New:** harness CLI flags are researched data (tool maps), reviewed in the diff like model IDs. Drift found at run time goes to the platform SME (2026-11-capability-confidence).
 - **Extend 0083:** the researcher's inputs include the current tool maps, starting URLs and LiteLLM model-map entries.
 
@@ -115,4 +119,13 @@ Which models a harness can run, and which tools it provides, are documented fact
 
 ## Log
 
-<One entry per slice, written in the slice's own commit together with its code, tests and design doc edits.>
+### 1. Capability basis in the data
+
+- **Commit:** 2026-11-cli-model-routes: Capability basis in the data
+- **Summary:**
+  - `known_workers.py`: `capability_basis` on models and routes (`documented` with a source, `catalog` naming the LiteLLM field that shows the capability, `judgment` with a reason); `validate(require_basis=True)` also demands one for every claimed capability. `baton-worker-research` validates proposals with it set. The field is optional, so the format stays `baton-known-workers/1`.
+  - `defaults/known-workers.yaml`: every seed capability marked `judgment` (the file header already says the seed's capabilities are the maintainer's judgment). Setup is unchanged: a claimed capability with no recorded state is `likely` (0084).
+  - Decisions 0088–0091 recorded from the owner's answers. Docs: §6.4.
+  - Tests: `tests/test_known_workers.py` (the shipped data passes `require_basis`, each kind's required parts, an unclaimed basis, research strictness against the format's leniency).
+- **Review:** clean (self-review)
+- **Accepted:** pending owner review

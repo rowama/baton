@@ -4,9 +4,9 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | in-progress | standard | |
 | [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | in-progress | standard | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
-| [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | proposed | standard | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | proposed | major | |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |

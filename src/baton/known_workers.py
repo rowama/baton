@@ -49,10 +49,32 @@ class Source(_Strict):
     retrieved: dt.date
 
 
+#: LiteLLM model-map fields that show a capability (basis ``catalog``, 0088).
+CATALOG_FIELDS = {
+    "supports_response_schema": "structured_output",
+    "supports_function_calling": "tool_use",
+    "supports_vision": "vision",
+}
+
+
+class CapabilityBasis(_Strict):
+    """Why a capability is claimed (0088): a basis, not proof; the claim ships as ``likely`` (0084)."""
+
+    kind: Literal["documented", "catalog", "judgment"]
+    #: ``documented``: where the capability is stated.
+    source: Source | None = None
+    #: ``catalog``: the LiteLLM model-map field that shows it (``CATALOG_FIELDS``).
+    litellm: str | None = None
+    #: ``judgment``: one line on why the creator class normally has it.
+    reason: str | None = Field(default=None, min_length=1)
+
+
 class KnownModel(_Strict):
     creator: str
     category: str = "llm"
     capabilities: list[str] = Field(default_factory=list)
+    #: Capability -> why it is claimed (0088); optional in the format, required by research.
+    capability_basis: dict[str, CapabilityBasis] = Field(default_factory=dict)
     tier: str | None = None
     context_tokens: int | None = Field(default=None, ge=1)
     sources: list[Source] = Field(min_length=1)
@@ -107,6 +129,7 @@ class KnownRoute(_Strict):
     alias: bool = False
     supported: bool
     capabilities: list[str] = Field(default_factory=list)   # what the route adds (e.g. a harness's tools)
+    capability_basis: dict[str, CapabilityBasis] = Field(default_factory=dict)
     tier: str | None = None             # for an alias route, which has no model entry
     context_tokens: int | None = Field(default=None, ge=1)
     sources: list[Source] = Field(default_factory=list)
@@ -141,8 +164,11 @@ def default_path() -> Path:
     return data.path("defaults") / FILE
 
 
-def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = FILE) -> tuple[KnownWorkers | None, list[Issue]]:
-    """Schema, vocabulary, adapters, identity consistency and provenance (0080)."""
+def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = FILE, require_basis: bool = False) -> tuple[KnownWorkers | None, list[Issue]]:
+    """Schema, vocabulary, adapters, identity consistency and provenance (0080).
+
+    ``require_basis``: every claimed capability must carry a basis (0088); research
+    sets it, the optional field keeps older data loading."""
     def issue(code: str, where: str, message: str) -> Issue:
         return Issue(code=f"known_workers.{code}", where=f"{source}:{where}" if where else source, message=message)
 
@@ -163,6 +189,22 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
                 issues.append(issue("unknown_capability", where, f"capability {cap!r} is not in {vocab.id}"))
             elif cap in kw.machine_dependent:
                 issues.append(issue("machine_dependent", where, f"{cap!r} depends on the machine; it needs an owner declaration or a probe, never known-workers data"))
+
+    def check_basis(caps: list[str], basis: dict[str, CapabilityBasis], where: str) -> None:
+        for cap, b in basis.items():
+            w = f"{where}.capability_basis.{cap}"
+            if cap not in caps:
+                issues.append(issue("basis_unclaimed", w, f"a basis for {cap!r}, which is not claimed here"))
+            if b.kind == "documented" and b.source is None:
+                issues.append(issue("basis_incomplete", w, "a documented basis needs a source (url, retrieved)"))
+            elif b.kind == "catalog" and CATALOG_FIELDS.get(b.litellm or "") != cap:
+                issues.append(issue("basis_incomplete", w, f"a catalog basis names the LiteLLM field that shows {cap!r} ({', '.join(f for f, c in CATALOG_FIELDS.items() if c == cap) or 'none exists for it'})"))
+            elif b.kind == "judgment" and not b.reason:
+                issues.append(issue("basis_incomplete", w, "a judgment basis needs a one-line reason"))
+        if require_basis:
+            for cap in caps:
+                if cap not in basis:
+                    issues.append(issue("basis_missing", f"{where}.capabilities", f"capability {cap!r} has no basis (documented, catalog or judgment); omit it or give one"))
 
     def check_tier(tier: str | None, where: str) -> None:
         if tier is not None and tier not in vocab.tiers:
@@ -186,6 +228,7 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
         elif mid.split("/", 1)[0] != m.creator.lower():
             issues.append(issue("model_id", where, f"model_id must start with its creator, {m.creator.lower()}/"))
         check_caps(m.capabilities, f"{where}.capabilities")
+        check_basis(m.capabilities, m.capability_basis, where)
         check_tier(m.tier, f"{where}.tier")
     seen: set[tuple[str, str, str | None]] = set()
     for i, r in enumerate(kw.routes):
@@ -205,6 +248,7 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
         if r.supported and r.invocation is None and kw.providers.get(r.provider) and kw.providers[r.provider].kind != "harness":
             issues.append(issue("no_invocation", where, "only a harness route may leave invocation empty (the harness's default model)"))
         check_caps(r.capabilities, f"{where}.capabilities")
+        check_basis(r.capabilities, r.capability_basis, where)
         check_tier(r.tier, f"{where}.tier")
         key = (r.provider, r.adapter, r.invocation)
         if key in seen:

@@ -93,3 +93,54 @@ def test_research_may_cover_what_the_runtime_cannot_execute():
         r["providers"]["acme"] = {"kind": "direct_api"}
         r["routes"].append({"model_id": "acme/transcriber-1", "provider": "acme", "adapter": "audio_api", "invocation": "t-1", "supported": False})
     assert _bad(add_unsupported) == set()
+
+
+def _validate(raw: dict, require_basis: bool = False) -> set[str]:
+    _kw, issues = known_workers.validate(raw, VOCAB, set(ADAPTERS), require_basis=require_basis)
+    return {i.code for i in issues}
+
+
+def test_every_shipped_capability_has_a_basis_and_the_seed_is_judgment():
+    raw = shipped()
+    assert _validate(raw, require_basis=True) == set()
+    kw = known_workers.load(VOCAB)
+    for m in kw.models.values():
+        assert set(m.capability_basis) == set(m.capabilities)
+    for r in kw.routes:
+        assert set(r.capability_basis) == set(r.capabilities)
+
+
+@pytest.mark.parametrize(
+    "basis, code",
+    [
+        ({"kind": "documented"}, "known_workers.basis_incomplete"),
+        ({"kind": "catalog", "litellm": "supports_vision"}, "known_workers.basis_incomplete"),   # shows vision, not structured_output
+        ({"kind": "catalog"}, "known_workers.basis_incomplete"),
+        ({"kind": "judgment"}, "known_workers.basis_incomplete"),
+        ({"kind": "judgment", "reason": ""}, "known_workers.invalid"),
+        ({"kind": "hunch", "reason": "x"}, "known_workers.invalid"),
+    ],
+)
+def test_a_basis_must_carry_what_its_kind_needs(basis, code):
+    def mutate(r):
+        r["models"]["anthropic/claude-opus-5-5"]["capability_basis"]["structured_output"] = basis
+    assert code in _bad(mutate)
+
+
+def test_basis_kinds_and_unclaimed_basis():
+    def good(r):
+        b = r["models"]["anthropic/claude-opus-5-5"]["capability_basis"]
+        b["structured_output"] = {"kind": "catalog", "litellm": "supports_response_schema"}
+        b["tool_use"] = {"kind": "documented", "source": {"url": "https://example.org/x", "retrieved": "2026-11-08"}}
+    assert _bad(good) == set()
+
+    def unclaimed(r):
+        r["models"]["anthropic/claude-opus-5-5"]["capability_basis"]["web_access"] = {"kind": "judgment", "reason": "x"}
+    assert "known_workers.basis_unclaimed" in _bad(unclaimed)
+
+
+def test_research_requires_a_basis_but_the_format_does_not():
+    raw = copy.deepcopy(shipped())
+    raw["models"]["anthropic/claude-opus-5-5"]["capability_basis"].pop("vision")
+    assert _validate(raw) == set()
+    assert _validate(raw, require_basis=True) == {"known_workers.basis_missing"}

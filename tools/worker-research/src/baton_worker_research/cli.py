@@ -68,7 +68,7 @@ def check(proposal_text: str, current_text: str, repo: Path) -> list[str]:
         raw = yaml.safe_load(proposal_text)
     except yaml.YAMLError as e:
         return [f"not YAML: {e}"]
-    kw, issues = known_workers.validate(raw, vocab.load(vocab.DEFAULT), set(ADAPTERS), source="proposal")
+    kw, issues = known_workers.validate(raw, vocab.load(vocab.DEFAULT), set(ADAPTERS), source="proposal", require_basis=True)
     problems = [str(i) for i in issues]
     old = verified_entries(yaml.safe_load(current_text))
     new = verified_entries(raw)
