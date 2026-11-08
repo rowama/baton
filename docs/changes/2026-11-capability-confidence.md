@@ -152,3 +152,14 @@ Answered by the owner, 2026-11-08 (all four as suggested):
   - Tests: `tests/test_tool_evidence.py` (Claude Code uses, denials, non-denial errors, noise; Codex events); `tests/test_harness_tools.py` (web tools turned on and verified with the attempt recorded, no record without use, denial re-routes without spending an attempt and opens no incident, absent everywhere escalates at once, rejected flag opens an incident and marks absent, a new harness version resets observed states but not the owner's, setup offers a tool only when `--help` shows its flag); `tests/test_harness.py` updated for the stream and off args, with tool-plan and version tests. The fake harness answers `--version` and `--help`, prints scripted events, rejects a scripted flag, and accepts flags before `exec`.
 - **Review:** clean (self-review). Not verified live: that `codex exec` honours the top-level `--search`, and the exact event shapes of the real CLIs' streams; the first real web step records what it sees.
 - **Accepted:** pending owner review
+
+### 3. Structured output by schema-gate evidence
+
+- **Commit:** 2026-11-capability-confidence: Structured output by schema-gate evidence
+- **Summary:**
+  - `intake.py` notes whether a step's output schema was checked and passed; `result_rejected` and the provenance `gate_passed` carry `output_schema`.
+  - `capability_states.schema_gate` counts failures per profile machine-wide (`failures` on the `structured_output` entry); a pass resets the count; the third failure in a row records `absent`. `engine.observe_schema_gate` runs after every intake (supervised completion and `submit`) and records `capability_observed` on the change.
+  - Docs: §6.1.
+  - Tests (`tests/test_capability_states.py`): two failures change nothing, the third makes it absent and routes to the other profile with one event carrying attempt 3; a pass resets the count; counts are per profile; a tool map may not name a model-quality capability.
+- **Review:** clean (self-review)
+- **Accepted:** pending owner review

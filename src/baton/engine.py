@@ -641,7 +641,8 @@ def submit(
     if workspace_changes:
         return _workspace_modified(ctx, step_path, n, workspace_changes)
     if sub.problems:
-        log.append("result_rejected", step_path=step_path, attempt=n, data={"reasons": sub.problems})
+        log.append("result_rejected", step_path=step_path, attempt=n,
+                   data={"reasons": sub.problems, **({"output_schema": sub.output_schema} if sub.output_schema else {})})
         return _failed(ctx, step_path, n, sub.problems)
     if sub.status == "blocked":
         reasons = ["the worker needs answers from the owner"]
@@ -662,7 +663,8 @@ def submit(
         "gate_passed",
         step_path=step_path,
         attempt=n,
-        data={"gate": "provenance", "type": "provenance", "implicit": True, "artifacts": sorted(sub.artifacts)},
+        data={"gate": "provenance", "type": "provenance", "implicit": True, "artifacts": sorted(sub.artifacts),
+              **({"output_schema": sub.output_schema} if sub.output_schema else {})},
     )
     if step.protect is not None:
         held = _protected_gate(ctx, step, step_path, n)
@@ -1068,6 +1070,35 @@ def harness_version(exe: str, adapter: Any, env: dict[str, str]) -> str | None:
         except (OSError, subprocess.SubprocessError):
             _VERSIONS[key] = None
     return _VERSIONS[key]
+
+
+def observe_schema_gate(project: Any, ctx: RunContext, step_path: str, attempt: int) -> dict[str, Any] | None:
+    """Count the attempt's schema-gate result against its profile's ``structured_output`` (0087).
+
+    Three failures in a row on one profile, counted machine-wide, record it
+    ``absent`` (with ``capability_observed``); a pass resets the count. Nothing
+    is counted for a profile that does not claim it, or an attempt whose output
+    schema was not checked.
+    """
+    from . import capability_states as cs
+    from .sme import project_append
+
+    mine = [e for e in ctx.log.events() if e.step_path == step_path and e.attempt == attempt]
+    verdict = next((e.data["output_schema"] for e in reversed(mine)
+                    if e.type in ("result_rejected", "gate_passed") and e.data.get("output_schema")), None)
+    profile = _last_data(ctx.log.events(), "dispatched", step_path, attempt).get("profile")
+    if verdict is None or profile is None:
+        return None
+    found = project.profiles().get(profile)
+    if found is None or "structured_output" not in found.capabilities:
+        return None
+    before, after = cs.schema_gate(project.home, profile, verdict == "passed", run=ctx.run_id, step_path=step_path, attempt=attempt)
+    if before.state == after.state:
+        return None
+    data = {"profile": profile, "capability": "structured_output", "state": after.state, "previous": before.state,
+            "evidence": after.evidence, "run": ctx.run_id, "step_path": step_path, "attempt": attempt}
+    project_append(project, "capability_observed", data)
+    return data
 
 
 def classify_exit(child: ChildResult, signals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -2869,6 +2900,7 @@ class Api:
                 outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
                 self._flag_rejected(ctx, step_path, attempt, worker)
             out = _outcome_dict(outcome)
+            observe_schema_gate(self.project, ctx, step_path, attempt)
             # Before the hooks, so on_platform_failure can hand the incident to the platform expert (§12.3).
             self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
             docs.write_records(ctx)  # so BATON_RECORD is current when the hooks run
@@ -3152,6 +3184,7 @@ class Api:
             disp = _last_data(ctx.log.events(), "dispatched", step_path, st.attempt)
             profile = disp.get("profile")
             outcome = submit(ctx, step_path, actor=f"worker:{profile}" if profile else "worker")
+            observe_schema_gate(self.project, ctx, step_path, st.attempt)
             if disp.get("dispatch_id"):
                 self._release_workspace(dispatch_id=disp["dispatch_id"])  # a manual write step held the tree until now
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}

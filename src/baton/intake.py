@@ -61,6 +61,8 @@ class Submission:
     process_feedback: list[Any] = field(default_factory=list)
     dispositions: list[Any] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    #: ``passed`` / ``failed`` when the step's output schema was checked; ``None`` when not (0087).
+    output_schema: str | None = None
 
     def registered(self) -> dict[str, Any]:
         """The hashes downstream steps may consume once the step passes."""
@@ -114,7 +116,9 @@ def read_result(ctx: RunContext, step: Step, result_dir: Path, packet_dir: Path,
         return sub
 
     if step.output_schema:
-        sub.problems += _schema_errors(output_schema_for(ctx.recipe, step), result.output)
+        errors = _schema_errors(output_schema_for(ctx.recipe, step), result.output)
+        sub.problems += errors
+        sub.output_schema = "failed" if errors else "passed"
     try:
         sub.output_sha256 = ctx.log.cas.put(canonical_json(result.output).encode("utf-8"))
     except (TypeError, ValueError) as e:  # pragma: no cover - json.loads only yields JSON values

@@ -159,6 +159,45 @@ def _same(a: CapabilityState, b: CapabilityState) -> bool:
     return a.state == b.state and a.by == b.by and a.failures == b.failures and a.harness_version == b.harness_version
 
 
+#: Schema-gate failures in a row on one profile that make ``structured_output`` absent (0087).
+SCHEMA_FAILURES_ABSENT = 3
+
+
+def schema_gate(home: Path, profile: str, passed: bool, *, today: dt.date | None = None, run: str | None = None,
+                step_path: str | None = None, attempt: int | None = None) -> tuple[CapabilityState, CapabilityState]:
+    """Count one schema-gate result for ``structured_output`` (0087); returns ``(before, after)``.
+
+    A pass resets the count; the third failure in a row records ``absent``. One
+    failure changes no state. An ``absent`` state is never counted further.
+    """
+    cap = "structured_output"
+    today = today or dt.date.today()
+    with _lock(home):
+        states = load(home)
+        before = state_of(states, profile, cap)
+        if before.state == "absent":
+            return before, before
+        if passed:
+            if not before.failures:
+                return before, before
+            after = CapabilityState(before.state, before.date, before.by, before.evidence, before.run, before.step_path,
+                                    before.attempt, before.harness_version)
+        else:
+            failures = before.failures + 1
+            if failures >= SCHEMA_FAILURES_ABSENT:
+                after = CapabilityState("absent", today.isoformat(), "observed", f"{failures} schema-gate failures in a row",
+                                        run, step_path, attempt)
+            else:
+                after = CapabilityState(before.state, before.date, before.by, before.evidence, before.run, before.step_path,
+                                        before.attempt, before.harness_version, failures)
+        if after == CapabilityState():
+            states.get(profile, {}).pop(cap, None)
+        else:
+            states.setdefault(profile, {})[cap] = after
+        _save(home, states)
+    return before, after
+
+
 def reset_on_version(home: Path, profile: str, version: str) -> list[str]:
     """Observed states recorded under another harness version go back to ``likely`` (0084, 0086).
 

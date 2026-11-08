@@ -164,3 +164,75 @@ def test_a_broken_state_file_is_a_configuration_problem(routed):
     with pytest.raises(EngineError) as e:
         api.eligible(run, "search")
     assert e.value.code == "configuration.capability_states"
+
+
+# ---------------------------------------------------------------------------
+# structured_output by schema-gate evidence (0087)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def schema_run(tmp_path):
+    recipe = make_recipe(
+        tmp_path / "toy",
+        [{"id": "draft", "requires": {"capabilities": ["structured_output"]}, "output_schema": "schemas/out.json"}],
+        schemas={"out.json": {"type": "object", "required": ["title"]}},
+        defaults={"max_attempts": 9},
+    )
+    root = tmp_path / "proj"
+    root.mkdir()
+    init(root)
+    home = make_home(tmp_path / "home", PROFILES)
+    api = Api.open(root, director_id="alice@host1", home=home, clock=Clock())
+    api.vendor(recipe)
+    run = api.start("toy", {"title": "Schema"})["run_id"]
+    return api, root, home, run
+
+
+def attempt(api, root, run, worker, output):
+    from projectkit import packet_dir, write_result
+
+    d = api.dispatch(run, "draft", worker)
+    write_result(packet_dir(root, run, "draft", d["attempt"]), output)
+    return api.submit(run, "draft")["outcome"]
+
+
+def test_three_schema_failures_in_a_row_make_structured_output_absent(schema_run):
+    api, root, home, run = schema_run
+    for _ in range(2):
+        assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    st = cs.load(home)["alice"]["structured_output"]
+    assert (st.state, st.failures) == ("likely", 2)  # one or two failures change nothing
+    assert "alice" in names(api.eligible(run, "draft"))
+    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    st = cs.load(home)["alice"]["structured_output"]
+    assert (st.state, st.evidence) == ("absent", "3 schema-gate failures in a row")
+    assert names(api.eligible(run, "draft")) == ["carol"]
+    (ev,) = [e.data for e in api.project.store.project_log().events() if e.type == "capability_observed"]
+    assert (ev["profile"], ev["capability"], ev["state"], ev["attempt"]) == ("alice", "structured_output", "absent", 3)
+
+
+def test_a_pass_resets_the_count(schema_run):
+    api, root, home, run = schema_run
+    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    assert attempt(api, root, run, "alice", {"title": "ok"}) == "passed"
+    assert "alice" not in cs.load(home)
+
+
+def test_failures_are_counted_per_profile(schema_run):
+    api, root, home, run = schema_run
+    for worker in ("alice", "carol", "alice", "carol"):
+        assert attempt(api, root, run, worker, {"wrong": 1}) == "retry"
+    assert {p: s["structured_output"].failures for p, s in cs.load(home).items()} == {"alice": 2, "carol": 2}
+
+
+def test_model_quality_capabilities_are_never_changed_automatically():
+    """Only tool-map capabilities (tooling) are observed from streams, and a tool map may not name a model-quality one."""
+    from baton import known_workers, vocab
+
+    raw = yaml.safe_load(known_workers.default_path().read_text(encoding="utf-8"))
+    raw["providers"]["claude_code"]["tools"]["technical_reasoning"] = dict(raw["providers"]["claude_code"]["tools"]["web_access"])
+    voc = vocab.load(vocab.DEFAULT)
+    _kw, issues = known_workers.validate(raw, voc, {"claude_code", "codex", "litellm_api", "manual", "command"})
+    assert [i.code for i in issues] == ["known_workers.not_tooling"]
