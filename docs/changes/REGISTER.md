@@ -4,8 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | in-progress | standard | |
-| [2026-11-windows-harness-version-change](2026-11-windows-harness-version-change.md) | A harness upgrade is noticed on Windows, so observed capability states return to likely | in-progress | minor | |
 | [2026-11-windows-real-use-timeout](2026-11-windows-real-use-timeout.md) | The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline | in-progress | minor | |
 | [2026-11-windows-running-marker](2026-11-windows-running-marker.md) | A supervisor on Windows survives a Director reading its running marker | in-progress | minor | |
 | [2026-11-windows-supervisor-console](2026-11-windows-supervisor-console.md) | A supervisor on Windows opens no console window | in-progress | minor | |
@@ -19,8 +17,10 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |
 | [2026-11-change-register](2026-11-change-register.md) | Change statuses are tracked in one register that every agent keeps up to date | done | minor | |
 | [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | done | standard | |
+| [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | done | standard | |
 | [2026-11-director-question-check](2026-11-director-question-check.md) | The Director checks its questions before asking the owner, and the framing label tells the truth | done | minor | |
 | [2026-11-director-wake](2026-11-director-wake.md) | A detached Director notices when work finishes, or tells the owner first that it might not | done | standard | |
 | [2026-11-fast-tests](2026-11-fast-tests.md) | Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish | done | standard | |
 | [2026-11-framing-perspective](2026-11-framing-perspective.md) | The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents | done | standard | |
+| [2026-11-windows-harness-version-change](2026-11-windows-harness-version-change.md) | A harness upgrade is noticed on Windows, so observed capability states return to likely | done | minor | |
 | [2026-11-worker-setup](2026-11-worker-setup.md) | Machine-wide worker resources are maintained separately from project setup | done | standard | |

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-codex-director-sandbox
 title: "Codex as Director: detect its sandbox and connect Baton through MCP"
-status: in-progress
+status: done
 level: standard
 decisions: ["0053", "0054", "0055", "0056"]   # codex-director-via-mcp; sandbox-detection (slice 1); README before the live check (slice 2); tool approval line (slice 3); owner decisions 2026-11-04
 touches: [design/director-interface.md, design/platform-and-security.md]   # §13.2, §13.3, §13.4, §15; also the repo README.md

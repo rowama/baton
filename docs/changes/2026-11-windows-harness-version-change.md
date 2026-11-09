@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-harness-version-change
 title: "A harness upgrade is noticed on Windows, so observed capability states return to likely"
-status: in-progress
+status: done
 level: minor
 decisions: ["0086"]
 touches: [design/workers.md]   # §6.1, §6.3: only if the fix changes what "an upgrade is seen" means; otherwise a test fix
