@@ -233,6 +233,11 @@ def test_write_steps_from_two_runs_are_serialized(tmp_path):
     assert da["workspace_lock"] and da["dispatch_id"]
     holder = locks.workspace_holder(p.project / ".baton")
     assert holder["run_id"] == a and holder["dispatch_id"] == da["dispatch_id"] and holder.get("supervisor_pid")
+    # The scripted worker reads its behavior file once, when it starts: let A's worker start in `gate` mode before the
+    # file is rewritten below (the dispatch returns when the supervisor is up, not the worker; under a loaded machine
+    # the worker could read "good" and finish at once, leaving nothing for B to wait on).
+    a_log = p.home / "logs" / a / "build" / "attempt-1.log"
+    _until(lambda: a_log.exists() and "scripted worker: gate" in a_log.read_text(encoding="utf-8", errors="replace"))
 
     qb = p.cli.run("dispatch", b, "build", "--worker", "bot")
     assert qb["queued"] and qb["position"] == 1 and qb["holder"] == {"run_id": a, "step_path": "build", "dispatch_id": da["dispatch_id"]}
