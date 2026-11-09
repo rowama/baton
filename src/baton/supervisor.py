@@ -315,14 +315,16 @@ def _detached(argv: list[str], **kw: Any) -> subprocess.Popen:
     """Start a process that outlives its caller.
 
     POSIX: a new session (no controlling terminal, its own process group).
-    Windows: a detached process in its own group, asking to break away from
+    Windows: a process with a hidden console of its own (no window), in its own group, asking to break away from
     the caller's job object so closing the caller's console or job does not
     end it; when the job forbids breaking away (access denied), it starts
     without that flag and survives as long as the job does.
     """
     if os.name == "posix":
         return subprocess.Popen(argv, start_new_session=True, close_fds=True, **kw)
-    base = getattr(subprocess, "DETACHED_PROCESS", 0x8) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+    # A hidden console of its own, not DETACHED_PROCESS: under a venv, sys.executable is a launcher, and the
+    # interpreter it starts would get a new, visible console window when the launcher has none (§15.1).
+    base = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
     breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
     try:
         return subprocess.Popen(argv, creationflags=base | breakaway, close_fds=True, **kw)
@@ -628,9 +630,19 @@ def selftest_spawn(out_file: Path) -> subprocess.Popen:
     )
 
 
+def _console_window() -> int | None:
+    """Windows: this process's console window handle (0: none); ``None`` elsewhere."""
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    return int(ctypes.WinDLL("kernel32").GetConsoleWindow() or 0)  # type: ignore[attr-defined]
+
+
 def main() -> int:  # pragma: no cover - exercised through subprocesses
     if len(sys.argv) == 3 and sys.argv[1] == "--selftest":
-        info = {"pid": os.getpid(), "sid": os.getsid(0) if os.name == "posix" else None}
+        info = {"pid": os.getpid(), "sid": os.getsid(0) if os.name == "posix" else None,
+                "console_window": _console_window()}
         Path(sys.argv[2]).write_text(json.dumps(info), encoding="utf-8")
         return 0
     spec = json.loads(sys.stdin.buffer.read().decode("utf-8"))

@@ -186,6 +186,16 @@ def test_dispatch_returns_once_started_and_the_supervisor_finishes(tmp_path):
 
 
 @pytest.mark.slow
+def test_a_supervisor_opens_no_console_window(tmp_path):
+    # Windows: under a venv, sys.executable is a launcher whose child interpreter got a console of its own, a visible
+    # window for the supervisor's whole life, when started as a detached process (change 2026-11-windows-supervisor-console)
+    out = tmp_path / "selftest.json"
+    supervisor.selftest_spawn(out).wait(timeout=60)
+    info = _until(lambda: out.exists() and out.stat().st_size and json.loads(out.read_text(encoding="utf-8")), 60)
+    assert info["console_window"] == (0 if os.name == "nt" else None), info
+
+
+@pytest.mark.slow
 def test_dispatch_survives_its_callers_shell_exiting(tmp_path):
     """The Director's shell and everything it started end; the dispatched work does not.
 
