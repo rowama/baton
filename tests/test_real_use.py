@@ -287,7 +287,9 @@ def test_remote_director_completes_a_multi_slice_work_item_across_sessions(tmp_p
     inputs = {"title": "Sign in", "kind": "feature", "feature_request": "Let users sign in and out."}
     session({"owner": {"kind": "start", "recipe": "software-feature", "inputs": inputs}})
     run = None
-    deadline = time.monotonic() + 600
+    # About 150 processes; their start-up on Windows makes this load-bound (56 s alone, 320 s beside 15 copies), not
+    # stuck, so Windows gets 3x. A stall still fails here on Linux in 600 s (change 2026-11-windows-real-use-timeout).
+    deadline = time.monotonic() + (1800 if os.name == "nt" else 600)
     while time.monotonic() < deadline:
         # The owner reads what the Director told them and answers only what the recipe asks.
         out = lines(outbox)

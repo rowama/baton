@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-real-use-timeout
 title: "The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline"
-status: proposed
+status: in-progress
 level: minor
 decisions: []
 touches: []   # a test or runner change; add a design doc if the runtime changes
@@ -40,7 +40,8 @@ One slice (minor).
 
 ### Fix
 
-- **Commit:** <subject>
-- **Summary:** <cause; what changed>
-- **Review:** <findings and dispositions, or "clean">
-- **Accepted:** <yes or no, date, the owner's words>
+- **Commit:** 2026-11-windows-real-use-timeout: A longer deadline for the scenario on Windows
+- **Summary:** Slowness, not a stall, as far as can be measured off the runner (`gh` was not logged in, so the CI logs were not read). Measured on native Windows 11, 16 cores, Python 3.14.0, with a scratch probe timing each Director session and each idle wait in the owner loop: alone, 56 s in all, 17 sessions at 1.7 to 4.0 s (mean 3.0 s), 83 `baton` commands, 10 idle waits of at most 0.5 s (a hook always came within half a second). Under load, all copies passed and none stalled: 8 copies at once took 146 to 155 s each; 16 copies on 15 workers: the 15 that ran together took 316 to 321 s each, and the 16th, which ran after them, 84 s. So the time grows with the load on the machine; the runner has few cores and runs the rest of the suite beside it. A stall was looked for directly: the solo run's idle waits were all short; in the 24 load runs no copy stalled or left a crashed supervisor's `.tmp` marker, and in the 16-copy run no supervisor log showed an error. The one mechanism found that could stall this scenario (a supervisor dying in `write_marker`, so no completion hook fires) is fixed in 2026-11-windows-running-marker. The fix, the owner's choice (2026-11-08): the loop deadline is 1800 s on Windows (3x, from the slowdown measured under load) and stays 600 s elsewhere, so a stall still fails quickly on Linux. No session, command or assertion is removed. These timings were taken while supervisors still opened a console each (fixed in 2026-11-windows-supervisor-console); re-timed alone after that fix: 51 s, 17 sessions at 1.5 to 3.9 s (mean 2.65 s), idle waits of at most 0.5 s. About 10% faster, so the deadline stays. (A first load run with `--basetemp` under a long scratch path did stall: packet paths passed Windows' 260-character limit. That came from the probe setup, not the runner. With pytest's default temp dir the longest path was 213 characters, about 239 with the runner's user name.)
+- **Tests:** the scenario passes on Windows locally. The acceptance criterion of several consecutive green CI runs on both Windows cells is left to the owner's pushes.
+- **Review:** clean
+- **Accepted:** <pending the owner>
