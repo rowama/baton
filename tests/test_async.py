@@ -87,6 +87,14 @@ class Setup:
     def behave(self, mode: str, **kw: object) -> None:
         self.behavior.write_text(json.dumps({"mode": mode, **kw}), encoding="utf-8")
 
+    def band(self, effort: str, value: str) -> None:
+        """Set one effort band in project.yaml (committed); each later ``baton`` command reads it."""
+        py = self.baton / "project.yaml"
+        cfg = yaml.safe_load(py.read_text(encoding="utf-8"))
+        cfg["effort"]["bands"] = {**cfg["effort"].get("bands", {}), effort: value}
+        py.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+        git(self.project, "commit", "-qam", f"Effort band {effort}: {value}")
+
     @property
     def baton(self) -> Path:
         return self.project / ".baton"
@@ -288,8 +296,9 @@ def test_dispatch_with_wait_blocks_until_recorded(tmp_path):
 
 @pytest.mark.slow
 def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp_path):
-    # 5 s: long enough for any worker to start under load, short enough for the hang to time out.
-    s = Setup(tmp_path, hooks={"on_complete": "complete"}, effort_cfg={"bands": {"M": "5s"}, "extend_once": False})
+    # Only the hang gets a 5 s band: on Windows under a parallel suite a supervisor can take over 5 s to start its
+    # worker, so the other outcomes keep the default band and never depend on start-up speed.
+    s = Setup(tmp_path, hooks={"on_complete": "complete"}, effort_cfg={"extend_once": False})
     bot = ("dispatch", s.run, "describe", "--worker", "bot", "--wait")
 
     s.behave("bad")
@@ -298,7 +307,10 @@ def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp
     assert s.cli(*bot, expect=4).payload["outcome"] == "escalated"  # crashed: no result
     s.cli.run("decide", s.run, "describe", "retry", "--note", "try again")
     s.behave("hang")
+    default = yaml.safe_load((s.baton / "project.yaml").read_text(encoding="utf-8"))["effort"]["bands"]["M"]
+    s.band("M", "5s")
     assert s.cli(*bot, expect=1).payload["outcome"] == "retry"  # timed out after the 5 s band
+    s.band("M", default)
     s.behave("good", output=GOOD_PROFILE)
     assert s.cli.run(*bot)["outcome"] == "passed"
     s.behave("good", output=VERDICT)
