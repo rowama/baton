@@ -55,7 +55,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __version__, diag
 from .models import Group, Step
 from .packet import EngineError
 
@@ -455,6 +455,7 @@ def _hook_problems(project: Any) -> list[str]:
     return problems
 
 
+DIAG_WARNING = "diagnostics:"  # `detect` leaves this warning out, as it does the wake warning (0061)
 NO_WAKE = "no completion hook would wake a Director when work needs the owner"
 
 
@@ -546,10 +547,18 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
             problems.append(NO_WORKER_SETUP_DONE if not worker_setup["offer_setup"] else NO_WORKER_SETUP_OFFER)
     if "microsoft" in platform.uname().release.lower() and str(project.root).startswith("/mnt/") and os.name == "posix":
         warnings.append(f"{project.root} is on a Windows drive under WSL; keep repos on the Linux filesystem for speed (§15.1)")
+    diag_unusual: list[dict[str, Any]] = []
+    if only is None:
+        diag.maintain_once()
+        diag_unusual = diag.unusual_codes()
+        if diag_unusual:
+            warnings.append(f"{DIAG_WARNING} {len(diag_unusual)} unusual condition(s); see baton diag")
     ok = not problems
     line = f"doctor: {len(reports)} profile(s) ready" if ok else f"doctor: {len(problems)} problem(s)"
     out = {"ok": ok, "line": line, "problems": problems, "warnings": warnings, "profiles": reports, "uncovered_steps": uncovered,
-           "worker_setup": worker_setup}
+           "worker_setup": worker_setup, "worker_logs": diag.worker_logs(project.home)}
+    if diag_unusual:
+        out["diag_unusual"] = diag_unusual
     if web is not None:
         out["web_advice"] = web
     return out

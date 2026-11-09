@@ -169,7 +169,9 @@ def detect(root: str | Path | None, *, home: str | Path | None = None, director:
             # attached Director and shows it when it is a problem (a detached lease; decision 0061).
             from .doctor import NO_WAKE
 
-            warnings += [f"doctor: {w}" for w in mach["warnings"] if not w.startswith(NO_WAKE)]
+            from .doctor import DIAG_WARNING
+
+            warnings += [f"doctor: {w}" for w in mach["warnings"] if not w.startswith((NO_WAKE, DIAG_WARNING))]
         from .sme import incidents as _incidents
 
         open_inc = [i for i in _incidents(project.store.project_log().events()).values() if i["status"] == "open"]

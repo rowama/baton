@@ -241,7 +241,13 @@ def resolve(src: Sources, raw: str, subject: str) -> list[Item]:
         inc = incidents(src.project.store.project_log().events()).get(arg or "")
         if inc is None:
             raise SmeError("sme.ref_unresolvable", f"{raw}: no incident {arg}")
-        return [Item(raw, f"platform incident {arg} ({inc['status']})", f"{_slug(raw)}.json", _redacted(_json(inc)), "application/json")]
+        items = [Item(raw, f"platform incident {arg} ({inc['status']})", f"{_slug(raw)}.json", _redacted(_json(inc)), "application/json")]
+        # What the runtime itself noted around the failed attempt (§8.3, Decision 0094): machine-local, already redacted.
+        noted = diag.records_for(str(inc.get("run")), inc.get("step_path"), inc.get("attempt")) if inc.get("run") else []
+        if noted:
+            text = "".join(json.dumps(r, sort_keys=True) + "\n" for r in noted).encode("utf-8")
+            items.append(Item(raw, f"diagnostics noted for {inc.get('step_path')} of {inc.get('run')} (redacted)", f"{_slug(raw)}-diagnostics.jsonl", _redacted(text), "application/x-ndjson"))
+        return items
     if kind == "log":
         assert arg is not None
         run_id, _, rest = arg.partition(":")

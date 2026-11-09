@@ -824,6 +824,32 @@ def check(
 
 
 @app.command()
+def diag(
+    since: Annotated[Optional[str], typer.Option("--since", help="A number of usage days, or a date (YYYY-MM-DD). Default: the last 7 usage days.")] = None,
+    code: Annotated[Optional[str], typer.Option("--code", help="Only codes starting with this prefix.")] = None,
+    run: Annotated[Optional[str], typer.Option("--run", help="Only records of this run.")] = None,
+    records: Annotated[bool, typer.Option("--records", help="Show the raw records, newest last.")] = False,
+    limit: Annotated[int, typer.Option("--limit", help="With --records: the newest N (0: all).")] = 200,
+    as_json: JsonOpt = False,
+) -> None:
+    """What Baton has been working around on this machine: counts per code against the usual rate, unusual first."""
+    out = _call(as_json, lambda: _api().diag(since, code, run, records, limit))
+    lines = []
+    for r in out["codes"]:
+        mark = "  UNUSUAL" + (f" (first seen {r['first_seen']})" if r.get("first_seen") else "") if r["unusual"] else ""
+        lines.append(f"{r['code']}  {r['count']}  (usually {r['baseline_per_day']}/day){mark}")
+    if not lines:
+        lines.append(f"diagnostics: nothing recorded in the last {out['usage_days']} usage day(s)")
+    for rec in out.get("records", []):
+        lines.append(json.dumps(rec, sort_keys=True))
+    wl = out["worker_logs"]
+    if wl["files"]:
+        lines.append(f"worker logs: {wl['bytes']} bytes in {wl['files']} file(s), oldest {wl['oldest_age_days']} day(s) old (never deleted)")
+    _emit(out, as_json, "\n".join(lines))
+    raise typer.Exit(EXIT_OK)
+
+
+@app.command()
 def doctor(
     profile: Annotated[Optional[str], typer.Option("--profile", help="Check only this worker profile.")] = None,
     no_run: Annotated[bool, typer.Option("--no-run", help="Skip the no-op round trips (no model calls).")] = False,

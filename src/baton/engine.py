@@ -3145,6 +3145,19 @@ class Api:
 
         return doctor(self.project, profile, run_noop=run_noop)
 
+    def diag(self, since: str | int | None = None, code: str | None = None, run: str | None = None, records: bool = False,
+             limit: int = 200) -> dict[str, Any]:
+        """What Baton has been working around: counts per code with their baseline, unusual first (§8.3, Decision 0094).
+
+        Machine-local and read-only apart from the daily maintenance. ``records`` adds the raw records, newest last.
+        """
+        diag.maintain_once()
+        out = diag.summary(since=since, code=code, run=run)
+        out["worker_logs"] = diag.worker_logs(self.project.home)
+        if records:
+            out["records"] = diag.records(since=since, code=code, run=run, limit=limit)
+        return out
+
     # -- the worker resource manager (§6.4, 0077): machine scope ------------
 
     def workers_status(self) -> dict[str, Any]:

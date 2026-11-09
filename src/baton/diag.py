@@ -344,3 +344,128 @@ def maintain_once(day: str | None = None) -> bool:
 
 def _maintain_once(day: str) -> None:
     maintain_once(day)
+
+
+# -- reporting (baton diag, doctor; Decision 0094) --------------------------------------------------------------
+
+RECENT_DAYS = 7  # the usage days a summary and the unusual rule look at
+BASELINE_DAYS = 30  # the usage days before those, which set a code's normal rate
+UNUSUAL_MIN_COUNT = 5
+UNUSUAL_FACTOR = 3.0
+
+
+def _by_code(day: dict[str, dict[str, int]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for codes in day.values():
+        for c, n in codes.items():
+            out[c] = out.get(c, 0) + n
+    return out
+
+
+def unusual_codes(daily: dict[str, dict[str, dict[str, int]]] | None = None) -> list[dict[str, Any]]:
+    """Codes whose last 7 usage days are unusual for this machine: at least 5 notes, and either more than 3 times the
+    per-usage-day rate of the 30 usage days before those, or no such baseline (first seen). Machine-wide, all projects."""
+    daily = daily_counts() if daily is None else daily
+    days = sorted(daily)
+    recent = days[-RECENT_DAYS:]
+    base = days[max(0, len(days) - RECENT_DAYS - BASELINE_DAYS): max(0, len(days) - RECENT_DAYS)]
+    now = _by_code({d: _merge(daily[d]) for d in recent})
+    before = _by_code({d: _merge(daily[d]) for d in base})
+    out = []
+    for code, n in now.items():
+        if n < UNUSUAL_MIN_COUNT:
+            continue
+        b = before.get(code, 0)
+        if b == 0:
+            first = next(d for d in days if code in _merge(daily[d]))
+            out.append({"code": code, "last_7d": n, "baseline_per_day": 0.0, "first_seen": first})
+        elif n / len(recent) > UNUSUAL_FACTOR * (b / len(base)):
+            out.append({"code": code, "last_7d": n, "baseline_per_day": round(b / len(base), 2)})
+    return sorted(out, key=lambda u: (-u["last_7d"], u["code"]))
+
+
+def _merge(projects: dict[str, dict[str, int]]) -> dict[str, int]:
+    """One day's counts, summed over projects: {code: n}."""
+    return _by_code(projects)
+
+
+def _window(days: list[str], since: str | int | None) -> list[str]:
+    if since is None:
+        return days[-RECENT_DAYS:]
+    if isinstance(since, int) or str(since).isdigit():
+        return days[-int(since):] if int(since) > 0 else []
+    return [d for d in days if d >= str(since)]
+
+
+def records(*, since: str | int | None = None, code: str | None = None, run: str | None = None, limit: int | None = 200) -> list[dict[str, Any]]:
+    """Raw records in the window, oldest first (the newest ``limit`` of them), optionally of one code prefix or run."""
+    out: list[dict[str, Any]] = []
+    for day in _window(_raw_days(), since):
+        for r in read_records(day):
+            if (code is None or str(r["code"]).startswith(code)) and (run is None or r.get("run") == run):
+                out.append(r)
+    return out[-limit:] if limit else out
+
+
+def records_for(run: str, step_path: str | None, attempt: int | None) -> list[dict[str, Any]]:
+    """Every raw record of this run (and step, and attempt, where the record names them): an incident's evidence."""
+    out = []
+    for day in _raw_days():
+        for r in read_records(day):
+            if r.get("run") != run:
+                continue
+            if step_path is not None and r.get("step_path") not in (None, step_path):
+                continue
+            if attempt is not None and r.get("attempt") not in (None, attempt):
+                continue
+            out.append(r)
+    return out
+
+
+def summary(*, since: str | int | None = None, code: str | None = None, run: str | None = None) -> dict[str, Any]:
+    """Counts per code over the window next to each code's baseline, unusual codes first."""
+    daily = daily_counts()
+    days = sorted(daily)
+    window = _window(days, since)
+    if run is not None:  # a run is known only in raw records
+        counts: dict[str, int] = {}
+        for r in records(since=since, code=code, run=run, limit=None):
+            counts[str(r["code"])] = counts.get(str(r["code"]), 0) + (r.get("count") if isinstance(r.get("count"), int) else 1)
+    else:
+        counts = _by_code({d: _merge(daily[d]) for d in window})
+        if code:
+            counts = {c: n for c, n in counts.items() if c.startswith(code)}
+    unusual = {u["code"]: u for u in unusual_codes(daily)}
+    base = days[max(0, len(days) - RECENT_DAYS - BASELINE_DAYS): max(0, len(days) - RECENT_DAYS)]
+    before = _by_code({d: _merge(daily[d]) for d in base})
+    rows = []
+    for c, n in counts.items():
+        row: dict[str, Any] = {"code": c, "count": n, "baseline_per_day": round(before.get(c, 0) / len(base), 2) if base else 0.0,
+                               "unusual": c in unusual}
+        if c in unusual and "first_seen" in unusual[c]:
+            row["first_seen"] = unusual[c]["first_seen"]
+        rows.append(row)
+    rows.sort(key=lambda r: (not r["unusual"], -r["count"], r["code"]))
+    return {"usage_days": len(window), "since": window[0] if window else None, "codes": rows,
+            "unusual": [u for u in unusual.values() if not code or u["code"].startswith(code)]}
+
+
+def worker_logs(home_dir: Path | None = None) -> dict[str, Any]:
+    """Total size of the raw worker logs and the age of the oldest one. Reported, never pruned."""
+    root = (home_dir or home()) / "logs"
+    total, files, oldest = 0, 0, None
+    try:
+        for f in root.rglob("*"):
+            try:
+                if not f.is_file():
+                    continue
+                st = f.stat()
+            except OSError:
+                continue
+            total += st.st_size
+            files += 1
+            oldest = st.st_mtime if oldest is None else min(oldest, st.st_mtime)
+    except OSError:
+        pass
+    age = None if oldest is None else round(max(0.0, (_now().timestamp() - oldest) / 86400), 1)
+    return {"bytes": total, "files": files, "oldest_age_days": age}

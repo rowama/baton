@@ -121,3 +121,11 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
 - **Review:** clean
 - **Accepted:** <pending the owner>
 
+### `baton diag` and the doctor warning
+
+- **Commit:** 2026-11-diagnostics: baton diag and the doctor warning
+- **Summary:** `diag.py` gains `unusual_codes` (the rule, machine-wide over usage days), `summary`, `records`, `records_for` and `worker_logs`. `Api.diag`, the CLI command `diag` and the MCP tool `diag` (`since` takes a number of usage days or a date, the agent's reading of `--since`; `--limit` caps `--records` at the newest 200, an addition, since a raw record set can be large). `doctor` runs the daily maintenance, adds the one `diagnostics:` warning and `diag_unusual` only when unusual, and always carries `worker_logs` in `--json`; `detect` filters the warning by its prefix, as for the wake warning. The platform SME's `incident:<id>` reference adds a redacted diagnostics item for the incident's run, step and attempt. Design edits: director-interface §13.1 and §13.4, experts §12.3, platform-and-security §15.2. The change's open reading (usage days also for the 180-day counts and the 7/30-day unusual windows) is kept as written; the owner can still revert it.
+- **Tests:** `tests/test_diag.py` (the unusual rule: within baseline, over 3x, first seen at the minimum, usage-day windows; summary filters and ordering; records newest last, by run and code; worker logs measured and kept), `tests/test_diag_cli.py` (`diag` on an empty machine, counts against baseline, `--records`; doctor one line when healthy and one warning when unusual; `detect` without it; the SME evidence for the right run, step and attempt), `tests/test_director_surface.py` (the MCP tool list).
+- **Review:** clean
+- **Accepted:** <pending the owner>
+

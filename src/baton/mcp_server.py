@@ -104,6 +104,11 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.doctor(profile, run_noop=not no_run))
 
     @tool
+    def diag(since: str | None = None, code: str | None = None, run: str | None = None, records: bool = False, limit: int = 200) -> dict[str, Any]:
+        """What Baton has been working around on this machine: counts per diagnostic code next to the usual rate, unusual first. since: a number of usage days or a YYYY-MM-DD date."""
+        return t.call(lambda api: api.diag(since, code, run, records, limit))
+
+    @tool
     def workers_status() -> dict[str, Any]:
         """This machine's workers: discovered harnesses, declared resources, generated profiles, setup state. Changes nothing."""
         return t.call(lambda api: api.workers_status())

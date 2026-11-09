@@ -199,3 +199,96 @@ def test_timestamps_are_utc_days(home: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(diag, "_now", lambda: t)
     diag.note("a.b", "t:t")
     assert (home / "diag" / "raw" / "2026-11-10").is_dir()
+
+
+# -- reporting: the unusual rule, summary, records, worker logs ---------------------------------------------------
+
+
+def days(n: int, start: str = "2026-09-01") -> list[str]:
+    d = datetime.strptime(start, "%Y-%m-%d")
+    return [(d + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(n)]
+
+
+def put_counts(home: Path, day: str, counts: dict[str, int], project: str = "/p") -> None:
+    d = home / "diag" / "counts"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{day}.json").write_text(json.dumps({"day": day, "counts": {project: counts}}))
+
+
+def test_a_code_within_its_baseline_is_not_unusual(home: Path) -> None:
+    for d in days(37):
+        put_counts(home, d, {"cache.replay": 2})
+    assert diag.unusual_codes() == []
+
+
+def test_a_code_over_three_times_its_baseline_is_unusual(home: Path) -> None:
+    ds = days(37)
+    for d in ds[:30]:
+        put_counts(home, d, {"cache.replay": 1})
+    for d in ds[30:]:
+        put_counts(home, d, {"cache.replay": 4})  # 4/day against 1/day
+    assert diag.unusual_codes() == [{"code": "cache.replay", "last_7d": 28, "baseline_per_day": 1.0}]
+    put_counts(home, ds[-1], {"cache.replay": 3})  # 3/day-ish is not over 3x
+    for d in ds[30:-1]:
+        put_counts(home, d, {"cache.replay": 3})
+    assert diag.unusual_codes() == []
+
+
+def test_a_first_seen_code_is_unusual_once_it_reaches_the_minimum(home: Path) -> None:
+    ds = days(37)
+    for d in ds:
+        put_counts(home, d, {"old.code": 1})
+    put_counts(home, ds[-3], {"new.code": 2})
+    put_counts(home, ds[-1], {"new.code": 2})
+    assert [u["code"] for u in diag.unusual_codes()] == []  # 4 < 5
+    put_counts(home, ds[-2], {"new.code": 1})
+    (u,) = diag.unusual_codes()
+    assert u == {"code": "new.code", "last_7d": 5, "baseline_per_day": 0.0, "first_seen": ds[-3]}
+
+
+def test_the_windows_count_usage_days_not_calendar_days(home: Path) -> None:
+    # Seven recorded days spread over a year are the "last 7 days": nothing between them ages anything out.
+    for i, d in enumerate(["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01", "2026-07-01"]):
+        put_counts(home, d, {"slow.code": 1})
+    got = diag.summary()
+    assert got["usage_days"] == 7 and got["codes"][0]["count"] == 7
+
+
+def test_summary_filters_and_puts_unusual_first(home: Path) -> None:
+    ds = days(37)
+    for d in ds[:30]:
+        put_counts(home, d, {"a.steady": 3, "b.rising": 1})
+    for d in ds[30:]:
+        put_counts(home, d, {"a.steady": 3, "b.rising": 5})
+    s = diag.summary()
+    assert [r["code"] for r in s["codes"]] == ["b.rising", "a.steady"] and s["codes"][0]["unusual"] and not s["codes"][1]["unusual"]
+    assert [r["code"] for r in diag.summary(code="a.")["codes"]] == ["a.steady"]
+    assert diag.summary(since=2)["usage_days"] == 2
+    assert diag.summary(since=ds[-3])["usage_days"] == 3
+
+
+def test_records_come_newest_last_and_filter_by_run_and_code(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for i, day in enumerate(["2026-11-08", "2026-11-09"]):
+        at(monkeypatch, day, hour=10 + i)
+        diag.note("x.one", "t:t", run="r1" if i == 0 else "r2", n=i)
+        diag.note("y.two", "t:t", run="r1", n=i)
+    got = diag.records()
+    assert [(r["code"], r["data"]["n"]) for r in got] == [("x.one", 0), ("y.two", 0), ("x.one", 1), ("y.two", 1)]
+    assert [r["code"] for r in diag.records(code="x.")] == ["x.one", "x.one"]
+    assert {r["run"] for r in diag.records(run="r1")} == {"r1"}
+    assert len(diag.records(limit=1)) == 1 and diag.records(limit=1)[0]["code"] == "y.two"
+    assert diag.summary(run="r2")["codes"][0]["count"] == 1
+
+
+def test_worker_logs_are_measured_not_deleted(home: Path) -> None:
+    log = home / "logs" / "run" / "step"
+    log.mkdir(parents=True)
+    f = log / "attempt-1.log"
+    f.write_text("x" * 10)
+    old = datetime.now(timezone.utc).timestamp() - 3 * 86400
+    os.utime(f, (old, old))
+    (log / "attempt-2.log").write_text("y" * 5)
+    got = diag.worker_logs()
+    assert got["bytes"] == 15 and got["files"] == 2 and 2.9 <= got["oldest_age_days"] <= 3.1
+    assert f.exists()
+    assert diag.worker_logs(home / "nothing") == {"bytes": 0, "files": 0, "oldest_age_days": None}
