@@ -228,3 +228,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0091 The researcher gets tool maps, starting URLs and LiteLLM entries; model availability is verified by use](decisions/0091-researcher-inputs-and-model-listing.md) | accepted |
 | [0092 Slice commits are gated by a quick gate; finish commits by a green full run of their exact SHA](decisions/0092-two-tier-test-gate.md) | accepted |
 | [0093 An undocumented test-only time-scale environment variable is allowed](decisions/0093-test-time-scale.md) | accepted |
+| [0094 Diagnostics are a separate, machine-local, bounded channel](decisions/0094-diagnostics-channel.md) | proposed |
