@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-harness-version-change
 title: "A harness upgrade is noticed on Windows, so observed capability states return to likely"
-status: proposed
+status: in-progress
 level: minor
 decisions: ["0086"]
 touches: [design/workers.md]   # §6.1, §6.3: only if the fix changes what "an upgrade is seen" means; otherwise a test fix
@@ -43,7 +43,8 @@ One slice (minor).
 
 ### Fix
 
-- **Commit:** <subject>
-- **Summary:** <which hypothesis was true; what changed>
-- **Review:** <findings and dispositions, or "clean">
-- **Accepted:** <yes or no, date, the owner's words>
+- **Commit:** 2026-11-windows-harness-version-change: Upgrade the executable the profile runs
+- **Summary:** Hypothesis 1 was true: a test defect, not a runtime one. Reproduced on native Windows 11 (Python 3.14.0): the test failed with `assert [] == ['claude-a']`. Tracing `harness_version` during the test showed both calls probing `bin-a\claude.cmd` (the file `install_fake` writes on Windows, and the profile's `executable`) with the same mtime and size, so the cache rightly returned `9.9.0`; the test's `touch` had created a separate, empty file `claude` that nothing runs. Hypothesis 2 was ruled out directly: on Windows, after `version.txt` changes, `harness_version(claude.cmd)` still returns `9.9.0` until the `.cmd` file's mtime moves, and then returns `9.10.0`, so spawning the `.cmd`, parsing its output and the `(path, mtime, size)` key all work and a real upgrade is noticed. The fix is in the test only: `tests/harnesskit.py` gains `fake_exe(bin_dir, name)`, the file `install_fake` writes (`<name>.cmd` on Windows, `<name>` on POSIX), which `install_fake` now uses too; the test touches and moves the mtime of that file. No assertion changed. No runtime or design doc change (§6.3 stands as written).
+- **Tests:** `tests/test_harness_tools.py` passes on native Windows (7 passed); Linux and Python 3.11 are left to CI.
+- **Review:** clean
+- **Accepted:** <pending the owner>

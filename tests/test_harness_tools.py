@@ -12,7 +12,7 @@ from baton import resources
 from baton.engine import Api
 from baton.project import init
 
-from harnesskit import calls, harness_profile, install_fake, set_outputs
+from harnesskit import calls, fake_exe, harness_profile, install_fake, set_outputs
 from projectkit import git, make_git_project, make_home
 from runkit import Clock, make_recipe
 
@@ -127,12 +127,13 @@ def test_a_new_harness_version_returns_observed_states_to_likely(web):
     cs.record(home, "claude-b", "web_access", "absent", by="owner", evidence="declared by the owner")
     assert [e["profile"] for e in api.eligible(run, "search")["eligible"]] == []
     (bins["a"] / "version.txt").write_text("9.10.0\n", encoding="utf-8")
-    (bins["a"] / "claude").touch()  # an upgrade changes the executable
+    exe = fake_exe(bins["a"], "claude")  # the file the profile runs (claude.cmd on Windows)
+    exe.touch()  # an upgrade changes the executable
     import os
     import time
 
     t = time.time() + 5
-    os.utime(bins["a"] / "claude", (t, t))
+    os.utime(exe, (t, t))
     out = api.eligible(run, "search")
     assert [e["profile"] for e in out["eligible"]] == ["claude-a"]
     assert "claude-a" not in cs.load(home)  # forgotten, so likely again

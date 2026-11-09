@@ -11,6 +11,11 @@ from pathlib import Path
 FAKE = Path(__file__).resolve().parent / "fakes" / "fake_harness.py"
 
 
+def fake_exe(bin_dir: Path, name: str) -> Path:
+    """The file ``install_fake`` writes for ``<name>``, the one a profile runs: ``<name>.cmd`` on Windows."""
+    return bin_dir / (f"{name}.cmd" if os.name == "nt" else name)
+
+
 def install_fake(bin_dir: Path, name: str, outputs: dict | None = None) -> Path:
     """An executable ``<name>`` in ``bin_dir`` running the fake under this interpreter.
 
@@ -20,10 +25,10 @@ def install_fake(bin_dir: Path, name: str, outputs: dict | None = None) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         (bin_dir / f"{name}.fake.py").write_text(FAKE.read_text(encoding="utf-8"), encoding="utf-8")
-        exe = bin_dir / f"{name}.cmd"
+        exe = fake_exe(bin_dir, name)
         exe.write_text(f'@"{sys.executable}" "%~dp0{name}.fake.py" %*\r\n', encoding="utf-8")
     else:
-        exe = bin_dir / name
+        exe = fake_exe(bin_dir, name)
         exe.write_text(f"#!{sys.executable}\n" + FAKE.read_text(encoding="utf-8"), encoding="utf-8")
         exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     set_outputs(bin_dir, outputs or {})
