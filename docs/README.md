@@ -229,3 +229,15 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0092 Slice commits are gated by a quick gate; finish commits by a green full run of their exact SHA](decisions/0092-two-tier-test-gate.md) | accepted |
 | [0093 An undocumented test-only time-scale environment variable is allowed](decisions/0093-test-time-scale.md) | accepted |
 | [0094 Diagnostics are a separate, machine-local, bounded channel](decisions/0094-diagnostics-channel.md) | accepted |
+| [0095 Generated recipe drafts live in recipes/drafts/<run slug>/](decisions/0095-drafts-location.md) | accepted |
+| [0096 The Director vendors a finished recipe only after the owner accepts, and the builder never vendors](decisions/0096-vendor-after-accept.md) | accepted |
+| [0097 The builder never edits a vendored recipe in place](decisions/0097-builder-never-edits-vendored.md) | accepted |
+| [0098 The builder ships without scenario testing; it is added as a gate when baton simulate exists](decisions/0098-no-scenario-testing-yet.md) | accepted |
+| [0099 The owner owns a recipe's generality; the builder defaults to the narrowest rung and always shows the next](decisions/0099-owner-owns-generality.md) | accepted |
+| [0100 When several recipes fit, the owner's own come first, then the most specific, then the more general](decisions/0100-recipe-matching-rule.md) | accepted |
+| [0101 When a new idea nearly fits an owner's recipe, the builder offers a widened new version first](decisions/0101-widen-on-evidence.md) | accepted |
+| [0102 A process plan is a published file at recipes/plans/<plan id>.md](decisions/0102-process-plan-location.md) | accepted |
+| [0103 A generated recipe records parent: {id, version}, or parent: null when built from scratch](decisions/0103-recipe-provenance.md) | accepted |
+| [0104 static/patterns.md is a design input and an audit rubric, enforced](decisions/0104-patterns-file.md) | accepted |
+| [0105 scope and parent are optional fields in baton-recipe/1; no format bump](decisions/0105-recipe-scope-and-parent-additive.md) | accepted |
+| [0106 Steps can take the vendored and catalog recipe summaries as an input source](decisions/0106-catalog-summaries-input.md) | accepted |

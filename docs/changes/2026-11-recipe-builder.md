@@ -1,9 +1,9 @@
 ---
 id: 2026-11-recipe-builder
 title: "A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe"
-status: proposed
+status: accepted
 level: major
-decisions: []               # the ten open decisions below become records (status: proposed) once the owner is asked
+decisions: ["0095", "0096", "0097", "0098", "0099", "0100", "0101", "0102", "0103", "0104", "0105", "0106", "0008", "0031", "0042"]
 touches: [design/recipes.md, design/adoption-and-framing.md, design/platform-and-security.md, design/versioning.md]
 ---
 
@@ -11,7 +11,7 @@ touches: [design/recipes.md, design/adoption-and-framing.md, design/platform-and
 
 > **Rationale note.** Recipe tree deferred (see [2026-11-recipe-tree](2026-11-recipe-tree.md), hold decision 2026-11-08). This change records provenance and ships the patterns file so the tree can be added later without loss.
 
-Originally proposed by Rob, 2026-11-05 (from `docs/catchall/`, now removed). Major: the owner approves Request and Design before Plan.
+Originally proposed by Rob, 2026-11-05 (from `docs/catchall/`, now removed). Major: the owner approves Request and Design before Plan. Owner approved Request and Design, and all twelve decisions below, on 2026-11-09.
 
 ## Request
 
@@ -51,8 +51,7 @@ The guiding rule is the same as for every recipe: the builder's own friction mus
 
 ### Open questions
 
-- The ten decisions at the end of Design, each to be put to the owner in one batch with a suggested answer.
-- The `[VERIFY]` items in the recipe sketch, to be resolved against the loader.
+- The `[VERIFY]` items in the recipe sketch, to be resolved against the loader in the first slice. (The twelve decisions are settled; see Decisions.)
 
 ## Design
 
@@ -106,8 +105,8 @@ Within that range, the owner decides where to sit.
 
 1. **Check what already exists.** If a vendored or catalog recipe covers the job as is, or with new levels, the builder says so first. Authoring is the last resort.
 2. **Listen for the owner's horizon.** `profile` looks for signals in the owner's words: other jobs they mention ("and maybe a shed next spring"), repetition ("we do this for every client"), other people or sites, or a one-off ("just this bed"). Each signal is a `class` ledger entry with its basis.
-3. **Offer a short ladder, in the owner's terms.** Two or three rungs, each naming the jobs it covers and what it costs the owner now: "Just flower beds", "Any garden bed", "Yard projects, including a shed". No rung is labeled better.
-4. **Default to the narrowest rung that covers what the owner said.** With no signal of other jobs, the builder proposes the narrow rung and moves on. It asks only when the signals point both ways.
+3. **Work out a short ladder, in the owner's terms.** Two or three rungs, each naming the jobs it covers and what it costs the owner now: "Just flower beds", "Any garden bed", "Yard projects, including a shed". No rung is labeled better.
+4. **Default to the narrowest rung that covers what the owner said, and always show the next** (Decision: [0099](../decisions/0099-owner-owns-generality.md)). With no signal of other jobs, the builder proposes the narrow rung and does not ask a separate question. The goal confirmation the owner already gets states that rung and names the next in one clause ("This covers flower beds. Say so if you'd want it to handle any garden bed or a shed too."), so there is no extra exchange. It asks a real question only when the signals point both ways, and recommends a wider rung only on a signal in the owner's words. The walkthrough always lists what the recipe covers and does not; a wider rung makes `audit` check both too narrow and too broad.
 5. **Widen on evidence, later.** When a future idea nearly fits an owner's recipe, framing or the builder offers to widen that recipe as a new version, instead of authoring a sibling. Generality grows from the owner's real jobs, not from a guess made on day one.
 
 **What generality must not cost.** Too narrow and the second job needs a new recipe. Too broad and the prompts cannot say anything specific, so the gates check little. Either way, the specifics of *this* job belong in run inputs, never in the recipe text. Sharing or contributing a recipe is a separate, optional act the owner may never take.
@@ -222,7 +221,7 @@ A first draft of `recipe.yaml`, written against the `fit-check` and `software-fe
 ```yaml
 id: recipe-builder
 version: 1
-format: baton-recipe/1                  # becomes baton-recipe/2 if the scope and parent fields land as a bump (see Format change)
+format: baton-recipe/1                  # scope and parent are additive in /1 (decision 0105)
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves.
 
@@ -348,7 +347,7 @@ recipe-builder/
 
 ### Runtime impact
 
-The builder adds no concept, command or file type to the concept budget (§2). It needs two small runtime additions, one format change and ten decisions.
+The builder adds no concept, command or file type to the concept budget (§2). It needs the catalog summaries input, one additive format change and twelve recorded decisions.
 
 **Runtime addition**
 
@@ -366,9 +365,7 @@ scope:
   varies_by: ["size", "materials", "whether a permit is needed"]   # absorbed by inputs and levels
 ```
 
-Framing, fit-check and the builder read the same block. A new format version (`baton-recipe/2`) is needed, unless the block can be optional in version 1.
-
-**Bundled with `parent:`.** The same format change also adds the provenance field (decision 9). The loader rejects unknown recipe keys (`recipe.unknown_key`, `src/baton/recipe.py`; pydantic `extra_forbidden`), so every new field needs a format change; adding `scope` and `parent` together means one bump (`baton-recipe/2`, or both as optional fields in `/1` if the loader and schema can take them without a bump), not two. Loaders accept both formats. A recipe with no `parent:` is a root. The bump lands in `design/versioning.md` §14 if it is a version change.
+Framing, fit-check and the builder read the same block. The block and the provenance field `parent:` (decision 0103) are added together as optional fields of `baton-recipe/1`, with no format bump (Decision: [0105](../decisions/0105-recipe-scope-and-parent-additive.md)). The loader rejects unknown recipe keys (`recipe.unknown_key`, `src/baton/recipe.py`; pydantic `extra_forbidden`), so the change is a loader and schema change; a recipe without them loads as before and is a root. If the first slice finds the loader cannot take them additively, the change returns to the owner before any bump.
 
 ### Doc edits
 
@@ -379,48 +376,57 @@ Framing, fit-check and the builder read the same block. A new format version (`b
 
 ### Decisions
 
-Each becomes a decision record, `status: proposed`, to be put to the owner in one batch with a suggested answer (AGENTS.md). None is recorded yet.
+Settled by the owner on 2026-11-09, each recorded:
 
-1. **Where drafts live.** Proposed: `recipes/drafts/<run slug>/` in the project, committed by `generate`. Alternative: a new `paths.recipes` key in `project.yaml`.
-2. **How a finished recipe is vendored.** Proposed: after `accept`, the Director asks the owner and runs `vendor` on the draft (owner approval recorded as with any vendoring). The builder never vendors on its own.
-3. **Whether the builder may change a vendored recipe.** Proposed: no. Specializing or widening always produces a new recipe id or a new version, never an edit in place (§5.8).
-4. **Scenario testing.** A dry run through every branch, loop and level would be the strongest check, but `baton simulate` is only planned (§15.3). Proposed: ship without it, and add it as a gate when it exists.
-5. **Who owns generality.** Proposed: the owner. The builder defaults to the narrowest rung that covers the jobs the owner named, and never widens a recipe for the sake of the catalog.
-6. **Matching rule when several recipes fit.** Proposed: prefer the owner's own recipes, then the most specific recipe that covers the whole job (it carries more domain knowledge), then the more general one. Ties go to the owner.
-7. **Widening on evidence.** Proposed: when a new idea nearly fits an owner's recipe, framing or the builder offers a widened new version of it before proposing a new recipe. Needs the scope block to tell "nearly fits" from "fits". Overlaps the recipe tree: see [2026-11-recipe-tree](2026-11-recipe-tree.md), hold decision 2026-11-08, to settle before the tree is un-held.
-
-
-8. **Where the process plan lives and how later builds find it.** Proposed: a published artifact at a fixed project path (for example `recipes/plans/<plan id>.md`), read by `profile` with `workspace: read`. Alternative: a run input the Director supplies from the plan. Stitching one large recipe also needs the full text of existing recipes, not just their summaries: vendored ones are readable in the project; catalog ones ship inside the runtime package, so this ties into runtime addition 1.
-9. **Provenance.** Proposed: `generate` writes `parent: {id, version}` into the generated package when it was built from `base_recipe`, and `parent: null` when built from scratch. Field shape chosen so "from scratch" (explicit null) is distinguishable from a legacy recipe that predates the field (absent); both are roots. It has no runtime effect, and the recipe runs without knowledge of its parent. Why now: provenance is the only one-way door of the tree (see [2026-11-recipe-tree](2026-11-recipe-tree.md), hold decision). Shipped in the same format change as the scope block.
-10. **Patterns file.** Proposed: `static/patterns.md`, a static input to `design` and a rubric to `audit`. It holds reusable process shapes: research → options → decide → plan → execute → review; bounded design/audit loops; failure dispositions. `audit` checks the design against it (see Readiness), so it is enforced, not advisory. It is the interim "broad recipe in prose"; a well-proven pattern can later be promoted to a loadable broad recipe.
-
-**Overlap with the held tree.** Decision 7 (widen on evidence) is a sideways form of the generalization the recipe tree would do downward. The two overlap and must be settled together before the tree is un-held (see the tree's hold decision, 2026-11-08).
+1. [0095](../decisions/0095-drafts-location.md): drafts live in `recipes/drafts/<run slug>/`.
+2. [0096](../decisions/0096-vendor-after-accept.md): the Director vendors only after `accept`; the builder never does.
+3. [0097](../decisions/0097-builder-never-edits-vendored.md): vendored recipes are never edited in place.
+4. [0098](../decisions/0098-no-scenario-testing-yet.md): no scenario testing until `baton simulate` exists.
+5. [0099](../decisions/0099-owner-owns-generality.md): the owner owns generality; narrowest rung by default, the next rung always shown.
+6. [0100](../decisions/0100-recipe-matching-rule.md): own recipes first, then most specific, then more general.
+7. [0101](../decisions/0101-widen-on-evidence.md): offer a widened new version before a new recipe. Overlaps the held recipe tree; settle together before it is un-held.
+8. [0102](../decisions/0102-process-plan-location.md): the process plan is a file at `recipes/plans/<plan id>.md`.
+9. [0103](../decisions/0103-recipe-provenance.md): `parent: {id, version}` or `parent: null`.
+10. [0104](../decisions/0104-patterns-file.md): `static/patterns.md` is a design input and an enforced audit rubric.
+11. [0105](../decisions/0105-recipe-scope-and-parent-additive.md): `scope` and `parent` are additive in `baton-recipe/1`, no bump.
+12. [0106](../decisions/0106-catalog-summaries-input.md): a `catalog.summaries` input source.
 
 ## Plan
 
-Sketch only; gets criteria after the owner approves Request and Design (major).
+Four slices, in order. Each is one commit with its code, tests, doc edits, Log entry and any register update.
 
-### Format change
+### 1. Format change: `scope` and `parent`
 
-- **Outcome:** loader and schema accept the scope block and `parent:`; both formats load; a recipe without `parent:` is a root.
+- **Outcome:** the loader and schema accept the optional `scope` block and `parent` field in `baton-recipe/1` (decisions 0103, 0105); resolves the loader-related `[VERIFY]` items (`run.*` in script gates, `static/` path at gate time, group output references, triage emitting extra output).
+- **Criteria:** a recipe with `scope`, with `parent: {id, version}` and with `parent: null` loads; one with neither loads unchanged; a malformed `scope` or `parent` gives a recipe error; the existing recipes and the neutrality lint are unaffected; `baton plan` shows nothing new. If the loader cannot take the fields additively, stop and ask the owner.
+- **Docs:** `design/recipes.md` §5.1, `design/versioning.md` §14.1/§14.2.
 - **Effort:** S
 
-### Catalog summaries input
+### 2. Catalog summaries input
 
-- **Outcome:** ordinary recipe steps and fit-check can take the vendored and catalog summaries as an input.
+- **Outcome:** a `catalog.summaries` input source for ordinary steps, giving the vendored and catalog summaries framing receives (decision 0106); `fit-check` takes it so `fits` can name an existing recipe.
+- **Criteria:** a step declaring the input receives the summaries in its packet and they are content-hashed; a recipe without it is unchanged; a required missing source stops the step like any input; `fit-check`'s `fits` verdict can name a matching recipe in a test; the recipe lint rejects the source's misuse.
+- **Docs:** `design/recipes.md` §5.2, §5.7; `design/adoption-and-framing.md` §11.6.
 - **Effort:** M
 
-### The recipe
+### 3. The recipe
 
-- **Outcome:** `examples/recipes/recipe-builder/` with prompts, schemas, `static/readiness.md`, `static/patterns.md` and the ledger and instance-leak checkers; loads and plans at every level.
+- **Outcome:** `examples/recipes/recipe-builder/` with prompts, schemas, `static/readiness.md`, `static/patterns.md`, the ledger checker and the instance-leak checker; it ships in the catalog.
+- **Criteria:** `baton plan` accepts it at every level; the neutrality lint passes; the ledger checker rejects an `open` entry and a `confirmed` entry without the owner's words; the instance-leak check rejects an `instance` value in prompts or static files; `design` receives and `audit` is given `patterns.md`; generated packages from `base_recipe` carry `parent: {id, version}`, and from nothing `parent: null`; the process-plan lookup and the 0099 goal-confirmation wording are in `profile`'s prompt; framing can propose it.
+- **Docs:** `design/recipes.md` §5.7, `design/adoption-and-framing.md` §11.6, `design/platform-and-security.md` §15.3.
 - **Effort:** L
 
-### Proof on two real cases
+### 4. Proof on two real cases
 
-- **Outcome:** one simple and one standard run end to end; framing and fit-check can propose it.
+- **Outcome:** one simple and one standard run end to end with scripted workers, and the three entry paths landing in one run.
+- **Criteria:** a simple run needs about three owner exchanges (recorded, not gated); fit-check `fits`, framing and a direct start all reach the same run; the generated package passes `baton plan` at every level; a generated script gate that runs an unexpected command draws a high `audit` finding.
 - **Effort:** M
 
+On finish: change `status: done` here and in the register, then the full suite must be green on that SHA.
+
 ## Log
+
+- 2026-11-09: Owner approved Request and Design and all twelve decisions (0095–0106); status `accepted`. Decision 0099 resolves a conflict between steps 3 and 4 of the generality rules. Plan drafted; no code yet.
 
 ## Sources
 
