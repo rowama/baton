@@ -197,7 +197,7 @@ def test_the_run_venv_reads_the_pth_files_of_the_environment_it_borrows(tmp_path
     site = tmp_path / "site-packages"
     (site / "win32" / "lib").mkdir(parents=True)
     (site / "win32" / "lib" / "nested_mod.py").write_text("X = 1\n", encoding="utf-8")
-    (site / "nested.pth").write_text("win32\lib\n" if os.name == "nt" else "win32/lib\n", encoding="utf-8")
+    (site / "nested.pth").write_text("win32\\lib\n" if os.name == "nt" else "win32/lib\n", encoding="utf-8")
     root, sha = fixture_repo(tmp_path)
     python = testrun._make_run_env(root, deps=[str(site)])
     import subprocess
