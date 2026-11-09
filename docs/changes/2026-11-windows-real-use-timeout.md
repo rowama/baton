@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-real-use-timeout
 title: "The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline"
-status: in-progress
+status: done
 level: minor
 decisions: []
 touches: []   # a test or runner change; add a design doc if the runtime changes
@@ -47,3 +47,4 @@ One slice (minor).
 - **Accepted:** <pending the owner>
 - **CI (2026-11-09):** the first runs with the longer deadline. f497248 (run 42652200877): Windows 3.11 green; Windows 3.14 finished the work item but failed the next assertion, `len({s["pid"] for s in logged}) == len(logged)` (17 sessions, 16 pids). c5c6a88 (run 42653576739): green on all four cells (Windows 3.11 in 911 s, 3.14 in 883 s). Locally on Windows with Python 3.11 at e251e85 (scratch venv, clean worktree): 1249 passed.
 - **Repair of the fix slice (red on f497248's CI run):** the deadline held; the test's check that every Director session is a separate process used the pid, and Windows hands a finished process's pid to a new one at once, so two of the 17 sequential sessions logged the same pid. The test was wrong, not the runtime: each session is its own `subprocess.run` of a fresh interpreter. Fix, in the test only: `tests/fakes/remote_director.py` logs a fresh `session` id (`uuid4`) beside its pid, and the assertion counts those ids. Every other assertion is unchanged. The scenario passes locally on Windows (65 s). The pid reuse was not reproduced locally; it is a property of Windows pid allocation, not a timing this test controls.
+- **CI after the repair:** 6dd5302 (run 42660157204), which holds the repair, is green on all four cells. With c5c6a88 (run 42653576739) and e251e85 (run 42655824276), that is three consecutive green runs on both Windows cells.

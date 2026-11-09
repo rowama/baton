@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-windows-real-use-timeout](2026-11-windows-real-use-timeout.md) | The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline | in-progress | minor | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-not-offered-reasons](2026-11-not-offered-reasons.md) | Worker status says which catalog it read and exactly why a generated profile is no longer offered | proposed | minor | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | proposed | major | |
@@ -21,6 +20,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-fast-tests](2026-11-fast-tests.md) | Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish | done | standard | |
 | [2026-11-framing-perspective](2026-11-framing-perspective.md) | The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents | done | standard | |
 | [2026-11-windows-harness-version-change](2026-11-windows-harness-version-change.md) | A harness upgrade is noticed on Windows, so observed capability states return to likely | done | minor | |
+| [2026-11-windows-real-use-timeout](2026-11-windows-real-use-timeout.md) | The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline | done | minor | |
 | [2026-11-windows-running-marker](2026-11-windows-running-marker.md) | A supervisor on Windows survives a Director reading its running marker | done | minor | |
 | [2026-11-windows-supervisor-console](2026-11-windows-supervisor-console.md) | A supervisor on Windows opens no console window | done | minor | |
 | [2026-11-worker-setup](2026-11-worker-setup.md) | Machine-wide worker resources are maintained separately from project setup | done | standard | |
