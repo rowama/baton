@@ -1,7 +1,7 @@
 ---
 id: 2026-11-diagnostics
 title: "Baton records the conditions it works around, keeps them bounded, and doctor speaks up when they become unusual"
-status: in-progress
+status: done
 level: standard
 decisions: ["0094", "0075"]
 touches: [principles.md, design/layouts.md, design/runtime.md, design/versioning.md, design/director-interface.md, design/platform-and-security.md]   # §2, §4.4, §8.3, §8.4, §14.2, §13.1, §13.2, §13.4, §15
