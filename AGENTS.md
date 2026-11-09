@@ -10,7 +10,7 @@ The docs are in `docs/`; `docs/README.md` maps every file and every § to where 
 2. To find work or a change's status, read `docs/changes/REGISTER.md`, not the change docs themselves.
 3. Read the change doc you are working on, then only the design docs it lists under `touches:` and the decision records under `decisions:`. Follow a § reference into another doc only when the work needs it.
 4. Follow §0 (Ground Rules) throughout.
-5. Before starting, confirm `pytest` is green (`.venv/bin/python -m pytest -q`). If the only failure is the register test (`test_change_register_matches_change_docs`), the owner has dropped in or edited a change doc: bring the register up to date first (see below), in the commit for your current work.
+5. Before starting, confirm the suite is green: `.venv/bin/python tools/testrun.py require-green HEAD` passes (a green background run of `HEAD` with a clean worktree). If it does not, run the full suite: `.venv/bin/python -m pytest -n auto --dist worksteal -q`. If the only failure is the register test (`test_change_register_matches_change_docs`), the owner has dropped in or edited a change doc: bring the register up to date first (see below), in the commit for your current work.
 
 ## The change register
 
@@ -35,12 +35,17 @@ The docs are in `docs/`; `docs/README.md` maps every file and every § to where 
 
 ## Doing a change
 
-- Work slice by slice, as the change doc's Plan sets out. Each slice is one commit, with `pytest` green, that holds its code, its tests, the edits to the design docs it changes, its entry in the change doc's Log, and any register update.
+- Work slice by slice, as the change doc's Plan sets out. Each slice is one commit that holds its code, its tests, the edits to the design docs it changes, its entry in the change doc's Log, and any register update. The tiers are in design §17.1 (Decision: [0092](docs/decisions/0092-two-tier-test-gate.md)):
+  - Gate each slice commit with the quick gate: `.venv/bin/python tools/testrun.py quick` (the tests the slice's changes affect, minus `slow`, in parallel). It must pass.
+  - After each slice commit, start the full suite on that exact SHA in the background and keep working: `.venv/bin/python tools/testrun.py start`.
+  - Before the next slice commit, read the ledger: `.venv/bin/python tools/testrun.py status`. A red or lost run is fixed first, in a commit that names the slice it repairs, and the fix goes in that slice's Log entry. `status --red` lists red SHAs for `git bisect skip`.
+  - Keep the `slow` marker honest: a test that spawns Baton processes, waits on real time, or takes over 1 s is `slow`; a quick test in a process-spawning file is `not_slow("reason")` (`tests/test_markers.py` checks).
 - Section numbers are stable references: never renumber a heading. A new section takes the next free number in its file and gets a row in the `docs/README.md` § index. `tests/test_docs.py` checks that every § reference and every relative link in `docs/` resolves.
 - Never edit `docs/history/`.
 
 ## Finishing a change
 
-- All acceptance criteria demonstrated by tests; `pytest` green; the change doc's `status: done`, and its register row too.
+- All acceptance criteria demonstrated by tests; the change doc's `status: done`, and its register row too.
+- The full suite is green on the finish commit's exact SHA: after committing `status: done`, run `.venv/bin/python tools/testrun.py start`, then `.venv/bin/python tools/testrun.py require-green HEAD --wait` must pass. If it fails, fix and commit again (the check then applies to the new `HEAD`). Never deselect tests to get there.
 - Commit subjects name the change: `<change id>: <slice title>`. The body lists modules, design docs touched, decisions recorded, and what the tests cover. The change doc and its Log are the handoff to the next session: keep them complete.
 - Ask before pushing.

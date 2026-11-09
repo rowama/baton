@@ -86,3 +86,95 @@ def test_dry_run_prints_the_plan_and_runs_nothing(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "quick gate: all (no testmon data yet)" in out and "--testmon-noselect" in out
     assert testrun.read_base(root) is None  # a dry run records nothing
+
+
+# --- the ledger and the background full run -------------------------------------------------------------------
+
+import os  # noqa: E402
+import shutil  # noqa: E402
+
+FAKES = Path(__file__).parent / "fakes"
+
+
+def fixture_repo(tmp_path, body="def test_ok():\n    assert True\n", extra=None):
+    root = make_git_project(tmp_path / "fx")
+    (root / "tests").mkdir()
+    (root / "tests" / "test_fx.py").write_text(body, encoding="utf-8")
+    for name, src in (extra or {}).items():
+        dest = root / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dest) if isinstance(src, Path) else dest.write_text(src, encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "fx")
+    return root, git(root, "rev-parse", "HEAD").strip()
+
+
+def run_to_end(root, sha, **kw):
+    rec = testrun.start(root, sha, workers=1, use_venv=False, **kw)
+    assert rec["state"] == "running" and rec["pid"]
+    return testrun.wait_for(root, sha, timeout=120, poll=0.2)
+
+
+@pytest.mark.slow
+def test_a_green_run_is_recorded_per_sha_and_cleans_up_its_worktree(tmp_path):
+    root, sha = fixture_repo(tmp_path)
+    rec = run_to_end(root, sha)
+    assert rec["passed"] is True and rec["failed"] == [] and rec["sha"] == sha and rec["wall_s"] is not None
+    assert rec["tree"] == git(root, "rev-parse", "HEAD^{tree}").strip() and rec["finished"] and rec["python"] and rec["os"]
+    assert testrun.state_of(rec) == "green"
+    ok, msg = testrun.require_green(root, sha)
+    assert ok, msg
+    assert not list(testrun.ledger_dir(root).glob("wt-*"))  # the worktree is gone
+    assert len(git(root, "worktree", "list").strip().splitlines()) == 1
+    again = testrun.start(root, sha, workers=1, use_venv=False)  # a green run is not started again
+    assert again["finished"] == rec["finished"]
+    assert testrun.status(root)[0].startswith(sha[:12] + "  GREEN")
+
+
+@pytest.mark.slow
+def test_a_red_run_names_the_failing_tests_and_require_green_refuses(tmp_path):
+    root, sha = fixture_repo(tmp_path, body="def test_ok():\n    assert True\n\ndef test_bad():\n    assert False\n")
+    rec = run_to_end(root, sha)
+    assert rec["passed"] is False and rec["failed"] == ["tests/test_fx.py::test_bad"]
+    ok, msg = testrun.require_green(root, sha)
+    assert not ok and "red" in msg and "test_bad" in msg
+    assert testrun.status(root, red_only=True) == [sha]
+
+
+def test_require_green_refuses_a_missing_running_or_lost_record_a_mismatch_and_a_dirty_tree(tmp_path):
+    root, sha = fixture_repo(tmp_path)
+    assert testrun.require_green(root, sha)[0] is False  # no record
+    rec = {"sha": sha, "tree": "t", "state": "running", "started": "2026-11-08T00:00:00+00:00", "pid": os.getpid(),
+           "failed": [], "passed": None}
+    testrun.write_record(root, rec)
+    ok, msg = testrun.require_green(root, sha)
+    assert not ok and "running" in msg
+    testrun.write_record(root, {**rec, "pid": 2**22 + 12345})  # no such process
+    ok, msg = testrun.require_green(root, sha)
+    assert not ok and "lost" in msg
+    testrun.write_record(root, {**rec, "state": "finished", "passed": True, "finished": "x", "wall_s": 1.0})
+    assert testrun.require_green(root, sha)[0] is True
+    (root / "tests" / "test_fx.py").write_text("changed\n", encoding="utf-8")  # HEAD with a dirty tree
+    ok, msg = testrun.require_green(root, sha)
+    assert not ok and "uncommitted" in msg
+    git(root, "commit", "-qam", "next")  # a different SHA has no record
+    new = git(root, "rev-parse", "HEAD").strip()
+    assert testrun.require_green(root, new)[0] is False
+    assert testrun.require_green(root, sha)[0] is True  # an older SHA's green does not need a clean tree
+
+
+def test_an_error_record_is_not_green(tmp_path):
+    root, sha = fixture_repo(tmp_path)
+    testrun.write_record(root, {"sha": sha, "state": "error", "passed": False, "failed": [], "error": "boom"})
+    ok, msg = testrun.require_green(root, sha)
+    assert not ok and "error" in msg
+    assert testrun.status(root, red_only=True) == [sha]
+
+
+@pytest.mark.slow
+def test_the_background_run_tests_the_worktrees_own_source_even_in_children(tmp_path):
+    stub = "__all__ = []\n"
+    root, sha = fixture_repo(tmp_path, extra={"src/baton/__init__.py": stub, "tests/test_where.py": FAKES / "testrun_where.py"})
+    rec = testrun.start(root, sha, workers=1, use_venv=True)
+    rec = testrun.wait_for(root, sha, timeout=180, poll=0.5)
+    assert rec["passed"] is True, rec

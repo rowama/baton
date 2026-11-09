@@ -36,7 +36,10 @@ def fake_install(home: Path, version: str) -> Path:
         shutil.copytree(ROOT / name, pkg / "_data" / name)
     init = pkg / "__init__.py"
     init.write_text(init.read_text(encoding="utf-8").replace('__version__ = "0.1.0"', f'__version__ = "{version}"'), encoding="utf-8")
-    parents = dict.fromkeys([sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]])
+    # The interpreter's own site-packages, and any it reaches through a .pth (the background full run's venv,
+    # tools/testrun.py, holds nothing itself and points at the development environment's).
+    parents = dict.fromkeys([sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"],
+                             *(p for p in sys.path if Path(p).name in ("site-packages", "dist-packages"))])
     (purelib / "_baton_test_deps.pth").write_text("".join(f"{p}\n" for p in parents), encoding="utf-8")
     (vdir / launcher.INSTALLED_MARKER).write_text("{}\n", encoding="utf-8")
     return vdir

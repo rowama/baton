@@ -10,7 +10,7 @@
 2. **Determinism over prompting.** Anything that must be 100% reliable is enforced in code, never left to an LLM following instructions.
 3. **Thin layer.** No web UI, no message broker, no database server, no long-running daemon. Filesystem, git, SQLite (as a cache only) and plain Python. Every dependency must justify itself.
 4. **Vendor neutrality.** No model vendor is privileged in the core or in recipes. Vendors exist only in worker profiles and adapters.
-5. **Small, tested increments.** Tests alongside each module; `pytest` green at every commit.
+5. **Small, tested increments.** Tests alongside each module; the quick gate green at every slice commit; the full suite green at every finish commit (§17.1).
 6. **Ask the human** when a requirement is ambiguous. Never silently decide an open decision (§18: a decision record in `docs/decisions/` with `status: proposed`).
 7. **The name is a label, not a spec.** "Baton" evokes work passed between workers under a Director. Use the metaphor only to explain; never derive a design decision or a term from it. Code and docs use plain names (step, packet, result, worker, gate).
 8. **Respect the concept budget (§2).** Do not introduce a new user-visible concept, file or command without updating §2 and justifying it against the principles in §1.
