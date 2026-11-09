@@ -116,7 +116,7 @@ def pinned(root: Path) -> str | None:
     """The runtime version ``baton.lock`` pins, or None (missing or unreadable: the runtime reports it)."""
     try:
         lock = json.loads((root / ".baton" / "baton.lock").read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # expected: missing or unreadable: the runtime reports it
         return None
     v = lock.get("runtime") if isinstance(lock, dict) else None
     return v if isinstance(v, str) and v else None

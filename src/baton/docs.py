@@ -16,6 +16,7 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from . import diag
 from . import groups, locks
 from .data import read_text
 from .models import Event, Group, recorded_questions
@@ -37,7 +38,8 @@ def _cas_json(ctx: RunContext, sha: str | None) -> Any:
         return None
     try:
         return json.loads(ctx.log.cas.read(sha))
-    except (StoreError, ValueError):
+    except (StoreError, ValueError) as e:
+        diag.note("docs.record_unreadable", "docs:_cas_json", error=f"{type(e).__name__}: {e}")
         return None
 
 
@@ -289,7 +291,7 @@ def _inputs(ctx: RunContext, step_path: str, n: int) -> list[str]:
         return []
     try:
         manifest = json.loads(read_text(mpath))
-    except ValueError:
+    except ValueError:  # expected: no readable manifest means no published documents
         return []
     out = []
     for i in manifest.get("inputs") or []:

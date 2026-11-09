@@ -311,7 +311,7 @@ class Project:
             out = subprocess.run(
                 ["git", "-C", str(self.root), "symbolic-ref", "--short", "-q", "HEAD"], capture_output=True, text=True, check=False
             )
-        except FileNotFoundError:
+        except FileNotFoundError:  # expected: no git: there is no current branch
             return None
         return out.stdout.strip() or None
 

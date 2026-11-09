@@ -32,6 +32,7 @@ from typing import Any, Callable, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import diag
 from . import __version__
 from . import known_workers as kw_mod
 from . import vocab as vocab_mod
@@ -198,7 +199,7 @@ def read_generated_dir(home: Path) -> dict[str, tuple[Path, Any]]:
     for p in sorted(d.glob("*.yaml")):
         try:
             out[p.stem] = (p, load_yaml(p))
-        except YamlError:
+        except YamlError:  # expected: None marks the file as unreadable; status reports it
             out[p.stem] = (p, None)
     return out
 
@@ -300,7 +301,7 @@ def check_tool_flags(exe: str, tool_map: dict[str, Any], env: dict[str, str]) ->
             try:
                 r = subprocess.run([exe, *t.help], env=env, capture_output=True, text=True, timeout=30, check=False)
                 helps[key] = (r.stdout or "") + (r.stderr or "")
-            except (OSError, subprocess.SubprocessError):
+            except (OSError, subprocess.SubprocessError):  # expected: an unreadable help text means the flags are not confirmed
                 helps[key] = ""
         out[cap] = re.search(rf"(?<![\w-]){re.escape(t.flag)}(?![\w-])", helps[key]) is not None
     return out
@@ -492,8 +493,8 @@ def _owner_names(home: Path) -> set[str]:
         try:
             raw = load_yaml(path) or {}
             names |= set(raw) if isinstance(raw, dict) else set()
-        except YamlError:
-            pass
+        except YamlError as e:
+            diag.note("resources.yaml_invalid", "resources:_owner_names", error=f"{type(e).__name__}: {e}", path=str(path))
     return names
 
 
@@ -702,7 +703,8 @@ def machine_claims(home: Path) -> dict[str, list[str]]:
     if path.is_file():
         try:
             raw = load_yaml(path) or {}
-        except YamlError:
+        except YamlError as e:
+            diag.note("resources.yaml_invalid", "resources:machine_claims", error=f"{type(e).__name__}: {e}", path=str(path))
             raw = {}
         for name, body in raw.items() if isinstance(raw, dict) else []:
             if isinstance(body, dict):

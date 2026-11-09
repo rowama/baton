@@ -112,3 +112,12 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
 - **Tests:** `tests/test_diag.py`: record shape and per-process file; never raising on an unwritable home, a full disk and unprintable data; redaction with a sentinel secret; four concurrent processes; burst suppression keeping counts exact; rollup idempotence; pruning by usage days (including an idle gap), by size, never the current day, and counts by age; once-per-day maintenance; a failing maintenance noted once; UTC day boundaries.
 - **Review:** clean
 - **Accepted:** <pending the owner>
+
+### Record the silent paths
+
+- **Commit:** 2026-11-diagnostics: Record the silent paths
+- **Summary:** The audit counts a handler as swallowing when it neither re-raises, nor uses the exception, nor calls anything; the change's "about 35 broad `except`" was too narrow, since the examples it names catch specific types (`SetupError`, `OSError`). That found 67 handlers in `src/baton/`: 20 now call `diag.note` with a dotted code (`harness.version_*`, `capability.version_check_skipped`, `tool_evidence.*`, `queue.dequeue_run_unreadable`, `incident.resolve_run_unreadable`, `permissions.*`, `sme.*`, `resources.yaml_invalid`, `supervisor.marker_unreadable`, `hooks.config_invalid`, `docs.record_unreadable`, `frame.profiles_unreadable`, `profiles.keyring_failed`, `known_workers.load_failed`), the other 47 say `# expected: <why>` on the `except` line. `worker_runner.py` is a standalone worker process that imports nothing from the runtime, so its one handler is marked expected. Cache replays are noted with `missing`, `size_mismatch` or `key_mismatch` (`_Cache.key_changed` carries the last, since opening a cache of another runtime empties it); a log with nothing in it yet is not noted, or every new run would be. `worker_selected` gains `excluded` on every dispatch (`begin_attempt(excluded=)`); an event without it reads as unknown. Design edits: runtime §8.2, §8.3, §8.4 text, versioning §14.2.
+- **Tests:** `tests/test_diag_sites.py`: the audit (fails on an unmarked swallowed exception), a triggering test for each noted site, the three cache replay reasons, `excluded` on a dispatch; `tests/test_routing.py` expects `excluded` in `worker_selected`.
+- **Review:** clean
+- **Accepted:** <pending the owner>
+

@@ -262,7 +262,7 @@ def _git_file(root: Path, commit: str, rel: str) -> str | None:
 
     try:
         proc = gitops.git(root, "show", f"{commit}:{rel}", check=False)
-    except gitops.GitError:  # pragma: no cover
+    except gitops.GitError:  # expected: git is not usable here: the file is absent (pragma: no cover)
         return None
     return proc.stdout if proc.returncode == 0 else None
 
@@ -271,7 +271,7 @@ def _tree_file(root: Path, rel: str) -> str | None:
     p = (root / rel).resolve()
     try:
         p.relative_to(root.resolve())
-    except ValueError:
+    except ValueError:  # expected: outside the project: not a project file
         return None
     if not p.is_file():
         return None
@@ -315,7 +315,7 @@ def check_evidence(root: Path, disposition: str, evidence: str | None, *, review
 
             try:
                 ok = gitops.is_repo(root) and gitops.git(root, "cat-file", "-e", f"{ev}^{{commit}}", check=False).returncode == 0
-            except gitops.GitError:  # pragma: no cover
+            except gitops.GitError:  # expected: git is not usable here: the commit is not known (pragma: no cover)
                 ok = False
             return [] if ok else [f"commit {ev} does not exist in this repository"]
         m = _FILE_LINE.match(ev)
@@ -346,7 +346,7 @@ def repo_head(root: Path) -> str | None:
         if not gitops.is_repo(root):
             return None
         return gitops.git(root, "rev-parse", "--verify", "-q", "HEAD", check=False).stdout.strip() or None
-    except gitops.GitError:  # pragma: no cover
+    except gitops.GitError:  # expected: git is not usable here: there is no head (pragma: no cover)
         return None
 
 
@@ -444,7 +444,7 @@ def protected_snapshot(root: Path, globs: list[str]) -> dict[str, str]:
             if any(p.match(rel) for p in pats):
                 try:
                     out[rel] = hashlib.sha256((Path(dirpath) / fn).read_bytes()).hexdigest()
-                except OSError:
+                except OSError:  # expected: recorded as 'unreadable', which is itself the evidence
                     out[rel] = "unreadable"
     return out
 

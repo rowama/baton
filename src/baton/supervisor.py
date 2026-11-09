@@ -58,6 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from . import diag
 
 #: Upper bound for attached children that have no effort band (doctor).
 DEFAULT_TIMEOUT_S = 45 * 60
@@ -99,7 +100,7 @@ def kill_tree_pid(pid: int) -> None:
 
         try:
             os.killpg(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except (ProcessLookupError, PermissionError):  # expected: the group is already gone, or is not ours to kill
             pass
     else:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
@@ -114,13 +115,13 @@ def pid_alive(pid: int | None) -> bool:
             done, _ = os.waitpid(pid, os.WNOHANG)  # reap it if it is our own exited child
             if done == pid:
                 return False
-        except ChildProcessError:
+        except ChildProcessError:  # expected: not our child: fall through to the liveness probe
             pass
         try:
             os.kill(pid, 0)
-        except ProcessLookupError:
+        except ProcessLookupError:  # expected: no such process is the answer: not alive
             return False
-        except PermissionError:
+        except PermissionError:  # expected: a process we may not signal exists: alive
             return True
         return True
     import ctypes
@@ -161,7 +162,7 @@ def _tail(log_path: Path) -> bytes:
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - TAIL_BYTES))
             return f.read()
-    except OSError:
+    except OSError:  # expected: an unreadable log has no tail
         return b""
 
 
@@ -226,7 +227,7 @@ def tree_path(baton_dir: Path, dispatch_id: str) -> Path:
 def read_marker(baton_dir: Path, dispatch_id: str) -> dict[str, Any] | None:
     try:
         return json.loads(marker_path(baton_dir, dispatch_id).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # expected: an absent or half-written marker reads as no marker
         return None
 
 
@@ -258,7 +259,7 @@ def remove_marker(baton_dir: Path, dispatch_id: str) -> None:
     for p in (marker_path(baton_dir, dispatch_id), tree_path(baton_dir, dispatch_id)):
         try:
             _while_open_elsewhere(p.unlink)
-        except FileNotFoundError:
+        except FileNotFoundError:  # expected: already removed
             pass
 
 
@@ -270,7 +271,8 @@ def markers(baton_dir: Path) -> list[dict[str, Any]]:
             continue
         try:
             out.append(json.loads(p.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
+            diag.note("supervisor.marker_unreadable", "supervisor:markers", error=f"{type(e).__name__}: {e}", path=str(p))
             continue
     return out
 
@@ -401,7 +403,8 @@ def wake_path(project: Any) -> str | None:
     """
     try:
         configured = load_hooks(project)
-    except HookConfigError:
+    except HookConfigError as e:
+        diag.note("hooks.config_invalid", "supervisor:wake_path", error=f"{type(e).__name__}: {e}")
         return None
     for _source, hooks in configured:
         name = choose_hook(hooks, "needs_human", None, needs_owner=True)

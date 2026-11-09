@@ -47,7 +47,7 @@ def git(root: Path, *args: str, check: bool = True, own_eol: bool = False) -> su
 def is_repo(root: Path) -> bool:
     try:
         return git(root, "rev-parse", "--is-inside-work-tree", check=False).stdout.strip() == "true"
-    except GitError:  # pragma: no cover
+    except GitError:  # expected: git is not usable here, which is the answer (pragma: no cover)
         return False
 
 
@@ -58,7 +58,7 @@ def toplevel(root: Path) -> Path:
 def lfs_available(root: Path) -> bool:
     try:
         return git(root, "lfs", "version", check=False).returncode == 0
-    except GitError:  # pragma: no cover
+    except GitError:  # expected: git is not usable here, which is the answer (pragma: no cover)
         return False
 
 

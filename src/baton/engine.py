@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import __version__, classify, groups, labels, refs, reviews, versions
+from . import __version__, classify, diag, groups, labels, refs, reviews, versions
 from .intake import read_result, run_script_gate
 from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .packet import (
@@ -549,6 +549,7 @@ def begin_attempt(
     preflight: Callable[[BuiltPacket], list[str]] | None = None,
     dispatch_data: dict[str, Any] | None = None,
     effort: str | None = None,
+    excluded: list[dict[str, Any]] | None = None,
 ) -> BuiltPacket:
     """Build the packet for the step's next attempt and mark the attempt dispatched and running.
 
@@ -575,6 +576,8 @@ def begin_attempt(
         if head:
             dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it)
     selected = identity_record(profile_name, profile)  # identity and route, for independence (§8.4, 0075)
+    if excluded is not None:
+        selected["excluded"] = excluded  # the profiles routing left out, with reasons: every dispatch, not only a failed one (§8.4)
     log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data=selected)
     pb = {"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]}
     if guidance:
@@ -1060,14 +1063,16 @@ def harness_version(exe: str, adapter: Any, env: dict[str, str]) -> str | None:
 
     try:
         st = os.stat(exe)
-    except OSError:
+    except OSError as e:
+        diag.note("harness.version_stat_failed", "engine:harness_version", error=f"{type(e).__name__}: {e}", exe=str(exe))
         return None
     key = (exe, st.st_mtime, st.st_size)
     if key not in _VERSIONS:
         try:
             out = subprocess.run(adapter.version_argv(exe), env=env, capture_output=True, text=True, timeout=30, check=False)
             _VERSIONS[key] = adapter.parse_version(out.stdout or out.stderr)
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as e:
+            diag.note("harness.version_probe_failed", "engine:harness_version", error=f"{type(e).__name__}: {e}", exe=str(exe))
             _VERSIONS[key] = None
     return _VERSIONS[key]
 
@@ -1204,7 +1209,7 @@ def _gate_options(ctx: RunContext, path: str, gate: Any) -> list[dict[str, Any]]
             g = _step(ctx, path).gates[gate]
             if getattr(g, "labels", None) is not None:
                 over = g.labels.model_dump(exclude_none=True)
-        except (EngineError, IndexError):
+        except (EngineError, IndexError):  # expected: no label override: the defaults apply
             pass
     return labels.options("gate", GATE_DECISIONS, over)
 
@@ -2137,7 +2142,7 @@ class Api:
 
         try:
             adv = web_advice(recipe, self.project.profiles())
-        except EngineError:
+        except EngineError:  # expected: advice is optional; a recipe that does not load is reported elsewhere
             return
         if adv is not None:
             out["web_advice"] = adv
@@ -2492,7 +2497,7 @@ class Api:
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
-                deadline=deadline, effort=effort,
+                deadline=deadline, effort=effort, excluded=[{"profile": x["profile"], "reasons": list(x["reasons"])} for x in routing.excluded],
             )
             if queue_entry is not None:
                 ctx.log.append("dispatch_dequeued", step_path=step_path, data={"queue_id": queue_entry["queue_id"], "started": True, "dispatch_id": dispatch_id})
@@ -2636,7 +2641,8 @@ class Api:
                 ctx.log.append("dispatch_dequeued", actor=actor, step_path=step_path,
                                data={"queue_id": entry["queue_id"], "started": False, "reason": reason, "code": code})
                 docs.write_records(ctx)
-        except (EngineError, StoreError):
+        except (EngineError, StoreError) as e:
+            diag.note("queue.dequeue_run_unreadable", "engine:Api._drop_queued", error=f"{type(e).__name__}: {e}", run=run_id, step_path=step_path)
             return  # the run is gone or unreadable: nothing to record it in
         if fire:
             self._fire_and_record(ctx, step_path, ctx.log.state().step(step_path).attempt or None, entry["queue_id"], outcome="not_started")  # type: ignore[arg-type]
@@ -2878,7 +2884,8 @@ class Api:
             return []
         try:
             raw = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
+            diag.note("tool_evidence.tree_unreadable", "engine:Api._reconcile_tree", error=f"{type(e).__name__}: {e}", dispatch_id=dispatch_id)
             return []
         rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
         after = gitops.tree_snapshot(self.project.root, [f"{rel_baton}/runs", f"{rel_baton}/project"])
@@ -2942,7 +2949,8 @@ class Api:
         tool_map = data.tool_map(profile.provider or profile.adapter)
         try:
             text = Path(child.log_path).read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        except OSError as e:
+            diag.note("tool_evidence.log_unreadable", "engine:Api._observe_tools", error=f"{type(e).__name__}: {e}", log=str(child.log_path))
             return []
         denied = []
         for cap in on:
@@ -3081,7 +3089,8 @@ class Api:
 
         try:
             return known_workers.load(vocab.load(vocab.DEFAULT))
-        except known_workers.KnownWorkersError:
+        except known_workers.KnownWorkersError as e:
+            diag.note("known_workers.load_failed", "engine:Api._known_workers", error=f"{type(e).__name__}: {e}")
             return None
 
     def _tool_plan(self, profile: WorkerProfile, requires: Any, mode: str) -> Any:
@@ -3113,7 +3122,8 @@ class Api:
             adapter = adapters.ADAPTERS.get(p.adapter)
             try:
                 env = build_env(p, home=self.project.home, config_home_var=getattr(adapter, "config_home_var", None), resolve=True)
-            except SetupError:
+            except SetupError as e:
+                diag.note("capability.version_check_skipped", "engine:Api._current_profiles", error=f"{type(e).__name__}: {e}", reason='setup_error', profile=name)
                 continue
             current = self._harness_version(p, env)
             if current and versions - {current} and cs.reset_on_version(self.project.home, name, current):
@@ -3156,7 +3166,7 @@ class Api:
             claimed = None
             try:
                 found = self.project.profiles().get(profile)
-            except EngineError:
+            except EngineError:  # expected: an unknown profile is the same as no profile: the claim is left out
                 found = None
             if found is not None:
                 claimed = list(found.capabilities)
@@ -3425,7 +3435,8 @@ class Api:
                 st = self.project.store.run(run).state()
                 if st.state == "active" and st.step(path).state == "escalated" and st.step(path).attempt == n:
                     retry.append({"run": run, "step_path": path, "attempt": n})
-            except StoreError:
+            except StoreError as e:
+                diag.note("incident.resolve_run_unreadable", "engine:Api.platform_incident", error=f"{type(e).__name__}: {e}", run=run)
                 pass
         sme.project_append(self.project, "platform_incident_resolved", {"incident": incident, "fix": redact_text(fix or ""), "retried": retry},
                            actor=self.director.actor)
@@ -4123,7 +4134,7 @@ class Api:
             content = w.cas.read(arts[from_artifact]["sha256"])
             try:
                 content = redact_text(content.decode("utf-8")).encode("utf-8")
-            except UnicodeDecodeError:
+            except UnicodeDecodeError:  # expected: a binary artifact is kept as it is; there is no text to redact
                 pass
         elif (text or "").strip():
             content = redact_text(text or "").encode("utf-8")

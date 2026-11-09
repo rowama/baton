@@ -421,7 +421,7 @@ def check_loopback(host: str) -> None:
     try:
         if ipaddress.ip_address(host).is_loopback:
             return
-    except ValueError:
+    except ValueError:  # expected: not an IP address, so not loopback: refused just below
         pass
     raise EngineError("mcp.not_loopback", f"--host {host} is not a loopback address; without TLS the bearer token would cross the network "
                                           "in the clear. Bind 127.0.0.1 and reach it through a TLS proxy or tunnel")

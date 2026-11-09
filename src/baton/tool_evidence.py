@@ -39,7 +39,7 @@ def _events(text: str) -> Iterable[dict[str, Any]]:
             continue
         try:
             ev = json.loads(line)
-        except ValueError:
+        except ValueError:  # expected: a line that is not JSON is not an event
             continue
         if isinstance(ev, dict):
             yield ev

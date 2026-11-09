@@ -623,7 +623,7 @@ def _make_writable(root: Path) -> None:
     for p in [root, *root.rglob("*")]:
         try:
             os.chmod(p, 0o700 if p.is_dir() else 0o600)
-        except OSError:
+        except OSError:  # expected: best effort: a file that cannot be made writable fails the removal that follows, loudly
             pass
 
 

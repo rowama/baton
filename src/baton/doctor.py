@@ -249,7 +249,7 @@ def _gate_preflight(project: Any, name: str, profile: Any, adapter: Any, env: An
     gate_env = {k: os.environ[k] for k in GATE_ENV_ALLOW if k in os.environ}
     try:
         direct = subprocess.run(command, shell=True, cwd=root, env=gate_env, stdin=subprocess.DEVNULL, capture_output=True, timeout=PREFLIGHT_TIMEOUT_S).returncode
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # expected: a timed-out preflight is reported as such just below
         direct = None
     nonce = secrets.token_hex(8)
     marker = project.baton / "cache" / "doctor" / f"preflight-{name}-{nonce}.json"  # gitignored, inside the workspace
@@ -275,7 +275,7 @@ def _gate_preflight(project: Any, name: str, profile: Any, adapter: Any, env: An
         if data.get("nonce") == nonce:
             seen = data.get("exit_code")
         marker.unlink()
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # expected: the marker is the preflight's answer; no marker is a failed preflight, reported below
         pass
     rep["worker_exit"] = seen
     if seen is None:
@@ -371,7 +371,7 @@ def _uncovered_steps(project: Any, profiles: dict[str, Any]) -> list[str]:
     for ref in project.vendored():
         try:
             loaded = project.recipe(ref)
-        except EngineError:
+        except EngineError:  # expected: a recipe that does not load is reported by check
             continue
 
         def visit(nodes: list, prefix: str) -> None:
@@ -479,7 +479,7 @@ def _wake_check(project: Any) -> tuple[list[str], list[str]]:
             if log.state().state != "active":
                 continue
             lease = locks.current(log.events())
-        except (EngineError, StoreError):
+        except (EngineError, StoreError):  # expected: check reports unreadable runs
             continue  # `check` reports unreadable runs
         if lease is not None and (lease.harness or "cli") != "cli":
             detached.append(f"{rid} ({lease.harness})")
@@ -563,7 +563,7 @@ def _web_advice(project: Any, profiles: dict[str, Any]) -> dict[str, Any] | None
     for ref in project.vendored():
         try:
             adv = web_advice(project.recipe(ref).recipe, profiles)
-        except EngineError:
+        except EngineError:  # expected: a recipe that does not load is reported by check
             continue
         if adv is not None:
             steps += [f"{ref}/{s}" for s in adv["steps"]]

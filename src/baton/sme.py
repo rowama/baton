@@ -43,6 +43,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from . import diag
 from .data import read_text
 from .models import Event, Requires, WorkerProfile
 from .redact import redact_text
@@ -158,7 +159,7 @@ class Item:
     def text(self) -> str | None:
         try:
             return self.content.decode("utf-8")
-        except UnicodeDecodeError:
+        except UnicodeDecodeError:  # expected: binary content has no text form
             return None
 
 
@@ -169,7 +170,7 @@ def _slug(raw: str) -> str:
 def _redacted(data: bytes) -> bytes:
     try:
         return redact_text(data.decode("utf-8")).encode("utf-8")
-    except UnicodeDecodeError:
+    except UnicodeDecodeError:  # expected: binary content is kept as it is; there is no text to redact
         return data
 
 
@@ -324,7 +325,7 @@ def automatic(src: Sources, subject: str) -> list[str]:
 def _log_exists(src: Sources, raw: str) -> bool:
     try:
         resolve(src, raw, "platform")
-    except SmeError:
+    except SmeError:  # expected: the answer is that it does not exist
         return False
     return True
 
@@ -361,7 +362,8 @@ def index(src: Sources, subject: str, used: set[str]) -> list[dict[str, str]]:
         for rid in src.project.store.run_ids():
             try:
                 started = src.project.store.run(rid).events()[0].data
-            except Exception:
+            except Exception as e:
+                diag.note("sme.run_unreadable", "sme:index", error=f"{type(e).__name__}: {e}", run=rid)
                 continue
             out.append({"ref": f"run:{rid}", "title": f"{started.get('title') or rid} (consult with --run {rid} to select its records)"})
     if subject == "platform":
@@ -371,7 +373,8 @@ def index(src: Sources, subject: str, used: set[str]) -> list[dict[str, str]]:
             add(f"incident:{inc['id']}", f"{inc.get('class')}/{inc.get('code')} on {inc.get('step_path')} of {inc.get('run')} ({inc['status']})")
         try:
             names = sorted(src.project.profiles())
-        except Exception:
+        except Exception as e:
+            diag.note("sme.profiles_unreadable", "sme:index", error=f"{type(e).__name__}: {e}")
             names = []
         for name in names:
             add(f"profile:{name}", f"worker profile {name}")
@@ -947,7 +950,8 @@ def stats(store: Any) -> dict[str, Any]:
     for rid in store.run_ids():
         try:
             events = store.run(rid).events()
-        except Exception:
+        except Exception as e:
+            diag.note("sme.run_unreadable", "sme:stats", error=f"{type(e).__name__}: {e}", run=rid)
             continue
         if not events or events[0].type != "run_started":
             continue

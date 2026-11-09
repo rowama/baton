@@ -17,6 +17,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from . import diag
 from .packet import EngineError
 
 FRAME_RECIPE = "baton-frame@1"
@@ -348,7 +349,8 @@ def _web_advice(api: Any, parts: list[dict[str, Any]], active: int) -> dict[str,
 
     try:
         profiles = api.project.profiles()
-    except Exception:  # noqa: BLE001 - advice never stops framing
+    except Exception as e:  # noqa: BLE001 - advice never stops framing
+        diag.note("frame.profiles_unreadable", "frame:_web_advice", error=f"{type(e).__name__}: {e}")
         return None
     hit = []
     for q in parts:
@@ -535,7 +537,7 @@ def run_words(ctx: Any) -> str | None:
 
     try:
         return json.loads(ctx.log.cas.read(ctx.record().started["inputs_sha256"])).get("words")
-    except Exception:  # noqa: BLE001 - informational only
+    except Exception:  # expected: informational: the word count is simply not shown (noqa: BLE001 - informational only)
         return None
 
 

@@ -204,7 +204,7 @@ def _scan_secrets(baton: Path) -> list[Issue]:
             continue
         try:
             data = p.read_bytes()
-        except OSError:  # pragma: no cover
+        except OSError:  # expected: a file that vanished while scanning is not there to check (pragma: no cover)
             continue
         names = sorted({h.pattern for h in redact.scan_bytes(data)})
         if names:

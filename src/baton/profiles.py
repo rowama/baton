@@ -34,6 +34,7 @@ from typing import Mapping
 
 from pydantic import ValidationError
 
+from . import diag
 from . import redact
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml
@@ -197,11 +198,12 @@ def secret_env_name(name: str) -> str:
 def _keyring_get(name: str) -> str | None:
     try:
         import keyring  # optional dependency
-    except ImportError:
+    except ImportError:  # expected: keyring is an optional dependency
         return None
     try:
         return keyring.get_password("baton", name)
-    except Exception:  # noqa: BLE001 - a broken keyring backend is "not found here"
+    except Exception as e:  # noqa: BLE001 - a broken keyring backend is "not found here"
+        diag.note("profiles.keyring_failed", "profiles:_keyring_get", error=f"{type(e).__name__}: {e}", secret=name)
         return None
 
 

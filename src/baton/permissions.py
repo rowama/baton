@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import diag
 from .gitops import GitError, git
 from .reviews import matches
 
@@ -96,7 +97,8 @@ def verified_commits(root: Path, store: Any) -> set[str]:
         try:
             log = store.run(rid)
             events = log.events()
-        except Exception:  # an unreadable run vouches for nothing
+        except Exception as e:  # an unreadable run vouches for nothing
+            diag.note("permissions.run_unreadable", "permissions:verified_commits", error=f"{type(e).__name__}: {e}", run=rid)
             continue
         for e in events:
             if e.type != "step_passed":
@@ -117,7 +119,8 @@ def _commit_sha(store: Any, run_id: str, data: dict[str, Any]) -> str | None:
             import json
 
             out = json.loads(store.run(run_id).cas.read(data["output_sha256"]))
-        except Exception:
+        except Exception as e:
+            diag.note("permissions.output_unreadable", "permissions:_commit_sha", error=f"{type(e).__name__}: {e}", run=run_id)
             return None
     sha = out.get("commit_sha") if isinstance(out, dict) else None
     return sha if isinstance(sha, str) and sha.strip() else None

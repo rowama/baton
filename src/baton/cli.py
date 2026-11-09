@@ -187,7 +187,7 @@ def _done(payload: dict, as_json: bool, text: str, code: int | None = None) -> N
     if code is None:
         try:
             code = _owner_exit() if payload.get("needs_owner") else EXIT_OK
-        except ValueError:  # _call refused it before any work; a command without one keeps the default
+        except ValueError:  # expected: the comment says it: a command without an owner-exit option keeps the default (_call refused it before any work; a command without one keeps the default)
             code = EXIT_OWNER
     raise typer.Exit(code)
 

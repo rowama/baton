@@ -37,7 +37,7 @@ from typing import Any, Callable, Iterator
 
 from pydantic import ValidationError
 
-from . import versions
+from . import diag, versions
 from .models import (
     EVENT_TYPES,
     PROJECT_EVENT_TYPES,
@@ -128,7 +128,7 @@ def atomic_write(path: Path, data: bytes, *, read_only: bool = False) -> None:
 def _force_unlink(p: Path) -> None:
     try:
         os.chmod(p, stat.S_IWUSR | stat.S_IRUSR)
-    except OSError:
+    except OSError:  # expected: best effort: the unlink that follows reports a real failure
         pass
     p.unlink(missing_ok=True)
 
@@ -246,7 +246,7 @@ class EventLog:
     def size(self) -> int:
         try:
             return self.path.stat().st_size
-        except FileNotFoundError:
+        except FileNotFoundError:  # expected: a log that does not exist yet is empty
             return 0
 
     def _lines(self) -> Iterator[tuple[int, bytes, bool]]:
@@ -508,6 +508,7 @@ class _Cache:
     def __init__(self, path: Path):
         self.path = path
         self._conn: sqlite3.Connection | None = None
+        self.key_changed = False  # the cache was built by another runtime or event format and was emptied (§8.3)
 
     def conn(self) -> sqlite3.Connection:
         if self._conn is not None and not self.path.exists():
@@ -519,6 +520,7 @@ class _Cache:
             row = self._conn.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
             key = _cache_key()
             if row is None or row[0] != key:
+                self.key_changed = row is not None
                 with self._conn:
                     self._conn.execute("DELETE FROM runs")
                     self._conn.execute("DELETE FROM steps")
@@ -643,6 +645,11 @@ class Store:
         size = log.size()
         if hit is not None and hit[1] == size:
             return hit[0], size
+        # A replay is correct, but a pattern of them would point to concurrent writers or a cache bug (Decision 0094).
+        reason = "size_mismatch" if hit is not None else "key_mismatch" if self._cache.key_changed else "missing"
+        self._cache.key_changed = False
+        if size:  # a log with nothing in it yet has nothing to be out of step with
+            diag.note("cache.replay", "store:Store._state", reason=reason, run=log.run_id, project=str(self.root), cached_size=hit[1] if hit else None, log_size=size)
         return self._replay(log, size), size
 
     def _replay(self, log: RunLog, size: int | None = None) -> RunState:

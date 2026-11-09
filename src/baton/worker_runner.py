@@ -145,7 +145,7 @@ def parse_reply(text: str) -> dict[str, Any] | None:
     for c in candidates:
         try:
             value = json.loads(c)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError:  # expected: not every brace pair is JSON: try the next candidate
             continue
         if isinstance(value, dict):
             return value
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         def supports(m: str) -> bool:
             try:
                 return bool(litellm.supports_response_schema(model=m))
-            except Exception:  # noqa: BLE001 - unknown model: fall back to the prompt
+            except Exception:  # expected: unknown model: fall back to the prompt; this is a standalone worker process and imports nothing from the runtime (noqa: BLE001 - unknown model: fall back to the prompt)
                 return False
 
         env = run(args.packet, args.result, args.model, options, args.context_tokens, complete=litellm.completion, supports_schema=supports)

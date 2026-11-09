@@ -158,7 +158,10 @@ def test_worker_selected_records_vendor_and_model(routed):
     api.dispatch(run, "draft", "carol")
     ev = [e for e in api.project.store.run(run).events() if e.type == "worker_selected"][-1]
     # Identity and route as at dispatch (0075); vendor is still written, equal to creator.
-    assert ev.data == {"profile": "carol", "vendor": "zenith", "creator": "zenith", "adapter": "manual"}
+    assert {k: v for k, v in ev.data.items() if k != "excluded"} == {"profile": "carol", "vendor": "zenith", "creator": "zenith", "adapter": "manual"}
+    # Every dispatch records who routing left out and why, not only a dispatch that found nobody (§8.4).
+    assert ev.data["excluded"] == [{"profile": "bob", "reasons": ["needs tier standard; profile is basic"]},
+                                   {"profile": "weak", "reasons": ["missing capabilities: structured_output"]}]
 
 
 

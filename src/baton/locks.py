@@ -66,7 +66,7 @@ class Director:
 def _user() -> str:
     try:
         return getpass.getuser()
-    except Exception:  # pragma: no cover - no login name in some containers
+    except Exception:  # expected: no login name in some containers: the fixed name is the answer (pragma: no cover - no login name in some containers)
         return "director"
 
 
@@ -282,7 +282,7 @@ def _ws(baton_dir: Path) -> Path:
 def _read_json(path: Path, default: object) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # expected: an absent or half-written file reads as the default
         return default
 
 

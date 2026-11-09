@@ -295,7 +295,7 @@ class _Checker:
             for f in sorted(p for p in base.rglob("*") if p.is_file()):
                 try:
                     text = read_text(f)
-                except (UnicodeDecodeError, OSError):
+                except (UnicodeDecodeError, OSError):  # expected: binary or vanished files hold no references
                     continue
                 hit = self.vocab.find_vendor_string(text)
                 if hit:
@@ -758,7 +758,7 @@ class _Checker:
                 repeated = set(ids[ids.index(group.repeat_from):])
                 try:
                     judged = refs.parse_condition(group.repeat_until)
-                except refs.RefSyntaxError:
+                except refs.RefSyntaxError:  # expected: a bad condition is reported by the load-time validation of the same recipe
                     judged = []
                 for sid in judged:
                     if sid in child_ids and sid not in repeated:
@@ -1065,7 +1065,7 @@ def migrated_recipe(root: Path) -> dict | None:
         return None
     try:
         doc = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):  # expected: an absent or unreadable file is no manifest
         return None
     src = root / RECIPE_FILE
     if not src.is_file() or doc.get("source_sha256") != hashlib.sha256(src.read_bytes()).hexdigest():
