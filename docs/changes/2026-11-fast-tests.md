@@ -181,3 +181,11 @@ Measured first, kept only where it saves time (the criterion). Instrumented one 
 - **`test_docs` reference scans** read every file under `docs/`, `src/` and the rest (6 s here, 13–20 s under load). They are `slow`, so a docs-only quick gate still runs them (it runs the whole of `tests/test_docs.py`).
 
 Full suite on the fast venv: 1250 passed, 9 skipped, 2 m 10 s (4 m 36 s on the repository's own `.venv`).
+
+### CI result for slices 1–5 (run 42555594395, pushed 2026-11-09)
+
+- **Linux, Python 3.11 and 3.14: green** with `-n auto --dist worksteal`.
+- **Windows, Python 3.14 and 3.11: red, with failures that predate this change.** `-n auto` ran 1239 passed / 1 failed (3.14) and 1238 passed / 2 failed (3.11) in 17 m and 23 m, against 27–30 m serial in the earlier runs. The failures also fail in the serial runs of 42522295546 and 42529519383 (before xdist was added), so parallelism did not cause them:
+  - `test_harness_tools.py::test_a_new_harness_version_returns_observed_states_to_likely` (both versions): after the fake executable's mtime is moved 5 s ahead, `eligible` still returns no profile, so the harness-version change is not noticed on Windows.
+  - `test_real_use.py::test_remote_director_completes_a_multi_slice_work_item_across_sessions` (3.11 only): the scenario hits its own 600 s loop deadline on the Windows runner.
+- The earlier red Ubuntu cells (the five `test_resources.py` tests) are fixed by the first commit of this change.
