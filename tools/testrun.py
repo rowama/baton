@@ -208,11 +208,12 @@ def _venv_python(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def _make_run_env(wt: Path) -> Path:
+def _make_run_env(wt: Path, deps: list[str] | None = None) -> Path:
     """A venv whose ``baton`` is this worktree's ``src`` and whose other packages are the current environment's.
 
     The development install points at the main checkout, which would test the wrong code. Children that tests spawn
     (``sys.executable -m baton``) find the worktree's source through the venv's own .pth, whatever env they are given.
+    ``deps`` (the folders the packages come from) defaults to the current environment's.
     """
     venv = wt / ".venv-run"
     subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True, capture_output=True)
@@ -221,9 +222,13 @@ def _make_run_env(wt: Path) -> Path:
                                   check=True, capture_output=True, text=True).stdout.strip())
     purelib.mkdir(parents=True, exist_ok=True)
     # The current environment's packages: its own site-packages, and any it reaches through a .pth (a run inside a run).
-    deps = dict.fromkeys([sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"],
-                          *(p for p in sys.path if Path(p).name in ("site-packages", "dist-packages"))])
-    (purelib / "baton-run.pth").write_text("".join(f"{p}\n" for p in [site / "src", *deps]), encoding="utf-8")
+    if deps is None:
+        deps = list(dict.fromkeys([sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"],
+                                   *(p for p in sys.path if Path(p).name in ("site-packages", "dist-packages"))]))
+    # Each is added as a site dir, so its own .pth files are read too (pywin32 puts pywintypes on the path that way).
+    # The worktree's src comes first, ahead of the development install's entry for the main checkout.
+    lines = [f"{site / 'src'}\n", *(f"import site; site.addsitedir({str(p)!r})\n" for p in deps)]
+    (purelib / "baton-run.pth").write_text("".join(lines), encoding="utf-8")
     return _venv_python(venv)
 
 

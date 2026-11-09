@@ -178,3 +178,18 @@ def test_the_background_run_tests_the_worktrees_own_source_even_in_children(tmp_
     rec = testrun.start(root, sha, workers=1, use_venv=True)
     rec = testrun.wait_for(root, sha, timeout=180, poll=0.5)
     assert rec["passed"] is True, rec
+
+
+@pytest.mark.slow
+def test_the_run_venv_reads_the_pth_files_of_the_environment_it_borrows(tmp_path):
+    # pywin32's shape: a .pth in site-packages puts its modules' own folder on sys.path (Windows: pywintypes)
+    site = tmp_path / "site-packages"
+    (site / "win32" / "lib").mkdir(parents=True)
+    (site / "win32" / "lib" / "nested_mod.py").write_text("X = 1\n", encoding="utf-8")
+    (site / "nested.pth").write_text("win32\lib\n" if os.name == "nt" else "win32/lib\n", encoding="utf-8")
+    root, sha = fixture_repo(tmp_path)
+    python = testrun._make_run_env(root, deps=[str(site)])
+    import subprocess
+
+    done = subprocess.run([str(python), "-c", "import nested_mod"], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
