@@ -427,6 +427,12 @@ On finish: change `status: done` here and in the register, then the full suite m
 ## Log
 
 - 2026-11-09: Owner approved Request and Design and all twelve decisions (0095–0106); status `accepted`. Decision 0099 resolves a conflict between steps 3 and 4 of the generality rules. Plan drafted; no code yet.
+- 2026-11-09, slice 1 (format change): `Scope`, `ScopeNotFor` and `Parent` models and `Recipe.provenance` in `src/baton/models.py`; `tests/test_recipe_scope_parent.py` (12 tests: absent, scope, parent, `parent: null`, seven malformed cases); `design/recipes.md` §5.1 and `design/versioning.md` §14. The loader took both fields additively, so decision 0105 stands with no bump. The `[VERIFY]` items resolved against the code:
+  - **Triage output:** the loader requires only that the triage schema requires `level` with exactly the declared enum (`complexity.level_enum_mismatch`); extra properties are fine. As sketched.
+  - **Group output:** from outside a group the source is `steps.<group>.outputs`, not `.output` (§5.2): `generate` reads `steps.shape.outputs`, one entry holding `design` and `audit`. The sketch is wrong here; fix in slice 3.
+  - **`run.*` in script gates: not as sketched.** `intake.render_command` offers `project.*`, `paths.*` and `run.id` only; `run.slug` works in `publish.to` but not in a gate, so `recipes/drafts/{{ run.slug }}` cannot be rendered.
+  - **`static/` at gate time: not reachable.** Gates run in the project root under a reduced environment; a recipe's `static/` files are not there (a catalog recipe is not vendored), so `python static/check_ledger.py` cannot run. The checkers need another route.
+  - These two gate findings need an owner decision before slice 3; raised with the owner at the end of slice 1.
 
 ## Sources
 

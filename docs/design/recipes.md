@@ -140,6 +140,18 @@ steps:
 
 Step keys: `id`, `title`, `depends_on`, `applies_to`, `requires`, `prompt`, `inputs`, `output_schema`, `artifacts`, `gates`, `workspace` (`none` | `read` | `write`; default `none`), `protect`, `effort` / `effort_from`, `independence`, `doc_template`. Group keys: §5.4.
 
+Two optional keys describe a recipe to people and to later authoring; neither affects a run (Decisions: [0103](../decisions/0103-recipe-provenance.md), [0105](../decisions/0105-recipe-scope-and-parent-additive.md)). Both are additive in `baton-recipe/1`: a recipe without them loads as before.
+
+```yaml
+scope:                                   # what the recipe covers, in the owner's terms
+  covers:  ["a flower bed", "a raised bed"]                        # example jobs (at least one)
+  not_for: [{ job: "a kitchen remodel", use: "home-renovation" }]  # near misses; `use` optional
+  varies_by: ["size", "whether a permit is needed"]                # absorbed by inputs and levels
+parent: { id: backyard-project, version: 2 }   # built from this recipe; `parent: null` = built from nothing
+```
+
+An absent `parent` marks a recipe that predates the field; `null` and a named parent both record where it came from, and all three are roots as far as the runtime goes. The loader rejects any other key under `scope` or `parent` (`recipe.unknown_key`) a missing required key (`recipe.missing_key`) and a malformed value (`recipe.invalid_value`).
+
 ### 5.2 Input references (closed grammar)
 
 | Reference | Resolves to |

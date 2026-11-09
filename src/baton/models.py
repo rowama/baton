@@ -218,12 +218,36 @@ class SmeRequirements(_Strict):
     process: Requires | None = None
 
 
+class ScopeNotFor(_Strict):
+    """A near miss: a job this recipe is not for, and the recipe that is (§5.1)."""
+
+    job: str = Field(min_length=1)
+    use: str | None = Field(default=None, pattern=RECIPE_ID)
+
+
+class Scope(_Strict):
+    """What a recipe covers, in the owner's terms. Read by discovery, never by a run (§5.1; Decision 0105)."""
+
+    covers: list[str] = Field(min_length=1)
+    not_for: list[ScopeNotFor] = Field(default_factory=list)
+    varies_by: list[str] = Field(default_factory=list)
+
+
+class Parent(_Strict):
+    """The recipe this one was built from (§5.1; Decision 0103). No runtime effect."""
+
+    id: str = Field(pattern=RECIPE_ID)
+    version: int = Field(ge=1)
+
+
 class Recipe(_Strict):
     id: str = Field(pattern=RECIPE_ID)
     version: int = Field(ge=1)
     format: str
     capabilities_vocab: str
     description: str | None = None
+    scope: Scope | None = None
+    parent: Parent | None = None  # null = built from scratch; absent = predates the field (see ``provenance``)
     run_inputs: RunInputs | None = None
     defaults: Defaults = Field(default_factory=Defaults)
     complexity: Complexity | None = None
@@ -233,6 +257,13 @@ class Recipe(_Strict):
     @property
     def ref(self) -> str:
         return f"{self.id}@{self.version}"
+
+    @property
+    def provenance(self) -> Literal["parent", "scratch", "unrecorded"]:
+        """Whether the recipe names a parent, was built from nothing (``parent: null``), or predates the field."""
+        if "parent" not in self.model_fields_set:
+            return "unrecorded"
+        return "scratch" if self.parent is None else "parent"
 
 
 # --------------------------------------------------------------------------

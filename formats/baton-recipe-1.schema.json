@@ -406,6 +406,28 @@
       "title": "Input",
       "type": "object"
     },
+    "Parent": {
+      "additionalProperties": false,
+      "description": "The recipe this one was built from (\u00a75.1; Decision 0103). No runtime effect.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "Parent",
+      "type": "object"
+    },
     "Protect": {
       "additionalProperties": false,
       "properties": {
@@ -609,6 +631,68 @@
         "type"
       ],
       "title": "SchemaGate",
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "description": "What a recipe covers, in the owner's terms. Read by discovery, never by a run (\u00a75.1; Decision 0105).",
+      "properties": {
+        "covers": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Covers",
+          "type": "array"
+        },
+        "not_for": {
+          "items": {
+            "$ref": "#/$defs/ScopeNotFor"
+          },
+          "title": "Not For",
+          "type": "array"
+        },
+        "varies_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Varies By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "covers"
+      ],
+      "title": "Scope",
+      "type": "object"
+    },
+    "ScopeNotFor": {
+      "additionalProperties": false,
+      "description": "A near miss: a job this recipe is not for, and the recipe that is (\u00a75.1).",
+      "properties": {
+        "job": {
+          "minLength": 1,
+          "title": "Job",
+          "type": "string"
+        },
+        "use": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Use"
+        }
+      },
+      "required": [
+        "job"
+      ],
+      "title": "ScopeNotFor",
       "type": "object"
     },
     "ScriptGate": {
@@ -958,10 +1042,32 @@
       "title": "Id",
       "type": "string"
     },
+    "parent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Parent"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "run_inputs": {
       "anyOf": [
         {
           "$ref": "#/$defs/RunInputs"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Scope"
         },
         {
           "type": "null"
