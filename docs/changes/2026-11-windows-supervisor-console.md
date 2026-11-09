@@ -47,3 +47,11 @@ One slice (minor).
 - **Repairs 2026-11-windows-running-marker's repair (dad9302, red in the ledger):** the re-run of dad9302 (its own code still starting supervisors as `DETACHED_PROCESS`) took 404 s against about 185 s for earlier Windows runs, and failed four tests: doctor's supervisor self-test "did not start" within its 30 s in `test_api_worker.py::test_doctor_quiet_when_healthy_and_reports_problems`, `test_harness.py::test_doctor_reports_effective_auth_and_passes_preflight` and `test_real_use.py::test_a_healthy_project_makes_no_routine_owner_prompts`, and a queued dispatch's supervisor did not finish within 30 s in `test_work_items.py::test_write_steps_from_two_runs_are_serialized`. Starting 40 self-test supervisors at once from the dev venv: all 40 reported in 9.1 s as `DETACHED_PROCESS` (each opening a console handed to Windows Terminal), against 0.6 s with `CREATE_NO_WINDOW`. The owner's screenshot shows a launch that failed outright during that handoff. A console per supervisor is the likely cause of these four; a failed launch was not reproduced here.
 - **Review:** clean
 - **Accepted:** <pending the owner>
+
+### Confirmation
+
+- **Summary:** the owner reported (2026-11-09) a cascade of console windows that made the desktop unusable. Those runs started before the fix: the 8- and 16-copy load runs of the real-use scenario (change 2026-11-windows-real-use-timeout), about 150 supervisors per copy, and the background run of dad9302. A run of any commit before this change's fix still opens one window per supervisor.
+- **Measured** on the owner's machine at bd0b478. A watcher polled every 20 ms for new visible `ConsoleWindowClass` and `CASCADIA_HOSTING_WINDOW_CLASS` windows and for new `OpenConsole.exe` processes (one per Windows Terminal tab):
+  - control, 2 self-test supervisors started as `DETACHED_PROCESS`: 2 windows and 2 tabs;
+  - 40 started with this change's flags: 0;
+  - the whole suite (1247 passed; 1004 python processes, 345 hidden consoles): 0.
