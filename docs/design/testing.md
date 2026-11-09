@@ -19,6 +19,8 @@
 
 `slow` marks a test that spawns Baton processes, waits on real time, or measured over 1 s on the baseline. `not_slow("reason")` marks a quick test in a process-spawning file. A test (`tests/test_markers.py`) fails if a test in such a file has neither, so the marking cannot drift. The markers only choose what the quick gate leaves out: the full suite is never deselected, and registered markers are strict (`--strict-markers`).
 
+**Where the interpreter lives matters more than any test change.** On WSL with the repository under `/mnt/<drive>`, a virtual environment on that Windows drive makes every Baton child process import its dependencies over the slow cross-OS file system: `import baton.cli` took 1.6 s (0.2–0.4 s on the Linux file system) and `import litellm` 19 s cold. The full suite took 4 m 36 s there and 2 m 10 s with the environment on the Linux file system (for example `uv venv ~/.venvs/baton && uv pip install -e ".[dev]"`, then `.venv` a symlink to it), with the repository unchanged.
+
 ## 19. Definition of Done
 
 - All phases' acceptance criteria pass, on Linux and native Windows.
