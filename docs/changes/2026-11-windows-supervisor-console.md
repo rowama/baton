@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-supervisor-console
 title: "A supervisor on Windows opens no console window"
-status: in-progress
+status: done
 level: minor
 decisions: []
 touches: [design/runtime.md, design/platform-and-security.md]   # §8.7, §15.1
@@ -55,3 +55,4 @@ One slice (minor).
   - control, 2 self-test supervisors started as `DETACHED_PROCESS`: 2 windows and 2 tabs;
   - 40 started with this change's flags: 0;
   - the whole suite (1247 passed; 1004 python processes, 345 hidden consoles): 0.
+- **CI (2026-11-09):** c5c6a88 (run 42653576739), which holds this fix, is green on all four cells (Ubuntu and Windows, Python 3.11 and 3.14). Locally on Windows with Python 3.11 at e251e85: 1249 passed.

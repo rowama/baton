@@ -1,7 +1,7 @@
 ---
 id: 2026-11-windows-running-marker
 title: "A supervisor on Windows survives a Director reading its running marker"
-status: in-progress
+status: done
 level: minor
 decisions: []
 touches: [design/platform-and-security.md]   # §15.1
@@ -45,3 +45,4 @@ One slice (minor).
 - **Review:** clean
 - **Accepted:** <pending the owner>
 - **Repair of the fix slice (df8347e, red in the ledger):** `tests/test_async.py::test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed` failed: its crash case came back `retry` (timed out) after the worker ran 0.32 s. The test was wrong for Windows, not the runtime: it gave every dispatch a 5 s effort band so that its hang case times out, and on Windows a supervisor can take more than 5 s to start its worker while the suite runs in parallel (timed with temporary probes, since removed: alone, 0.95 to 1.5 s from spawn to worker start, 0.7 s of it the detached interpreter starting; in the red run, over 5 s). It had already failed the same way in 36686bc's run, before this fix. Under 15 parallel copies it failed 15 of 30 before this change's fix and 30 of 30 after it, with no marker retry logged in that run (probed): a supervisor that used to die in `write_marker` had its result taken in at once by the waiting Director, which happened to dodge the timeout. Fix, in the test only: only the hang dispatch gets the 5 s band (a new `Setup.band()` rewrites and commits `project.yaml`, and each `baton` command reads it); the other outcomes keep the default band. Every assertion is unchanged. Now 30 of 30 pass under the same load, and all of `test_async.py` passes twice on 8 workers, where HEAD's version failed this test both times.
+- **CI (2026-11-09):** c5c6a88 (run 42653576739), which holds this fix, is green on all four cells (Ubuntu and Windows, Python 3.11 and 3.14). Locally on Windows with Python 3.11 at e251e85: 1249 passed.
