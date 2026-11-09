@@ -6,6 +6,7 @@ One row per change doc in this folder: the place to see every change's status wi
 |---|---|---|---|---|
 | [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | in-progress | standard | |
 | [2026-11-windows-harness-version-change](2026-11-windows-harness-version-change.md) | A harness upgrade is noticed on Windows, so observed capability states return to likely | in-progress | minor | |
+| [2026-11-windows-running-marker](2026-11-windows-running-marker.md) | A supervisor on Windows survives a Director reading its running marker | in-progress | minor | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-not-offered-reasons](2026-11-not-offered-reasons.md) | Worker status says which catalog it read and exactly why a generated profile is no longer offered | proposed | minor | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | proposed | major | |

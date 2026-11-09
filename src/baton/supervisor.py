@@ -230,18 +230,34 @@ def read_marker(baton_dir: Path, dispatch_id: str) -> dict[str, Any] | None:
         return None
 
 
+def _while_open_elsewhere(change: Any) -> None:
+    """Run ``change``, retrying for up to about 2 s while Windows refuses it because another process has the file open.
+
+    On Windows a file that another handle has open cannot be replaced or deleted (``PermissionError``). Readers of
+    the marker (``await_start`` polls it, reconciliation reads it) hold it only for a moment (§15.1).
+    """
+    for delay in (0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0):
+        try:
+            return change()
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            time.sleep(delay)
+    change()
+
+
 def write_marker(baton_dir: Path, marker: dict[str, Any]) -> None:
     p = marker_path(baton_dir, marker["dispatch_id"])
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(marker, sort_keys=True, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, p)
+    _while_open_elsewhere(lambda: os.replace(tmp, p))
 
 
 def remove_marker(baton_dir: Path, dispatch_id: str) -> None:
     for p in (marker_path(baton_dir, dispatch_id), tree_path(baton_dir, dispatch_id)):
         try:
-            p.unlink()
+            _while_open_elsewhere(p.unlink)
         except FileNotFoundError:
             pass
 

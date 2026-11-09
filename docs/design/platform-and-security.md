@@ -10,6 +10,7 @@ The runtime host may be Linux, macOS, native Windows or WSL.
 - Script gates and hooks run under the platform shell: `/bin/sh` on POSIX, `cmd.exe /d /s /c` on Windows. Recipe authors write gate commands for the shells their projects use.
 - No shebang reliance: entry points come from the package (`baton`, `python -m baton`, `py -m baton`).
 - Detaching, liveness, file locks and process-tree termination have POSIX and Windows code paths (Windows: detached process group with job break-away, `OpenProcess`/`GetExitCodeProcess`, `msvcrt.locking`, `taskkill /T`), all tested on native Windows in CI (`.github/workflows/tests.yml`: Ubuntu and Windows, the lowest and newest supported Python). The "survives its caller" test closes a kill-on-close job object holding the caller, as Windows terminals and CI runners do.
+- On Windows a file that another process has open cannot be replaced or deleted (`PermissionError`). The running marker (§8.7) is read by dispatch and reconciliation while its supervisor rewrites it, so the supervisor replaces and removes it with a short retry (about 2 s) instead of dying with the worker unsupervised (change [2026-11-windows-running-marker](../changes/2026-11-windows-running-marker.md)).
 - Directories are `0700` on POSIX, with user-only ACLs on Windows where possible.
 - In WSL, keep repos on the Linux filesystem.
 

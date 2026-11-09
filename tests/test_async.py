@@ -726,3 +726,29 @@ def test_every_owner_needed_exit_goes_through_one_place(value, want, monkeypatch
             cli._done(payload, True, "")
         assert e.value.exit_code == code
     capsys.readouterr()
+
+
+@pytest.mark.slow
+def test_the_marker_is_rewritten_and_removed_while_a_reader_has_it_open(tmp_path):
+    # Windows: a file another handle has open cannot be replaced or deleted (PermissionError); a dispatcher polls the
+    # marker while the supervisor rewrites it, and a crash there left the worker unsupervised (change 2026-11-windows-running-marker)
+    import threading
+
+    baton_dir = tmp_path / ".baton"
+    marker = {"dispatch_id": "d_1", "supervisor_pid": os.getpid()}
+    supervisor.write_marker(baton_dir, marker)
+    path = supervisor.marker_path(baton_dir, "d_1")
+
+    def hold(opened: threading.Event) -> None:
+        with open(path, encoding="utf-8"):
+            opened.set()
+            time.sleep(0.2)
+
+    for change in (lambda: supervisor.write_marker(baton_dir, {**marker, "worker_pid": 7}), lambda: supervisor.remove_marker(baton_dir, "d_1")):
+        opened = threading.Event()
+        reader = threading.Thread(target=hold, args=(opened,))
+        reader.start()
+        opened.wait()
+        change()
+        reader.join()
+    assert not path.exists() and not list(path.parent.glob("*.tmp"))
