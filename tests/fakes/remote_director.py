@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 
 wake_file, outbox, sessions = sys.argv[1:4]
 wake = json.loads(open(wake_file, encoding="utf-8").read())
@@ -81,4 +82,5 @@ for run in dict.fromkeys(runs):
         break  # dispatched: end the turn
 
 with open(sessions, "a", encoding="utf-8") as f:
-    f.write(json.dumps({"pid": os.getpid(), "wake": wake, "commands": commands}) + "\n")
+    # A fresh id per session: Windows reuses a finished process's pid at once, so pids can repeat across sessions.
+    f.write(json.dumps({"session": uuid.uuid4().hex, "pid": os.getpid(), "wake": wake, "commands": commands}) + "\n")

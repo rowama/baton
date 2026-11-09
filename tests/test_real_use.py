@@ -329,7 +329,7 @@ def test_remote_director_completes_a_multi_slice_work_item_across_sessions(tmp_p
     # The owner did nothing beyond the recipe's decisions: triage, the plan, and each slice's acceptance (do + approve).
     assert owner_actions == [("decide", "triage"), ("decide", "plan")] + [("do", "accept"), ("decide", "accept")] * 2
     logged = lines(sessions)
-    assert len(logged) >= 8 and len({s["pid"] for s in logged}) == len(logged)  # many separate sessions
+    assert len(logged) >= 8 and len({s["session"] for s in logged}) == len(logged)  # many separate sessions
     woken_by_hook = [s for s in logged if "hook" in s["wake"]]
     assert len(woken_by_hook) >= 6
     every = [c for s in logged for c in s["commands"]]
