@@ -12,6 +12,7 @@ import testrun  # noqa: E402
 from projectkit import git, make_git_project  # noqa: E402
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_python_changes_are_selected_by_testmon():
     p = testrun.plan(["src/baton/redact.py", "tests/test_state.py"], have_data=True, have_base=True)
     assert p.mode == "affected" and not p.docs_test
@@ -19,22 +20,26 @@ def test_python_changes_are_selected_by_testmon():
     assert "--testmon-forceselect" in cmd and cmd[cmd.index("-m", 2) + 1] == "not slow"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_no_testmon_data_runs_every_quick_test():
     p = testrun.plan(["src/baton/redact.py"], have_data=False, have_base=True)
     assert p.mode == "all" and "--testmon-noselect" in p.commands()[0] and "not slow" in p.commands()[0]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_no_recorded_base_runs_every_quick_test():
     assert testrun.plan(["src/baton/redact.py"], have_data=True, have_base=False).mode == "all"
 
 
 @pytest.mark.parametrize("path", ["defaults/known-workers.yaml", "vocab/capabilities.yaml", "pyproject.toml",
                                   "builtin/x/recipe.yaml", "tests/fakes/fake.sh", "README.md", "AGENTS.md"])
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_changed_non_python_file_outside_docs_runs_every_quick_test(path):
     p = testrun.plan(["docs/README.md", "src/baton/redact.py", path], have_data=True, have_base=True)
     assert p.mode == "all" and path in p.reason
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_docs_only_change_runs_the_docs_test_alone():
     p = testrun.plan(["docs/design/testing.md", "docs/changes/REGISTER.md"], have_data=True, have_base=True)
     assert p.mode == "docs"
@@ -42,12 +47,14 @@ def test_a_docs_only_change_runs_the_docs_test_alone():
     assert cmd[-1] == "tests/test_docs.py" and "--testmon-forceselect" not in cmd
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_docs_beside_python_changes_add_the_docs_test():
     p = testrun.plan(["docs/design/testing.md", "src/baton/redact.py"], have_data=True, have_base=True)
     assert p.mode == "affected" and p.docs_test
     assert [c[-1] for c in p.commands()][-1] == "tests/test_docs.py" and len(p.commands()) == 2
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_changed_files_see_commits_since_the_base_the_working_tree_and_untracked_files(tmp_path):
     root = make_git_project(tmp_path / "r")
     (root / "a.py").write_text("x = 1\n", encoding="utf-8")
@@ -68,6 +75,7 @@ def test_changed_files_see_commits_since_the_base_the_working_tree_and_untracked
     assert p.mode == "all" and "b.txt" in p.reason  # the committed non-.py change is not forgotten
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_recorded_base_that_no_longer_exists_is_ignored(tmp_path):
     root = make_git_project(tmp_path / "r")
     (root / "a.py").write_text("x = 1\n", encoding="utf-8")
@@ -77,6 +85,7 @@ def test_a_recorded_base_that_no_longer_exists_is_ignored(tmp_path):
     assert testrun.read_base(root) is None
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_dry_run_prints_the_plan_and_runs_nothing(tmp_path, capsys):
     root = make_git_project(tmp_path / "r")
     (root / "a.py").write_text("x = 1\n", encoding="utf-8")
@@ -141,6 +150,7 @@ def test_a_red_run_names_the_failing_tests_and_require_green_refuses(tmp_path):
     assert testrun.status(root, red_only=True) == [sha]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_require_green_refuses_a_missing_running_or_lost_record_a_mismatch_and_a_dirty_tree(tmp_path):
     root, sha = fixture_repo(tmp_path)
     assert testrun.require_green(root, sha)[0] is False  # no record
@@ -163,6 +173,7 @@ def test_require_green_refuses_a_missing_running_or_lost_record_a_mismatch_and_a
     assert testrun.require_green(root, sha)[0] is True  # an older SHA's green does not need a clean tree
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_an_error_record_is_not_green(tmp_path):
     root, sha = fixture_repo(tmp_path)
     testrun.write_record(root, {"sha": sha, "state": "error", "passed": False, "failed": [], "error": "boom"})
