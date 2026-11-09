@@ -113,6 +113,8 @@ baton/
 ├── homes/<profile>/  # optional relocated CLI config homes [VERIFY per CLI]
 ├── mcp.yaml          # `token: secret:<name>`: the bearer token for `baton mcp --http` (§13.2)
 ├── launcher.yaml     # optional: where the launcher installs runtime versions from (`source`, `extras`, `python`; §14.1)
+├── diag.yaml         # optional: diagnostic limits (`raw_days`, `raw_max_bytes`, `count_days`, `burst`; §8.3)
+├── diag/             # diagnostics: `raw/<UTC day>/<pid>-<rand>.jsonl`, `counts/<day>.json`, `.maintained-<day>` (redacted; §8.3)
 ├── versions/         # installed runtime versions used by the launcher (§14.1)
 └── logs/             # unredacted raw worker output
 ```

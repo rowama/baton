@@ -1,7 +1,7 @@
 ---
 id: 2026-11-diagnostics
 title: "Baton records the conditions it works around, keeps them bounded, and doctor speaks up when they become unusual"
-status: proposed
+status: in-progress
 level: standard
 decisions: ["0094", "0075"]
 touches: [principles.md, design/layouts.md, design/runtime.md, design/versioning.md, design/director-interface.md, design/platform-and-security.md]   # §2, §4.4, §8.3, §8.4, §14.2, §13.1, §13.2, §13.4, §15
@@ -104,3 +104,11 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
 - **Effort:** M
 
 ## Log
+
+### Diagnostic writer, retention and rollup
+
+- **Commit:** 2026-11-diagnostics: Diagnostic writer, retention and rollup
+- **Summary:** `src/baton/diag.py`: `note` (never raises; failures counted in `diag.failures()`), per-process raw files by UTC day, redaction of every string, burst suppression with a final `flush` at exit so counts stay exact (each record carries `count`; sampled records also `suppressed`), `rollup`, `maintain` (usage-day and size pruning, counts pruning, current day kept) and `maintain_once` (exclusive create of `.maintained-<day>`; failure noted once). `daily_counts()` merges raw days with rollups for the later `diag` and doctor slice. Limits come from the optional `diag.yaml` (the "machine settings" of the criteria). Design edits: principles §2, layouts §4.4, runtime §8.3. `tests/conftest.py` gains an autouse fixture so no test writes to the real `~/.baton`.
+- **Tests:** `tests/test_diag.py`: record shape and per-process file; never raising on an unwritable home, a full disk and unprintable data; redaction with a sentinel secret; four concurrent processes; burst suppression keeping counts exact; rollup idempotence; pruning by usage days (including an idle gap), by size, never the current day, and counts by age; once-per-day maintenance; a failing maintenance noted once; UTC day boundaries.
+- **Review:** clean
+- **Accepted:** <pending the owner>

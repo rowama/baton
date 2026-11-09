@@ -99,7 +99,7 @@ Worker setup (§6.4) adds none either: a *resource declaration* is the owner's i
 
 These concepts are **internal vocabulary**: recipe authors, Directors and the runtime use them; owners never need them. The Director speaks in the owner's terms (§13.8) unless the owner chooses the terse operator style (§13.6).
 
-Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache.
+Machinery that exists but owners and recipe authors never configure per run: supervisor processes, running markers, file locks (per run, project, workspace), the workspace queue (§8.9), the SQLite cache, diagnostics (§8.3; Decision: [0094](decisions/0094-diagnostics-channel.md)).
 
 ### 2.1 Core and layers
 

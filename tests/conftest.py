@@ -39,3 +39,18 @@ def make_recipe(tmp_path: Path) -> Callable[..., Path]:
         return dest
 
     return make
+
+
+@pytest.fixture(autouse=True)
+def _isolated_diagnostics(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Diagnostics (§8.3) never write to the developer's real ``~/.baton``: a default ``BATON_HOME`` per test.
+
+    A test that sets ``BATON_HOME`` itself overrides this (its ``setenv`` runs later).
+    """
+    from baton import diag
+
+    if "BATON_HOME" not in __import__("os").environ:
+        monkeypatch.setenv("BATON_HOME", str(tmp_path_factory.mktemp("baton-home")))
+    diag.reset()
+    yield
+    diag.reset()
