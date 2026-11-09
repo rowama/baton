@@ -152,3 +152,10 @@ Changes: `pytest-xdist` in `dev`; CI runs `-n auto --dist worksteal` (the Window
 - Full suite, no `-m` filter: 1230 passed, 9 skipped (1239 collected: the 1238 from before plus the new marker test); no test was deselected or edited apart from decorators.
 - Times on the owner's machine, `-n auto --dist worksteal`: `-m "not slow"` 49 s (946 passed, 9 skipped, before the marker test was added) against 4 m 31 s for the full suite, so the quick tier is 18% of the wall time and runs 955 of 1238 tests (77%); `slow` holds about 96% of the measured time.
 - §17.1 Test tiers written; README § index updated.
+
+### Slice 3: quick gate
+
+- **[VERIFY] results (pytest-testmon 2.3.0, pytest-xdist 3.8.0):** (a) testmon works with xdist: `--testmon-forceselect -m "not slow" -n auto` built its data in one 77 s run, and `-m` alone disables selection, so `--testmon-forceselect` is needed to combine selection with the marker. (b) Non-Python inputs are not relied on: a change to any file that is neither under `docs/` nor `.py` selects every non-`slow` test, in the tool. (c) Child-process-only code is invisible to testmon by design; the `slow` tests in the background run cover it.
+- `tools/testrun.py quick`: changed files are measured against the commit the gate last passed on (kept in the git dir, per worktree), so a non-`.py` change committed since then is not forgotten. Selection falls back as §17.1 says. `tests/test_testrun.py` shows each fallback (no data, no base, non-`.py` change, docs-only, docs with Python, a base commit that no longer exists) and that a dry run records nothing.
+- `pytest-testmon` is in `dev`; `.testmondata` is git-ignored.
+- **Timing:** first run on this slice (pyproject change, so all non-`slow` tests): 962 passed, 74 s, against 4 m 31 s for the full suite. A one-line change in `src/baton/redact.py` selected 6 tests and took 20 s wall (a trial before the tool existed).

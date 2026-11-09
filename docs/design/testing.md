@@ -13,7 +13,7 @@
 
 (Decision: [0092](../decisions/0092-two-tier-test-gate.md); timing knob: [0093](../decisions/0093-test-time-scale.md).) Change 2026-11-fast-tests.
 
-- **Quick gate:** the tests a slice's changes affect, minus those marked `slow`, run in parallel. It is the slice-commit gate.
+- **Quick gate:** the tests a slice's changes affect, minus those marked `slow`, run in parallel. It is the slice-commit gate. `python tools/testrun.py quick` runs it. `pytest-testmon` finds the tests that `.py` changes affect, and the tool never runs less than is safe: with no testmon data, or no record of the last commit the gate passed on, or when any file that is neither under `docs/` nor `.py` has changed, it runs every non-`slow` test; a change under `docs/` adds `tests/test_docs.py`. Code that runs only in child processes is invisible to testmon and is covered by the `slow` tests, which only the full suite runs.
 - **Full suite:** every default test, run in parallel (`pytest -n auto --dist worksteal`). It is the finish gate and runs in CI on every push.
 - **Background full run:** after each slice commit, the full suite on that exact SHA, with the result recorded per SHA.
 
