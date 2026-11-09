@@ -1,9 +1,9 @@
 ---
 id: 2026-11-fast-tests
 title: "Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish"
-status: proposed
+status: in-progress
 level: standard
-decisions: []               # new records come from the open questions below (suggested: one for the two-tier gate, one for any test-only timing knob)
+decisions: ["0092", "0093"]
 touches: [design/testing.md]   # §17; also docs/principles.md §0 rule 5, AGENTS.md, pyproject.toml, .github/workflows/tests.yml, tests/, tools/
 ---
 
@@ -131,4 +131,16 @@ Each question has a suggested answer for the owner to accept or change.
 
 ## Log
 
-<One entry per slice, written in the slice's own commit together with its code, tests and design doc edits.>
+### Slice 1: parallel full suite and baseline
+
+Prerequisite (open question 5): main was red at HEAD, not at fe87ef1. `test_resources_refresh.py` now passes, but five tests in `tests/test_resources.py` still expected one profile per harness; the 2026-11-cli-model-routes data now also yields one per pinned model. Fixed in its own commit by asserting membership instead of equality.
+
+Baseline on the owner's machine (16 cores, WSL2, repo on `/mnt/d`), 2026-11-08:
+
+- Collected 1237 tests; 1228 pass, 9 skip (all opt-in live tests, `BATON_LIVE*`).
+- Serial: 16 m 13 s wall, but only 3 m 27 s of user CPU, so the time is mostly waiting (real deadlines, polling, process start-up on a slow filesystem), which is why parallelism pays.
+- `-n auto --dist worksteal`: 4 m 36 s wall (a previous run: 4 m 42 s). About 3.5x faster. The longest single test, `test_remote_director_completes_a_multi_slice_work_item_across_sessions` (143 s serial, 169 s parallel), now bounds the wall time.
+- Top 20 durations (serial): 143 s `test_real_use::test_remote_director_completes_a_multi_slice_work_item_across_sessions`; 41 s `test_api_worker::test_two_vendors_complete_fit_check_and_secrets_stay_out`; 28 s `test_versioning::test_two_worktrees_run_two_runtime_versions_and_the_trial_merges`; 26 s and 25 s `test_real_use::test_software_feature_standard` / `_major`; 24 s `test_harness::test_cli_login_and_api_key_steps_in_one_run`; 23 s `test_harness::test_doctor_reports_effective_auth_and_passes_preflight`; 21 s `test_api_worker::test_doctor_quiet_when_healthy_and_reports_problems`; 18 s `test_director_surface::test_two_directors_complete_the_same_recipe_through_mcp_and_cli`; then 12 s down to 7.6 s: `test_async` (hooks, no-wake-path), `test_director_surface` (checkpoints), `test_groups::test_group_run_through_the_cli`, `test_conversation` (three), `test_real_use` (four).
+- No test failed only in parallel; no isolation fixes were needed. (One parallel run failed `test_change_register_matches_change_docs` because the owner added `2026-11-not-offered-reasons` mid-run; its register row is added in this commit.)
+
+Changes: `pytest-xdist` in `dev`; CI runs `-n auto --dist worksteal` (the Windows cells will show on first push; not run locally). Decisions 0092 and 0093 recorded and accepted; status `in-progress`.

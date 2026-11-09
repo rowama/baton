@@ -225,3 +225,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0089 Research is refused when a harness's creator has a model with no pinned harness route and no stated gap](decisions/0089-harness-coverage-check.md) | accepted |
 | [0090 Harness CLI flags are researched data, reviewed in the diff; drift goes to the platform SME](decisions/0090-harness-flags-are-researched-data.md) | accepted |
 | [0091 The researcher gets tool maps, starting URLs and LiteLLM entries; model availability is verified by use](decisions/0091-researcher-inputs-and-model-listing.md) | accepted |
+| [0092 Slice commits are gated by a quick gate; finish commits by a green full run of their exact SHA](decisions/0092-two-tier-test-gate.md) | accepted |
+| [0093 An undocumented test-only time-scale environment variable is allowed](decisions/0093-test-time-scale.md) | accepted |

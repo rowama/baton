@@ -20,7 +20,7 @@ dependencies = [
 api = ["litellm>=1.70"]  # the litellm_api adapter (§6.3); imported only by the worker child
 keyring = ["keyring>=25"]  # optional OS-keyring secret store (§6.1)
 mcp = ["mcp>=2.3,<3", "uvicorn>=0.30"]  # `baton mcp` (§13.2): stdio, or HTTP for Directors without a shell
-dev = ["pytest>=8", "hypothesis>=6", "litellm>=1.70", "mcp>=2.3,<3", "uvicorn>=0.30"]  # hypothesis: property tests (§17)
+dev = ["pytest>=8", "pytest-xdist>=3.5", "hypothesis>=6", "litellm>=1.70", "mcp>=2.3,<3", "uvicorn>=0.30"]  # hypothesis: property tests (§17)
 
 [project.scripts]
 baton = "baton.launcher:main"  # the launcher (§14.1), then the CLI
