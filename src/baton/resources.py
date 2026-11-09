@@ -468,19 +468,71 @@ def _write_generated(home: Path, name: str, body: dict[str, Any], marker: dict[s
     _atomic_write(generated_dir(home) / f"{name}.yaml", HEADER + yaml.safe_dump({**body, "generated": marker}, sort_keys=False))
 
 
-def _not_offered(data: kw_mod.KnownWorkers, gen: dict[str, dict[str, Any]], planned_names: set[str], home: Path) -> dict[str, str]:
-    """Generated profiles the inputs no longer offer: kept, flagged with why (0079)."""
-    out: dict[str, str] = {}
+def _route_for(data: kw_mod.KnownWorkers, body: dict[str, Any]) -> kw_mod.KnownRoute | None:
+    """The catalog route a generated profile came from: same provider, and its model id (or its invocation for an alias)."""
+    for route in data.routes:
+        if route.provider != body.get("provider"):
+            continue
+        if body.get("model_id"):
+            if route.model_id == body["model_id"]:
+                return route
+        elif route.invocation == body.get("model") and (route.alias or not route.model_id):
+            return route
+    return None
+
+
+def _not_offered(
+    data: kw_mod.KnownWorkers,
+    gen: dict[str, dict[str, Any]],
+    planned_names: set[str],
+    home: Path,
+    *,
+    detected: dict[str, Detection] | None = None,
+    res: Resources | None = None,
+    skipped: list[dict[str, Any]] | None = None,
+    kw_sha: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Generated profiles the inputs no longer offer: kept, flagged with one specific reason (0079).
+
+    Each value has ``flag`` (plain words), ``flag_code`` and ``catalog_mismatch``. The
+    reason is the first that applies: retired model, harness not usable, resource gone,
+    route gone from the catalog in use, any other skipped route.
+    """
+    out: dict[str, dict[str, Any]] = {}
     files = read_generated_dir(home)
+    declared = res.workers() if res is not None else {}
     for name, g in gen.items():
         if g["ownership"] == "owner" or name in planned_names:
             continue
         body = files[name][1] if name in files else None
-        mid = body.get("model_id") if isinstance(body, dict) else None
+        body = body if isinstance(body, dict) else {}
+        marker = body.get("generated") if isinstance(body.get("generated"), dict) else {}
+        then = marker.get("known_workers_sha256")
+        mismatch = bool(then and kw_sha and then != kw_sha)
+        mid = body.get("model_id")
+        prov = data.providers.get(body.get("provider", ""))
+        route = _route_for(data, body)
         if mid and mid in data.models and data.models[mid].retired:
-            out[name] = "retired: its model is withdrawn; kept, remove it when you like"
+            code, why = "retired", "retired: its model is withdrawn; kept, remove it when you like"
+        elif prov is not None and prov.kind == "harness" and detected is not None and not (detected.get(body["provider"]) and detected[body["provider"]].usable):
+            det = detected.get(body["provider"])
+            code, why = "harness_unusable", f"no longer offered here: {body['provider']} is {det.problem if det and det.problem else 'not usable on this machine'}; kept"
+        elif body.get("resource") and res is not None and body["resource"] not in declared:
+            code, why = "resource_gone", f"no longer offered here: its resource {body['resource']!r} is no longer declared; kept"
+        elif body.get("resource") and res is not None and declared[body["resource"]].models and mid not in declared[body["resource"]].models:
+            code, why = "resource_gone", f"no longer offered here: resource {body['resource']!r} no longer lists {mid}; kept"
+        elif body.get("resource") and res is not None and declared[body["resource"]].credential is None:
+            code, why = "resource_gone", f"no longer offered here: resource {body['resource']!r} has no credential; kept"
+        elif route is None:
+            code, why = "route_gone", "no longer offered here: no route in the known-workers catalog in use produces it; kept"
+            if mismatch:
+                why += (f" (it was generated from a different catalog, sha {str(then)[:12]}, and this one is {str(kw_sha)[:12]};"
+                        " a different Baton runtime or an updated catalog may be the cause)")
         else:
-            out[name] = "no longer offered here (route gone, not found or not declared); kept"
+            label = f"{route.provider} {route.model_id or route.invocation or '(default model)'}"
+            reason = next((s["reason"] for s in skipped or [] if s["route"] == label), None)
+            code, why = "skipped", f"no longer offered here: {reason or 'its route is not offered'}; kept"
+        out[name] = {"flag": why, "flag_code": code, "catalog_mismatch": mismatch}
     return out
 
 
@@ -515,7 +567,7 @@ def generated_profiles(home: Path) -> dict[str, dict[str, Any]]:
 def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dict[str, Detection]] = discover) -> dict[str, Any]:
     """Read-only: what is discovered, declared and generated, and whether machine setup is complete."""
     home = Path(home)
-    data, _sha, res = _inputs(home)
+    data, kw_sha, res = _inputs(home)
     detected = discover_fn(home, data)
     planned, skipped = plan_profiles(data, res, detected)
     gen = generated_profiles(home)
@@ -523,13 +575,14 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
     owner = _owner_names(home)
     new = [p.name for p in planned if p.name not in gen and p.name not in owner]
     unverified = sorted(n for n, g in gen.items() if g["ownership"] != "owner" and not g.get("verified"))
-    for name, why in _not_offered(data, gen, {p.name for p in planned}, home).items():
-        gen[name]["flag"] = why
+    for name, detail in _not_offered(data, gen, {p.name for p in planned}, home, detected=detected, res=res, skipped=skipped, kw_sha=kw_sha).items():
+        gen[name].update(detail)
     states = _states_or_problem(home)
     claims = machine_claims(home)
     for name, g in gen.items():
         g["capabilities"] = cs_summary(states, name, claims.get(name, []))
     return {
+        "catalog": {"path": str(kw_mod.default_path()), "sha256": kw_sha},
         "setup_complete": state.completed is not None,
         "setup": state.model_dump(mode="json"),
         "detected": [d.as_dict() for d in detected.values()],
@@ -633,7 +686,8 @@ def setup(
             written.append(p.name)
         except (OSError, ValidationError) as e:  # one profile failing never stops the others (0079)
             failed.append({"profile": p.name, "reason": f"{type(e).__name__}: {e}"})
-    not_offered = _not_offered(data, generated_profiles(home), {p.name for p in planned}, home)
+    not_offered = {n: d["flag"] for n, d in _not_offered(data, generated_profiles(home), {p.name for p in planned}, home, detected=detected,
+                                                         res=res, skipped=skipped, kw_sha=kw_sha).items()}
     for name in verify or []:
         if name not in verified and name not in {f["profile"] for f in failed}:
             failed.append({"profile": name, "reason": "not a generated profile this machine offers now; nothing was checked"})

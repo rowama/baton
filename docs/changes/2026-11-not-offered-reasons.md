@@ -1,7 +1,7 @@
 ---
 id: 2026-11-not-offered-reasons
 title: "Worker status says which catalog it read and exactly why a generated profile is no longer offered"
-status: proposed
+status: done
 level: minor
 decisions: ["0079"]
 touches: [design/workers.md]   # §6.4 (refresh and repeat runs; status output)
@@ -60,3 +60,9 @@ Who meets this beyond development: an owner whose project pins an older runtime 
 Minor: one slice, *Specific not-offered reasons and catalog line* (effort S). `_not_offered` in `resources.py` takes the detections, resources and catalog sha; matches each profile back to its route by `provider` + `model_id` (or provider default for an alias profile) and `resource`; the CLI's `workers status` prints `catalog: <path> (sha <12 hex>)` as its second line.
 
 ## Log
+
+### Specific not-offered reasons and catalog line
+
+- **Commit:** 2026-11-not-offered-reasons: Specific not-offered reasons and catalog line
+- **Summary:** `resources._not_offered` now takes the detections, resources, skipped routes and catalog sha, and returns `{flag, flag_code, catalog_mismatch}` per profile, choosing the first applicable reason (retired, harness unusable, resource gone / model dropped / no credential, route gone, other skip). `_route_for` matches a profile to its route by provider plus model id (or invocation for an alias). `status` gains `catalog: {path, sha256}` and merges the detail into `generated.<name>`; `setup`'s `not_offered` and `kept` lines carry the same text. The CLI prints `catalog: <path> (sha <12 hex>)` as the second line of `workers status`. Design edit: `design/workers.md` §6.4. No decision recorded (relies on 0079).
+- **Tests:** `tests/test_resources_refresh.py`: catalog named in status; gone harness; removed resource; resource that dropped the model; route gone with a different catalog (note, and setup's text matches) and with the same catalog (no note); unsupported route's skip reason; the text output's catalog line.

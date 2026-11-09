@@ -1143,7 +1143,8 @@ def workers_status(as_json: JsonOpt = False) -> None:
     from . import resources
 
     out = _resources(as_json, lambda h: resources.status(h))
-    lines = [f"Machine setup: {'complete' if out['setup_complete'] else 'not done yet (`baton workers setup`)'}"]
+    lines = [f"Machine setup: {'complete' if out['setup_complete'] else 'not done yet (`baton workers setup`)'}",
+             f"catalog: {out['catalog']['path']} (sha {out['catalog']['sha256'][:12]})"]
     for d in out["detected"]:
         lines.append(f"found {d['provider']}: " + ("ready" if d["usable"] else d["problem"] or "not usable"))
     for n, r in out["declared"].items():
