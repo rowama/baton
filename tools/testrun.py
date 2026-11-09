@@ -220,7 +220,10 @@ def _make_run_env(wt: Path) -> Path:
     purelib = Path(subprocess.run([str(_venv_python(venv)), "-c", "import sysconfig;print(sysconfig.get_paths()['purelib'])"],
                                   check=True, capture_output=True, text=True).stdout.strip())
     purelib.mkdir(parents=True, exist_ok=True)
-    (purelib / "baton-run.pth").write_text(f"{site / 'src'}\n{sysconfig.get_paths()['purelib']}\n", encoding="utf-8")
+    # The current environment's packages: its own site-packages, and any it reaches through a .pth (a run inside a run).
+    deps = dict.fromkeys([sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"],
+                          *(p for p in sys.path if Path(p).name in ("site-packages", "dist-packages"))])
+    (purelib / "baton-run.pth").write_text("".join(f"{p}\n" for p in [site / "src", *deps]), encoding="utf-8")
     return _venv_python(venv)
 
 
