@@ -53,7 +53,7 @@ def home(tmp_path):
 
 def test_detected_harnesses_become_profiles_and_missing_ones_say_why(home):
     out = run_setup(home, found("codex"))
-    assert out["written"] == ["codex"]
+    assert "codex" in out["written"]  # beside one profile per pinned Codex model (2026-11-cli-model-routes)
     reasons = {s["route"]: s["reason"] for s in out["skipped"]}
     assert reasons["claude_code (default model)"] == "not installed here"
     body = gen(home, "codex")
@@ -67,7 +67,7 @@ def test_detected_harnesses_become_profiles_and_missing_ones_say_why(home):
 
 def test_a_harness_can_be_pinned_to_a_model(home):
     out = run_setup(home, found("claude_code"))
-    assert sorted(out["written"]) == ["claude-code", "claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"]
+    assert {"claude-code", "claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"} <= set(out["written"])
     opus = gen(home, "claude-code-claude-opus-5-5")
     # The identity is the model's; the route is the harness, with the model passed as --model.
     assert opus["adapter"] == "claude_code" and opus["provider"] == "claude_code"
@@ -157,7 +157,8 @@ def test_owner_profiles_are_never_touched(home):
     (home / "workers" / "claude-code.yaml").write_text(mine, encoding="utf-8")
     out = run_setup(home, found("codex", "claude_code"))
     # Only the pinned-model profiles, which no owner file claims, are written.
-    assert sorted(out["written"]) == ["claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"]
+    assert {"claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"} <= set(out["written"])
+    assert not {"codex", "claude-code"} & set(out["written"])
     assert {c["profile"] for c in out["collisions"]} == {"codex", "claude-code"}
     assert (home / "workers" / "claude-code.yaml").read_text(encoding="utf-8") == mine
     assert not (home / "workers" / "codex.yaml").exists()
@@ -178,7 +179,7 @@ def test_verification_only_when_asked(home):
     assert out["failed"] == [{"profile": "claude-code", "reason": "platform (auth_failed): not logged in"}]
     assert not (home / "workers" / "claude-code.yaml").exists()  # a failed new profile is not written
     out = run_setup(home, found("codex"), verify=[], verifier=ok)
-    assert calls == ["codex"] and out["verified"] == ["codex"]
+    assert "codex" in calls and "codex" in out["verified"]  # the pinned Codex profiles are verified too
     marker = gen(home, "codex")["generated"]
     assert marker["verified"]["date"] == "2026-11-06" and resources.ownership(gen(home, "codex")) == "untouched"
 
@@ -205,11 +206,11 @@ def test_generated_profiles_load_are_eligible_unverified_and_yield_to_the_owner(
 
 def test_setup_state_is_machine_wide(home):
     st = resources.status(home, discover_fn=found("codex"))
-    assert st["setup_complete"] is False and st["available_not_generated"] == ["codex"]
+    assert st["setup_complete"] is False and "codex" in st["available_not_generated"]
     run_setup(home, found("codex"))
     resources.declare(home, nothing_more=True)
     st = resources.status(home, discover_fn=found("codex"))
-    assert st["setup_complete"] is True and st["setup"]["nothing_more"] is True and st["unverified"] == ["codex"]
+    assert st["setup_complete"] is True and st["setup"]["nothing_more"] is True and "codex" in st["unverified"]
 
 
 def test_cli_declare_needs_no_project(home, tmp_path):
