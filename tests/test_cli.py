@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import json
 
 from typer.testing import CliRunner
@@ -33,6 +35,7 @@ def test_plan_invalid_recipe_exit_1(make_recipe):
     assert payload["issues"][0]["code"] == "neutrality.forbidden_key"
 
 
+@pytest.mark.slow
 def test_usage_errors_exit_2():
     assert runner.invoke(app, ["plan"]).exit_code == 2
     assert runner.invoke(app, ["plan", str(SOFTWARE_FEATURE), "--level", "huge"]).exit_code == 2

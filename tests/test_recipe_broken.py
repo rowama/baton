@@ -250,6 +250,7 @@ CASES = [
 
 
 @pytest.mark.parametrize("name,edit,code", CASES, ids=[c[0] for c in CASES])
+@pytest.mark.slow
 def test_broken_recipe_rejected(make_recipe, name, edit, code):
     root = make_recipe(edit)
     with pytest.raises(RecipeError) as exc:

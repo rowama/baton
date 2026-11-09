@@ -67,6 +67,7 @@ def prov_adapter(raw: dict, provider: str) -> str:
     return next(r["adapter"] for r in raw["routes"] if r["provider"] == provider)
 
 
+@pytest.mark.slow
 def test_a_valid_proposal_replaces_the_file_with_a_report(tmp_path):
     proposal = _seed()
     proposal["models"]["acme/one"] = {"creator": "acme", "category": "llm", "researched": "2026-11-06",
@@ -81,6 +82,7 @@ def test_a_valid_proposal_replaces_the_file_with_a_report(tmp_path):
 
 
 @pytest.mark.parametrize("bad", ["invalid", "verified"])
+@pytest.mark.slow
 def test_a_refused_proposal_leaves_the_repository_alone(tmp_path, bad):
     proposal = _seed()
     if bad == "invalid":
@@ -98,6 +100,7 @@ def test_a_refused_proposal_leaves_the_repository_alone(tmp_path, bad):
         assert "may not add or change verified" in (reports / "2026-11-06.md").read_text(encoding="utf-8")
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_research_recipe_lints_clean():
     from baton.recipe import load_recipe
 
@@ -105,6 +108,7 @@ def test_the_research_recipe_lints_clean():
     assert [s.id for s in loaded.recipe.steps] == ["research"]
 
 
+@pytest.mark.slow
 def test_the_built_wheel_ships_the_data_and_not_the_researcher(tmp_path):
     uv = shutil.which("uv")
     if uv is None:
@@ -118,6 +122,7 @@ def test_the_built_wheel_ships_the_data_and_not_the_researcher(tmp_path):
 
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_researcher_is_its_own_package_with_a_command(tmp_path):
     uv = shutil.which("uv")
     if uv is None:
@@ -135,12 +140,14 @@ def test_the_researcher_is_its_own_package_with_a_command(tmp_path):
     assert "Requires-Dist: baton" in metadata
 
 
+@pytest.mark.slow
 def test_by_default_it_updates_the_checkout_it_was_installed_from(tmp_path):
     assert _research().default_checkout() == ROOT
     rc = subprocess.run([sys.executable, str(CLI), "--profile", "x", "--repo", str(tmp_path)], capture_output=True, text=True)
     assert rc.returncode == 2 and "is not a Baton checkout" in rc.stderr
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_an_unknown_profile_is_a_plain_usage_error(tmp_path, capsys):
     repo, home, reports = _setup(tmp_path, _seed())
     rc = _research().main(["--profile", "nope", "--home", str(home), "--repo", str(repo), "--reports", str(reports)])
@@ -149,6 +156,7 @@ def test_an_unknown_profile_is_a_plain_usage_error(tmp_path, capsys):
     assert "no worker profile 'nope'" in err and "baton workers status" in err and "Traceback" not in err
 
 
+@pytest.mark.slow
 def test_the_worker_gets_tool_maps_urls_litellm_entries_and_a_validator(tmp_path):
     dump = tmp_path / "dump.json"
     repo, home, reports = _setup(tmp_path, _seed(), dump)
@@ -163,6 +171,7 @@ def test_the_worker_gets_tool_maps_urls_litellm_entries_and_a_validator(tmp_path
     assert "LiteLLM model map: 1." in report
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_litellm_entries_cover_every_api_route_and_name_the_version():
     version, entries = _research().litellm_entries(_seed())
     assert version and entries
@@ -172,6 +181,7 @@ def test_litellm_entries_cover_every_api_route_and_name_the_version():
     assert any(entries.values())
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_check_reports_what_the_tool_would_refuse(tmp_path, capsys):
     repo, _home, _reports = _setup(tmp_path, _seed())
     bad = _seed()
@@ -186,6 +196,7 @@ def test_check_reports_what_the_tool_would_refuse(tmp_path, capsys):
     assert capsys.readouterr().out.rstrip().endswith("accepted")
 
 
+@pytest.mark.slow
 def test_the_validator_command_runs_as_the_worker_would_run_it(tmp_path):
     import shlex
 
@@ -196,6 +207,7 @@ def test_the_validator_command_runs_as_the_worker_would_run_it(tmp_path):
     assert proc.returncode == 0 and proc.stdout.strip() == "accepted"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_report_lists_each_harness(tmp_path):
     out = {"harnesses": [{"provider": "claude_code", "models_routed": ["anthropic/claude-haiku-5-5"],
                           "models_not_routed": [{"model_id": "anthropic/claude-x", "reason": "not documented"}],
@@ -209,6 +221,7 @@ def _coverage(raw, output=None):
     return _research().coverage_problems(raw, output)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_model_of_a_harness_creator_needs_a_pinned_route_or_a_stated_gap():
     raw = _seed()
     assert _coverage(raw) == []
@@ -222,6 +235,7 @@ def test_a_model_of_a_harness_creator_needs_a_pinned_route_or_a_stated_gap():
     assert _coverage(raw, {"coverage_gaps": ["haiku was skipped"]}) != []
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_alias_route_is_not_a_pinned_route_and_retired_models_need_none():
     raw = _seed()
     raw["routes"] = [r for r in raw["routes"] if not (r["provider"] == "codex" and r.get("model_id"))]
@@ -231,6 +245,7 @@ def test_the_alias_route_is_not_a_pinned_route_and_retired_models_need_none():
     assert _coverage(raw) == []
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_any_harness_provider_is_covered_by_data_alone():
     raw = _seed()
     raw["providers"]["gemini_cli"] = {"kind": "harness", "creators": ["google"]}
@@ -238,6 +253,7 @@ def test_any_harness_provider_is_covered_by_data_alone():
     assert problems and all("gemini_cli" in p for p in problems)
 
 
+@pytest.mark.slow
 def test_a_run_with_an_unrouted_model_is_refused(tmp_path):
     proposal = _seed()
     proposal["routes"] = [r for r in proposal["routes"] if not (r["provider"] == "claude_code" and r.get("model_id") == "anthropic/claude-haiku-5-5")]

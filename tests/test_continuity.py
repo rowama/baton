@@ -43,6 +43,7 @@ def plain(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_lease_claim_renew_expire_takeover(plain):
     api, root, home, clock = plain
     run = api.start("fit-check", FIT_INPUTS, run_id="r_20261101_ab12")["run_id"]
@@ -86,6 +87,7 @@ def test_lease_is_per_branch(plain):
         same_director_other_branch.ensure()
 
 
+@pytest.mark.slow
 def test_mutating_calls_need_the_lease(plain):
     api, root, home, clock = plain
     run = api.start("fit-check", FIT_INPUTS)["run_id"]
@@ -114,6 +116,7 @@ def _golden(name: str, text: str) -> None:
     assert text == golden.read_text(encoding="utf-8"), f"{name} differs; BATON_UPDATE_GOLDEN=1 rewrites it"
 
 
+@pytest.mark.slow
 def test_records_golden(plain):
     """Step records and the summary for a full fit-check run with a retry are pinned."""
     api, root, home, clock = plain
@@ -169,6 +172,7 @@ def _pass_describe(api: Api, root: Path) -> tuple[str, dict]:
     return run, api.submit(run, "describe")
 
 
+@pytest.mark.slow
 def test_checkpoint_refuses_with_unrelated_staged_changes(tmp_path):
     api, root = _git_project(tmp_path)
     (root / "notes.md").write_text("owner's work in progress\n")
@@ -190,6 +194,7 @@ def test_checkpoint_refuses_with_unrelated_staged_changes(tmp_path):
     assert "?? notes.md" in git(root, "status", "--porcelain")  # unstaged work is never swept in
 
 
+@pytest.mark.slow
 def test_checkpoint_commits_off(tmp_path):
     api, root = _git_project(tmp_path)
     cfg = root / ".baton" / "project.yaml"
@@ -201,6 +206,7 @@ def test_checkpoint_commits_off(tmp_path):
     assert len(git(root, "log", "--format=%s").splitlines()) == 2
 
 
+@pytest.mark.slow
 def test_checkpoint_without_identity(tmp_path, monkeypatch):
     api, root = _git_project(tmp_path)
     git(root, "config", "--unset", "user.email")
@@ -227,6 +233,7 @@ def test_lfs_attributes(tmp_path):
     assert not gitops.lfs_attributes(run_dir, 1024)  # idempotent
 
 
+@pytest.mark.slow
 def test_lfs_used_when_installed(tmp_path, monkeypatch):
     api, root = _git_project(tmp_path)
     monkeypatch.setattr(gitops, "lfs_available", lambda _root: True)
@@ -245,6 +252,7 @@ def test_lfs_used_when_installed(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_init_is_idempotent_and_keeps_files(tmp_path):
     root = tmp_path / "p"
     root.mkdir()
@@ -288,6 +296,7 @@ def test_vendor_refuses_in_place_edits(tmp_path, make_recipe):
     assert e.value.code == "vendor.version_exists"
 
 
+@pytest.mark.slow
 def test_run_records_work_item(plain):
     api, root, home, clock = plain
     started = api.project.store.run(api.start("fit-check", {**FIT_INPUTS, "title": "Big Idea: Ünïcode!"})["run_id"]).events()[0].data
@@ -301,6 +310,7 @@ def test_slugify():
     assert slugify("!!!") == "run"
 
 
+@pytest.mark.slow
 def test_unsupported_adapter(plain):
     api, root, home, clock = plain
     (home / "workers.yaml").write_text(
@@ -313,6 +323,7 @@ def test_unsupported_adapter(plain):
     assert api.status(run)["steps"]["describe"]["state"] == "ready"  # nothing written
 
 
+@pytest.mark.slow
 def test_local_profiles_override(plain):
     api, root, home, clock = plain
     (root / ".baton" / "workers.local.yaml").write_text(

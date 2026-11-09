@@ -52,6 +52,7 @@ def observed(api):
     return [e.data for e in api.project.store.project_log().events() if e.type == "capability_observed"]
 
 
+@pytest.mark.slow
 def test_a_web_step_turns_on_web_tools_and_a_used_tool_is_verified(web):
     api, home, bins, run = web
     set_outputs(bins["a"], {"search": {"output": {}, "events": USED}})
@@ -69,12 +70,14 @@ def test_a_web_step_turns_on_web_tools_and_a_used_tool_is_verified(web):
     assert ev["state"] == "verified" and ev["run"] == run and ev["step_path"] == "search" and ev["attempt"] == 1
 
 
+@pytest.mark.slow
 def test_a_step_that_passed_without_the_tool_records_nothing(web):
     api, home, bins, run = web
     assert api.dispatch(run, "search", "claude-a", wait=True)["outcome"] == "passed"
     assert cs.load(home) == {} and observed(api) == []
 
 
+@pytest.mark.slow
 def test_a_denied_tool_reroutes_without_spending_an_attempt(web):
     api, home, bins, run = web
     set_outputs(bins["a"], {"search": {"output": {}, "events": DENIED}})
@@ -93,6 +96,7 @@ def test_a_denied_tool_reroutes_without_spending_an_attempt(web):
     assert api.dispatch(run, "search", "claude-b", wait=True)["outcome"] == "passed"
 
 
+@pytest.mark.slow
 def test_absent_on_every_profile_escalates_at_once(web):
     api, home, bins, run = web
     cs.record(home, "claude-b", "web_access", "absent", by="owner", evidence="declared by the owner")
@@ -103,6 +107,7 @@ def test_absent_on_every_profile_escalates_at_once(web):
     assert esc["reason"] == "no_eligible_worker"
 
 
+@pytest.mark.slow
 def test_a_rejected_flag_opens_an_incident_and_marks_the_tool_absent(web):
     api, home, bins, run = web
     set_outputs(bins["a"], {"reject_flag": "--allowedTools", "search": {"output": {}}})
@@ -115,6 +120,7 @@ def test_a_rejected_flag_opens_an_incident_and_marks_the_tool_absent(web):
     assert cs.load(home)["claude-a"]["web_access"].state == "absent"
 
 
+@pytest.mark.slow
 def test_a_new_harness_version_returns_observed_states_to_likely(web):
     api, home, bins, run = web
     cs.record(home, "claude-a", "web_access", "absent", by="observed", evidence="denied", harness_version="9.9.0")
@@ -133,6 +139,7 @@ def test_a_new_harness_version_returns_observed_states_to_likely(web):
     assert cs.load(home)["claude-b"]["web_access"].state == "absent"  # the owner's declaration stays
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_setup_offers_a_tool_only_when_the_cli_shows_its_flag(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()

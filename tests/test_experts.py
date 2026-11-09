@@ -129,6 +129,7 @@ def _sha(p: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_packet_holds_only_selected_refs_plus_index_with_hashes(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.describe_passed()
@@ -161,6 +162,7 @@ def test_packet_holds_only_selected_refs_plus_index_with_hashes(tmp_path: Path) 
     assert verify_packet(pdir) == (m["packet_sha256"], [])
 
 
+@pytest.mark.slow
 def test_refs_are_scoped_by_subject_and_people_are_never_consulted_directly(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     r = s.cli.run("ask-sme", "project", "q", "--ref", "facts", expect=1)
@@ -185,6 +187,7 @@ def test_refs_are_scoped_by_subject_and_people_are_never_consulted_directly(tmp_
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_answer_is_unreachable_from_steps_until_promoted(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.behave_sme("answer", answer="Treat renewals as a separate idea.")
@@ -221,6 +224,7 @@ def test_answer_is_unreachable_from_steps_until_promoted(tmp_path: Path) -> None
     assert "expert answer promoted" in git(s.project, "log", "-1", "--format=%s")
 
 
+@pytest.mark.slow
 def test_lesson_and_proposal_promotions_write_project_files(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.behave_sme("answer", answer="When a profile is vague, ask for one example occurrence, because scoring needs it.")
@@ -241,6 +245,7 @@ def test_lesson_and_proposal_promotions_write_project_files(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_executable_not_found_opens_incident_and_preselects_facts_and_logs(tmp_path: Path) -> None:
     s = Setup(tmp_path, hooks=True)
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot127", "--wait", expect=4)
@@ -275,6 +280,7 @@ def test_executable_not_found_opens_incident_and_preselects_facts_and_logs(tmp_p
     assert s.cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_dispatch_refused_for_a_missing_executable_opens_an_incident(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     r = s.cli.run("dispatch", s.run, "describe", "--worker", "missing", expect=1)
@@ -284,6 +290,7 @@ def test_dispatch_refused_for_a_missing_executable_opens_an_incident(tmp_path: P
     assert any("open platform incident" in w for w in s.cli.run("detect", expect=None)["warnings"])
 
 
+@pytest.mark.slow
 def test_promoted_platform_fact_appears_in_the_next_platform_packet(tmp_path: Path) -> None:
     s = Setup(tmp_path, start=False)
     s.behave_sme("answer", answer="mytool is installed under /opt/tools/bin on the runtime host.")
@@ -312,6 +319,7 @@ def test_promoted_platform_fact_appears_in_the_next_platform_packet(tmp_path: Pa
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_skipped_blocking_gate_is_surfaced_to_the_owner_at_once(tmp_path: Path) -> None:
     s = Setup(tmp_path, hooks=True)
     r = s.cli.run("feedback", "skipped_step", "The verdict was acted on before the owner accepted it.", "--run", s.run,
@@ -336,6 +344,7 @@ def test_skipped_blocking_gate_is_surfaced_to_the_owner_at_once(tmp_path: Path) 
     assert s.cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_worker_process_feedback_reaches_the_project_log_and_stats(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.cli.run("dispatch", s.run, "describe", "--worker", "owner")
@@ -353,6 +362,7 @@ def test_worker_process_feedback_reaches_the_project_log_and_stats(tmp_path: Pat
     assert d["attempts"] == 1 and d["rejected"] == 1 and d["runs"] == 1
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_qualified_ids_drop_instances_and_iterations() -> None:
     assert sme.qualified("software-feature@1", "slices/x7f3a9c2/i2/implement") == "software-feature@1/slices/implement"
     assert sme.qualified("r@2", "design~review") == "r@2/design~review"
@@ -364,6 +374,7 @@ def test_qualified_ids_drop_instances_and_iterations() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_proxy_drafts_then_the_persons_reply_comes_back_as_an_attachment(tmp_path: Path) -> None:
     s = Setup(tmp_path, start=False)
     s.behave_sme("answer", answer="I drafted an email for the owner to send.", artifacts={"draft_email": "Dear Ms. Rivera, ..."},
@@ -391,6 +402,7 @@ def test_proxy_drafts_then_the_persons_reply_comes_back_as_an_attachment(tmp_pat
     assert s.cli.run("sme-followup", c, expect=1)["error"] == "sme.empty_followup"
 
 
+@pytest.mark.slow
 def test_handoff_is_generated_by_the_runtime_or_refused_with_a_reason(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.describe_passed()
@@ -414,6 +426,7 @@ def test_handoff_is_generated_by_the_runtime_or_refused_with_a_reason(tmp_path: 
     assert st["state"] == "handed_off" and st["turns"] == [] and len(st["handoffs"]) == 1
 
 
+@pytest.mark.slow
 def test_transcripts_are_kept_in_full_and_redacted(tmp_path: Path) -> None:
     s = Setup(tmp_path, start=False)
     s.behave_sme("answer", answer=f"The token {SECRET} should be rotated.", artifacts={"notes": f"token: {SECRET}"})
@@ -429,6 +442,7 @@ def test_transcripts_are_kept_in_full_and_redacted(tmp_path: Path) -> None:
     assert s.cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_expert_failures_are_recorded_not_answers(tmp_path: Path) -> None:
     s = Setup(tmp_path, start=False)
     s.behave_sme("crash")
@@ -442,6 +456,7 @@ def test_expert_failures_are_recorded_not_answers(tmp_path: Path) -> None:
     assert s.cli.run("promote-sme", out["consultation"], "lesson", "--note", "ok", expect=1)["error"] == "sme.no_answer"
 
 
+@pytest.mark.slow
 def test_async_turn_returns_at_once_and_wait_collects_it(tmp_path: Path) -> None:
     s = Setup(tmp_path, start=False)
     out = s.cli.run("ask-sme", "project", "q")
@@ -450,6 +465,7 @@ def test_async_turn_returns_at_once_and_wait_collects_it(tmp_path: Path) -> None
     assert done["state"] == "answered"
 
 
+@pytest.mark.slow
 def test_sme_eligible_reports_the_wake_path_and_ask_sme_warns_without_one(tmp_path: Path) -> None:
     from baton import supervisor
 

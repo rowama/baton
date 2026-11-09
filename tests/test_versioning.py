@@ -61,6 +61,7 @@ def _commit_files(project: Path, rev: str = "HEAD") -> set[str]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_readable_window_is_current_and_previous(monkeypatch):
     assert versions.classify("events", "baton-events/1") == "current"
     assert versions.classify("events", "baton-events/2") == "too_new"
@@ -75,6 +76,7 @@ def test_the_readable_window_is_current_and_previous(monkeypatch):
     assert code == "format.too_new" and "launcher" in message
 
 
+@pytest.mark.slow
 def test_an_old_run_continues_under_a_newer_runtime(tmp_path, monkeypatch):
     """A newer runtime reads the previous formats directly; its new events are written in its own."""
     cli, project = setup_fit_check(tmp_path)
@@ -90,6 +92,7 @@ def test_an_old_run_continues_under_a_newer_runtime(tmp_path, monkeypatch):
     assert cli.run("migrate", "--dry-run")["items"] == []  # nothing is below the window
 
 
+@pytest.mark.slow
 def test_an_unreadable_format_is_refused_with_the_migrate_hint_and_migrate_fixes_it(tmp_path, monkeypatch):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -140,6 +143,7 @@ def test_an_unreadable_format_is_refused_with_the_migrate_hint_and_migrate_fixes
     assert "events.migration_mismatch" in {i["code"] for i in cli("check", expect=1).payload["issues"]}
 
 
+@pytest.mark.slow
 def test_a_newer_format_is_refused_naming_the_launcher(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -168,6 +172,7 @@ def _toy(root: Path, version: int, *, check: bool = True, draft_schema: str = "a
     return make_recipe(root, steps, schemas={"a.json": OBJ, "b.json": {"type": "object", "required": ["x"]}}, version=version)
 
 
+@pytest.mark.slow
 def test_vendoring_a_changed_or_reused_step_id_needs_the_owner(tmp_path, monkeypatch):
     project = make_git_project(tmp_path / "proj")
     cli = Cli(project, make_home(tmp_path / "home"))
@@ -206,6 +211,7 @@ def test_vendoring_a_changed_or_reused_step_id_needs_the_owner(tmp_path, monkeyp
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_upgrade_pins_this_runtime_and_revendors_the_skills_only(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     lock_path = project / ".baton" / "baton.lock"
@@ -233,6 +239,7 @@ def test_upgrade_pins_this_runtime_and_revendors_the_skills_only(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_launcher_picks_the_version_to_run(tmp_path):
     assert launcher.parse_argv(["--project", "p", "--director=d", "status", "r1", "--json"]) == {"project": "p", "command": "status", "to": None}
     assert launcher.parse_argv(["--project=p", "upgrade", "--to", "0.2.0"])["to"] == "0.2.0"
@@ -256,11 +263,13 @@ def test_the_launcher_picks_the_version_to_run(tmp_path):
     assert launcher.wanted_version(["status"], {}, tmp_path) == __version__  # no project
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_launcher_refuses_a_runtime_that_is_not_the_version_it_launched(tmp_path):
     proc = baton(tmp_path, launcher_env(tmp_path / "home", BATON_LAUNCHED="9.9.9"), "--version", expect=1, as_json=False)
     assert "launcher started Baton 9.9.9" in proc.stderr
 
 
+@pytest.mark.slow
 def test_launcher_without_uv_names_the_install_command(tmp_path):
     env = launcher_env(tmp_path / "home", BATON_VERSION="0.2.0", PATH=str(tmp_path / "empty"))
     out = baton(tmp_path, env, "board", expect=1)
@@ -282,6 +291,7 @@ if sys.argv[1] == "venv":
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the fake uv is a script with a shebang")
+@pytest.mark.slow
 def test_launcher_installs_a_missing_version_with_uv(tmp_path):
     home = make_home(tmp_path / "home")
     (home / "launcher.yaml").write_text("source: 'git+https://example.invalid/baton@v{version}'\nextras: [mcp]\n", encoding="utf-8")
@@ -303,6 +313,7 @@ def test_launcher_installs_a_missing_version_with_uv(tmp_path):
 
 
 @pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live: builds this tree with the real uv (BATON_LIVE=1)")
+@pytest.mark.not_slow("measured under 1 s")
 def test_launcher_installs_with_the_real_uv(tmp_path):
     """The [VERIFY] for uv: a tagged git repo of this tree at version 0.5.0, installed by the launcher."""
     if shutil.which("uv") is None and not (Path.home() / ".local" / "bin" / "uv").exists():
@@ -333,6 +344,7 @@ def _by_hand(cwd: Path, env: dict, run: str, step: str, output: dict, *, expect:
     return baton(cwd, env, "submit", run, step, expect=expect)
 
 
+@pytest.mark.slow
 def test_two_worktrees_run_two_runtime_versions_and_the_trial_merges(tmp_path):
     home = make_home(tmp_path / "home", OWNER_PROFILE)
     fake_install(home, "0.2.0")

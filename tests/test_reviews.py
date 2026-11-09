@@ -117,6 +117,7 @@ def events(api: Api, run: str, etype: str) -> list[Any]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_review_gate_runs_as_a_review_step_with_an_independent_reviewer(reviewed):
     api, root, run = reviewed
     out = do(api, root, run, "design", "alice", {"plan": "sessions"})
@@ -151,6 +152,7 @@ def test_review_gate_runs_as_a_review_step_with_an_independent_reviewer(reviewed
     assert rec[0]["review"] == "design~review" and rec[0]["reviewer"] == "carol" and rec[0]["line"] == "design#1"
 
 
+@pytest.mark.slow
 def test_failed_review_retries_the_step_and_reviews_each_attempt(reviewed):
     api, root, run = reviewed
     do(api, root, run, "design", "alice", {"v": 1})
@@ -193,6 +195,7 @@ def test_failed_review_retries_the_step_and_reviews_each_attempt(reviewed):
     assert last["resolved"] == [{"id": "F1", "severity": "high", "title": "token never expires", "disposition": "fixed", "confirmed": True}]
 
 
+@pytest.mark.slow
 def test_abandoning_an_escalated_review_fails_the_reviewed_steps_gate(tmp_path):
     api, root, run = _project(tmp_path, [dict(REVIEWED_DESIGN)], defaults={"max_attempts": 1})
     do(api, root, run, "design", "alice", {})
@@ -216,6 +219,7 @@ def _failed_once(api: Api, root: Path, run: str) -> None:
     assert do(api, root, run, "design~review", "carol", HIGH)["outcome"] == "retry"
 
 
+@pytest.mark.slow
 def test_rejection_without_valid_evidence_is_refused(reviewed):
     api, root, run = reviewed
     _failed_once(api, root, run)
@@ -252,6 +256,7 @@ def test_rejection_without_valid_evidence_is_refused(reviewed):
     assert any("dispositions.0.disposition" in r for r in api.submit(run, "design")["reasons"])
 
 
+@pytest.mark.slow
 def test_accepted_risk_needs_the_owners_decision_and_carries_forward(reviewed):
     api, root, run = reviewed
     _failed_once(api, root, run)
@@ -279,6 +284,7 @@ def test_accepted_risk_needs_the_owners_decision_and_carries_forward(reviewed):
     assert row["status"] == "accepted-risk" and row["carried"] is True
 
 
+@pytest.mark.slow
 def test_a_superseded_evaluation_cannot_be_dispositioned(reviewed):
     api, root, run = reviewed
     _failed_once(api, root, run)
@@ -291,6 +297,7 @@ def test_a_superseded_evaluation_cannot_be_dispositioned(reviewed):
     assert e.value.code == "disposition.bad_value"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_rejected_evidence_is_checked_at_the_reviewed_commit(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
@@ -327,6 +334,7 @@ SCRIPTED = [
 ]
 
 
+@pytest.mark.slow
 def test_a_waiver_unblocks_exactly_one_occurrence(tmp_path):
     api, root, run = _project(tmp_path, [dict(s) for s in SCRIPTED], defaults={"max_attempts": 3})
     do(api, root, run, "draft", "alice", {})
@@ -357,6 +365,7 @@ def test_a_waiver_unblocks_exactly_one_occurrence(tmp_path):
     assert do(api, root, run, "build", "alice", {})["outcome"] == "retry"
 
 
+@pytest.mark.slow
 def test_a_waiver_covers_the_failed_occurrence_an_escalated_step_holds(tmp_path):
     api, root, run = _project(tmp_path, [dict(s) for s in SCRIPTED], defaults={"max_attempts": 1})
     do(api, root, run, "draft", "alice", {})
@@ -367,6 +376,7 @@ def test_a_waiver_covers_the_failed_occurrence_an_escalated_step_holds(tmp_path)
     assert w["scope"] == "held" and w["attempt"] == 1
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_waiving_a_judge_at_its_iteration_limit_accepts_the_work_as_is(tmp_path):
     with Store(tmp_path / "project", clock=Clock()) as store:
         ctx = engine.start(store, engine.load_recipe(tg.slice_recipe(tmp_path / "loop", max_iterations=1)), {}, run_id="r_w")
@@ -384,6 +394,7 @@ def test_waiving_a_judge_at_its_iteration_limit_accepts_the_work_as_is(tmp_path)
         assert tg.view_of(ctx).instance_state(ctx.recipe.recipe.steps[1], "slices", inst) == "passed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_worker_disposition_in_a_loop_reaches_the_next_review(tmp_path):
     with Store(tmp_path / "project", clock=Clock()) as store:
         (tmp_path / "project" / "src").mkdir(parents=True, exist_ok=True)
@@ -413,6 +424,7 @@ def test_a_worker_disposition_in_a_loop_reaches_the_next_review(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_same_vendor_code_review_is_refused_unless_waived(tmp_path):
     api, root, run = _project(
         tmp_path,
@@ -462,6 +474,7 @@ def _protected_ctx(store: Store, tmp_path: Path, protect: Any):
 
 
 @pytest.mark.parametrize("mode", ["warn", "fail"])
+@pytest.mark.not_slow("measured under 1 s")
 def test_protected_path_changes_are_caught(tmp_path, mode):
     globs = ["tests/acceptance/specs/**"]
     protect = globs if mode == "warn" else {"paths": globs, "on_violation": "fail"}
@@ -489,6 +502,7 @@ def test_protected_path_changes_are_caught(tmp_path, mode):
         assert engine.decide(ctx, "implement", "approve", "The new spec is agreed.").outcome == "passed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_protected_waiver_lets_one_change_through(tmp_path):
     with Store(tmp_path / "project", clock=Clock()) as store:
         ctx, spec = _protected_ctx(store, tmp_path, {"paths": ["tests/acceptance/specs/**"], "on_violation": "fail"})
@@ -499,6 +513,7 @@ def test_a_protected_waiver_lets_one_change_through(tmp_path):
         assert engine.submit(ctx, "implement").outcome == "passed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_protect_globs_match_paths():
     assert reviews.matches("tests/acceptance/specs/a/b.feature", ["tests/acceptance/specs/**"])
     assert not reviews.matches("tests/unit/x.py", ["tests/acceptance/specs/**"])
@@ -511,6 +526,7 @@ def test_protect_globs_match_paths():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_cli_disposition_decide_and_waive(reviewed, tmp_path):
     from projectkit import Cli
 
@@ -529,6 +545,7 @@ def test_cli_disposition_decide_and_waive(reviewed, tmp_path):
     assert cli.run("status", run)["findings"] == []  # F1 is now an accepted risk
 
 
+@pytest.mark.slow
 def test_a_director_closed_finding_reopens_when_the_next_review_reports_it(reviewed):
     api, root, run = reviewed
     _failed_once(api, root, run)

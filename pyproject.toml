@@ -40,3 +40,8 @@ packages = ["src/baton"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "slow: spawns Baton processes, waits on real time, or measured over 1 s on the baseline; left out of the quick gate only (§17)",
+    "not_slow(reason): in a process-spawning test file but quick; the reason says why",
+]

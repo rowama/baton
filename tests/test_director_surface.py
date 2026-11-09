@@ -88,6 +88,7 @@ def head(project: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_default_permissions_in_project_yaml(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     cfg = yaml.safe_load((project / ".baton" / "project.yaml").read_text(encoding="utf-8"))
@@ -96,6 +97,7 @@ def test_default_permissions_in_project_yaml(tmp_path):
     assert ".baton/project/**" in cfg["docs_only_globs"] and "**/*.md" in cfg["docs_only_globs"]
 
 
+@pytest.mark.slow
 def test_docs_only_push_is_allowed_and_recorded(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     bare = with_remote(tmp_path, project)
@@ -111,6 +113,7 @@ def test_docs_only_push_is_allowed_and_recorded(tmp_path):
     assert cli.run("push")["reason"] == "nothing to push"
 
 
+@pytest.mark.slow
 def test_denied_push_is_refused_and_never_attempted(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     set_config(project, permissions={"push": {"other": "deny"}})
@@ -123,6 +126,7 @@ def test_denied_push_is_refused_and_never_attempted(tmp_path):
     assert not [e for e in project_events(project) if e["type"].startswith("permission_")]
 
 
+@pytest.mark.slow
 def test_ask_push_waits_for_the_owners_words(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     bare = with_remote(tmp_path, project)
@@ -164,6 +168,7 @@ def _verify_recipe(root: Path) -> Path:
     return root
 
 
+@pytest.mark.slow
 def test_after_verified_push_covers_passed_steps_commits_only(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     cli.run("vendor", str(_verify_recipe(tmp_path / "change")))
@@ -183,6 +188,7 @@ def test_after_verified_push_covers_passed_steps_commits_only(tmp_path):
     assert remote_head(bare) != head(project) and stray
 
 
+@pytest.mark.slow
 def test_docs_only_globs_are_the_projects(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     set_config(project, docs_only_globs=["notes/**"], permissions={"push": {"other": "deny"}})
@@ -194,6 +200,7 @@ def test_docs_only_globs_are_the_projects(tmp_path):
     assert cli.run("push")["category"] == "docs_only"
 
 
+@pytest.mark.slow
 def test_push_of_a_new_branch_sets_its_upstream(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     bare = with_remote(tmp_path, project)
@@ -206,6 +213,7 @@ def test_push_of_a_new_branch_sets_its_upstream(tmp_path):
     assert cli.run("push")["reason"] == "nothing to push"
 
 
+@pytest.mark.slow
 def test_owner_exit_zero_covers_push_and_permission(tmp_path, monkeypatch):
     """Decision 0057: the owner-needed exit of ``push`` and ``permission`` (``ask``) follows BATON_OWNER_EXIT."""
     cli, project = setup_fit_check(tmp_path)
@@ -219,12 +227,14 @@ def test_owner_exit_zero_covers_push_and_permission(tmp_path, monkeypatch):
     assert cli.run("permission", "tag", "--detail", "tag v1.0 on main", expect=4)["needs_owner"] is True
 
 
+@pytest.mark.slow
 def test_push_without_a_remote_is_a_problem(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     commit_file(project, "docs/a.md")
     assert cli("push", expect=1).payload["error"] == "push.git"
 
 
+@pytest.mark.slow
 def test_director_actions_outside_the_runtime(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     out = cli.run("permission", "tag", "--detail", "tag v1.0 on main", expect=4)
@@ -249,6 +259,7 @@ def test_director_actions_outside_the_runtime(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_init_vendors_skills_pointer_and_communication_default(tmp_path):
     project = make_git_project(tmp_path / "p")
     cli = Cli(project, make_home(tmp_path / "home"))
@@ -267,6 +278,7 @@ def test_init_vendors_skills_pointer_and_communication_default(tmp_path):
     assert again["created"] == [] and (project / ".agents" / "skills" / "baton-worker" / "SKILL.md").read_text() == "edited\n"
 
 
+@pytest.mark.slow
 def test_init_appends_the_pointer_to_an_existing_agents_md_once(tmp_path):
     project = make_git_project(tmp_path / "p")
     (project / "AGENTS.md").write_text("# Agents\nBe kind.", encoding="utf-8")
@@ -276,6 +288,7 @@ def test_init_appends_the_pointer_to_an_existing_agents_md_once(tmp_path):
     assert (project / "AGENTS.md").read_text(encoding="utf-8") == f"# Agents\nBe kind.\n{AGENTS_POINTER}\n"
 
 
+@pytest.mark.slow
 def test_adopt_leaves_agents_md_to_the_baseline(tmp_path):
     project = make_git_project(tmp_path / "p")
     (project / "README.md").write_text("hello\n", encoding="utf-8")
@@ -287,6 +300,7 @@ def test_adopt_leaves_agents_md_to_the_baseline(tmp_path):
     assert not (project / "AGENTS.md").exists()
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
@@ -326,6 +340,7 @@ def test_director_skill_names_every_call_it_relies_on():
     assert "once per machine, never per project" in workers and "Never take a key in conversation" in workers
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_shipped_director_skill_is_the_guides_text():
     """§13.3: the shipped director skill is the text in the design doc."""
     guide = (ROOT / "docs" / "design" / "director-interface.md").read_text(encoding="utf-8")
@@ -346,6 +361,7 @@ def _golden(name: str, text: str) -> None:
     assert text == golden.read_text(encoding="utf-8"), f"{name} differs; BATON_UPDATE_GOLDEN=1 rewrites it"
 
 
+@pytest.mark.slow
 def test_explain_gives_process_facts_only(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -362,6 +378,7 @@ def test_explain_gives_process_facts_only(tmp_path):
     _golden("fit-check-explain.txt", out["text"].replace(run, "<run>") + "\n")
 
 
+@pytest.mark.slow
 def test_explain_shows_levels(tmp_path):
     from test_backyard import do as yard_do, setup as yard_setup
 
@@ -394,6 +411,7 @@ def _tool_error(result) -> dict:
     return json.loads(text[text.index("{"):])
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_mcp_exposes_the_director_api(tmp_path):
     from mcp import Client
 
@@ -404,6 +422,7 @@ def test_mcp_exposes_the_director_api(tmp_path):
     assert asyncio.run(main()) == API_CALLS
 
 
+@pytest.mark.slow
 def test_mcp_refusals_carry_cli_exit_codes(tmp_path, monkeypatch):
     from mcp import Client
 
@@ -501,6 +520,7 @@ def _cli_director(project: Path, home: Path) -> str:
     return run
 
 
+@pytest.mark.slow
 def test_two_directors_complete_the_same_recipe_through_mcp_and_cli(tmp_path):
     """The Phase 14 criterion, scripted: different interfaces and worker assignments, every output from a worker."""
     project, home = _two_worker_project(tmp_path)
@@ -526,6 +546,7 @@ def test_two_directors_complete_the_same_recipe_through_mcp_and_cli(tmp_path):
     assert Cli(project, home)("check").exit_code == 0
 
 
+@pytest.mark.slow
 def test_expert_on_a_completed_run_is_not_blamed_for_checkpoints(tmp_path):
     """Found by the live Claude Code Director: consulting about a just-completed run releases its lease again,
     whose checkpoint commit moved HEAD while the expert worked and was blamed on the expert (workspace_modified)."""
@@ -537,6 +558,7 @@ def test_expert_on_a_completed_run_is_not_blamed_for_checkpoints(tmp_path):
     assert out["turns"][-1]["answer"]["answer"] == "Two days is typical."
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_checkpoint_commits_are_not_working_tree_changes(tmp_path):
     from baton import gitops
 
@@ -555,6 +577,7 @@ def test_checkpoint_commits_are_not_working_tree_changes(tmp_path):
     assert gitops.tree_changes(before, gitops.tree_snapshot(root), root)[0].startswith("HEAD moved")
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_snapshot_uses_the_repositorys_own_line_endings(tmp_path):
     """Found on Windows CI (Phase 16): with the owner's ``core.autocrlf=true`` a committed CRLF file is LF in the
     index; a status forced to ``autocrlf=false`` called it modified whenever git re-hashed it, so snapshots flapped."""
@@ -579,6 +602,7 @@ def test_snapshot_uses_the_repositorys_own_line_endings(tmp_path):
 # -- HTTP ---------------------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_http_needs_a_token_and_loopback(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
@@ -605,6 +629,7 @@ def test_http_needs_a_token_and_loopback(tmp_path):
         assert e.value.code == "mcp.not_loopback"
 
 
+@pytest.mark.slow
 def test_http_cli_refuses_without_token_or_off_loopback(tmp_path):
     from typer.testing import CliRunner
 
@@ -624,6 +649,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.mark.slow
 def test_http_serves_the_api_to_bearer_holders_only(tmp_path):
     import httpx2
     from mcp import Client

@@ -38,6 +38,7 @@ from harnesskit import harness_profile
 from projectkit import FIT_INPUTS, OWNER_PROFILE, VERDICT, Cli, git, make_git_project, make_home
 
 pytestmark = [
+    pytest.mark.slow,
     pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1"),
     pytest.mark.skipif(shutil.which("codex") is None, reason="codex CLI not installed"),
     pytest.mark.skipif(sys.platform != "linux", reason="the change doc's live check is on Linux"),

@@ -6,6 +6,8 @@ recipe runs different, correct step sets; re-triage adds future steps only.
 
 from __future__ import annotations
 
+import pytest
+
 import json
 from pathlib import Path
 from typing import Any
@@ -69,6 +71,7 @@ def skipped(cli: Cli, run: str) -> list[str]:
     return [s for s, v in cli.run("status", run)["steps"].items() if v["state"] == "skipped"]
 
 
+@pytest.mark.slow
 def test_flower_bed_at_minor(tmp_path):
     cli, project = setup(tmp_path)
     run = cli.run("start", "backyard-project", "--inputs", json.dumps({"title": "Front flower bed", "description": "Plant a bed of perennials by the porch"}))["run_id"]
@@ -96,6 +99,7 @@ def test_flower_bed_at_minor(tmp_path):
     assert sum(1 for e in decisions if e["type"] == "human_decision") == 1
 
 
+@pytest.mark.slow
 def test_shed_at_major(tmp_path):
     cli, project = setup(tmp_path)
     run = cli.run("start", "backyard-project", "--inputs", json.dumps({"title": "Garden shed", "description": "A small timber shed for tools"}))["run_id"]
@@ -120,6 +124,7 @@ def test_shed_at_major(tmp_path):
     assert executed(cli, run) == ["triage", "site_survey", "design", "permits", "materials", "build"]
 
 
+@pytest.mark.slow
 def test_raised_bed_at_standard(tmp_path):
     """Phase 16: the middle level end to end: a survey and layout, no permits, no layout approval or inspection."""
     cli, project = setup(tmp_path)
@@ -139,6 +144,7 @@ def test_raised_bed_at_standard(tmp_path):
     assert cli("check").exit_code == 0
 
 
+@pytest.mark.slow
 def test_retriage_from_minor_to_standard_adds_future_steps_only(tmp_path):
     cli, project = setup(tmp_path)
     run = cli.run("start", "backyard-project", "--inputs", json.dumps({"title": "Bed", "description": "A flower bed"}))["run_id"]

@@ -78,6 +78,7 @@ def pass_step(api: Api, root: Path, run: str, step: str, worker: str) -> None:
     assert api.submit(run, step)["outcome"] == "passed"
 
 
+@pytest.mark.slow
 def test_requirements_filter_with_reasons(routed):
     api, root, run = routed
     out = api.eligible(run, "draft")
@@ -105,6 +106,7 @@ def test_preferences_reorder_and_exclude_but_never_add(routed):
     assert e.value.code == "routing.ineligible" and "preferences" in str(e.value)
 
 
+@pytest.mark.slow
 def test_bad_preferences_are_configuration(routed):
     api, root, run = routed
     (root / ".baton" / "preferences.yaml").write_text("prefer: { by_model: {} }\n", encoding="utf-8")
@@ -129,6 +131,7 @@ def test_independence_uses_the_recorded_worker(routed):
     assert e.value.code == "routing.ineligible"
 
 
+@pytest.mark.slow
 def test_no_eligible_worker_escalates_and_never_fails_the_run(routed):
     api, root, run = routed
     pass_step(api, root, run, "draft", "alice")
@@ -149,6 +152,7 @@ def test_no_eligible_worker_escalates_and_never_fails_the_run(routed):
     assert api.status(run)["steps"]["look"]["state"] == "ready"
 
 
+@pytest.mark.slow
 def test_worker_selected_records_vendor_and_model(routed):
     api, root, run = routed
     api.dispatch(run, "draft", "carol")
@@ -253,6 +257,7 @@ legacy:
 """
 
 
+@pytest.mark.slow
 def test_different_model_routing_uses_recorded_identity_and_stays_stable(tmp_path):
     recipe = make_recipe(
         tmp_path / "toy",

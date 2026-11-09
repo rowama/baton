@@ -116,6 +116,7 @@ def _input(pdir: Path, name: str) -> tuple[dict, str]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_deliverable_appears_at_its_mapped_path_and_is_committed(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -133,18 +134,21 @@ def test_deliverable_appears_at_its_mapped_path_and_is_committed(tmp_path):
     assert p.cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_start_refuses_a_recipe_publishing_to_an_unmapped_path(tmp_path):
     p = P(tmp_path, paths={})
     err = p.cli.run("start", "toy", "--inputs", json.dumps({"title": "x"}), expect=1)
     assert err["error"] == "configuration.publish_path" and "paths.docs" in err["message"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_publish_inside_a_group_is_a_load_error(tmp_path):
     with pytest.raises(RecipeError) as e:
         load_recipe(_recipe(tmp_path / "g", in_group=True))
     assert "publish.in_group" in {i.code for i in e.value.issues}
 
 
+@pytest.mark.slow
 def test_a_pre_existing_file_is_never_overwritten_silently(tmp_path):
     p = P(tmp_path)
     target = p.file("docs/out/login-doc.md")
@@ -165,6 +169,7 @@ def test_a_pre_existing_file_is_never_overwritten_silently(tmp_path):
     assert not p.status(run)["drift"]  # a kept file is not Baton's to track
 
 
+@pytest.mark.slow
 def test_identical_existing_file_is_recorded_not_rewritten(tmp_path):
     p = P(tmp_path)
     target = p.file("docs/out/login-doc.md")
@@ -176,6 +181,7 @@ def test_identical_existing_file_is_recorded_not_rewritten(tmp_path):
     assert pub["data"]["unchanged"] and not p.pending(run, "publish_conflict")
 
 
+@pytest.mark.slow
 def test_conflict_overwrite_and_alternate(tmp_path):
     p = P(tmp_path)
     a = p.start("Login")
@@ -202,6 +208,7 @@ def test_conflict_overwrite_and_alternate(tmp_path):
     assert dec[0]["data"]["decision"] == "overwrite" and dec[0]["data"]["note"] == "C supersedes A"
 
 
+@pytest.mark.slow
 def test_a_revised_step_replaces_its_own_untouched_file_but_not_an_edited_one(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -224,6 +231,7 @@ def test_a_revised_step_replaces_its_own_untouched_file_but_not_an_edited_one(tm
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_editing_a_published_file_triggers_drift_and_ingesting_it_feeds_a_later_step(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -257,6 +265,7 @@ def test_editing_a_published_file_triggers_drift_and_ingesting_it_feeds_a_later_
     assert "ingested by the owner" in (p.last_packet / "INSTRUCTIONS.md").read_text(encoding="utf-8")
 
 
+@pytest.mark.slow
 def test_without_a_revision_the_human_revision_input_is_not_applicable(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -266,6 +275,7 @@ def test_without_a_revision_the_human_revision_input_is_not_applicable(tmp_path)
     assert [n["name"] for n in m["not_applicable"]] == ["edited"]
 
 
+@pytest.mark.slow
 def test_feeding_dependents_reaches_only_steps_not_yet_started_and_flags_passed_ones(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -283,6 +293,7 @@ def test_feeding_dependents_reaches_only_steps_not_yet_started_and_flags_passed_
     assert text == "# edited\n" and doc["human_revision"]["revision"] == 1
 
 
+@pytest.mark.slow
 def test_leaving_drift_and_a_deleted_file(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -302,6 +313,7 @@ def test_leaving_drift_and_a_deleted_file(tmp_path):
     assert p.cli.run("decide", run, "drift:draft.doc", "leave", "--note", "again", expect=1)["error"] == "decide.nothing_pending"
 
 
+@pytest.mark.slow
 def test_pending_drift_holds_run_completion_and_completed_runs_are_not_tracked(tmp_path):
     p = P(tmp_path)
     run = p.start("Login")
@@ -322,6 +334,7 @@ def test_pending_drift_holds_run_completion_and_completed_runs_are_not_tracked(t
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_expert_artifact_promoted_as_a_revision_is_published_and_fed(tmp_path):
     p = P(tmp_path, sme=True)
     run = p.start("Login")

@@ -31,6 +31,7 @@ from conftest import ROOT
 from projectkit import GOOD_PROFILE, VERDICT, Cli, git, make_git_project, make_home
 
 pytestmark = [
+    pytest.mark.slow,
     pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1"),
     pytest.mark.skipif(shutil.which("claude") is None, reason="claude CLI not installed"),
 ]

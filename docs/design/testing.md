@@ -9,6 +9,16 @@
 - **Conversation review** (opt-in, with live tests): transcripts of a real Director with a scripted owner, reviewed by the owner against §13.8 *Review*. Not a pass/fail gate in CI: phrasing is judged, not enforced.
 - **Live tests** (opt-in): real API models and harness CLIs.
 
+### 17.1 Test tiers
+
+(Decision: [0092](../decisions/0092-two-tier-test-gate.md); timing knob: [0093](../decisions/0093-test-time-scale.md).) Change 2026-11-fast-tests.
+
+- **Quick gate:** the tests a slice's changes affect, minus those marked `slow`, run in parallel. It is the slice-commit gate.
+- **Full suite:** every default test, run in parallel (`pytest -n auto --dist worksteal`). It is the finish gate and runs in CI on every push.
+- **Background full run:** after each slice commit, the full suite on that exact SHA, with the result recorded per SHA.
+
+`slow` marks a test that spawns Baton processes, waits on real time, or measured over 1 s on the baseline. `not_slow("reason")` marks a quick test in a process-spawning file. A test (`tests/test_markers.py`) fails if a test in such a file has neither, so the marking cannot drift. The markers only choose what the quick gate leaves out: the full suite is never deselected, and registered markers are strict (`--strict-markers`).
+
 ## 19. Definition of Done
 
 - All phases' acceptance criteria pass, on Linux and native Windows.

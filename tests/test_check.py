@@ -38,6 +38,7 @@ def _text_check(cli) -> tuple[int, list[str]]:
     return res.exit_code, res.stdout.splitlines()
 
 
+@pytest.mark.slow
 def test_clean(done):
     cli, _, _ = done
     assert _errors(cli) == []
@@ -45,6 +46,7 @@ def test_clean(done):
     assert code == 0 and lines == []
 
 
+@pytest.mark.slow
 def test_tampered_event(done):
     cli, _, rdir = done
     log = rdir / "events.jsonl"
@@ -64,6 +66,7 @@ def test_tampered_event(done):
     assert log.read_bytes() == before
 
 
+@pytest.mark.slow
 def test_missing_blob(done):
     cli, _, rdir = done
     events = [json.loads(line) for line in (rdir / "events.jsonl").read_text().splitlines()]
@@ -76,6 +79,7 @@ def test_missing_blob(done):
     assert out_sha in errs[0]["where"]
 
 
+@pytest.mark.slow
 def test_corrupt_blob(done):
     cli, _, rdir = done
     blob = next(p for p in (rdir / "cas").rglob("*") if p.is_file())
@@ -84,6 +88,7 @@ def test_corrupt_blob(done):
     assert "cas.corrupt" in {e["code"] for e in _errors(cli)}
 
 
+@pytest.mark.slow
 def test_planted_secret_sentinel(done):
     cli, project, rdir = done
     planted = rdir / "steps" / "describe" / "attempt-1" / "result" / "notes.txt"
@@ -98,6 +103,7 @@ def test_planted_secret_sentinel(done):
     assert _errors(cli) == []
 
 
+@pytest.mark.slow
 def test_secret_reference_in_project_yaml(done):
     cli, project, _ = done
     p = project / ".baton" / "project.yaml"
@@ -106,12 +112,14 @@ def test_secret_reference_in_project_yaml(done):
     assert "project.secret_reference" in codes and "project.invalid" in codes
 
 
+@pytest.mark.slow
 def test_missing_communication_contract(done):
     cli, project, _ = done
     (project / ".baton" / "communication.md").unlink()
     assert [e["code"] for e in _errors(cli)] == ["project.no_communication"]
 
 
+@pytest.mark.slow
 def test_vendored_recipe_edited_in_place(done):
     cli, project, _ = done
     prompt = project / ".baton" / "recipes" / "fit-check@2" / "prompts" / "describe.md"
@@ -120,6 +128,7 @@ def test_vendored_recipe_edited_in_place(done):
     assert "lock.recipe_hash" in codes
 
 
+@pytest.mark.slow
 def test_neutrality_violation_in_vendored_recipe(done):
     cli, project, _ = done
     rf = project / ".baton" / "recipes" / "fit-check@2" / "recipe.yaml"
@@ -127,6 +136,7 @@ def test_neutrality_violation_in_vendored_recipe(done):
     assert "neutrality.forbidden_key" in {e["code"] for e in _errors(cli)}
 
 
+@pytest.mark.slow
 def test_impossible_state(done):
     """A log whose chain is intact but whose sequence is illegal is caught by the state machine."""
     from baton.store import canonical_json, event_sha256
@@ -143,6 +153,7 @@ def test_impossible_state(done):
     assert [e["code"] for e in _errors(cli)] == ["events.impossible_state"]
 
 
+@pytest.mark.slow
 def test_unreadable_lock_format(done):
     cli, project, _ = done
     lp = project / ".baton" / "baton.lock"

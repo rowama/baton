@@ -56,6 +56,7 @@ def names(out):
     return [e["profile"] for e in out["eligible"]]
 
 
+@pytest.mark.slow
 def test_claimed_capabilities_start_likely_and_are_eligible(routed):
     api, _root, _home, run = routed
     out = api.eligible(run, "search")
@@ -63,6 +64,7 @@ def test_claimed_capabilities_start_likely_and_are_eligible(routed):
     assert out["eligible"][0]["capabilities"] == {"structured_output": "likely", "web_access": "likely"}
 
 
+@pytest.mark.slow
 def test_absent_is_not_eligible_and_says_how_to_reset(routed):
     api, _root, home, run = routed
     cs.record(home, "alice", "web_access", "absent", by="observed", evidence="WebSearch denied", today=TODAY)
@@ -76,6 +78,7 @@ def test_absent_is_not_eligible_and_says_how_to_reset(routed):
     assert e.value.code == "routing.ineligible"
 
 
+@pytest.mark.slow
 def test_verified_is_preferred_over_likely_but_preferences_come_first(routed):
     api, root, home, run = routed
     cs.record(home, "carol", "web_access", "verified", by="observed", evidence="web_search call", today=TODAY)
@@ -116,6 +119,7 @@ def test_a_state_never_adds_a_capability(routed):
     assert not cs.path(home).exists()
 
 
+@pytest.mark.slow
 def test_the_owner_resets_and_declares_through_the_engine(routed):
     api, _root, home, run = routed
     out = api.workers_declare(profile="alice", absent=["web_access"])
@@ -130,6 +134,7 @@ def test_the_owner_resets_and_declares_through_the_engine(routed):
     assert e.value.code == "usage.declare"
 
 
+@pytest.mark.slow
 def test_the_owner_resets_and_declares_from_the_cli(tmp_path):
     home = make_home(tmp_path / "home", PROFILES)
     root = tmp_path / "proj"
@@ -143,6 +148,7 @@ def test_the_owner_resets_and_declares_from_the_cli(tmp_path):
     assert cli("workers", "declare", "--likely", "web_access", expect=None).payload["error"] == "usage.declare"
 
 
+@pytest.mark.slow
 def test_an_observation_is_recorded_once_with_its_attempt(routed):
     api, _root, home, run = routed
     project = api.project
@@ -158,6 +164,7 @@ def test_an_observation_is_recorded_once_with_its_attempt(routed):
     assert cs.load(home)["alice"]["web_access"].state == "verified"
 
 
+@pytest.mark.slow
 def test_a_broken_state_file_is_a_configuration_problem(routed):
     api, _root, home, run = routed
     cs.path(home).write_text("format: baton-capability-states/1\nprofiles: { alice: { web_access: { state: maybe } } }\n", encoding="utf-8")
@@ -197,6 +204,7 @@ def attempt(api, root, run, worker, output):
     return api.submit(run, "draft")["outcome"]
 
 
+@pytest.mark.slow
 def test_three_schema_failures_in_a_row_make_structured_output_absent(schema_run):
     api, root, home, run = schema_run
     for _ in range(2):
@@ -212,6 +220,7 @@ def test_three_schema_failures_in_a_row_make_structured_output_absent(schema_run
     assert (ev["profile"], ev["capability"], ev["state"], ev["attempt"]) == ("alice", "structured_output", "absent", 3)
 
 
+@pytest.mark.slow
 def test_a_pass_resets_the_count(schema_run):
     api, root, home, run = schema_run
     assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
@@ -220,6 +229,7 @@ def test_a_pass_resets_the_count(schema_run):
     assert "alice" not in cs.load(home)
 
 
+@pytest.mark.slow
 def test_failures_are_counted_per_profile(schema_run):
     api, root, home, run = schema_run
     for worker in ("alice", "carol", "alice", "carol"):

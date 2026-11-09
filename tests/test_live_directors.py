@@ -30,7 +30,7 @@ import pytest
 from conftest import FIT_CHECK, ROOT
 from projectkit import FIT_INPUTS, GOOD_PROFILE, OWNER_PROFILE, VERDICT, Cli, git, make_git_project, make_home
 
-pytestmark = pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1")
+pytestmark = [pytest.mark.slow, pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1")]
 
 FAKES = Path(__file__).parent / "fakes"
 CAPS = ["structured_output", "long_form_writing", "technical_reasoning"]

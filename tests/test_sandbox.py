@@ -58,6 +58,7 @@ def _assert_blocked(res, line_prefix):
 
 
 @posix_user
+@pytest.mark.slow
 def test_unwritable_home_blocks_doctor_and_detect_without_a_traceback(read_only_home):
     cli, _ = read_only_home
     b = _assert_blocked(cli("doctor", expect=None), "doctor")
@@ -83,6 +84,7 @@ def test_detect_outside_a_project_still_reports_the_sandbox(tmp_path):
 
 
 @pytest.mark.parametrize("err", [errno.EROFS, errno.EACCES, errno.EPERM])
+@pytest.mark.slow
 def test_each_sandbox_errno_on_the_home_is_the_sandbox(tmp_path, monkeypatch, err):
     cli, _ = setup_fit_check(tmp_path)
 
@@ -94,6 +96,7 @@ def test_each_sandbox_errno_on_the_home_is_the_sandbox(tmp_path, monkeypatch, er
     assert b["cause"]["home"] == os.strerror(err)
 
 
+@pytest.mark.slow
 def test_denied_network_is_the_sandbox_and_codex_gets_its_own_message(tmp_path, monkeypatch):
     cli, _ = setup_fit_check(tmp_path)
     _deny_network(monkeypatch)
@@ -116,6 +119,7 @@ def test_socket_creation_refused_is_denied(monkeypatch):
     assert doc.network_state() == "denied"
 
 
+@pytest.mark.slow
 def test_an_offline_machine_is_a_warning_not_the_sandbox(tmp_path, monkeypatch):
     cli, _ = setup_fit_check(tmp_path)
     _deny_network(monkeypatch, errno.ENETUNREACH)
@@ -126,6 +130,7 @@ def test_an_offline_machine_is_a_warning_not_the_sandbox(tmp_path, monkeypatch):
     assert out["ok"] is True and "blocking" not in out
 
 
+@pytest.mark.slow
 def test_a_refused_log_write_mid_doctor_is_reported_never_raised(tmp_path, monkeypatch):
     cli, _ = setup_fit_check(tmp_path)
     log = cli.home / "logs" / "doctor" / "x.log"
@@ -156,6 +161,7 @@ def test_every_doctor_log_write_goes_through_the_helper(tmp_path):
 
 
 @posix_user
+@pytest.mark.slow
 def test_text_output_carries_the_owner_message(read_only_home):
     cli, project = read_only_home
     res = CliRunner(env={"BATON_HOME": str(cli.home), "BATON_PROJECT": str(project)}).invoke(app, ["doctor"])
@@ -164,6 +170,7 @@ def test_text_output_carries_the_owner_message(read_only_home):
     assert "**Baton can't run from inside this AI tool's sandbox.**" in res.stdout and "Options: " in res.stdout
 
 
+@pytest.mark.slow
 def test_healthy_path_is_unchanged(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     out = cli.run("doctor", "--no-run")

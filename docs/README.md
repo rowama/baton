@@ -120,6 +120,7 @@ The design files:
 | §15.3 | [design/platform-and-security.md](design/platform-and-security.md) | Future: guided process authoring (design implications now) |
 | §16 | [history/build-phases.md](history/build-phases.md) | Build Order |
 | §17 | [design/testing.md](design/testing.md) | Testing Strategy |
+| §17.1 | [design/testing.md](design/testing.md) | Test tiers (quick gate, full suite, background full run) |
 | §18 | [README.md](README.md) | Open Decisions (ask the owner before choosing) |
 | §19 | [design/testing.md](design/testing.md) | Definition of Done |
 

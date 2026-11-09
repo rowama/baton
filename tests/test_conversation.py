@@ -55,6 +55,7 @@ def manual(cli: Cli, project: Path, run: str, step: str, output, **extra):
 # -- init: the starter kit ----------------------------------------------------
 
 
+@pytest.mark.slow
 def test_init_vendors_the_starter_recipes(tmp_path):
     cli, project = fresh(tmp_path)
     assert STARTER_RECIPES == ("fit-check",)
@@ -87,6 +88,7 @@ def _blocked_fit_check(cli: Cli, project: Path) -> str:
     return run
 
 
+@pytest.mark.slow
 def test_blocked_step_lists_structured_questions_and_labelled_options(tmp_path):
     cli, project = fresh(tmp_path)
     run = _blocked_fit_check(cli, project)
@@ -114,6 +116,7 @@ CONFIRMED = [
 ]
 
 
+@pytest.mark.slow
 def test_answers_resume_the_step_with_exactly_the_confirmed_answers(tmp_path):
     cli, project = fresh(tmp_path)
     run = _blocked_fit_check(cli, project)
@@ -144,6 +147,7 @@ def test_answers_resume_the_step_with_exactly_the_confirmed_answers(tmp_path):
     ([CONFIRMED[0]], False, "needed questions not answered: permits"),
     ([CONFIRMED[0], CONFIRMED[0], CONFIRMED[1]], False, "answered more than once"),
 ], ids=["no-owner-words", "unknown-id", "missing-needed", "duplicate"])
+@pytest.mark.slow
 def test_bad_answers_are_refused_and_nothing_is_recorded(tmp_path, answers, partial, message):
     cli, project = fresh(tmp_path)
     run = _blocked_fit_check(cli, project)
@@ -153,6 +157,7 @@ def test_bad_answers_are_refused_and_nothing_is_recorded(tmp_path, answers, part
     assert (project / ".baton" / "runs" / run / "events.jsonl").read_text(encoding="utf-8") == before
 
 
+@pytest.mark.slow
 def test_partial_answers_need_the_partial_flag(tmp_path):
     cli, project = fresh(tmp_path)
     run = _blocked_fit_check(cli, project)
@@ -164,6 +169,7 @@ def test_partial_answers_need_the_partial_flag(tmp_path):
     assert manifest["prior_feedback"]["answers"] == [CONFIRMED[0]]
 
 
+@pytest.mark.slow
 def test_answers_only_for_a_blocked_step(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -171,6 +177,7 @@ def test_answers_only_for_a_blocked_step(tmp_path):
     assert out["error"] == "decide.nothing_pending"
 
 
+@pytest.mark.slow
 def test_bare_string_questions_still_work(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -184,6 +191,7 @@ def test_bare_string_questions_still_work(tmp_path):
     assert out["outcome"] == "retry"
 
 
+@pytest.mark.slow
 def test_invalid_question_entries_reject_the_result(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -194,6 +202,7 @@ def test_invalid_question_entries_reject_the_result(tmp_path):
 # -- labels -------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_every_pending_decision_lists_labelled_options(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -261,6 +270,7 @@ def _frame(cli: Cli, project: Path) -> str:
     return out["framing"]
 
 
+@pytest.mark.slow
 def test_framing_inputs_hold_the_owners_words_and_every_recipe(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -280,6 +290,7 @@ def test_framing_inputs_hold_the_owners_words_and_every_recipe(tmp_path):
     assert again["started"] is False and again["framing"] == fr
 
 
+@pytest.mark.slow
 def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -322,6 +333,7 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     assert git(project, "status", "--porcelain", "--", ".baton/").strip() == ""  # runs, recipes and lockfile committed
 
 
+@pytest.mark.slow
 def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -348,6 +360,7 @@ def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
 PLAN = "docs/pure-water-vending-business-self-serve-process-plan.md"
 
 
+@pytest.mark.slow
 def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -376,6 +389,7 @@ def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
     assert cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_a_file_already_at_the_process_plan_path_is_a_conflict(tmp_path):
     cli, project = fresh(tmp_path)
     (project / PLAN).parent.mkdir(parents=True, exist_ok=True)
@@ -403,6 +417,7 @@ def _selected_two(tmp_path):
     return cli, project, fr, sel, out
 
 
+@pytest.mark.slow
 def test_parts_left_in_the_plan_start_later_exactly_as_proposed(tmp_path):
     cli, project, fr, sel, proposed = _selected_two(tmp_path)
     # The owner edits the plan (rewording a part's proposal); the record, not the file, decides what starts.
@@ -445,6 +460,7 @@ def test_parts_left_in_the_plan_start_later_exactly_as_proposed(tmp_path):
     assert cli.run("start", "fit-check", "--from-plan", "setup", expect=1)["error"] == "start.from_plan_alone"
 
 
+@pytest.mark.slow
 def test_a_part_id_in_two_plans_must_be_named_with_its_framing_run(tmp_path):
     cli, project, fr, sel, _ = _selected_two(tmp_path)
     fr2 = cli.run("frame", "--note", "Also a second goal.")["framing"]
@@ -454,6 +470,7 @@ def test_a_part_id_in_two_plans_must_be_named_with_its_framing_run(tmp_path):
     assert amb["error"] == "frame.ambiguous_part" and f"{fr}/running" in amb["message"] and f"{fr2}/running" in amb["message"]
 
 
+@pytest.mark.slow
 def test_unmapped_process_plan_path_uses_the_default(tmp_path):
     cli, project = fresh(tmp_path)
     pyaml = project / ".baton" / "project.yaml"
@@ -484,6 +501,7 @@ def test_the_goal_slug_keeps_a_short_goal_and_shortens_a_long_one_without_summar
     assert plan_target({"process_plans": "plans/"}, words) == f"plans/{slug}-process-plan.md"
 
 
+@pytest.mark.slow
 def test_selecting_nothing_ends_framing_with_no_runs(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -492,6 +510,7 @@ def test_selecting_nothing_ends_framing_with_no_runs(tmp_path):
     assert sel["runs"] == [] and sel["gaps"] == [] and sel["state"] == "completed"
 
 
+@pytest.mark.slow
 def test_rejecting_the_breakdown_retries_with_the_note(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -503,6 +522,7 @@ def test_rejecting_the_breakdown_retries_with_the_note(tmp_path):
     assert any("Marketing is missing." in r for r in manifest["prior_feedback"]["reasons"])
 
 
+@pytest.mark.slow
 def test_framing_with_one_part_still_asks_the_owner(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -512,6 +532,7 @@ def test_framing_with_one_part_still_asks_the_owner(tmp_path):
     assert out["outcome"] == "needs_human"  # §18 #23: selecting is the owner's decision even with one option
 
 
+@pytest.mark.slow
 def test_a_bare_project_vendors_fit_check_on_selection(tmp_path):
     cli, project = fresh(tmp_path, bare=True)
     fr = _frame(cli, project)
@@ -520,6 +541,7 @@ def test_a_bare_project_vendors_fit_check_on_selection(tmp_path):
     assert sel["vendored"] == ["fit-check@2"] and sel["runs"][0]["recipe"] == "fit-check@2"
 
 
+@pytest.mark.slow
 def test_a_proposal_for_an_unknown_recipe_is_a_gap(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -530,6 +552,7 @@ def test_a_proposal_for_an_unknown_recipe_is_a_gap(tmp_path):
     assert sel["runs"] == [] and "neither in this project nor shipped" in sel["gaps"][0]["reason"]
 
 
+@pytest.mark.slow
 def test_a_shipped_recipe_needing_unmapped_paths_is_a_gap(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -541,6 +564,7 @@ def test_a_shipped_recipe_needing_unmapped_paths_is_a_gap(tmp_path):
     assert sel["runs"] == [] and "paths.specs" in sel["gaps"][0]["reason"] and sel["vendored"] == []
 
 
+@pytest.mark.slow
 def test_frame_output_schema_requires_one_kind_of_proposal(tmp_path):
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
@@ -555,6 +579,7 @@ def test_frame_output_schema_requires_one_kind_of_proposal(tmp_path):
 NOTE = "Remember: ask the council about\n  permits for the *corner* site — before May.\n"
 
 
+@pytest.mark.slow
 def test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file(tmp_path):
     cli, project = fresh(tmp_path)
     notes = project / "docs" / "notes.md"
@@ -584,6 +609,7 @@ def test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file(tmp_path)
     assert cli.run("note", "--keep-file", "yes", expect=1)["error"] == "note.note_required"
 
 
+@pytest.mark.slow
 def test_no_packet_ever_contains_a_note(tmp_path):
     cli, project = fresh(tmp_path)
     cli.run("note", "Unique-note-marker 7f3a", "--keep-file", "yes", "--note", "Yes please.")
@@ -600,6 +626,7 @@ def test_no_packet_ever_contains_a_note(tmp_path):
 # -- communication defaults -----------------------------------------------------
 
 
+@pytest.mark.slow
 def test_communication_defaults(tmp_path):
     conv = (ROOT / "defaults" / "communication.md").read_text(encoding="utf-8")
     oper = (ROOT / "defaults" / "communication-operator.md").read_text(encoding="utf-8")

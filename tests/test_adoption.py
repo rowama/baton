@@ -206,6 +206,7 @@ def through_triage(cli: Cli, project: Path, recipe: Path) -> tuple[str, dict[str
     return adoption, runs
 
 
+@pytest.mark.slow
 def test_adoption_with_a_crosswalk_needs_exactly_one_owner_decision(tmp_path):
     cli, project, recipe = setup(tmp_path)
     adoption, runs = through_triage(cli, project, recipe)
@@ -292,6 +293,7 @@ def test_adoption_with_a_crosswalk_needs_exactly_one_owner_decision(tmp_path):
     assert st["ready"] == [f"slices/{logout}/i1/implement"]
 
 
+@pytest.mark.slow
 def test_an_edited_baseline_is_rechecked(tmp_path):
     cli, project, recipe = setup(tmp_path)
     adoption, runs = through_triage(cli, project, recipe)
@@ -327,6 +329,7 @@ def test_an_edited_baseline_is_rechecked(tmp_path):
     assert cli.run("status", runs["login"])["steps"]["plan"]["state"] == "imported"
 
 
+@pytest.mark.slow
 def test_establish_baseline_needs_the_owners_words_and_a_proposal(tmp_path):
     cli, project, recipe = setup(tmp_path)
     adoption = cli.run("adopt", str(recipe), "--crosswalk", "eng-flow")["adoption"]
@@ -334,6 +337,7 @@ def test_establish_baseline_needs_the_owners_words_and_a_proposal(tmp_path):
     assert cli.run("establish-baseline", adoption, "--note", "ok", expect=1)["error"] == "baseline.not_ready"
 
 
+@pytest.mark.slow
 def test_research_scope_cap(tmp_path, monkeypatch):
     cli, project, recipe = setup(tmp_path)
     monkeypatch.setattr(adopt, "SCOPE_MAX_FILES", 5)
@@ -345,6 +349,7 @@ def test_research_scope_cap(tmp_path, monkeypatch):
     assert cli.run("status", out["adoption"])["state"] == "active"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_crosswalk_validation(tmp_path):
     from baton.recipe import RecipeError, load_recipe
 
@@ -364,6 +369,7 @@ def test_crosswalk_validation(tmp_path):
             "crosswalk.item_missing", "crosswalk.unknown_gate", "crosswalk.target"} <= codes
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_glob_captures():
     rx = adopt.glob_regex("docs/**/slices/*/impl.json")
     m = rx.match("docs/features/login/slices/form/impl.json")
@@ -371,6 +377,7 @@ def test_glob_captures():
     assert not rx.match("docs/features/login/slices/form/x/impl.json")
 
 
+@pytest.mark.slow
 def test_detect(tmp_path):
     bare = make_git_project(tmp_path / "bare")
     runner = CliRunner(env={"BATON_HOME": str(make_home(tmp_path / "home", PERSON)), "BATON_PROJECT": str(bare)})

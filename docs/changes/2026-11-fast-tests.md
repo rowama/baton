@@ -144,3 +144,11 @@ Baseline on the owner's machine (16 cores, WSL2, repo on `/mnt/d`), 2026-11-08:
 - No test failed only in parallel; no isolation fixes were needed. (One parallel run failed `test_change_register_matches_change_docs` because the owner added `2026-11-not-offered-reasons` mid-run; its register row is added in this commit.)
 
 Changes: `pytest-xdist` in `dev`; CI runs `-n auto --dist worksteal` (the Windows cells will show on first push; not run locally). Decisions 0092 and 0093 recorded and accepted; status `in-progress`.
+
+### Slice 2: slow marker
+
+- `slow` and `not_slow(reason)` are registered in `pyproject.toml` with `--strict-markers`. A script applied them from the slice-1 timings (call + setup + teardown per test, from a `-n auto` run, so a little inflated by load): 283 tests are `slow` (every test over 1 s, plus the live tests); the other tests in process-spawning files carry `not_slow("measured under 1 s")`.
+- `tests/test_markers.py` fails if a test in a file that uses `subprocess`, `sys.executable` or the harness/real/version kits (or any `test_live_*` file) has neither mark, or a `not_slow` without a reason.
+- Full suite, no `-m` filter: 1230 passed, 9 skipped (1239 collected: the 1238 from before plus the new marker test); no test was deselected or edited apart from decorators.
+- Times on the owner's machine, `-n auto --dist worksteal`: `-m "not slow"` 49 s (946 passed, 9 skipped, before the marker test was added) against 4 m 31 s for the full suite, so the quick tier is 18% of the wall time and runs 955 of 1238 tests (77%); `slow` holds about 96% of the measured time.
+- §17.1 Test tiers written; README § index updated.

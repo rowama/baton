@@ -10,6 +10,8 @@ rerunning. Plus ``board``, ``cancel``, ``limits.active_runs``.
 
 from __future__ import annotations
 
+import pytest
+
 import json
 import os
 import shlex
@@ -136,6 +138,7 @@ class Project:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_two_runs_of_different_recipes_progress_independently(tmp_path):
     p = Project(tmp_path)
     fit = p.cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -174,6 +177,7 @@ def test_two_runs_of_different_recipes_progress_independently(tmp_path):
     assert p.cli.run("board")["runs"] == []
 
 
+@pytest.mark.slow
 def test_checkpoint_commits_never_include_another_runs_files(tmp_path):
     p = Project(tmp_path)
     a, b = p.toy("Alpha"), p.toy("Beta")
@@ -199,6 +203,7 @@ def test_checkpoint_commits_never_include_another_runs_files(tmp_path):
     assert last and all(f.startswith(b_dir) for f in last if f)
 
 
+@pytest.mark.slow
 def test_active_runs_limit_refuses_a_new_run(tmp_path):
     p = Project(tmp_path, config={"limits": {"active_runs": 1}})
     p.toy("One")
@@ -217,6 +222,7 @@ def _ready_to_build(p: Project, title: str) -> str:
     return run
 
 
+@pytest.mark.slow
 def test_write_steps_from_two_runs_are_serialized(tmp_path):
     p = Project(tmp_path, write=True, hooks=True)
     a, b = _ready_to_build(p, "Alpha"), _ready_to_build(p, "Beta")
@@ -259,6 +265,7 @@ def test_write_steps_from_two_runs_are_serialized(tmp_path):
     _until(lambda: {h["BATON_RUN_ID"] for h in p.hooks() if h["BATON_STEP_PATH"] == "build" and h["BATON_OUTCOME"] == "passed"} == {a, b})
 
 
+@pytest.mark.slow
 def test_manual_write_step_holds_the_tree_until_submit(tmp_path):
     p = Project(tmp_path, write=True)
     a, b = _ready_to_build(p, "Alpha"), _ready_to_build(p, "Beta")
@@ -277,6 +284,7 @@ def test_manual_write_step_holds_the_tree_until_submit(tmp_path):
     assert locks.workspace_holder(p.project / ".baton") is None
 
 
+@pytest.mark.slow
 def test_queued_dispatch_cancel_abandon_and_drop(tmp_path):
     p = Project(tmp_path, write=True, hooks=True)
     a, b, c = (_ready_to_build(p, t) for t in ("Alpha", "Beta", "Gamma"))
@@ -310,6 +318,7 @@ def test_queued_dispatch_cancel_abandon_and_drop(tmp_path):
     assert p.cli.run("dispatch", c, "build", "--worker", "owner").get("workspace_lock")
 
 
+@pytest.mark.slow
 def test_a_dead_holder_counts_as_released(tmp_path):
     p = Project(tmp_path, write=True)
     a = _ready_to_build(p, "Alpha")
@@ -327,6 +336,7 @@ def test_a_dead_holder_counts_as_released(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_revise_marks_only_that_runs_dependents_stale_and_a_stale_step_is_confirmed(tmp_path):
     p = Project(tmp_path)
     one, two = p.toy("One"), p.toy("Two")
@@ -375,6 +385,7 @@ def test_revise_marks_only_that_runs_dependents_stale_and_a_stale_step_is_confir
     assert p.cli.run("status", one)["state"] == "completed"
 
 
+@pytest.mark.slow
 def test_a_runnable_stale_step_reruns_when_dispatched(tmp_path):
     p = Project(tmp_path)
     run = p.toy("One")

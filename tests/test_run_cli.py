@@ -3,6 +3,8 @@ including a forced failure and retry; a fresh clone resumes it; ``check`` passes
 
 from __future__ import annotations
 
+import pytest
+
 import json
 import subprocess
 from pathlib import Path
@@ -52,6 +54,7 @@ def _assess_and_approve(cli: Cli, project: Path, run: str) -> dict:
     return out
 
 
+@pytest.mark.slow
 def test_fit_check_end_to_end_by_hand(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -86,6 +89,7 @@ def test_fit_check_end_to_end_by_hand(tmp_path):
     assert cli.run("check")["ok"]
 
 
+@pytest.mark.slow
 def test_fresh_clone_resumes_by_takeover(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -115,6 +119,7 @@ def test_fresh_clone_resumes_by_takeover(tmp_path):
     assert "taken over by bob@host2" in bob.run("summary", run)["summary"]
 
 
+@pytest.mark.slow
 def test_fresh_clone_resumes_after_release(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -133,6 +138,7 @@ def test_fresh_clone_resumes_after_release(tmp_path):
     assert bob.run("submit", run, "describe")["outcome"] == "passed"
 
 
+@pytest.mark.slow
 def test_exit_codes(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     assert cli("start", "fit-check", "--inputs", "{not json", expect=2).exit_code == 2
@@ -150,6 +156,7 @@ def test_exit_codes(tmp_path):
     assert bob.run("lease", run, "take-over", expect=1)["error"] == "lease.reason_required"
 
 
+@pytest.mark.slow
 def test_escalation_decisions(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -169,6 +176,7 @@ def test_escalation_decisions(tmp_path):
     assert "you asked the owner (q1): Which vendors count?" in pf["reasons"]
 
 
+@pytest.mark.slow
 def test_abandon(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -179,6 +187,7 @@ def test_abandon(tmp_path):
     assert cli.run("dispatch", run, "describe", "--worker", "owner", expect=1)["error"] == "run.closed"
 
 
+@pytest.mark.slow
 def test_submit_from_external_result_dir(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)
@@ -192,6 +201,7 @@ def test_submit_from_external_result_dir(tmp_path):
     assert cli.run("submit", run, "describe", "--result", str(ext))["outcome"] == "passed"
 
 
+@pytest.mark.slow
 def test_text_output_is_brief(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     run = _start(cli)

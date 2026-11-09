@@ -81,6 +81,7 @@ STREAM = ["--output-format", "stream-json", "--verbose"]
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_claude_code_command_per_mode(tmp_path):
     a = ADAPTERS["claude_code"]
     pk, rs = tmp_path / "packet", tmp_path / "result"
@@ -97,6 +98,7 @@ def test_claude_code_command_per_mode(tmp_path):
     assert a.config_home_var == "CLAUDE_CONFIG_DIR"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_codex_command_per_mode(tmp_path):
     a = ADAPTERS["codex"]
     p = prof(adapter="codex", executable="/opt/codex", args={"write": ["--sandbox", "danger-full-access"]})
@@ -108,6 +110,7 @@ def test_codex_command_per_mode(tmp_path):
     assert a.config_home_var == "CODEX_HOME"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_tool_maps_turn_on_only_what_the_step_requires(tmp_path):
     from baton import known_workers, vocab
     from baton.adapters.harness import plan_tools
@@ -132,6 +135,7 @@ def test_tool_maps_turn_on_only_what_the_step_requires(tmp_path):
     assert "--search" not in codex.command(p, pk, rs, None, "none", tools=plan_tools(data.tool_map("codex"), [], claims))
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_harness_versions_are_read_from_their_output():
     c = ADAPTERS["claude_code"]
     assert c.parse_version("2.1.319 (Claude Code)") == "2.1.319"
@@ -139,6 +143,7 @@ def test_harness_versions_are_read_from_their_output():
     assert c.parse_version("") is None
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_harness_needs_an_auth_mode():
     from baton.profiles import SetupError
 
@@ -147,6 +152,7 @@ def test_harness_needs_an_auth_mode():
     assert e.value.failure_class == "configuration"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_command_adapter_placeholders(tmp_path):
     a = ADAPTERS["command"]
     p = prof(adapter="command", command="relay --prompt {prompt_file} --in {packet} --out={result} --ws '{workspace}'")
@@ -160,6 +166,7 @@ def test_command_adapter_placeholders(tmp_path):
         a.check_profile(prof(adapter="command"))
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_auth_status_parsing():
     c, x = ADAPTERS["claude_code"], ADAPTERS["codex"]
     assert c.parse_auth_status(0, json.dumps({"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"}))["mode"] == "cli_login"
@@ -171,6 +178,7 @@ def test_auth_status_parsing():
     assert x.parse_auth_status(1, "Not logged in\n")["mode"] == "none"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_failure_signals_classify_harness_exits(tmp_path):
     tail = b"starting\nNot logged in \xc2\xb7 Please run /login\n"
     cls = classify_exit(ChildResult(1, 0.1, False, tmp_path / "x", tail), ADAPTERS["claude_code"].failure_signals)
@@ -188,6 +196,7 @@ def litellm_or_skip():
     pytest.importorskip("litellm")
 
 
+@pytest.mark.slow
 def test_cli_login_and_api_key_steps_in_one_run(tmp_path, monkeypatch, litellm_or_skip):
     from test_api_worker import api_profile, reply
 
@@ -228,6 +237,7 @@ def test_cli_login_and_api_key_steps_in_one_run(tmp_path, monkeypatch, litellm_o
     assert SENTINEL not in subprocess.run(["git", "-C", str(project), "log", "-p", "--all"], capture_output=True, text=True).stdout
 
 
+@pytest.mark.slow
 def test_codex_found_only_under_nvm_runs_a_step(tmp_path, monkeypatch):
     cli, project = setup_fit_check(tmp_path)
     user_home = tmp_path / "user"
@@ -248,6 +258,7 @@ def test_codex_found_only_under_nvm_runs_a_step(tmp_path, monkeypatch):
     assert call["argv"][:3] == ["exec", "--sandbox", "workspace-write"]
 
 
+@pytest.mark.slow
 def test_cli_not_logged_in_is_a_platform_failure(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     claude = install_fake(tmp_path / "bin", "claude", {"describe": {"output": GOOD_PROFILE}})
@@ -264,6 +275,7 @@ def test_cli_not_logged_in_is_a_platform_failure(tmp_path):
     assert [e["type"] for e in ev if e["step_path"] == "describe"][-3:] == ["attempt_orphaned", "failure_classified", "step_escalated"]
 
 
+@pytest.mark.slow
 def test_command_adapter_runs_a_step(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     tool = tmp_path / "relay.py"
@@ -300,6 +312,7 @@ def _ws_setup(tmp_path, mode: str, spec: dict):
     return cli, project, bin_dir, run
 
 
+@pytest.mark.slow
 def test_read_step_that_changes_the_tree_escalates(tmp_path):
     cli, project, bin_dir, run = _ws_setup(tmp_path, "read", {"touch": "notes.txt"})
     d = cli("dispatch", run, "describe", "--worker", "claude-sub", "--wait", expect=4).payload
@@ -315,12 +328,14 @@ def test_read_step_that_changes_the_tree_escalates(tmp_path):
     assert call["argv"][2:] == ["--permission-mode", "acceptEdits", "--disallowedTools", "WebSearch,WebFetch", *STREAM]
 
 
+@pytest.mark.slow
 def test_read_step_that_leaves_the_tree_alone_passes(tmp_path):
     cli, project, _, run = _ws_setup(tmp_path, "read", {})
     (project / "scratch.txt").write_text("pre-existing uncommitted work\n")  # already dirty: not the worker's change
     assert cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")["outcome"] == "passed"
 
 
+@pytest.mark.slow
 def test_none_step_writing_outside_its_attempt_escalates(tmp_path):
     cli, project, _, run = _ws_setup(tmp_path, "none", {})
     set_outputs(tmp_path / "bin", {"describe": {"output": GOOD_PROFILE, "touch": str(project / "README-x.md")}})
@@ -328,6 +343,7 @@ def test_none_step_writing_outside_its_attempt_escalates(tmp_path):
     assert d["outcome"] == "escalated" and "README-x.md" in d["reasons"][0]
 
 
+@pytest.mark.slow
 def test_write_step_may_change_the_tree(tmp_path):
     cli, project, bin_dir, run = _ws_setup(tmp_path, "write", {"touch": "src.txt"})
     assert cli.run("dispatch", run, "describe", "--worker", "claude-sub", "--wait")["outcome"] == "passed"
@@ -335,6 +351,7 @@ def test_write_step_may_change_the_tree(tmp_path):
     assert call["argv"][2:] == ["--permission-mode", "bypassPermissions", "--disallowedTools", "WebSearch,WebFetch", *STREAM]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_tree_snapshot_sees_commits_and_edits(tmp_path):
     from baton import gitops
 
@@ -373,6 +390,7 @@ def _doctor_setup(tmp_path, monkeypatch, profiles: str):
     return cli, project
 
 
+@pytest.mark.slow
 def test_doctor_reports_effective_auth_and_passes_preflight(tmp_path, monkeypatch, litellm_or_skip):
     user_home = tmp_path / "user"
     install_fake(nvm_dir(user_home), "codex")
@@ -402,6 +420,7 @@ def test_doctor_reports_effective_auth_and_passes_preflight(tmp_path, monkeypatc
     assert q["auth_effective"]["mode"] == "cli_login" and q["noop"] == {"skipped": "--no-run"} and q["preflight"] == {"skipped": "--no-run"}
 
 
+@pytest.mark.slow
 def test_preflight_catches_a_permission_mode_that_blocks_the_test_command(tmp_path, monkeypatch):
     claude = install_fake(tmp_path / "bin", "claude")
     cli, project = _doctor_setup(
@@ -419,6 +438,7 @@ def test_preflight_catches_a_permission_mode_that_blocks_the_test_command(tmp_pa
     assert not (project / ".baton" / "runs").exists() or not any((project / ".baton" / "runs").iterdir())  # before any real run
 
 
+@pytest.mark.slow
 def test_preflight_catches_a_sandbox_that_changes_the_outcome(tmp_path, monkeypatch):
     claude = install_fake(tmp_path / "bin", "claude")
     cli, project = _doctor_setup(
@@ -434,6 +454,7 @@ def test_preflight_catches_a_sandbox_that_changes_the_outcome(tmp_path, monkeypa
     assert "changes its outcome" in rep["preflight"]["problem"]
 
 
+@pytest.mark.slow
 def test_doctor_flags_a_login_profile_that_would_bill_an_api_key(tmp_path, monkeypatch):
     claude = install_fake(tmp_path / "bin", "claude")
     cli, _ = _doctor_setup(
@@ -448,6 +469,7 @@ def test_doctor_flags_a_login_profile_that_would_bill_an_api_key(tmp_path, monke
     assert SENTINEL not in json.dumps(res)
 
 
+@pytest.mark.slow
 def test_doctor_flags_a_cli_that_is_not_logged_in(tmp_path, monkeypatch):
     claude = install_fake(tmp_path / "bin", "claude")
     cli, _ = _doctor_setup(
@@ -472,6 +494,7 @@ LIVE_ANSWERS = (
 
 
 @pytest.mark.skipif(not os.environ.get("BATON_LIVE_HARNESS"), reason="live test: set BATON_LIVE_HARNESS=1 (uses the real claude and codex logins)")
+@pytest.mark.not_slow("measured under 1 s")
 def test_live_harnesses(tmp_path):
     """fit-check through the real CLIs: describe by claude, assess by codex; doctor on both, preflight included."""
     real_home = os.environ["HOME"]

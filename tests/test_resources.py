@@ -51,6 +51,7 @@ def home(tmp_path):
     return h
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_detected_harnesses_become_profiles_and_missing_ones_say_why(home):
     out = run_setup(home, found("codex"))
     assert "codex" in out["written"]  # beside one profile per pinned Codex model (2026-11-cli-model-routes)
@@ -65,6 +66,7 @@ def test_detected_harnesses_become_profiles_and_missing_ones_say_why(home):
 
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_harness_can_be_pinned_to_a_model(home):
     out = run_setup(home, found("claude_code"))
     assert {"claude-code", "claude-code-claude-opus-5-5", "claude-code-claude-sonnet-5-5"} <= set(out["written"])
@@ -81,6 +83,7 @@ def test_a_harness_can_be_pinned_to_a_model(home):
     assert "model" not in default and "model_id" not in default
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_pinned_harness_profile_runs_its_model(home, tmp_path):
     from baton.adapters import ADAPTERS
     from baton.models import WorkerProfile
@@ -92,11 +95,13 @@ def test_a_pinned_harness_profile_runs_its_model(home, tmp_path):
     assert argv[-2:] == ["--model", "claude-sonnet-5-5"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_not_logged_in_is_not_a_profile(home):
     out = run_setup(home, found("claude_code", logged_in=False))
     assert out["written"] == [] and any("not logged in" in s["reason"] for s in out["skipped"])
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_direct_and_intermediary_share_identity_not_credentials(home):
     resources.declare(home, "anthropic-key", provider="anthropic", credential="secret:anthropic_main")
     resources.declare(home, "openrouter-main", provider="openrouter", credential="secret:openrouter_main")
@@ -114,6 +119,7 @@ def test_direct_and_intermediary_share_identity_not_credentials(home):
         assert "sk-" not in text
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_model_allowlist_limits_what_an_account_gets(home):
     resources.declare(home, "anthropic-key", provider="anthropic", credential="secret:k", models=["anthropic/claude-sonnet-5-5"])
     out = run_setup(home)
@@ -127,6 +133,7 @@ def test_a_model_allowlist_limits_what_an_account_gets(home):
         ({"provider": "openrouter", "capabilities": ["vision"]}, "resources.capability"),
     ],
 )
+@pytest.mark.not_slow("measured under 1 s")
 def test_declarations_are_checked(home, body, code):
     with pytest.raises(ResourcesError) as e:
         resources.declare(home, "x", **{k: v for k, v in body.items()})
@@ -134,6 +141,7 @@ def test_declarations_are_checked(home, body, code):
     assert not (home / "resources.yaml").exists()
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_file_names_each_resource_kind(home):
     (home / "resources.yaml").write_text("format: baton-resources/1\nresources:\n  a: {provider: openrouter}\n  b: {kind: storage, provider: s3}\n", encoding="utf-8")
     with pytest.raises(ResourcesError) as e:
@@ -142,6 +150,7 @@ def test_the_file_names_each_resource_kind(home):
     assert "worker" in str(e.value)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_declared_machine_dependent_capability_is_added(home):
     resources.declare(home, "claude-here", provider="claude_code", capabilities=["loopback_network"])
     run_setup(home, found("claude_code"))
@@ -150,6 +159,7 @@ def test_a_declared_machine_dependent_capability_is_added(home):
     assert "loopback_network" not in gen(home, "codex")["capabilities"]  # declared for claude_code only
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_owner_profiles_are_never_touched(home):
     (home / "workers.yaml").write_text("codex:\n  adapter: codex\n  creator: openai\n  auth: { mode: cli_login }\n", encoding="utf-8")
     (home / "workers").mkdir()
@@ -164,6 +174,7 @@ def test_owner_profiles_are_never_touched(home):
     assert not (home / "workers" / "codex.yaml").exists()
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_verification_only_when_asked(home):
     calls = []
 
@@ -184,6 +195,7 @@ def test_verification_only_when_asked(home):
     assert marker["verified"]["date"] == "2026-11-06" and resources.ownership(gen(home, "codex")) == "untouched"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_generated_profiles_load_are_eligible_unverified_and_yield_to_the_owner(home, tmp_path):
     run_setup(home, found("codex", "claude_code"))
     root = tmp_path / "proj"
@@ -204,6 +216,7 @@ def test_generated_profiles_load_are_eligible_unverified_and_yield_to_the_owner(
     assert profile_sha256(WorkerProfile.model_validate(body)) == h
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_setup_state_is_machine_wide(home):
     st = resources.status(home, discover_fn=found("codex"))
     assert st["setup_complete"] is False and "codex" in st["available_not_generated"]
@@ -213,6 +226,7 @@ def test_setup_state_is_machine_wide(home):
     assert st["setup_complete"] is True and st["setup"]["nothing_more"] is True and "codex" in st["unverified"]
 
 
+@pytest.mark.slow
 def test_cli_declare_needs_no_project(home, tmp_path):
     env = {**os.environ, "BATON_HOME": str(home)}
     r = subprocess.run([sys.executable, "-m", "baton", "workers", "declare", "openrouter-main", "--provider", "openrouter",

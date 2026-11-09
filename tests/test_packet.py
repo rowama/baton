@@ -115,6 +115,7 @@ def test_hash_covers_inputs_and_profile(tmp_path):
 
 @settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(idea=st.text(min_size=1, max_size=200), title=st.text(min_size=1, max_size=40))
+@pytest.mark.slow
 def test_packet_determinism_property(tmp_path_factory, idea, title):
     inputs = {"title": title, "idea": idea}
     a = _hash_in_fresh_project(tmp_path_factory.mktemp("a"), inputs)

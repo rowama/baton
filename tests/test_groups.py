@@ -735,6 +735,7 @@ def test_first_iteration_step_depending_on_a_repeated_step_is_rejected(tmp_path)
 # -- through the CLI: dispatch, status, decide on an instance, revise, records, checkpoints ----
 
 
+@pytest.mark.slow
 def test_group_run_through_the_cli(tmp_path):
     from projectkit import Cli, git, make_git_project, make_home, packet_dir
     from projectkit import write_result as cli_result

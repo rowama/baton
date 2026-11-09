@@ -151,6 +151,7 @@ def _kill_one(pid: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_dispatch_returns_once_started_and_the_supervisor_finishes(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "done"})
     gate = tmp_path / "go"
@@ -176,6 +177,7 @@ def test_dispatch_returns_once_started_and_the_supervisor_finishes(tmp_path):
     assert manifest["deadline"] == d["deadline"] and manifest["effort"] == "M"
 
 
+@pytest.mark.slow
 def test_dispatch_survives_its_callers_shell_exiting(tmp_path):
     """The Director's shell and everything it started end; the dispatched work does not.
 
@@ -272,6 +274,7 @@ class _WinJob:
             self.h = None
 
 
+@pytest.mark.slow
 def test_dispatch_with_wait_blocks_until_recorded(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "c"})
     res = s.cli("dispatch", s.run, "describe", "--worker", "bot", "--wait")
@@ -283,6 +286,7 @@ def test_dispatch_with_wait_blocks_until_recorded(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp_path):
     # 5 s: long enough for any worker to start under load, short enough for the hang to time out.
     s = Setup(tmp_path, hooks={"on_complete": "complete"}, effort_cfg={"bands": {"M": "5s"}, "extend_once": False})
@@ -313,6 +317,7 @@ def test_hooks_fire_for_passed_gate_failed_needs_human_timed_out_and_crashed(tmp
     assert all(e["data"]["hook"] == "on_complete" and e["data"]["source"] == "project" and "command" not in e["data"] for e in fired)
 
 
+@pytest.mark.slow
 def test_hook_choice_and_failure_never_change_outcomes(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "complete", "on_needs_human": "human"})
     s.behave("good", output=GOOD_PROFILE)
@@ -330,6 +335,7 @@ def test_hook_choice_and_failure_never_change_outcomes(tmp_path):
     assert s.cli("status", s.run, expect=4).payload["steps"]["assess"]["state"] == "awaiting_human"
 
 
+@pytest.mark.slow
 def test_machine_hook_secret_is_substituted_and_never_recorded(tmp_path):
     secret = SENTINEL_PREFIX + "wakeurl123456"
     s = Setup(tmp_path, machine_hooks={"on_complete": "secret:wake"})
@@ -346,6 +352,7 @@ def test_machine_hook_secret_is_substituted_and_never_recorded(tmp_path):
     assert s.cli("check").exit_code == 0
 
 
+@pytest.mark.slow
 def test_platform_failure_uses_on_platform_failure(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "complete", "on_platform_failure": "platform"}, script_gate="baton-no-such-command-xyz")
     s.behave("good", output=GOOD_PROFILE)
@@ -361,6 +368,7 @@ def test_platform_failure_uses_on_platform_failure(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_marker_present_process_alive_is_running_and_overdue_past_deadline(tmp_path):
     s = Setup(tmp_path)
     s.behave("hang")
@@ -383,6 +391,7 @@ def test_marker_present_process_alive_is_running_and_overdue_past_deadline(tmp_p
         api.close()
 
 
+@pytest.mark.slow
 def test_marker_present_process_dead_result_written_finishes_intake(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "x"})
     s.behave("result_then_hang", output=GOOD_PROFILE)
@@ -398,6 +407,7 @@ def test_marker_present_process_dead_result_written_finishes_intake(tmp_path):
     assert [h["BATON_OUTCOME"] for h in s.hooks()] == ["passed"]
 
 
+@pytest.mark.slow
 def test_marker_present_process_dead_no_result_is_orphaned_and_classified(tmp_path):
     s = Setup(tmp_path)
     s.behave("hang")
@@ -414,6 +424,7 @@ def test_marker_present_process_dead_no_result_is_orphaned_and_classified(tmp_pa
     assert r["pending_decisions"][0]["reason"] == "platform"
 
 
+@pytest.mark.slow
 def test_marker_absent_after_intake_is_finished(tmp_path):
     s = Setup(tmp_path)
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot", "--wait")
@@ -424,6 +435,7 @@ def test_marker_absent_after_intake_is_finished(tmp_path):
     assert [e["type"] for e in s.events()[len(before):] if e["step_path"]] == []
 
 
+@pytest.mark.slow
 def test_running_attempt_without_any_marker_counts_as_a_dead_supervisor(tmp_path):
     s = Setup(tmp_path)
     s.behave("hang")
@@ -441,6 +453,7 @@ def test_running_attempt_without_any_marker_counts_as_a_dead_supervisor(tmp_path
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_overdue_s_step_is_extended_once_then_terminated_and_classified(tmp_path):
     s = Setup(tmp_path, effort="S", effort_cfg={"bands": {"S": "1s"}, "extend_once": True}, hooks={"on_complete": "c"})
     s.behave("hang")
@@ -460,6 +473,7 @@ def test_overdue_s_step_is_extended_once_then_terminated_and_classified(tmp_path
     assert s.cli.run("status", s.run)["steps"]["describe"]["state"] == "ready"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_manual_workers_get_an_informational_deadline_and_no_supervisor(tmp_path):
     s = Setup(tmp_path, effort="L")
     d = s.cli.run("dispatch", s.run, "describe", "--worker", "owner")
@@ -481,6 +495,7 @@ def _text(s: Setup, *args: str):
     return runner.invoke(app, list(args))
 
 
+@pytest.mark.slow
 def test_wake_path_is_a_hook_that_fires_for_a_step_waiting_on_the_owner(tmp_path):
     s = Setup(tmp_path, hooks={"on_platform_failure": "p"})
     assert supervisor.wake_path(s.api().project) is None  # only on_platform_failure: nothing fires for needs_human
@@ -494,10 +509,12 @@ def test_wake_path_is_a_hook_that_fires_for_a_step_waiting_on_the_owner(tmp_path
 
 @pytest.mark.parametrize(("seconds", "want"), [(60, "about a minute"), (45 * 60, "about 45 minutes"), (3600, "about 1 hour"),
                                                (90 * 60, "about 90 minutes"), (7200, "about 2 hours"), (2.5 * 3600, "about 2.5 hours")])
+@pytest.mark.not_slow("measured under 1 s")
 def test_wake_durations_are_plain_words(seconds, want):
     assert supervisor.duration_text(seconds) == want
 
 
+@pytest.mark.slow
 def test_eligible_reports_the_wake_path_and_the_owners_notice_from_the_band(tmp_path):
     s = Setup(tmp_path, effort="L")
     wake = s.cli.run("eligible", s.run, "describe")["wake"]
@@ -518,6 +535,7 @@ def test_eligible_reports_the_wake_path_and_the_owners_notice_from_the_band(tmp_
     assert "tell the owner" not in _text(s3, "eligible", s3.run, "describe").stdout
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_step_only_a_person_can_do_gets_no_notice(tmp_path):
     s = Setup(tmp_path)
     (s.baton / "preferences.yaml").write_text("exclude: [bot]\n", encoding="utf-8")
@@ -528,6 +546,7 @@ def test_a_step_only_a_person_can_do_gets_no_notice(tmp_path):
     assert d["warnings"] == []  # the Director hands the result in itself
 
 
+@pytest.mark.slow
 def test_dispatch_warns_with_no_wake_path_with_or_without_wait(tmp_path):
     s = Setup(tmp_path)
     res = _text(s, "dispatch", s.run, "describe", "--worker", "bot")
@@ -550,6 +569,7 @@ def test_dispatch_warns_with_no_wake_path_with_or_without_wait(tmp_path):
     s4.api().wait(s4.run, timeout=60)
 
 
+@pytest.mark.slow
 def test_doctor_warns_with_no_wake_path_and_reports_a_problem_for_a_detached_lease(tmp_path):
     s = Setup(tmp_path)
     rep = s.cli("doctor", "--no-run", expect=None).payload
@@ -592,11 +612,13 @@ def test_doctor_warns_with_no_wake_path_and_reports_a_problem_for_a_detached_lea
         (1, "No space left on device\nbaton-worker: failure=configuration code=bad_model message=x\n", None, ("configuration", "bad_model")),
     ],
 )
+@pytest.mark.not_slow("measured under 1 s")
 def test_classification_rules(exit_code, tail, signals, want):
     got = classify.classify_exit(exit_code, tail.encode(), signals)
     assert (got["class"], got["code"]) == want
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_gate_classification_uses_only_gate_scoped_rules():
     assert classify.classify_gate(127)["code"] == "executable_not_found"
     assert classify.classify_gate(126)["code"] == "not_executable"
@@ -608,15 +630,18 @@ def test_gate_classification_uses_only_gate_scoped_rules():
     assert classify.classify_gate(None) is None
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_classification_messages_are_redacted():
     got = classify.classify_exit(1, f"Could not resolve host {SENTINEL_PREFIX}abcdefgh\n".encode())
     assert SENTINEL_PREFIX not in got["message"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_rules_file_is_versioned():
     assert classify.load_rules()["id"] == "baton-classify-rules/1"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_deadline_extended_only_while_running():
     assert next_step_state(StepState("running", 1), "deadline_extended", 1, 3).state == "running"
     for frm in ("ready", "verifying", "passed", "timed_out"):
@@ -624,6 +649,7 @@ def test_deadline_extended_only_while_running():
             next_step_state(StepState(frm, 1), "deadline_extended", 1, 3)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_effort_config_validation(tmp_path):
     from baton.project import load_config
 
@@ -638,6 +664,7 @@ def test_effort_config_validation(tmp_path):
     assert load_config(p)[1][0].code == "project.secret_reference"
 
 
+@pytest.mark.slow
 def test_doctor_checks_supervisor_and_hooks(tmp_path):
     s = Setup(tmp_path, hooks={"on_complete": "c"})
     rep = s.cli("doctor", "--no-run", expect=None).payload
@@ -654,6 +681,7 @@ def test_doctor_checks_supervisor_and_hooks(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_owner_exit_zero_makes_owner_needed_exit_0_and_keeps_needs_owner(tmp_path, monkeypatch):
     s = Setup(tmp_path)
     s.cli.run("dispatch", s.run, "describe", "--worker", "bot", "--wait")
@@ -669,6 +697,7 @@ def test_owner_exit_zero_makes_owner_needed_exit_0_and_keeps_needs_owner(tmp_pat
     assert s.cli("wait", s.run, expect=4).payload["needs_owner"] is True  # the default stays 4
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_a_bad_owner_exit_value_is_a_usage_error_before_any_work(tmp_path, monkeypatch):
     s = Setup(tmp_path)
     before = len(s.events())
@@ -681,6 +710,7 @@ def test_a_bad_owner_exit_value_is_a_usage_error_before_any_work(tmp_path, monke
 
 
 @pytest.mark.parametrize(("value", "want"), [(None, 4), ("4", 4), ("0", 0), ("", 4)])
+@pytest.mark.not_slow("measured under 1 s")
 def test_every_owner_needed_exit_goes_through_one_place(value, want, monkeypatch, capsys):
     """``cli._done`` is the only owner-needed exit (``decide`` and every other command use it)."""
     import typer

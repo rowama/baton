@@ -67,11 +67,13 @@ def assert_clean_record(cli, project: Path, run: str) -> list[dict]:
 
 
 @pytest.mark.parametrize("name", ["fit-check", "software-feature", "backyard-project"])
+@pytest.mark.not_slow("measured under 1 s")
 def test_shipped_recipes_pass_the_lint_with_no_warnings(name):
     loaded = load_recipe(EXAMPLES / name)
     assert loaded.warnings == []
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_the_examples_directory_ships_exactly_the_three_recipes():
     assert sorted(p.name for p in EXAMPLES.iterdir() if p.is_dir()) == ["backyard-project", "fit-check", "software-feature"]
     assert SOFTWARE_FEATURE == EXAMPLES / "software-feature" and FIT_CHECK == EXAMPLES / "fit-check"
@@ -84,6 +86,7 @@ def test_the_examples_directory_ships_exactly_the_three_recipes():
 FIX = {"title": "Greeting", "kind": "fix", "feature_request": "Add a greet() function that returns 'hi'."}
 
 
+@pytest.mark.slow
 def test_software_feature_minor(tmp_path):
     script = {"triage": {"output": {"level": "minor", "reasons": ["one small fix: bug fix, one sitting"]}},
               "implement": good("src/greet.py", "def greet():\n    return 'hi'\n"), "code_review": CLEAN}
@@ -105,6 +108,7 @@ def test_software_feature_minor(tmp_path):
     assert gate_runs, "the project's test command ran as a gate"
 
 
+@pytest.mark.slow
 def test_software_feature_standard(tmp_path):
     script = {
         "triage": {"output": {"level": "standard", "reasons": ["a feature touching several modules"]}},
@@ -156,6 +160,7 @@ def test_software_feature_standard(tmp_path):
     assert_clean_record(cli, project, run)
 
 
+@pytest.mark.slow
 def test_software_feature_major(tmp_path):
     script = {
         "triage": {"output": {"level": "major", "reasons": ["changes a stored format"]}},
@@ -205,6 +210,7 @@ def test_software_feature_major(tmp_path):
     ("fits_per_occurrence", "A recipe plus a scheduler that calls baton start per contract."),
     ("operations_engine", "Start a software-feature run whose deliverable is that system."),
 ])
+@pytest.mark.slow
 def test_fit_check_each_verdict(tmp_path, verdict, next_step):
     cli, project = setup_fit_check(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
@@ -230,6 +236,7 @@ with open(sys.argv[1], "a", encoding="utf-8") as f:
 """
 
 
+@pytest.mark.slow
 def test_remote_director_completes_a_multi_slice_work_item_across_sessions(tmp_path):
     """The Phase 16 scenario: each Director session is a fresh process with only a shell; it dispatches without
     waiting and ends its turn; completion hooks (a webhook to the remote agent) start the next session. The owner
@@ -381,6 +388,7 @@ def _index(transcript: list[dict], pred) -> int:
     return next(i for i, e in enumerate(transcript) if pred(e))
 
 
+@pytest.mark.slow
 def test_a_detached_director_with_no_hook_tells_the_owner_before_dispatching(tmp_path):
     """The bug eval (2026-11-04-director-wake-on-needs-human): no hooks, framing dispatched with --wait in the background."""
     t, cli, _project = _detached_turn(tmp_path)
@@ -399,6 +407,7 @@ def test_a_detached_director_with_no_hook_tells_the_owner_before_dispatching(tmp
     assert st["needs_owner"] and st["lease"]["harness"] == "cloud-chat"
 
 
+@pytest.mark.slow
 def test_the_detached_scenario_exits_0_with_owner_exit_0(tmp_path):
     t, _cli, _project = _detached_turn(tmp_path, owner_exit="0")
     dispatch = next(e for e in t if e.get("cmd", [None])[0] == "dispatch")
@@ -407,6 +416,7 @@ def test_the_detached_scenario_exits_0_with_owner_exit_0(tmp_path):
     assert any(e.get("tell", {}).get("kind") == "notice" for e in t)
 
 
+@pytest.mark.slow
 def test_the_detached_scenario_with_an_on_needs_human_hook(tmp_path):
     from realkit import cmdline
 
@@ -426,6 +436,7 @@ def test_the_detached_scenario_with_an_on_needs_human_hook(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_a_healthy_project_makes_no_routine_owner_prompts(tmp_path):
     """After setup and a finished work item, the routine checks say one line each and nothing needs the owner.
     (Adoption needing exactly one owner decision: test_adoption; every owner touchpoint being a recipe gate:
@@ -452,6 +463,7 @@ def test_a_healthy_project_makes_no_routine_owner_prompts(tmp_path):
     assert cli.run("board", "--needs-me")["runs"] == []
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_readme_profile_example_is_valid(tmp_path):
     """The README's worker profiles load as written (§19: the README covers writing profiles)."""
     import re
@@ -465,6 +477,7 @@ def test_readme_profile_example_is_valid(tmp_path):
     assert sorted(load_profiles(f)) == ["api-writer", "claude-code-sub", "codex-sub", "owner"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_readme_covers_directors_that_end_their_turn(tmp_path):
     """Change 2026-11-director-wake, criterion 6: the exit-code table, the environment, and two hook examples that work."""
     import re

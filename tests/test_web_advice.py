@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 
 import yaml
@@ -42,6 +44,7 @@ def project_with_web_recipe(tmp_path: Path) -> tuple[Cli, Path]:
     return cli, project
 
 
+@pytest.mark.slow
 def test_doctor_recommends_a_subscription_cli_only_while_no_worker_can_search(tmp_path):
     cli, _project = project_with_web_recipe(tmp_path)
     out = cli.run("doctor", "--no-run")
@@ -57,6 +60,7 @@ def test_doctor_recommends_a_subscription_cli_only_while_no_worker_can_search(tm
     assert cli.run("doctor", "--no-run")["web_advice"]["steps"] == ["webby@1/look"]
 
 
+@pytest.mark.slow
 def test_start_carries_the_advice_for_the_recipe_it_starts(tmp_path):
     cli, _project = project_with_web_recipe(tmp_path)
     out = cli.run("start", "webby", "--inputs", '{"title": "Look it up"}')
@@ -68,6 +72,7 @@ def test_start_carries_the_advice_for_the_recipe_it_starts(tmp_path):
     assert "web_advice" not in cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))
 
 
+@pytest.mark.slow
 def test_framing_choice_carries_the_advice_for_parts_that_need_the_web(tmp_path):
     cli, project = project_with_web_recipe(tmp_path)
     fr = cli.run("frame", "--note", "Find the best water machines and write up the choice.")["framing"]

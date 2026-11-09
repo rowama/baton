@@ -78,6 +78,7 @@ def _front_matter(path: Path) -> dict:
     return yaml.safe_load(text[4:text.index("\n---\n", 4)])
 
 
+@pytest.mark.slow
 def test_every_section_reference_resolves():
     sections, open_decisions = _index()
     headings: dict[Path, set[str]] = {}
@@ -97,6 +98,7 @@ def test_every_section_reference_resolves():
     assert not problems, "\n".join(problems)
 
 
+@pytest.mark.slow
 def test_every_numbered_heading_is_indexed():
     sections, _ = _index()
     docs = [DOCS / "principles.md", INDEX, *sorted((DOCS / "design").glob("*.md")), *sorted((DOCS / "history").glob("*.md"))]
@@ -135,6 +137,7 @@ def test_relative_links_resolve(doc):
     assert not broken, "\n".join(broken)
 
 
+@pytest.mark.slow
 def test_decision_records_are_well_formed():
     records = sorted((DOCS / "decisions").glob("*.md"))
     assert records

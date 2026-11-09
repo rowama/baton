@@ -89,6 +89,7 @@ def assess_packet(tmp_path):
     return engine.begin_attempt(ctx, "assess", "api", prof)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_messages_inline_text_inputs(assess_packet):
     msgs = wr.build_messages(assess_packet.dir)
     user = msgs[1]["content"]
@@ -97,12 +98,14 @@ def test_messages_inline_text_inputs(assess_packet):
     assert '"frequency": "a few per month"' in user  # small JSON was already inlined in INSTRUCTIONS.md
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_inputs_too_large_is_a_hard_error(assess_packet):
     with pytest.raises(wr.InputError) as e:
         wr.build_messages(assess_packet.dir, context_tokens=100)
     assert "budget is 200 bytes" in str(e.value) and "reads files" in str(e.value)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_non_text_input_is_a_hard_error(tmp_path):
     pdir = tmp_path / "packet"
     (pdir / "inputs").mkdir(parents=True)
@@ -114,6 +117,7 @@ def test_non_text_input_is_a_hard_error(tmp_path):
     assert "not UTF-8 text" in str(e.value)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_run_writes_result_last_with_structured_output(assess_packet, tmp_path):
     fake = FakeCompletion(reply(VERDICT_OUT, notes="scored"))
     env = wr.run(assess_packet.dir, assess_packet.result_dir, "m", {"temperature": 0}, None, complete=fake, supports_schema=lambda m: True)
@@ -127,6 +131,7 @@ def test_run_writes_result_last_with_structured_output(assess_packet, tmp_path):
     assert "$schema" not in schema["properties"]["output"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_prompt_only_when_no_schema_support(assess_packet):
     fake = FakeCompletion("Here you go:\n```json\n" + reply(VERDICT_OUT) + "\n```")
     env = wr.run(assess_packet.dir, assess_packet.result_dir, "m", {}, None, complete=fake)
@@ -134,11 +139,13 @@ def test_prompt_only_when_no_schema_support(assess_packet):
     assert "## Reply schema" in fake.calls[0]["messages"][1]["content"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_non_json_reply_is_a_failed_result(assess_packet):
     env = wr.run(assess_packet.dir, assess_packet.result_dir, "m", {}, None, complete=FakeCompletion("I cannot comply."))
     assert env["status"] == "failed" and "not a JSON object" in env["notes"]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_artifacts_written_by_name(tmp_path):
     pdir = tmp_path / "packet"
     pdir.mkdir()
@@ -151,6 +158,7 @@ def test_artifacts_written_by_name(tmp_path):
     assert (tmp_path / "result" / "artifacts" / "doc.md").read_text(encoding="utf-8") == "# Doc\n"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_provider_exceptions_are_classified():
     class AuthenticationError(Exception):
         pass
@@ -167,6 +175,7 @@ def test_provider_exceptions_are_classified():
     assert wr.classify_exception(ValueError("?")).failure_class == "unknown"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_exit_without_result_is_classified_and_escalated(tmp_path):
     from baton import engine
     from baton.models import WorkerProfile
@@ -189,6 +198,7 @@ def test_exit_without_result_is_classified_and_escalated(tmp_path):
     assert classify_exit(ChildResult(127, 0, False, tmp_path / "x", b""))["code"] == "executable_not_found"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_timeout_retries_while_attempts_remain(tmp_path):
     from baton import engine
     from baton.models import WorkerProfile
@@ -210,6 +220,7 @@ def _events(project: Path, run: str) -> list[str]:
     return [json.loads(line)["type"] for line in (project / ".baton" / "runs" / run / "events.jsonl").read_text().splitlines()]
 
 
+@pytest.mark.slow
 def test_missing_secret_refuses_dispatch(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     (cli.home / "workers.yaml").write_text(api_profile("api", "acme", "acme/model-a", "absent", reply(GOOD_PROFILE)), encoding="utf-8")
@@ -220,6 +231,7 @@ def test_missing_secret_refuses_dispatch(tmp_path):
     assert _events(project, run) == before
 
 
+@pytest.mark.slow
 def test_inputs_too_large_refuses_dispatch(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     (cli.home / "secrets").mkdir()
@@ -241,6 +253,7 @@ def test_inputs_too_large_refuses_dispatch(tmp_path):
 
 
 @needs_litellm
+@pytest.mark.slow
 def test_two_vendors_complete_fit_check_and_secrets_stay_out(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     (cli.home / "secrets").mkdir()
@@ -286,6 +299,7 @@ def test_two_vendors_complete_fit_check_and_secrets_stay_out(tmp_path):
 
 
 @needs_litellm
+@pytest.mark.slow
 def test_doctor_quiet_when_healthy_and_reports_problems(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     (cli.home / "secrets").mkdir()
@@ -330,6 +344,7 @@ def test_doctor_quiet_when_healthy_and_reports_problems(tmp_path):
 
 @needs_litellm
 @pytest.mark.skipif(not os.environ.get("BATON_LIVE_MODELS"), reason="live test: set BATON_LIVE_MODELS and the BATON_SECRET_<VENDOR> keys")
+@pytest.mark.not_slow("measured under 1 s")
 def test_live_two_vendors(tmp_path):
     """``BATON_LIVE_MODELS="openai=openai/<model>,anthropic=anthropic/<model>"``; keys in
     ``BATON_SECRET_OPENAI`` / ``BATON_SECRET_ANTHROPIC`` (injected as the providers' usual variables)."""

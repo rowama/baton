@@ -44,6 +44,7 @@ def attempt(ctx, step: str, output, **kw):
 # -- the happy path -----------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_fit_check_through_human_gate(store):
     ctx = start(store, FIT_CHECK)
     _, out = attempt(ctx, "describe", PROFILE_OUT)
@@ -68,6 +69,7 @@ def test_fit_check_through_human_gate(store):
     assert ctx.log.state().state == "completed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_registered_output_is_what_downstream_sees(store):
     ctx = start(store, FIT_CHECK)
     attempt(ctx, "describe", PROFILE_OUT)
@@ -78,6 +80,7 @@ def test_registered_output_is_what_downstream_sees(store):
 # -- rejections ---------------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_hash_mismatch_rejected_and_fed_back(store):
     ctx = start(store, FIT_CHECK)
     _, out = attempt(ctx, "describe", PROFILE_OUT, packet_sha256="0" * 64)
@@ -94,6 +97,7 @@ def test_hash_mismatch_rejected_and_fed_back(store):
     assert engine.submit(ctx, "describe").outcome == "passed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_schema_failure_rejected_with_reasons(store):
     ctx = start(store, FIT_CHECK)
     bad = {"summary": "x", "occurrence": {**PROFILE_OUT["occurrence"], "judgment": "extreme"}, "surprise": 1}
@@ -113,6 +117,7 @@ def test_schema_failure_rejected_with_reasons(store):
         (lambda r: r.pop("packet_sha256"), "result.json packet_sha256"),
     ],
 )
+@pytest.mark.not_slow("measured under 1 s")
 def test_envelope_problems_rejected(store, mutate, expected):
     ctx = start(store, FIT_CHECK)
     p = engine.begin_attempt(ctx, "describe", "owner", WRITER)
@@ -123,6 +128,7 @@ def test_envelope_problems_rejected(store, mutate, expected):
     assert out.outcome == "retry" and any(expected in r for r in out.reasons), out.reasons
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_missing_and_unparsable_result(store):
     ctx = start(store, FIT_CHECK)
     engine.begin_attempt(ctx, "describe", "owner", WRITER)
@@ -133,6 +139,7 @@ def test_missing_and_unparsable_result(store):
     assert "not valid JSON" in engine.submit(ctx, "describe").reasons[0]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_modified_packet_rejected(store):
     ctx = start(store, FIT_CHECK)
     p = engine.begin_attempt(ctx, "describe", "owner", WRITER)
@@ -145,6 +152,7 @@ def test_modified_packet_rejected(store):
     assert out.outcome == "retry" and "the packet was modified after it was built" in out.reasons
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_attempts_exhausted_escalates(store):
     ctx = start(store, FIT_CHECK)  # fit-check: defaults.max_attempts = 3
     for n in (1, 2):
@@ -154,6 +162,7 @@ def test_attempts_exhausted_escalates(store):
     assert ctx.record().last("step_escalated", "describe").data["reason"] == "attempts_exhausted"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_blocked_escalates_with_questions(store):
     ctx = start(store, FIT_CHECK)
     _, out = attempt(ctx, "describe", None, status="blocked", questions_for_human=["How often does it happen?"])
@@ -164,12 +173,14 @@ def test_blocked_escalates_with_questions(store):
                                       "multi_select": False, "priority": "needed"}]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_worker_failed_is_retried(store):
     ctx = start(store, FIT_CHECK)
     _, out = attempt(ctx, "describe", None, status="failed", notes="could not reach the owner")
     assert out.outcome == "retry" and "could not reach the owner" in out.reasons[0]
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_submit_requires_a_running_attempt(store):
     """A Director that writes a result without a dispatched attempt cannot get it accepted."""
     ctx = start(store, FIT_CHECK)
@@ -186,6 +197,7 @@ def art(store, tmp_path):
     return start(store, artifact_recipe(tmp_path / "r"), {})
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_artifacts_registered_through_intake(art):
     _, out = attempt(art, "draft", {}, artifacts={"doc": ("doc.md", b"# Doc\n")})
     assert out.outcome == "passed"
@@ -194,6 +206,7 @@ def test_artifacts_registered_through_intake(art):
     assert (reg["filename"], reg["media_type"]) == ("doc.md", "text/markdown")
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_unlisted_file_is_not_registered(art):
     p = engine.begin_attempt(art, "draft", "owner", WRITER)
     (p.result_dir / "artifacts" / "doc.md").write_bytes(b"# Doc\n")  # present, but not listed
@@ -211,6 +224,7 @@ def test_unlisted_file_is_not_registered(art):
         ([{"name": "doc", "path": "artifacts/nope.md"}], "does not exist"),
     ],
 )
+@pytest.mark.not_slow("measured under 1 s")
 def test_artifact_listing_problems(art, listing, expected):
     p = engine.begin_attempt(art, "draft", "owner", WRITER)
     result = write_result(p, {}, artifacts={"doc": ("doc.md", b"# Doc\n")})
@@ -221,6 +235,7 @@ def test_artifact_listing_problems(art, listing, expected):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="symlinks")
+@pytest.mark.not_slow("measured under 1 s")
 def test_symlinked_artifact_rejected(art, tmp_path):
     outside = tmp_path / "outside.md"
     outside.write_bytes(b"# Not from the worker\n")
@@ -234,6 +249,7 @@ def test_symlinked_artifact_rejected(art, tmp_path):
     assert any("is a link" in r for r in out.reasons)
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_planted_blob_never_satisfies_downstream(art):
     """A blob in CAS without intake behind it is not an accepted result."""
     art.log.cas.put(b"# Planted by someone\n")
@@ -255,6 +271,7 @@ def script_recipe(root: Path, run: str, **gate) -> Path:
     )
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_script_gate_pass(store, tmp_path):
     ctx = start(store, script_recipe(tmp_path / "r", f"{PY} -c \"print('ok')\""), {})
     _, out = attempt(ctx, "work", {})
@@ -264,6 +281,7 @@ def test_script_gate_pass(store, tmp_path):
     assert ctx.log.cas.read(g.data["output_sha256"]).strip() == b"ok"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_script_gate_failure_feeds_back_output(store, tmp_path):
     cmd = f"{PY} -c \"import sys; print('2 tests failed'); sys.exit(3)\""
     ctx = start(store, script_recipe(tmp_path / "r", cmd), {})
@@ -274,6 +292,7 @@ def test_script_gate_failure_feeds_back_output(store, tmp_path):
     assert "2 tests failed" in "".join(p2.manifest["prior_feedback"]["reasons"])
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_script_gate_runs_in_project_with_reduced_env(store, tmp_path, monkeypatch):
     monkeypatch.setenv("BATON_TEST_LEAK", "should-not-pass")
     cmd = f"{PY} -c \"import os; print(os.getcwd()); print(os.environ.get('BATON_TEST_LEAK')); print(os.environ['BATON_STEP_PATH'])\""
@@ -284,6 +303,7 @@ def test_script_gate_runs_in_project_with_reduced_env(store, tmp_path, monkeypat
     assert lines[1:] == ["None", "work"]
 
 
+@pytest.mark.slow
 def test_script_gate_timeout(store, tmp_path):
     ctx = start(store, script_recipe(tmp_path / "r", f"{PY} -c \"import time; time.sleep(30)\"", timeout_s=1), {})
     _, out = attempt(ctx, "work", {})
@@ -291,6 +311,7 @@ def test_script_gate_timeout(store, tmp_path):
     assert ctx.record().last("gate_failed", "work").data["timed_out"] is True
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_script_gate_template_variables(store, tmp_path):
     rec = script_recipe(tmp_path / "r", "{{ project.test_command }}")
     ctx = start(store, rec, {}, project={"project": {"test_command": f"{PY} -c \"print('templated')\""}})
@@ -298,6 +319,7 @@ def test_script_gate_template_variables(store, tmp_path):
     assert out.outcome == "passed"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_script_gate_undefined_variable_escalates(store, tmp_path):
     ctx = start(store, script_recipe(tmp_path / "r", "{{ project.test_command }}"), {})
     _, out = attempt(ctx, "work", {})
@@ -305,6 +327,7 @@ def test_script_gate_undefined_variable_escalates(store, tmp_path):
     assert ctx.record().last("step_escalated", "work").data["reason"] == "configuration"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_advisory_script_gate_never_blocks(store, tmp_path):
     ctx = start(store, script_recipe(tmp_path / "r", f"{PY} -c \"raise SystemExit(1)\"", advisory=True), {})
     _, out = attempt(ctx, "work", {})
@@ -315,6 +338,7 @@ def test_advisory_script_gate_never_blocks(store, tmp_path):
 # -- human gates --------------------------------------------------------------
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_human_gate_blocks_until_decided(store):
     ctx = start(store, FIT_CHECK)
     attempt(ctx, "describe", PROFILE_OUT)
@@ -335,6 +359,7 @@ def test_human_gate_blocks_until_decided(store):
     assert state(ctx, "assess") == "awaiting_human"
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_human_rejection_retries_with_the_owners_words(store):
     ctx = start(store, FIT_CHECK)
     attempt(ctx, "describe", PROFILE_OUT)
@@ -348,6 +373,7 @@ def test_human_rejection_retries_with_the_owners_words(store):
     assert engine.decide(ctx, "assess", "approve").run_completed
 
 
+@pytest.mark.not_slow("measured under 1 s")
 def test_gates_after_a_human_gate_run_after_approval(store, tmp_path):
     rec = make_recipe(
         tmp_path / "r",

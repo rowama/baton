@@ -24,7 +24,7 @@ from harnesskit import harness_profile
 from projectkit import OWNER_PROFILE, Cli, git, make_git_project, make_home
 from realkit import Director, cmdline, configure, run_events
 
-pytestmark = pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1")
+pytestmark = [pytest.mark.slow, pytest.mark.skipif(os.environ.get("BATON_LIVE") != "1", reason="live harness test: set BATON_LIVE=1")]
 
 CAPS = ["structured_output", "long_form_writing", "technical_reasoning", "tool_use", "file_write", "shell", "code_exec",
         "repo_workspace", "workspace_read"]
