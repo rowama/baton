@@ -1,7 +1,7 @@
 ---
 id: 2026-11-fast-tests
 title: "Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish"
-status: in-progress
+status: done
 level: standard
 decisions: ["0092", "0093"]
 touches: [design/testing.md]   # §17; also docs/principles.md §0 rule 5, AGENTS.md, pyproject.toml, .github/workflows/tests.yml, tests/, tools/
@@ -189,3 +189,9 @@ Full suite on the fast venv: 1250 passed, 9 skipped, 2 m 10 s (4 m 36 s on the r
   - `test_harness_tools.py::test_a_new_harness_version_returns_observed_states_to_likely` (both versions): after the fake executable's mtime is moved 5 s ahead, `eligible` still returns no profile, so the harness-version change is not noticed on Windows.
   - `test_real_use.py::test_remote_director_completes_a_multi_slice_work_item_across_sessions` (3.11 only): the scenario hits its own 600 s loop deadline on the Windows runner.
 - The earlier red Ubuntu cells (the five `test_resources.py` tests) are fixed by the first commit of this change.
+
+### Finish
+
+- Acceptance criteria 1, 2 and 4–7 are demonstrated (finish gate in code; same test ids, nothing deselected; quick-gate time against the full suite for real slices; the ledger and `require-green`; session start by ledger; the rewritten docs). Criterion 3 (parallel suite reliable on Linux and native Windows): demonstrated on Linux; on Windows the parallel suite passes except two failures that also fail in the earlier serial CI runs and are not caused by parallelism. They are the proposed changes 2026-11-windows-harness-version-change and 2026-11-windows-real-use-timeout, with a handoff for a Windows session in `Claude outputs/windows-handoff.md`. The owner chose to finish this change with that known state (2026-11-09).
+- The owner's `.venv` is now a symlink to a venv on the Linux file system (the previous one is `.venv-9p`), `.gitignore` ignores it, and quick gate runs take about 43 s.
+- Final check: `tools/testrun.py require-green HEAD --wait` on the commit that sets `status: done`.
