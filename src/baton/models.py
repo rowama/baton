@@ -457,6 +457,8 @@ class WorkerProfile(_Strict):
     capabilities: list[str] = Field(default_factory=list)
     tier: Tier | None = None
     context_tokens: int | None = Field(default=None, ge=1)
+    #: Price per million tokens (``input``, ``output``; ``free``) with its ``source`` and ``date`` (0115). A fact, never a capability.
+    price: dict[str, Any] | None = None
     auth: ProfileAuth = Field(default_factory=lambda: ProfileAuth(mode="none"))
     env_mode: Literal["clean", "allowlist", "inherit"] | None = None
     env_allow: list[str] = Field(default_factory=list)

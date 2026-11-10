@@ -1204,6 +1204,18 @@ def workers_setup(
     raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
 
 
+@workers_app.command("refresh")
+def workers_refresh(as_json: JsonOpt = False) -> None:
+    """Fetch the model lists of the declared providers; `baton workers setup` then turns new models into workers (§6.4)."""
+    from . import resources
+
+    out = _resources(as_json, resources.refresh_listings)
+    lines = [f"{r['provider']}: {r['models']} models listed ({r['fetched']})" for r in out["refreshed"]]
+    lines += [f"FAILED {f['provider']}: {f['reason']}" for f in out["failed"]]
+    _emit(out, as_json, "\n".join(lines) or "No declared provider has a model list to fetch.")
+    raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
+
+
 @workers_app.command("declare")
 def workers_declare(
     name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,
