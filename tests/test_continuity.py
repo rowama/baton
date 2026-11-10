@@ -117,8 +117,12 @@ def _golden(name: str, text: str) -> None:
 
 
 @pytest.mark.slow
-def test_records_golden(plain):
-    """Step records and the summary for a full fit-check run with a retry are pinned."""
+def test_records_golden(plain, monkeypatch):
+    """Step records and the summary for a full fit-check run with a retry are pinned.
+
+    The recipe catalog is fixed: the `assess` packet holds it, so its hash would change whenever a recipe ships.
+    """
+    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False: [])
     api, root, home, clock = plain
     run = api.start("fit-check", FIT_INPUTS, run_id="r_20261101_ab12")["run_id"]
     api.dispatch(run, "describe", "owner")

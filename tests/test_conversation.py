@@ -280,7 +280,7 @@ def test_framing_inputs_hold_the_owners_words_and_every_recipe(tmp_path):
     assert words == WORDS
     recipes = json.loads((pdir / "inputs" / "recipes.json").read_text(encoding="utf-8"))
     by_id = {r["id"]: r for r in recipes}
-    assert set(by_id) == {"fit-check", "software-feature", "backyard-project"}
+    assert set(by_id) == {"fit-check", "software-feature", "backyard-project", "recipe-builder"}
     assert by_id["fit-check"]["vendored"] and not by_id["backyard-project"]["vendored"]
     assert by_id["backyard-project"]["run_inputs"]["required"] == ["title", "description"]
     rubric = json.loads((pdir / "inputs" / "rubric.json").read_text(encoding="utf-8"))
