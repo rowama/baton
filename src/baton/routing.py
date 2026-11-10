@@ -134,6 +134,8 @@ def identity_of(profile_name: str, profile: WorkerProfile) -> WorkerIdentity:
 def identity_record(profile_name: str, profile: WorkerProfile) -> dict[str, Any]:
     """The identity and route snapshot recorded with a dispatch (0075).
 
+    The route's price, when it has one, is recorded too (0115), so cost is visible after the fact.
+
     ``vendor`` is still written (equal to ``creator``) and ``model`` is the
     invocation identifier, so a runtime that knows only those reads it as before.
     """
@@ -143,7 +145,23 @@ def identity_record(profile_name: str, profile: WorkerProfile) -> dict[str, Any]
         value = getattr(ident, key)
         if value is not None:
             out[key] = value
+    if profile.price:
+        out["price"] = {k: v for k, v in profile.price.items() if k in ("input", "output", "free")}
     return out
+
+
+def price_rank(profile: WorkerProfile) -> tuple[int, float]:
+    """Cheapest first: a known price by input plus output per million tokens; an unpriced route after every priced one."""
+    pr = profile.price
+    if not pr:
+        return (1, 0.0)
+    if pr.get("free"):
+        return (0, 0.0)
+    return (0, float(pr.get("input", 0)) + float(pr.get("output", 0)))
+
+
+def price_label(price: dict[str, Any]) -> str:
+    return "free" if price.get("free") else f"{price.get('input')} in / {price.get('output')} out per million tokens"
 
 
 def route_summary(profile_name: str, profile: WorkerProfile) -> dict[str, Any]:
@@ -288,6 +306,8 @@ def eligible_workers(
                 waived = True
         if name in prefs.exclude:
             reasons.append("excluded by preferences.yaml")
+        if p.quota_until() is not None:
+            reasons.append(f"quota exhausted until {p.quota_until().strftime('%Y-%m-%d %H:%M UTC')}")
         if reasons:
             out.excluded.append({"profile": name, "reasons": reasons})
             continue
@@ -314,7 +334,17 @@ def eligible_workers(
                 kept[name]["reasons"].append(f"preferred for {cap}")
     # Among the rest, more of the step's capabilities verified first, then by name (0084).
     rest = [n for n in kept if n not in ordered]
-    ordered += sorted(rest, key=lambda n: (-sum(st == "verified" for st in kept[n]["capabilities"].values()), n))
+
+    def verified_first(n: str) -> tuple[int, str]:
+        return (-sum(st == "verified" for st in kept[n]["capabilities"].values()), n)
+
+    if prefs.cheapest_first:  # price first, unpriced last, then as before (0115)
+        ordered += sorted(rest, key=lambda n: (price_rank(profiles[n]), *verified_first(n)))
+        for n in rest:
+            if profiles[n].price is not None:
+                kept[n]["reasons"].append(f"price: {price_label(profiles[n].price)}")
+    else:
+        ordered += sorted(rest, key=verified_first)
     out.eligible = [kept[n] for n in ordered]
     return out
 

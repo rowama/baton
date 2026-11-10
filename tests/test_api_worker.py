@@ -361,3 +361,31 @@ def test_live_two_vendors(tmp_path):
     d2 = cli("dispatch", run, "assess", "--worker", f"{pairs[1][0]}-api", "--wait", expect=None).payload
     assert d2["outcome"] == "needs_human", d2
     assert cli.run("decide", run, "assess", "approve", "--note", "Live check.")["run_completed"] is True
+
+
+@needs_litellm
+@pytest.mark.slow
+def test_a_rate_limited_route_reroutes_without_spending_the_attempt(tmp_path):
+    from baton import quota
+
+    cli, project = setup_fit_check(tmp_path)
+    (cli.home / "secrets").mkdir()
+    (cli.home / "secrets" / "k").write_text(SENTINEL_A, encoding="utf-8")
+    free = api_profile("free-api", "acme", "openai/free-model", "k", "litellm.RateLimitError", env_var="OPENAI_API_KEY",
+                       price='{"input": 0.0, "output": 0.0, "free": true}')
+    paid = api_profile("paid-api", "acme", "openai/paid-model", "k", reply(GOOD_PROFILE), env_var="OPENAI_API_KEY")
+    (cli.home / "workers.yaml").write_text(free + paid, encoding="utf-8")
+    (project / ".baton" / "preferences.yaml").write_text("cheapest_first: true\n", encoding="utf-8")
+    run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
+    assert [e["profile"] for e in cli.run("eligible", run, "describe")["eligible"]][0] == "free-api"
+    out = cli("dispatch", run, "describe", "--worker", "free-api", "--wait", expect=1).payload
+    assert out["outcome"] == "retry", out
+    assert "free-api" in quota.load(cli.home)
+    events = [json.loads(line) for line in (project / ".baton" / "runs" / run / "events.jsonl").read_text().splitlines()]
+    sel = [e for e in events if e["type"] == "worker_selected"][0]["data"]
+    assert sel["price"]["free"] is True
+    cls = [e["data"] for e in events if e["type"] == "failure_classified"][-1]
+    assert (cls["class"], cls["code"]) == ("platform", "quota_exhausted")
+    assert [e["data"] for e in events if e["type"] == "step_ready"][-1]["not_counted"] is True
+    assert [e["profile"] for e in cli.run("eligible", run, "describe")["eligible"]] == ["paid-api"]
+    assert cli.run("dispatch", run, "describe", "--worker", "paid-api", "--wait")["outcome"] == "passed"

@@ -2914,8 +2914,12 @@ class Api:
             before = ctx.log.state().last_seq
             signals = getattr(adapters.get(adapter), "failure_signals", None)
             denied = self._observe_tools(ctx, step_path, attempt, worker, child)
+            exhausted = (not denied and not child.timed_out and not (ctx.attempt_dir(step_path, attempt) / "result" / "result.json").is_file()
+                         and classify_exit(child, signals).get("code") == "quota_exhausted")
             if denied and not child.timed_out:
                 outcome = self._capability_absent(ctx, step_path, attempt, child, denied, workspace_changes)
+            elif exhausted:
+                outcome = self._quota_exhausted(ctx, step_path, attempt, child, worker, workspace_changes)
             else:
                 outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
                 self._flag_rejected(ctx, step_path, attempt, worker)
@@ -2983,6 +2987,27 @@ class Api:
             log.append("step_escalated", step_path=step_path, attempt=attempt, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
             return Outcome(step_path, attempt, "escalated", reasons)
         log.append("step_ready", step_path=step_path, data={"retry_of": attempt, "not_counted": True, "after": "capability_absent"})
+        routing, _w = self._routing(ctx, step_path)
+        if not routing.eligible:
+            return escalate_no_worker(ctx, step_path, routing.excluded, attempt=attempt)
+        return Outcome(step_path, attempt, "retry", [message])
+
+    def _quota_exhausted(self, ctx: RunContext, step_path: str, attempt: int, child: ChildResult, worker: str,
+                         workspace_changes: list[str] | None) -> Outcome:
+        """The worker's route is out of quota: leave it out until the reset and re-route without spending the attempt (0114)."""
+        from . import quota
+
+        until = quota.record(self.project.home, worker)
+        log = ctx.log
+        message = f"{worker} has used up its quota (until {until.strftime('%Y-%m-%d %H:%M UTC')}); another worker is chosen and the attempt is not counted"
+        log.append("attempt_orphaned", step_path=step_path, attempt=attempt, data={**child.as_dict(), "discarded": "quota_exhausted"})
+        log.append("failure_classified", step_path=step_path, attempt=attempt,
+                   data={"class": "platform", "code": "quota_exhausted", "message": message, "profile": worker, "resets": until.isoformat()})
+        if workspace_changes:
+            reasons = _workspace_reasons(step_path, workspace_changes)
+            log.append("step_escalated", step_path=step_path, attempt=attempt, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
+            return Outcome(step_path, attempt, "escalated", reasons)
+        log.append("step_ready", step_path=step_path, data={"retry_of": attempt, "not_counted": True, "after": "quota_exhausted"})
         routing, _w = self._routing(ctx, step_path)
         if not routing.eligible:
             return escalate_no_worker(ctx, step_path, routing.excluded, attempt=attempt)
@@ -3408,7 +3433,7 @@ class Api:
         for e in new:
             if e.type != "failure_classified" or e.data.get("class") not in ("platform", "unknown"):
                 continue
-            if e.data.get("code") == "capability_absent":
+            if e.data.get("code") in ("capability_absent", "quota_exhausted"):
                 continue  # re-routed to another worker, nothing to fix (0086)
             if sme.incident_for(self.project.store.project_log().events(), ctx.run_id, e.step_path, e.attempt) is not None:
                 continue

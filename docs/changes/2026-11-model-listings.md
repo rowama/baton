@@ -188,3 +188,10 @@ At no point does the owner edit a file, wait for a Baton release or run research
 - **Summary:** `listings.py` (fetch, `baton-listing/1` cache, candidates, identity), `WorkerProfile.price`, `resources._plan_listings` and `refresh_listings`, `baton workers refresh`. Edits §6.1, §6.4, §13.1. Tests `tests/test_listings.py`: candidates follow the adapter contract and cite fields; setup writes profiles with price, context, identity and `basic` tier and is idempotent; a researched route is not duplicated; a failed or malformed fetch keeps the last good cache; a repriced listing reaches a profile only through setup. Not yet done: per-account listing (`/models/user`), `workers status` summary by provider (0113), CLI-level test of `workers refresh`.
 - **Review:** clean
 - **Accepted:** pending
+
+### Price preference, quota and exclusion
+
+- **Commit:** `2026-11-model-listings: Slice 2, price preference and quota re-routing`
+- **Summary:** `Preferences.cheapest_first` and `routing.price_rank`; `worker_selected.price`; `quota.py` (`~/.baton/quota.yaml`, reset at next UTC midnight) attached to profiles and excluded in routing; the API runner classifies `RateLimitError` as `platform`/`quota_exhausted`; `Engine._quota_exhausted` re-routes without counting the attempt and opens no incident. Exclusion already existed (`exclude` in preferences). Edits runtime.md §8.4, §8.8. Tests in `tests/test_listings.py` and an end-to-end rate-limit test in `tests/test_api_worker.py`. Not yet done: quota shown by `workers status` and `doctor` from the key endpoint (acceptance 5 in part), provider on/off switch (acceptance 12), subscription-CLI quota signals, `workers status` summary by provider.
+- **Review:** clean
+- **Accepted:** pending

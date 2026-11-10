@@ -476,6 +476,8 @@ class WorkerProfile(_Strict):
     #: Capability states recorded on this machine (0084), attached by ``Project.profiles``:
     #: capability -> ``CapabilityState``. Never read from or written to a profile file, never hashed.
     _capability_states: dict[str, Any] = PrivateAttr(default_factory=dict)
+    #: When this route's exhausted quota resets (``quota.py``, 0114); attached by ``Project.profiles``, never stored in a profile.
+    _quota_until: Any = PrivateAttr(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -514,6 +516,15 @@ class WorkerProfile(_Strict):
         out._capability_states = {c: s for c, s in states.items() if c in self.capabilities}
         return out
 
+    def with_quota(self, until: Any) -> "WorkerProfile":
+        out = self.model_copy()
+        out._capability_states = dict(self._capability_states)
+        out._quota_until = until
+        return out
+
+    def quota_until(self) -> Any:
+        return self._quota_until
+
     def canonical_model(self) -> str | None:
         """The canonical model identity: ``model_id``; for a ``manual`` profile, ``human/<person>`` (0075)."""
         if self.model_id is not None:
@@ -533,6 +544,8 @@ class Preferences(_Strict):
 
     prefer: PreferOrder = Field(default_factory=PreferOrder)
     exclude: list[str] = Field(default_factory=list)
+    #: Rank the rest of the eligible set cheapest first (0115); never makes an ineligible profile eligible.
+    cheapest_first: bool = False
 
 
 # --------------------------------------------------------------------------

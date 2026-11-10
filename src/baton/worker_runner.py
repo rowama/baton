@@ -209,7 +209,9 @@ def classify_exception(e: BaseException) -> WorkerFailure:
         return WorkerFailure("platform", "auth_failed", str(e))
     if names & {"NotFoundError", "BadRequestError", "UnsupportedParamsError"}:
         return WorkerFailure("configuration", "bad_request", str(e))
-    if names & {"APIConnectionError", "Timeout", "RateLimitError", "ServiceUnavailableError", "InternalServerError", "APIError"}:
+    if "RateLimitError" in names:  # a free route's daily limit or a provider's rate limit: this route is out for now (0114)
+        return WorkerFailure("platform", "quota_exhausted", str(e))
+    if names & {"APIConnectionError", "Timeout", "ServiceUnavailableError", "InternalServerError", "APIError"}:
         return WorkerFailure("platform", "provider_unavailable", str(e))
     return WorkerFailure("unknown", type(e).__name__, str(e))
 

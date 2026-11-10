@@ -97,3 +97,61 @@ def test_a_repriced_listing_refreshes_an_untouched_profile_only_through_setup(ho
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["price"]["input"] == 3.0  # fetching changes no profile (acceptance 7)
     out = resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
     assert "or-acme-big" in out["refreshed"] and yaml.safe_load(path.read_text(encoding="utf-8"))["price"]["input"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Price preference and quota (slice 2; Decisions 0114, 0115)
+# ---------------------------------------------------------------------------
+
+from baton import quota, routing  # noqa: E402
+from baton import vocab as vocab_mod  # noqa: E402
+from baton.models import Preferences, Step, WorkerProfile  # noqa: E402
+
+
+def prof(price=None, caps=("structured_output",)):
+    body = {"adapter": "litellm_api", "creator": "acme", "capabilities": list(caps), "tier": "basic"}
+    if price is not None:
+        body["price"] = price
+    return WorkerProfile.model_validate(body)
+
+
+def order(profiles, prefs):
+    step = Step.model_validate({"id": "s", "prompt": "prompts/s.md", "requires": {"capabilities": ["structured_output"]}, "output_schema": "schemas/o.json"})
+    el = routing.eligible_workers(step, "s", profiles, vocab_mod.load(vocab_mod.DEFAULT), preferences=prefs)
+    return el
+
+
+def test_cheapest_first_orders_free_then_cheap_then_dear_then_unpriced_and_never_adds():
+    profiles = {"dear": prof({"input": 15.0, "output": 75.0}), "free": prof({"input": 0.0, "output": 0.0, "free": True}),
+                "cheap": prof({"input": 0.1, "output": 0.4}), "unpriced": prof(), "weak": prof({"free": True}, caps=())}
+    el = order(profiles, Preferences(cheapest_first=True))
+    assert [e["profile"] for e in el.eligible] == ["free", "cheap", "dear", "unpriced"]  # the ineligible free one stays out
+    assert [x["profile"] for x in el.excluded] == ["weak"]
+    assert [e["profile"] for e in order(profiles, Preferences()).eligible] == ["cheap", "dear", "free", "unpriced"]  # off: by name, as before
+
+
+def test_worker_selected_records_the_price():
+    rec = routing.identity_record("free", prof({"input": 0.0, "output": 0.0, "free": True, "source": "x", "date": "2026-11-10"}))
+    assert rec["price"] == {"input": 0.0, "output": 0.0, "free": True}
+    assert "price" not in routing.identity_record("u", prof())
+
+
+def test_an_exhausted_route_is_left_out_until_the_reset(home):
+    now = dt.datetime(2026, 11, 10, 15, 0, tzinfo=dt.timezone.utc)
+    until = quota.record(home, "free", now)
+    assert until == dt.datetime(2026, 11, 11, 0, 0, tzinfo=dt.timezone.utc)
+    assert set(quota.load(home, now)) == {"free"}
+    assert quota.load(home, until) == {}  # reset: the route is back
+    el = order({"free": prof({"free": True}).with_quota(until), "paid": prof({"input": 1.0, "output": 2.0})}, Preferences(cheapest_first=True))
+    assert [e["profile"] for e in el.eligible] == ["paid"]
+    assert "quota exhausted until 2026-11-11 00:00 UTC" in el.excluded[0]["reasons"][0]
+
+
+def test_a_rate_limit_error_is_classified_quota_exhausted():
+    from baton import worker_runner as wr
+
+    class RateLimitError(Exception):
+        pass
+
+    f = wr.classify_exception(RateLimitError("429"))
+    assert (f.failure_class, f.code) == ("platform", "quota_exhausted")
