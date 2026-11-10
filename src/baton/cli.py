@@ -1141,6 +1141,47 @@ def recipe_check(
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 
+@app.command("ui")
+def ui_command(
+    no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser; print the link.")] = False,
+    port: Annotated[int, typer.Option("--port", help="A port on 127.0.0.1 (default: a free one).")] = 0,
+    idle_timeout: Annotated[float, typer.Option("--idle-timeout", help="Seconds without a request before the page closes itself.")] = 900.0,
+    detach: Annotated[bool, typer.Option("--detach", help="Start it in the background and print the link (what a Director does).")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Open the local setup page: connect accounts and choose the models Baton may use (§13.9). Closes itself when idle."""
+    from . import ui as ui_mod
+    from .project import machine_home
+
+    home = machine_home()
+    if detach:
+        try:
+            out = ui_mod.start_detached(home, idle_timeout=idle_timeout)
+        except RuntimeError as e:
+            _fail(as_json, EXIT_PROBLEM, "ui.not_started", str(e))
+        _emit(out, as_json, f"Open this link: {out['url']}")
+        return
+    try:
+        server = ui_mod.Server(home, port=port, idle_timeout=idle_timeout)
+    except OSError as e:
+        _fail(as_json, EXIT_PROBLEM, "ui.not_started", f"could not listen on 127.0.0.1:{port}: {e}")
+    if server.assets is None:
+        _fail(as_json, EXIT_PROBLEM, "ui.no_front_end", "this install has no page files (baton/_data/ui)")
+
+    def announce(launch: ui_mod.Launch) -> None:
+        opened = False if no_open else ui_mod.open_browser(launch.url)
+        _emit({"ok": True, "url": launch.url, "port": launch.port, "idle_timeout": idle_timeout}, as_json,
+              ("Opened the setup page in your browser. " if opened else "Open this link in your browser: ") + launch.url
+              + f"\nIt closes by itself after {idle_timeout / 60:.0f} minutes without use; Ctrl-C closes it now.")
+
+    try:
+        why = server.serve(announce=announce)
+    except KeyboardInterrupt:  # expected: Ctrl-C is how the owner closes the page from the terminal
+        why = "quit"
+    if not as_json:
+        typer.echo("Setup page closed." if why == "quit" else "Setup page closed after sitting idle.")
+
+
 workers_app = typer.Typer(no_args_is_help=True, help="This machine's workers: what is found, declared and generated (§6.4).")
 app.add_typer(workers_app, name="workers")
 

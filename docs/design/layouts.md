@@ -106,6 +106,8 @@ baton/
 ~/.baton/
 ├── workers.yaml      # the owner's worker profiles; never written by Baton
 ├── workers/          # generated profiles, one <name>.yaml each, written only by `baton workers setup` (§6.4)
+├── preferences.yaml  # machine-level routing preferences, the project file's format; a project's overrides (§8.4)
+├── ui.json           # the running `baton ui`: URL, pid, started; 0600, removed on exit (§13.9)
 ├── resources.yaml    # the owner's resource declarations and setup state (baton-resources/1, §6.4)
 ├── listings/         # cached provider model lists, <provider or resource>.json (baton-listing/1, §6.4)
 ├── quota.yaml        # routes whose quota is used up, until when (baton-quota/1, §8.8)

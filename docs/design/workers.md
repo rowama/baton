@@ -76,6 +76,8 @@ owner:
 | `options` | Non-secret adapter options (`litellm_api`: keyword arguments for the completion call, e.g. `base_url`, `temperature`) |
 | secrets | `secret:<name>`, allowed only in `auth.env`; resolved at spawn time from the variable `BATON_SECRET_<NAME>` (upper-cased, other characters `_`), then the OS keyring (service `baton`; needs the optional `keyring` package), then the file `~/.baton/secrets/<name>`. A missing secret refuses the dispatch as `configuration`, naming all three places. Never written to packets, events or logs; resolved values are redacted from anything the runtime records |
 
+The owner need not store a secret by hand: `baton workers connect` and the setup page (§13.9) write it to the OS keyring when the `keyring` package and a backend work, else to `~/.baton/secrets/<name>` (directory 0700, file 0600), check it first with one listing read, and report which store was used (Decision: [0123](../decisions/0123-keys-keyring-then-file.md)).
+
 **Capability states** (Decision: [0084](../decisions/0084-capability-states.md)). A profile *claims* its capabilities; whether each claim has been seen to hold here is a separate fact, kept machine-wide in `~/.baton/capability-states.yaml` (`baton-capability-states/1`), never in a profile file, so recording one changes no profile's content hash (0079) or `worker_profile_sha256` (§7.1):
 
 ```yaml

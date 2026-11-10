@@ -110,6 +110,7 @@ The design files:
 | §13.6 | [design/director-interface.md](design/director-interface.md) | Owner communication contract |
 | §13.7 | [design/director-interface.md](design/director-interface.md) | Action permissions |
 | §13.8 | [design/director-interface.md](design/director-interface.md) | The conversation layer |
+| §13.9 | [design/director-interface.md](design/director-interface.md) | The local setup page (`baton ui`) |
 | §14 | [design/versioning.md](design/versioning.md) | Versioning and Trying New Versions |
 | §14.1 | [design/versioning.md](design/versioning.md) | What is versioned |
 | §14.2 | [design/versioning.md](design/versioning.md) | Compatibility and migration |
@@ -255,3 +256,8 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0118 openai_compatible is a provider kind needing only a base URL and an optional key](decisions/0118-openai-compatible-kind.md) | accepted |
 | [0119 Providers that are not OpenAI-compatible stay directory entries with their LiteLLM prefix](decisions/0119-non-openai-providers-stay-directory-entries.md) | accepted |
 | [0120 Owner-run assessment fetches its recipe pinned to the runtime's version and reuses the runtime's validator](decisions/0120-assessment-recipe-fetched-pinned.md) | accepted |
+| [0121 An optional UI is allowed as a client over the CLI and MCP; Baton never requires one](decisions/0121-optional-ui-is-a-client.md) | accepted |
+| [0122 The first UI is the stable only: a stdlib JSON API with a dependency-free front end](decisions/0122-ui-scope-and-packaging.md) | accepted |
+| [0123 The UI stores an API key in the OS keyring, else in an owner-only file, and keyring joins the launcher's default extras](decisions/0123-keys-keyring-then-file.md) | accepted |
+| [0124 Routing preferences have a machine level that project preferences override](decisions/0124-machine-level-preferences.md) | accepted |
+| [0125 The setup page adds no concept; it is an interface like the CLI](decisions/0125-ui-adds-no-concept.md) | accepted |

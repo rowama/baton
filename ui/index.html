@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baton setup</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>Baton setup</h1>
+  <p class="sub">The accounts and models Baton may use on this computer.</p>
+  <button id="quit" class="quiet">Close this page</button>
+</header>
+<main>
+  <p id="notice" role="status" hidden></p>
+  <section id="harnesses"><h2>Subscriptions on this computer</h2><div id="harness-list"></div></section>
+  <section id="providers"><h2>Accounts</h2><div id="provider-list"></div></section>
+  <section id="models"><h2>Models</h2><div id="filters"></div><div id="model-table"></div></section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

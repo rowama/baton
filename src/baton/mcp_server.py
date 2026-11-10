@@ -109,6 +109,11 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.diag(since, code, run, records, limit))
 
     @tool
+    def ui(idle_timeout: float | None = None) -> dict[str, Any]:
+        """Start the optional local setup page (or find the running one) and return its link. Tell the owner to open it to connect accounts and choose models; it closes itself when idle."""
+        return t.call(lambda api: api.ui(True, idle_timeout))
+
+    @tool
     def workers_status() -> dict[str, Any]:
         """This machine's workers: discovered harnesses, declared resources, generated profiles, setup state. Changes nothing."""
         return t.call(lambda api: api.workers_status())

@@ -1,0 +1,20 @@
+:root { --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6a6a66; --line:#dcdcd6; --accent:#1f5fbf; --ok:#17794a; --warn:#9a5b00; --bad:#b3261e; --card:#fff; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --line:#383835; --accent:#7ab0ff; --ok:#58c58e; --warn:#e0a24a; --bad:#ff8a80; --card:#1e1e1c; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+header, main { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem; }
+header { display:flex; flex-wrap:wrap; align-items:baseline; gap:.5rem 1rem; }
+h1 { font-size:1.4rem; margin:0; } h2 { font-size:1.1rem; margin:1.5rem 0 .5rem; }
+.sub { color:var(--muted); margin:0; flex:1; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:.75rem 1rem; margin:.5rem 0; }
+.row { display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; justify-content:space-between; }
+.name { font-weight:600; } .muted { color:var(--muted); font-size:.9rem; }
+.ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+button { font:inherit; padding:.35rem .8rem; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:var(--bg); cursor:pointer; }
+button.quiet { background:transparent; color:var(--accent); } button:disabled { opacity:.5; cursor:default; }
+input, select { font:inherit; padding:.3rem .5rem; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); max-width:100%; }
+code { background:var(--line); padding:.1rem .35rem; border-radius:4px; word-break:break-all; }
+table { width:100%; border-collapse:collapse; font-size:.92rem; } th, td { text-align:left; padding:.35rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; }
+.scroll { overflow-x:auto; } #filters { display:flex; flex-wrap:wrap; gap:.5rem 1rem; margin-bottom:.5rem; }
+#notice { padding:.5rem .75rem; border:1px solid var(--line); border-radius:6px; background:var(--card); }
+@media (max-width: 40rem) { header, main { padding: .75rem; } }

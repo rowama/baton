@@ -41,6 +41,7 @@ Every call is available as a CLI command (`--json` output; exit codes below) and
 | `doctor(profile?)` / `check()` | Machine readiness (§13.4); repository consistency (§13.5) |
 | `diag(since?, code?, run?, records?, limit?)` | What the runtime has been working around on this machine (§8.3; Decision: [0094](../decisions/0094-diagnostics-channel.md)): counts per diagnostic code over the last 7 usage days (or `since`: a number of usage days or a date) next to each code's usual rate per day, unusual codes first; `code` filters by prefix, `run` to one run's records, `records` adds the raw records (the newest `limit`, 200 by default, newest last); also the size and oldest age of the raw worker logs, which Baton reports and never deletes. Machine-local, read-only apart from the daily maintenance, exit 0. For the developer, a troubleshooting Director and the platform SME; owners never need it |
 | `workers_status()` / `workers_setup(verify?)` / `workers_declare(name?, provider?, credential?, base_url?, models?, capabilities?, note?, remove?, nothing_more?)` / `workers_declare(profile, likely?, absent?)` | The worker resource manager (§6.4), machine scope: what is found, declared and generated, with each generated profile's capability states; the explicit run that generates profiles (live checks only for `verify`); declarations and "nothing more"; or, with `profile`, the owner's reset of capabilities to `likely` or declaration of them `absent` (§6.1; Decision: [0084](../decisions/0084-capability-states.md)). `baton workers …` needs no project (Decision: [0077](../decisions/0077-workers-command.md)) |
+| `ui(detach?, idle_timeout?)` | The optional local setup page (§13.9): `baton ui` serves it in the foreground; the Director's `ui` starts it detached (or finds the running one) and returns its URL, which the Director gives the owner ("open this link to connect your accounts"). Never needed by any other call |
 | `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
 | `init(bare?)` / `vendor(recipe_dir, approved?, note?)` / `upgrade(to?)` / `migrate(dry_run?)` | Setup and versioning (§14): `init` also vendors the starter recipes unless `bare` (§11.6); a vendoring that changes or reuses step ids returns `needs_owner` until repeated with `approved` and the owner's words; `upgrade` pins this runtime (the launcher runs `--to <v>` under `<v>`); `migrate` brings stored files below the readable window to the current formats |
 
@@ -252,3 +253,38 @@ Principle 5 (§1.1) in practice. The Director stands between the runtime's struc
 - The escalation stays pending for as many conversational turns as it takes. Nothing is recorded until the owner confirms; a deliberately partial answer set is recorded only with `--partial` (§18 #24).
 
 **Review.** Whether the conversation felt right is judged on transcripts, not enforced: the live test (§17) and the owner's review look for Baton vocabulary reaching the owner, questions forwarded unconverted, decisions recorded without a confirm-back, and subject questions answered by the Director.
+
+### 13.9 The local setup page (`baton ui`)
+
+An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/0121-optional-ui-is-a-client.md), [0122](../decisions/0122-ui-scope-and-packaging.md), [0125](../decisions/0125-ui-adds-no-concept.md)). It lets the owner connect subscriptions and API accounts and manage the models Baton may use without editing a file. Baton works the same whether it exists or not: no runtime module imports `ui.py`, and the full suite passes without the front-end files.
+
+**Process.** `baton ui [--no-open] [--port N] [--idle-timeout S]` serves a local app in the foreground, on a free port of `127.0.0.1`, and opens the browser at `http://127.0.0.1:<port>/?t=<token>` (under WSL it asks the Windows side to open it). It exits when the owner presses Ctrl-C, closes the page with "Quit", or after the idle timeout (default 15 minutes without a request); it is never started at login and leaves nothing running. The Director's `ui` action (CLI `ui --detach`, MCP tool `ui`) starts the same process detached and returns `{url, pid, expires}`; a second call while one runs returns the running one. The runtime state is one file, `~/.baton/ui.json` (0600: URL, pid, started), removed on exit.
+
+**Safety, each checked on every request.**
+- Loopback bind only.
+- The one-time per-launch token (32 random bytes): the first `GET /?t=` sets it as an `HttpOnly`, `SameSite=Strict` cookie and redirects to `/` so it leaves the address bar; every other request needs the cookie (or `X-Baton-Token`), compared in constant time.
+- The `Host` header must be `127.0.0.1:<port>` or `localhost:<port>` (DNS rebinding).
+- A request with an `Origin` that is not the page's own is refused; state-changing requests (`POST`, `PUT`, `DELETE`) also need `X-Baton-UI: 1` and a JSON body. The server answers no CORS preflight and sends no `Access-Control-*` header.
+- A stored key is never in a response, log, event or diagnostic: responses are built from `workers status`, which holds secret references only, and a key arriving in a request is held in memory only until it is stored. Request bodies are never logged.
+- One machine's page manages that machine's resources only (§4.4).
+
+**The API** (JSON; each route calls the same function as the CLI command in the right column, and the page holds no state of its own):
+
+| Route | Does | CLI equivalent |
+|---|---|---|
+| `GET /api/state` | Providers (directory entries, declared accounts, harnesses with login state, version and, if not ready, the install or login step for this platform), models (every generated profile with provider, price, context, tier, capability states, last verified, switch) and preferences | `workers status --json` |
+| `POST /api/accounts` | Connect: check the key with one cheap read, store it (§6.1), declare the resource, run setup | `workers connect` |
+| `POST /api/accounts/<name>/key` | Replace the key: checked first, so a bad one leaves the old key working | `workers connect <name>` on an existing account |
+| `DELETE /api/accounts/<name>` | Disconnect: remove the declaration; the stored secret too only with `forget_key` | `workers disconnect` |
+| `POST /api/models/<profile>/enabled` | Turn a model off or on for routing (machine-level `exclude`) | `workers prefs --exclude / --include` |
+| `POST /api/models/<profile>/verify` | The one live check | `workers setup --verify` |
+| `PUT /api/preferences` | Cheapest or most-verified first, per-capability preferred models | `workers prefs` |
+| `POST /api/quit` | End the process | |
+
+**Connecting an API account** checks the key with the provider's listing (or key-info) read, never a model call (§6.4 Listings), and says why in plain words when it is refused. Where the provider reports credit or free quota, the page shows it. Nothing about a key is shown after it is stored except where it is kept (keyring or file) and when it was last checked.
+
+**Subscriptions (CLI harnesses)** are detected, not edited: for a harness that is installed but not logged in, the page shows the exact login command for this platform with a copy button; for one that is not installed, the install step. It re-checks when the owner returns to the page (`visibilitychange`). Starting a login from the page is out of scope (owner, 2026-11-10).
+
+**Preferences.** The page edits the machine-level `~/.baton/preferences.yaml` (§8.4; Decision: [0124](../decisions/0124-machine-level-preferences.md)); per-project overrides remain a Director or CLI matter.
+
+**Front end.** Plain HTML, CSS and JavaScript, no framework or build step, shipped as data (`baton/_data/ui`); it reads the API only. It lists providers, then models with filters (free only, maximum price, capability, tier, provider).

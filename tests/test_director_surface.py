@@ -401,7 +401,7 @@ API_CALLS = {
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
     "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame", "note",
-    "workers_status", "workers_setup", "workers_declare", "diag",
+    "workers_status", "workers_setup", "workers_declare", "diag", "ui",
 }
 
 

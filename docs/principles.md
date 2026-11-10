@@ -8,7 +8,7 @@
 
 1. **Do not invent APIs.** Before using any library (`mcp`, `litellm`, `jsonschema`, `typer`, etc.) or CLI (`claude`, `codex`, `hermes`, `uv`), check its installed version's docs or `--help`. Anything marked **[VERIFY]** must be confirmed against current docs before you rely on it.
 2. **Determinism over prompting.** Anything that must be 100% reliable is enforced in code, never left to an LLM following instructions.
-3. **Thin layer.** No web UI, no message broker, no database server, no long-running daemon. Filesystem, git, SQLite (as a cache only) and plain Python. Every dependency must justify itself.
+3. **Thin layer.** Baton needs no web UI, message broker, database server or long-running daemon to work. Filesystem, git, SQLite (as a cache only) and plain Python. Optional clients (a local web app, §13.9) may be built over the CLI and MCP; the runtime never depends on them. Every dependency must justify itself.
 4. **Vendor neutrality.** No model vendor is privileged in the core or in recipes. Vendors exist only in worker profiles and adapters.
 5. **Small, tested increments.** Tests alongside each module; the quick gate green at every slice commit; the full suite green at every finish commit (§17.1).
 6. **Ask the human** when a requirement is ambiguous. Never silently decide an open decision (§18: a decision record in `docs/decisions/` with `status: proposed`).
@@ -23,7 +23,7 @@
 
 1. **Invisible when healthy.** After install, the owner should not notice Baton unless something truly needs them. Checks are silent when fine; owner attention is spent only on real decisions: gates the recipe defines, escalations, the one-time adoption baseline, and choosing work items when a goal is framed.
 2. **Friction must pay for itself.** Every setup step, prompt or file the owner touches must save more effort than it costs. Prefer generalizing an existing mechanism over adding a parallel one.
-3. **Arbitrarily complex processes, simple runtime.** Recipes can express multi-agent processes of any size (iteration, fan-out, reviews, many concurrent work items). The runtime stays small and conventional: one event log format, one packet protocol, one state machine, no daemon, no server. **Everything that does work is a dispatch of a packet to a worker** (steps, reviews, research, triage, expert consultation); everything else is bookkeeping over the event log.
+3. **Arbitrarily complex processes, simple runtime.** Recipes can express multi-agent processes of any size (iteration, fan-out, reviews, many concurrent work items). The runtime stays small and conventional, and needs no daemon or server: one event log format, one packet protocol, one state machine. **Everything that does work is a dispatch of a packet to a worker** (steps, reviews, research, triage, expert consultation); everything else is bookkeeping over the event log.
 4. **Evolve by trial.** Runtime, recipes and formats are versioned and pinned per project and per run, so a real project can try a new Baton version on a branch and merge or discard it (§14).
 5. **Deterministic machinery, human conversation** (Decision: [0025](decisions/0025-deterministic-machinery-human-conversation.md)). Two layers, kept separate. The runtime, and everything that crosses into it (packets, results, events, decisions), stays structured and deterministic; explicitly deterministic and explicitly inferential work stay separated, as everywhere else in this guide. The owner's side is a conversation run by the Director, who talks like a good project manager with a stakeholder: plain language in the owner's terms, structure (choices, checklists) where it helps, open talk where that helps, and no Baton vocabulary. The seam between the layers is the **confirm-back** (§13.8): nothing the Director understood from conversation is recorded until the owner confirms it. The owner may be a layperson; nothing in the owner's path assumes otherwise.
 
@@ -49,7 +49,7 @@
 
 - Not an agent framework. Baton runs no LLM loop of its own. Iteration *inside* a worker (a coding agent looping until its tests pass) is the worker's business; Baton supplies the exit criteria and a time budget.
 - Not a general scheduler. Steps run when the Director dispatches them; the runtime only supervises dispatched work.
-- No GUI. No backlog or idea management as a feature: Baton does not prioritize, track or organize ideas (owners use tools of their choice). A backlog and notes are valid project deliverables, and Baton may write them: framing's process plan (§11.6) and the owner's notes file (§13.1) (Decision: [0063](decisions/0063-backlog-and-notes-are-deliverables.md)).
+- No required GUI. Baton is complete through its CLI and MCP; a UI is an optional client (§13.9). A broader owner-interaction UI is a direction the owner has named, not yet authorized (Decision: [0121](decisions/0121-optional-ui-is-a-client.md)). No backlog or idea management as a feature: Baton does not prioritize, track or organize ideas (owners use tools of their choice). A backlog and notes are valid project deliverables, and Baton may write them: framing's process plan (§11.6) and the owner's notes file (§13.1) (Decision: [0063](decisions/0063-backlog-and-notes-are-deliverables.md)).
 
 ### 1.4 Key design decisions
 
@@ -65,6 +65,7 @@
 10. **The Director never modifies a process.** No adding, removing or reordering steps or roles. Variation comes only from complexity levels, sub-process expansion and expert consultation.
 11. **Work items move; projects don't.** Correcting an earlier step is local to one run (`revise`).
 12. **CLI and MCP are equal Director interfaces** over one core.
+13. **A UI is a client, never a dependency.** It changes state only through the same core functions as the CLI and MCP, holds no state of its own, and nothing in the runtime, a recipe or a Director's flow requires it to exist or run (Decision: [0121](decisions/0121-optional-ui-is-a-client.md)).
 
 ## 2. Concepts (the Concept Budget)
 
@@ -94,6 +95,8 @@ Experts (§12) add none either: a *consultation* is a series of SME dispatches (
 Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
 
 Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
+
+The local setup page (§13.9) adds none: it is an interface, like the CLI and MCP (Decision: [0125](decisions/0125-ui-adds-no-concept.md)).
 
 Worker setup (§6.4) adds none either: a *resource declaration* is the owner's input for generating worker profiles, the *known-workers data* is shipped profile knowledge, and a *generated profile* is a worker profile written by `baton workers setup` (Decision: [0077](decisions/0077-workers-command.md)).
 

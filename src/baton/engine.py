@@ -3185,6 +3185,15 @@ class Api:
 
     # -- the worker resource manager (§6.4, 0077): machine scope ------------
 
+    def ui(self, detach: bool = True, idle_timeout: float | None = None) -> dict[str, Any]:
+        """The optional local setup page (§13.9): start it detached, or find the running one; returns its URL."""
+        from . import ui as ui_mod
+
+        try:
+            return ui_mod.start_detached(self.project.home, idle_timeout=idle_timeout or ui_mod.DEFAULT_IDLE)
+        except RuntimeError as e:
+            raise EngineError("ui.not_started", str(e)) from e
+
     def workers_status(self) -> dict[str, Any]:
         from . import resources
 

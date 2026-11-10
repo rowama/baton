@@ -1,10 +1,10 @@
 ---
 id: 2026-11-setup-ui
 title: "A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file"
-status: proposed
+status: in-progress
 level: major
-decisions: []               # proposed records to create once the owner answers the open questions below
-touches: [principles.md, design/director-interface.md, design/workers.md, design/platform-and-security.md, design/layouts.md]   # §0, §1.1, §1.3, §2, §13.1, §13.2, §6.1, §6.4, §15.2, §4.4
+decisions: ["0121", "0122", "0123", "0124", "0125"]
+touches: [principles.md, design/runtime.md, design/versioning.md, design/director-interface.md, design/workers.md, design/platform-and-security.md, design/layouts.md]   # §0, §1.1, §1.3, §2, §13.1, §13.2, §6.1, §6.4, §15.2, §4.4, §8.4, §14.1
 ---
 
 # A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file
@@ -117,10 +117,53 @@ The intent of those rules still holds: Baton must not *need* a UI to function, a
 
 ## Design
 
-To be written once the principles amendment is decided and the Request is approved.
+Approved by the owner, 2026-11-10 ("Accept all. Go."): the open questions are decided in records 0121–0125 and the Design is the text now in `director-interface.md` §13.9.
+
+### Doc edits
+
+- `principles.md` §0 rule 3, §1.1 #3, §1.3, a new §1.4 #13, and §2's interfaces note: an optional UI is a client, never a dependency.
+- `design/director-interface.md` §13.9 (new): the process, safety checks, API, connecting, subscriptions, preferences and front end; §13.1: the `ui` call.
+- `design/workers.md` §6.1: the key store (keyring, else owner-only file) written by `workers connect` and the page.
+- `design/runtime.md` §8.4: machine-level preferences merged with the project's.
+- `design/layouts.md` §4.4: `~/.baton/preferences.yaml` and `ui.json`.
+- `design/platform-and-security.md` §15.2: the page's request checks.
+- `design/versioning.md` §14.1: the launcher's default extras are `api` and `keyring`.
+
+### Decisions
+
+- [0121](../decisions/0121-optional-ui-is-a-client.md) principles amendment; [0122](../decisions/0122-ui-scope-and-packaging.md) scope and packaging (a stdlib API and a dependency-free front end shipped in the wheel, not a separate extra: the one departure from the suggested answer, with its reason there); [0123](../decisions/0123-keys-keyring-then-file.md) key storage; [0124](../decisions/0124-machine-level-preferences.md) machine-level preferences; [0125](../decisions/0125-ui-adds-no-concept.md) no new concept.
 
 ## Plan
 
-Suggested first slice: `baton ui` serving the stable read-only (providers and models from `workers status --json`), with the token, loopback and idle-exit guarantees and their tests. The second slice adds connecting an API account.
+### Slice 1: `baton ui`, read-only
+
+- **Outcome:** `baton ui` serves the stable (providers, models) from `workers status`, with the token, loopback, Host/Origin and idle-exit guarantees; the Director's `ui` action returns the URL.
+- **Criteria:** requests without the token or with a foreign Host or Origin are refused; the process exits after the idle timeout; no runtime module imports `ui.py`; the front end is shipped as data.
+- **Effort:** M
+
+### Slice 2: connect, replace and disconnect an API account
+
+- **Outcome:** `baton workers connect|disconnect` and the matching page actions store, check, declare and set up an account; keys never leave the store.
+- **Criteria:** a key is in no YAML, response, log, event or diagnostic (scan); a bad replacement leaves the old key and account working; disconnecting flags generated profiles as resource gone; CLI and page write the same files.
+- **Effort:** L
+
+### Slice 3: models and preferences
+
+- **Outcome:** machine-level preferences (`~/.baton/preferences.yaml`, merged under the project's); `baton workers prefs`; page controls for on/off, verify, ordering and filters; `worker_selected` exclusions name the level.
+- **Criteria:** turning a model off excludes it from routing and shows in the exclusion reasons; the merge rules of 0124; CLI and page write the same file.
+- **Effort:** M
+
+### Slice 4: subscriptions walked
+
+- **Outcome:** the page shows each harness's state with the install or login command for this platform and re-checks on return; launcher default extras include `keyring`; Director skill mentions `ui`; WSL browser opening.
+- **Criteria:** the state payload carries the step per platform; the launcher default is `api, keyring`.
+- **Effort:** S
 
 ## Log
+
+### Slice 1: `baton ui`, read-only
+
+- **Commit:** 2026-11-setup-ui: Slice 1, baton ui serves the stable read-only
+- **Summary:** Decisions 0121–0125, the principles amendment and §13.9 and the other design edits are in this commit; the change is `in-progress`. `ui.py` is the stdlib server (token cookie, `Host`, `Origin`, custom header, no CORS, CSP, idle exit, `~/.baton/ui.json`, detached start for the Director), `baton ui` and the `ui` call (CLI, engine, MCP), and the front end (`ui/`, shipped as `baton/_data/ui`) shows subscriptions, accounts and the models table. `tests/test_ui.py` covers the request checks, the cookie hand-over, only-named-files, no-front-end operation, quit, idle exit, the private registration file, no runtime module importing the page, and a detached start.
+- **Review:** clean.
+- **Accepted:** the Design was approved by the owner, 2026-11-10 ("Accept all. Go.").
