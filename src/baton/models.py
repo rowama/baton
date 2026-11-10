@@ -558,6 +558,11 @@ class Preferences(_Strict):
     exclude: list[str] = Field(default_factory=list)
     #: Rank the rest of the eligible set cheapest first (0115); never makes an ineligible profile eligible.
     cheapest_first: bool = False
+    #: Names the machine-level file excludes (0124); set by the merge, never read from a file, so a reason can say which level excluded.
+    _machine_exclude: set[str] = PrivateAttr(default_factory=set)
+
+    def excluded_by_machine(self, name: str) -> bool:
+        return name in self._machine_exclude
 
 
 # --------------------------------------------------------------------------

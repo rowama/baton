@@ -1370,6 +1370,39 @@ def workers_disconnect(
     _emit(out, as_json, f"Disconnected {name}. " + (f"Its key was removed from the {where}." if where else "Its stored key was kept (`--forget-key` removes it)."))
 
 
+@workers_app.command("prefs")
+def workers_prefs(
+    exclude: Annotated[Optional[list[str]], typer.Option("--exclude", help="Turn this worker off for routing on this machine (repeatable).")] = None,
+    include: Annotated[Optional[list[str]], typer.Option("--include", help="Turn it back on (repeatable).")] = None,
+    cheapest_first: Annotated[Optional[bool], typer.Option("--cheapest-first/--verified-first", help="Which to rank first among eligible workers.")] = None,
+    prefer: Annotated[Optional[list[str]], typer.Option("--prefer", help="CAPABILITY=worker1,worker2: preferred in that order; CAPABILITY= clears it (repeatable).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Show or change this machine's routing preferences (~/.baton/preferences.yaml; a project's own file overrides it; §8.4)."""
+    from . import prefs
+    from .project import machine_home
+    from .routing import PreferencesError
+
+    prefer_map: dict[str, list[str]] = {}
+    for item in prefer or []:
+        cap, eq, names = item.partition("=")
+        if not eq or not cap:
+            _fail(as_json, EXIT_USAGE, "usage.prefs", f"--prefer needs CAPABILITY=worker1,worker2, got {item!r}")
+        prefer_map[cap] = [n for n in names.split(",") if n]
+    home = machine_home()
+    try:
+        if exclude or include or cheapest_first is not None or prefer_map:
+            out = prefs.update(home, exclude=exclude, include=include, cheapest_first=cheapest_first, prefer=prefer_map or None)
+        else:
+            out = {**prefs.as_dict(prefs.load(home)), "path": str(prefs.path(home))}
+    except PreferencesError as e:
+        _fail(as_json, EXIT_PROBLEM, "configuration.preferences", str(e))
+    lines = [f"order: {'cheapest first' if out['cheapest_first'] else 'most verified first'}",
+             "turned off: " + (", ".join(out["exclude"]) or "none")]
+    lines += [f"prefer for {c}: {', '.join(n)}" for c, n in out["prefer_by_capability"].items()]
+    _emit(out, as_json, "\n".join(lines))
+
+
 @workers_app.command("declare")
 def workers_declare(
     name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,

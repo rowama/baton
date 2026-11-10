@@ -105,19 +105,68 @@ function renderProviders() {
   }
 }
 
-function renderModels() {
-  const box = $("model-table"); box.replaceChildren();
-  const rows = state.models.map((m) => h("tr", {},
-    h("td", {}, h("span", { class: "name" }, m.model_id || m.profile), h("div", { class: "muted" }, m.profile)),
-    h("td", {}, m.provider || ""), h("td", {}, price(m)), h("td", {}, m.context_tokens ? m.context_tokens.toLocaleString() : ""),
-    h("td", {}, m.tier || ""), h("td", {}, Object.entries(m.capabilities).map(([c, s]) => c + " (" + s + ")").join(", ")),
-    h("td", {}, m.verified ? m.verified.date : "not yet")));
-  box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
-    ...["Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t)))), h("tbody", {}, rows))));
-  if (!rows.length) box.append(h("p", { class: "muted" }, "No models yet."));
+const filter = { free: false, maxPrice: "", capability: "", tier: "", provider: "", off: false };
+
+function cost(m) { return m.subscription || !m.price ? null : (m.price.free ? 0 : Number(m.price.input || 0) + Number(m.price.output || 0)); }
+
+function passes(m) {
+  if (filter.free && !(m.price && m.price.free)) return false;
+  if (filter.maxPrice !== "") { const c = cost(m); if (c === null || c > Number(filter.maxPrice)) return false; }
+  if (filter.capability && !(filter.capability in m.capabilities)) return false;
+  if (filter.tier && m.tier !== filter.tier) return false;
+  if (filter.provider && m.provider !== filter.provider) return false;
+  if (filter.off && m.enabled) return false;
+  return true;
 }
 
-function render() { renderHarnesses(); renderProviders(); renderModels(); }
+function select(label, key, options) {
+  const sel = h("select", { "aria-label": label }, h("option", { value: "" }, label), options.map((o) => h("option", { value: o }, o)));
+  sel.value = filter[key];
+  sel.addEventListener("change", () => { filter[key] = sel.value; renderModels(); });
+  return sel;
+}
+
+function renderFilters() {
+  const f = $("filters"); f.replaceChildren();
+  const uniq = (get) => [...new Set(state.models.flatMap(get).filter(Boolean))].sort();
+  const free = h("input", { type: "checkbox", id: "f-free" }); free.checked = filter.free;
+  free.addEventListener("change", () => { filter.free = free.checked; renderModels(); });
+  const max = h("input", { type: "number", min: "0", step: "any", placeholder: "Max $ per million", "aria-label": "Maximum price", value: filter.maxPrice });
+  max.addEventListener("input", () => { filter.maxPrice = max.value; renderModels(); });
+  const off = h("input", { type: "checkbox", id: "f-off" }); off.checked = filter.off;
+  off.addEventListener("change", () => { filter.off = off.checked; renderModels(); });
+  const cheap = h("input", { type: "checkbox", id: "p-cheap" }); cheap.checked = state.preferences.cheapest_first;
+  cheap.addEventListener("change", () => act(cheap, () => api("PUT", "/api/preferences", { cheapest_first: cheap.checked }),
+    () => cheap.checked ? "Baton will pick the cheapest capable model first." : "Baton will pick the most proven model first."));
+  f.append(h("span", {}, free, h("label", { for: "f-free" }, " free only")), max,
+    select("Any capability", "capability", uniq((m) => Object.keys(m.capabilities))), select("Any tier", "tier", uniq((m) => [m.tier])),
+    select("Any provider", "provider", uniq((m) => [m.provider])), h("span", {}, off, h("label", { for: "f-off" }, " turned off")),
+    h("span", {}, cheap, h("label", { for: "p-cheap" }, " cheapest first (otherwise most proven first)")));
+}
+
+function modelRow(m) {
+  const on = h("input", { type: "checkbox", "aria-label": "Use " + (m.model_id || m.profile) }); on.checked = m.enabled;
+  on.addEventListener("change", () => act(on, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/enabled", { enabled: on.checked }),
+    () => (on.checked ? "Turned on: " : "Turned off: ") + (m.model_id || m.profile)));
+  const check = h("button", { class: "quiet" }, "Check it works");
+  check.addEventListener("click", () => act(check, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/verify"),
+    (o) => o.verified.length ? (m.model_id || m.profile) + " works." : (o.failed[0] ? o.failed[0].reason : "Nothing was checked.")));
+  return h("tr", {},
+    h("td", {}, on), h("td", {}, h("span", { class: "name" }, m.model_id || m.profile), h("div", { class: "muted" }, m.profile + (m.flag ? " · " + m.flag : ""))),
+    h("td", {}, m.provider || ""), h("td", {}, price(m)), h("td", {}, m.context_tokens ? m.context_tokens.toLocaleString() : ""),
+    h("td", {}, m.tier || ""), h("td", {}, Object.entries(m.capabilities).map(([c, st]) => c + " (" + st + ")").join(", ")),
+    h("td", {}, m.verified ? m.verified.date : "not yet", h("div", {}, check)));
+}
+
+function renderModels() {
+  const box = $("model-table"); box.replaceChildren();
+  const shown = state.models.filter(passes);
+  box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
+    ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t)))), h("tbody", {}, shown.map(modelRow)))));
+  box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown."));
+}
+
+function render() { renderHarnesses(); renderProviders(); renderFilters(); renderModels(); }
 
 $("quit").addEventListener("click", async () => {
   try { await api("POST", "/api/quit"); } catch (e) { /* the page is closing either way */ }

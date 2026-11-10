@@ -2321,7 +2321,7 @@ class Api:
         if not isinstance(node, Step):
             raise EngineError("engine.unknown_step", f"{step_path} is not a runnable step of {ctx.recipe.recipe.ref}")
         try:
-            prefs = load_preferences(self.project.baton)
+            prefs = load_preferences(self.project.baton, self.project.home)
         except PreferencesError as e:
             raise EngineError("configuration.preferences", str(e)) from e
         loc = groups.locate(ctx.recipe, step_path)

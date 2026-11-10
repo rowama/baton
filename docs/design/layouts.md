@@ -14,6 +14,9 @@ baton/
 │   ├── profiles.py          # worker profiles, secrets, env construction, PATH resolution
 │   ├── routing.py           # eligibility, preferences, independence
 │   ├── known_workers.py     # known-workers data: schema and validation (§6.4)
+│   ├── accounts.py          # connect, re-key and disconnect an API account (§6.4, §13.9)
+│   ├── prefs.py             # the machine-level preferences file (§8.4)
+│   ├── ui.py                # the optional local setup page: server and API (§13.9); imported only by `baton ui` and `ui`
 │   ├── store.py             # event logs (run + project), CAS, SQLite cache rebuild
 │   ├── state.py             # the one state machine
 │   ├── groups.py            # foreach / repeat_until expansion and aggregate state
@@ -39,6 +42,7 @@ baton/
 │   ├── worker_runner.py     # child-process entrypoint for API workers
 │   ├── adapters/            # base, litellm_api, subprocess_harness, claude_code, codex, command, manual
 │   ├── cli.py   mcp_server.py   check.py   doctor.py
+├── ui/                      # the setup page's front end: plain HTML, CSS, JS; shipped as data (§13.9)
 ├── vocab/baton-capabilities-1.yaml
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   # generated from models (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns

@@ -515,7 +515,7 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
     except EngineError as e:
         return {"ok": False, "problems": problems + [str(e)], "warnings": warnings, "profiles": {}, "uncovered_steps": []}
     try:
-        load_preferences(project.baton)
+        load_preferences(project.baton, project.home)
     except PreferencesError as e:
         problems.append(str(e))
     if only is not None and only not in profiles:

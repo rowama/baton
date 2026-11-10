@@ -84,9 +84,7 @@ class PreferencesError(Exception):
     pass
 
 
-def load_preferences(baton_dir: Path) -> Preferences:
-    """``.baton/preferences.yaml``, or empty preferences when absent."""
-    path = baton_dir / PREFERENCES_FILE
+def _load_preferences_file(path: Path) -> Preferences:
     if not path.is_file():
         return Preferences()
     try:
@@ -99,6 +97,30 @@ def load_preferences(baton_dir: Path) -> Preferences:
     except ValidationError as e:
         msgs = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
         raise PreferencesError(f"{path}: {msgs}") from e
+
+
+def merge_preferences(machine: Preferences, project: Preferences) -> Preferences:
+    """The machine's preferences under the project's (Decision 0124).
+
+    A project's ``prefer`` entry replaces the machine's for the same key; ``exclude`` is the union (a project cannot
+    lift what the owner turned off for the machine); ``cheapest_first`` is the project's when its file sets it.
+    """
+    out = Preferences(
+        prefer={"by_step": {**machine.prefer.by_step, **project.prefer.by_step},
+                "by_capability": {**machine.prefer.by_capability, **project.prefer.by_capability}},
+        exclude=sorted(set(machine.exclude) | set(project.exclude)),
+        cheapest_first=project.cheapest_first if "cheapest_first" in project.model_fields_set else machine.cheapest_first,
+    )
+    out._machine_exclude = set(machine.exclude)
+    return out
+
+
+def load_preferences(baton_dir: Path, home: Path | None = None) -> Preferences:
+    """``.baton/preferences.yaml`` merged over the machine's ``<home>/preferences.yaml``, or empty preferences when both are absent."""
+    project = _load_preferences_file(baton_dir / PREFERENCES_FILE)
+    if home is None:
+        return project
+    return merge_preferences(_load_preferences_file(Path(home) / PREFERENCES_FILE), project)
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +327,8 @@ def eligible_workers(
             else:
                 waived = True
         if name in prefs.exclude:
-            reasons.append("excluded by preferences.yaml")
+            reasons.append("turned off for this machine (~/.baton/preferences.yaml; `baton workers prefs --include`)"
+                           if prefs.excluded_by_machine(name) else "excluded by preferences.yaml")
         if p.switched_off():
             reasons.append(f"its provider account {p.resource!r} is switched off (`baton workers enable {p.resource}`)")
         if p.quota_until() is not None:

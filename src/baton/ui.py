@@ -29,6 +29,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 
 from . import accounts
+from . import prefs as prefs_mod
 from . import data as data_mod
 from . import diag
 
@@ -81,6 +82,9 @@ def _state(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
             raise UiError(HTTPStatus.CONFLICT, "configuration.resources", str(e)) from e
         raise
     out["models"] = _models(home, out)
+    out["preferences"] = _prefs_core(lambda: prefs_mod.as_dict(prefs_mod.load(home)))
+    for m in out["models"]:
+        m["enabled"] = m["profile"] not in out["preferences"]["exclude"]
     out["accounts"] = {n: accounts.account_info(home, n) for n in out["declared"]}
     out["directory"] = {n: {"kind": p.kind, "display_name": p.display_name or n, "signup_url": p.signup_url, "base_url": p.base_url}
                         for n, p in sorted(known.providers.items()) if p.kind != "harness"}
@@ -154,6 +158,54 @@ def _disconnect(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
     return _core(lambda: accounts.disconnect(home, args["name"], forget_key=body.get("forget_key") is True))
 
 
+def _prefs_core(fn: Callable[[], Any]) -> Any:
+    from . import prefs
+    from .routing import PreferencesError
+
+    try:
+        return fn()
+    except PreferencesError as e:
+        raise UiError(HTTPStatus.UNPROCESSABLE_ENTITY, "configuration.preferences", str(e)) from e
+
+
+def _get_prefs(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
+    from . import prefs
+
+    return _prefs_core(lambda: prefs.as_dict(prefs.load(home)))
+
+
+def _put_prefs(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """``baton workers prefs``: cheapest or most-verified first, and per-capability preferred models."""
+    from . import prefs
+
+    cheapest = body.get("cheapest_first")
+    if cheapest is not None and not isinstance(cheapest, bool):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "cheapest_first must be true or false")
+    by_cap = body.get("prefer_by_capability") or {}
+    if not isinstance(by_cap, dict) or not all(isinstance(v, list) and all(isinstance(n, str) for n in v) for v in by_cap.values()):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "prefer_by_capability maps a capability to a list of workers")
+    return _prefs_core(lambda: prefs.update(home, cheapest_first=cheapest, prefer=by_cap or None))
+
+
+def _set_enabled(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    """``baton workers prefs --exclude|--include``: one model on or off for routing."""
+    from . import prefs
+
+    on = body.get("enabled")
+    if not isinstance(on, bool):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "enabled must be true or false")
+    name = args["profile"]
+    return _prefs_core(lambda: prefs.update(home, **({"include": [name]} if on else {"exclude": [name]})))
+
+
+def _verify(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    """``baton workers setup --verify <profile>``: the one live check."""
+    from . import resources
+
+    out = _core(lambda: resources.setup(home, verify=[args["profile"]]))
+    return {"verified": out["verified"], "failed": out["failed"]}
+
+
 def _quit(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
     raise _Quit
 
@@ -168,6 +220,10 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("POST", "/api/accounts"): _connect,
     ("POST", "/api/accounts/<name>/key"): _replace_key,
     ("DELETE", "/api/accounts/<name>"): _disconnect,
+    ("GET", "/api/preferences"): _get_prefs,
+    ("PUT", "/api/preferences"): _put_prefs,
+    ("POST", "/api/models/<profile>/enabled"): _set_enabled,
+    ("POST", "/api/models/<profile>/verify"): _verify,
     ("POST", "/api/quit"): _quit,
 }
 
