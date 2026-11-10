@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "summary",
+    "stages",
+    "ledger"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "done_by",
+          "needs",
+          "hands_on",
+          "on_failure"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "done_by": {
+            "enum": [
+              "person",
+              "ai",
+              "automatic_check"
+            ]
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hands_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner_decision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "on_failure": {
+            "enum": [
+              "retry",
+              "revise",
+              "escalate",
+              "stop",
+              "accepted_risk"
+            ]
+          },
+          "failure_note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Stated limits of this version"
+    },
+    "ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "kind",
+          "scope",
+          "status",
+          "basis"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "goal",
+              "requirement",
+              "constraint",
+              "assumption",
+              "decision",
+              "failure",
+              "limit"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "class",
+              "instance"
+            ],
+            "description": "class: true of every job the recipe will cover; instance: true of this job only"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "researched",
+              "inferred",
+              "open",
+              "excluded"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "description": "Why this is believed: the owner's words, a source, or the inference made"
+          },
+          "owner_words": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for a confirmed entry"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For an instance entry: the job's own value, kept for the example run input"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

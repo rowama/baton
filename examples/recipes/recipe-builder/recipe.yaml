@@ -1,0 +1,127 @@
+id: recipe-builder
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch).
+scope:
+  covers: ["a process described in a sentence", "specializing an existing recipe for a narrower or wider set of jobs"]
+  not_for:
+    - { job: "changing a recipe during a live run" }
+    - { job: "publishing a recipe to a public catalog" }
+  varies_by: ["how many kinds of worker the process needs", "whether it touches money, law or things that cannot be undone"]
+parent: null
+
+run_inputs:
+  schema: schemas/run_inputs.json        # title, idea, profile?, base_recipe?
+
+defaults:
+  max_attempts: 3
+
+complexity:
+  levels: [simple, standard, complex]
+  triage_step: profile
+
+steps:
+  - id: profile
+    title: Understand the process
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning, workspace_read], tier: strong }
+    workspace: read                       # reads recipes/plans/ for an earlier process plan (Decision 0102)
+    prompt: prompts/profile.md
+    inputs:
+      - { name: idea,        from: run.inputs.idea,        required: true }
+      - { name: profile,     from: run.inputs.profile,     required: false }
+      - { name: base_recipe, from: run.inputs.base_recipe, required: false }
+      - { name: recipes,     from: catalog.summaries,      required: false }
+    output_schema: schemas/profile_out.json
+    artifacts:
+      - { name: process_plan, required: false, media_type: text/markdown,
+          publish: { to: "recipes/plans/{{ run.slug }}.md" } }
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Is this what the process should do?",
+          labels: { approve: "Yes, that's it", reject: "Not quite" } }
+
+  - id: research
+    title: Learn how this work is usually done
+    depends_on: [profile]
+    applies_to: [standard, complex]
+    requires: { capabilities: [structured_output, long_form_writing, web_access], tier: strong }
+    prompt: prompts/research.md
+    inputs:
+      - { name: profile, from: steps.profile.output, required: true }
+    output_schema: schemas/research_out.json
+    gates: [ { type: schema } ]
+
+  - id: shape
+    title: Design and audit the process
+    depends_on: [profile, research]       # a skipped research counts as satisfied
+    repeat_until: group.steps.audit.gates.passed
+    repeat_from: design
+    max_iterations: 3
+    steps:
+      - id: design
+        title: Design the process
+        requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: strong }
+        prompt: prompts/design.md
+        inputs:
+          - { name: profile,       from: steps.profile.output,              required: true }
+          - { name: research,      from: steps.research.output,             required: false }
+          - { name: open_findings, from: group.previous_iteration.findings, required: false }
+          - { name: patterns,      from: static.patterns.md,                required: true }
+        output_schema: schemas/design_out.json
+        artifacts:
+          - { name: design_doc, required: true, media_type: text/markdown }
+        gates: [ { type: schema } ]
+      - id: audit
+        title: Audit the design
+        depends_on: [design]
+        requires: { capabilities: [structured_output, technical_reasoning], tier: strong }
+        independence: { from_step: design, level: different_vendor }
+        prompt: prompts/audit.md
+        inputs:
+          - { name: design,   from: group.steps.design.output,            required: true }
+          - { name: document, from: group.steps.design.artifacts.design_doc, required: true }
+          - { name: rubric,   from: static.readiness.md,                  required: true }
+          - { name: patterns, from: static.patterns.md,                   required: true }
+        output_schema: baton:findings
+        gates:
+          - { type: findings, block_on: [critical, high] }
+          - { type: human, applies_to: [standard, complex],
+              prompt: "Is this the process you want? Saying no sends it back with your note." }
+
+  - id: generate
+    title: Build the recipe package
+    depends_on: [shape]
+    requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: strong }
+    workspace: write
+    prompt: prompts/generate.md
+    inputs:
+      - { name: shaped,  from: steps.shape.outputs, required: true }
+      - { name: profile, from: steps.profile.output, required: true }
+    output_schema: schemas/generate_out.json
+    artifacts:
+      - { name: walkthrough, required: true, media_type: text/markdown }
+      - { name: ledger,      required: true, media_type: application/json }
+    gates:
+      - { type: schema }
+      - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }
+      - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json", timeout_s: 60 }
+      - type: review
+        applies_to: [complex]
+        block_on: [critical, high]
+        reviewer_requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
+        independence: { from_step: generate, level: different_vendor }
+        rubric: prompts/package_review_rubric.md
+
+  - id: accept
+    title: Owner approves the finished process
+    depends_on: [generate]
+    requires: { capabilities: [human_judgment] }
+    prompt: prompts/accept.md
+    inputs:
+      - { name: walkthrough, from: steps.generate.artifacts.walkthrough, required: true }
+    output_schema: schemas/accept_out.json
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Use this process?",
+          labels: { approve: "Yes, use it", reject: "Change something first" } }

@@ -74,8 +74,8 @@ def test_shipped_recipes_pass_the_lint_with_no_warnings(name):
 
 
 @pytest.mark.not_slow("measured under 1 s")
-def test_the_examples_directory_ships_exactly_the_three_recipes():
-    assert sorted(p.name for p in EXAMPLES.iterdir() if p.is_dir()) == ["backyard-project", "fit-check", "software-feature"]
+def test_the_examples_directory_ships_exactly_the_four_recipes():
+    assert sorted(p.name for p in EXAMPLES.iterdir() if p.is_dir()) == ["backyard-project", "fit-check", "recipe-builder", "software-feature"]
     assert SOFTWARE_FEATURE == EXAMPLES / "software-feature" and FIT_CHECK == EXAMPLES / "fit-check"
 
 

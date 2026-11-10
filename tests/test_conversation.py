@@ -75,7 +75,7 @@ def test_init_bare_vendors_nothing(tmp_path):
 def test_examples_ship_in_the_package():
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert '"examples" = "baton/_data/examples"' in text
-    assert set(catalog()) == {"fit-check", "software-feature", "backyard-project"}
+    assert set(catalog()) == {"fit-check", "software-feature", "backyard-project", "recipe-builder"}
 
 
 # -- structured questions and confirmed answers ----------------------------
