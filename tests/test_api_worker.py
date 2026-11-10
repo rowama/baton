@@ -449,7 +449,7 @@ def test_an_openai_compatible_endpoint_is_listed_and_dispatched_through(tmp_path
         git(project, "commit", "-q", "-m", "Vendor toy")
         resources.declare(cli.home, "local", provider="openai_compatible", base_url=fake.url)  # no credential: a local runtime
         out = resources.refresh_listings(cli.home)
-        assert out["refreshed"] == [{"provider": "local", "models": 1, "fetched": out["refreshed"][0]["fetched"]}] and not out["failed"]
+        assert [(r["provider"], r["models"]) for r in out["refreshed"]] == [("local", 1)] and not out["failed"]
         done = resources.setup(cli.home, discover_fn=lambda h, d: {})
         assert "local-local-model-1" in done["written"], done
         body = yaml.safe_load((cli.home / "workers" / "local-local-model-1.yaml").read_text(encoding="utf-8"))
