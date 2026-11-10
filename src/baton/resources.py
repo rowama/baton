@@ -36,6 +36,7 @@ from . import diag
 from . import __version__
 from . import known_workers as kw_mod
 from . import listings as listings_mod
+from . import profiles as profiles_mod
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml
 from .models import Issue, WorkerProfile
@@ -408,12 +409,15 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
     researched = {r.invocation: r.model_id for r in data.routes if r.invocation and r.model_id and not r.alias}
     have = {r.invocation for r in data.routes if r.invocation}
     for rname, r in sorted(declared.items()):
-        listing = listings_mod.load(home, r.provider)
         prov = data.providers.get(r.provider)
-        if listing is None or r.credential is None or prov is None or not prov.api_key_env:
+        generic = prov is not None and prov.kind == "openai_compatible"
+        listing = listings_mod.load(home, rname if generic else r.provider)
+        if listing is None or prov is None or (generic and not r.base_url):
             continue
-        for c in listings_mod.candidates(listing, researched):
-            invocation = f"{r.provider}/{c.id}"
+        if not generic and (r.credential is None or not prov.api_key_env):
+            continue
+        for c in listings_mod.candidates(listing, researched, r.provider):
+            invocation = f"openai/{c.id}" if generic else f"{r.provider}/{c.id}"
             if invocation in have or (r.models and (c.model_id or c.id) not in r.models):
                 continue
             body: dict[str, Any] = {"adapter": "litellm_api", "creator": c.creator}
@@ -425,9 +429,13 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
                 body["context_tokens"] = c.context_tokens
             if c.price:
                 body["price"] = {**c.price, "source": listing["source"], "date": listing["fetched"]}
-            body["auth"] = {"mode": "api_key", "env": {prov.api_key_env: r.credential}}
-            if r.base_url:
-                body["options"] = {"base_url": r.base_url}
+            if generic and r.credential is None:  # a local runtime: no key; the OpenAI client wants some value (0118)
+                body["auth"] = {"mode": "none"}
+                body["options"] = {"base_url": r.base_url, "api_key": "not-needed"}
+            else:
+                body["auth"] = {"mode": "api_key", "env": {prov.api_key_env: r.credential}}
+                if r.base_url:
+                    body["options"] = {"base_url": r.base_url}
             planned.append(Planned(f"{_slug(rname)}-{_slug(c.id)}", body, "declared"))
 
 
@@ -731,17 +739,33 @@ def setup(
 
 
 def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher = listings_mod.http_fetch, today: dt.date | None = None) -> dict[str, Any]:
-    """Fetch the listing of every declared provider that has a source (acceptance 6): a failure keeps the last good cache."""
-    _, _, res = _inputs(home)
+    """Fetch the listing of every declared provider that has a source (acceptance 6): a failure keeps the last good cache.
+
+    A provider of kind ``openai_compatible`` is listed per resource, from ``<base_url>/models`` (Decision 0118).
+    """
+    data, _, res = _inputs(home)
     refreshed: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
-    for provider in sorted({r.provider for r in res.workers().values()} & set(listings_mod.SOURCES)):
+    jobs: list[tuple[str, dict[str, Any]]] = [(p, {}) for p in sorted({r.provider for r in res.workers().values()} & set(listings_mod.SOURCES))]
+    for rname, r in sorted(res.workers().items()):
+        prov = data.providers.get(r.provider)
+        if prov is None or prov.kind != "openai_compatible" or not r.base_url:
+            continue
+        headers: dict[str, str] = {}
+        if r.credential:
+            try:
+                headers["Authorization"] = "Bearer " + profiles_mod.resolve_value(r.credential, home)
+            except Exception as e:  # expected: an unset secret means this listing cannot be read, reported below
+                failed.append({"provider": rname, "reason": f"could not read {rname}'s model list (its key is not available: {e})"})
+                continue
+        jobs.append((rname, {"provider": r.provider, "key": rname, "url": r.base_url.rstrip("/") + "/models", "headers": headers, "style": "openai"}))
+    for label, kw in jobs:
         try:
-            body = listings_mod.refresh(home, provider, fetch=fetch, today=today)
-            refreshed.append({"provider": provider, "models": len(body["models"]), "fetched": body["fetched"]})
+            body = listings_mod.refresh(home, kw.pop("provider", label), fetch=fetch, today=today, **kw)
+            refreshed.append({"provider": label, "models": len(body["models"]), "fetched": body["fetched"]})
         except listings_mod.ListingError as e:
-            diag.note("listings.fetch_failed", "resources:refresh_listings", provider=provider, error=str(e))
-            failed.append({"provider": provider, "reason": f"could not read {provider}'s model list ({e}); the last good list, if any, is kept"})
+            diag.note("listings.fetch_failed", "resources:refresh_listings", provider=label, error=str(e))
+            failed.append({"provider": label, "reason": f"could not read {label}'s model list ({e}); the last good list, if any, is kept"})
     return {"refreshed": refreshed, "failed": failed}
 
 
@@ -780,6 +804,9 @@ def declare(
             checked, issues = validate_resources({"resources": {name: body}}, data.machine_dependent, source="declare")
             if issues or checked is None:
                 raise ResourcesError(issues)
+            if data.providers.get(checked.resources[name].provider, None) is not None \
+                    and data.providers[checked.resources[name].provider].kind == "openai_compatible" and not checked.resources[name].base_url:
+                raise ResourcesError([Issue(code="resources.no_base_url", where=name, message="an openai_compatible endpoint needs --base-url")])
             res.resources[name] = checked.resources[name]
             changed = {"declared": name, "resource": res.resources[name].model_dump(mode="json", exclude_none=True)}
             if res.resources[name].provider not in data.providers:

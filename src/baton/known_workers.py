@@ -104,7 +104,7 @@ class ToolArgs(_Strict):
 
 
 class KnownProvider(_Strict):
-    kind: Literal["direct_api", "intermediary", "harness", "local"]
+    kind: Literal["direct_api", "intermediary", "harness", "local", "openai_compatible"]
     #: A harness's creators: whose models it can run (0089); research must route each of their models or name the gap.
     creators: list[str] = Field(default_factory=list)
     #: A harness's tool map: tooling capability -> how to turn it on (0085).

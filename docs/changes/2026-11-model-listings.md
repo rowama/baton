@@ -195,3 +195,10 @@ At no point does the owner edit a file, wait for a Baton release or run research
 - **Summary:** `Preferences.cheapest_first` and `routing.price_rank`; `worker_selected.price`; `quota.py` (`~/.baton/quota.yaml`, reset at next UTC midnight) attached to profiles and excluded in routing; the API runner classifies `RateLimitError` as `platform`/`quota_exhausted`; `Engine._quota_exhausted` re-routes without counting the attempt and opens no incident. Exclusion already existed (`exclude` in preferences). Edits runtime.md §8.4, §8.8. Tests in `tests/test_listings.py` and an end-to-end rate-limit test in `tests/test_api_worker.py`. Not yet done: quota shown by `workers status` and `doctor` from the key endpoint (acceptance 5 in part), provider on/off switch (acceptance 12), subscription-CLI quota signals, `workers status` summary by provider.
 - **Review:** clean
 - **Accepted:** pending
+
+### The openai_compatible kind
+
+- **Commit:** `2026-11-model-listings: Slice 3, the openai_compatible kind`
+- **Summary:** provider kind `openai_compatible` and a generic `openai_compatible` provider in the known-workers data; `listings.normalize_openai` and per-resource listing caches; `refresh_listings` reads `<base_url>/models`; listing planning dispatches through `openai/<id>` with the resource's `base_url`, `auth: none` for a keyless local runtime; `declare` requires `--base-url`. Edits workers.md §6.4. Tests in `tests/test_api_worker.py`: a local fake OpenAI server is listed, a profile generated and a step dispatched through it (real litellm child, acceptance 11); `declare` without a base URL is refused. Localhost reach checked on Linux only (Design noted the question, 0118). Not done: `workers declare --provider openai_compatible` help text.
+- **Review:** clean
+- **Accepted:** pending

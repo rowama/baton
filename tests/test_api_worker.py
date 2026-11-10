@@ -389,3 +389,86 @@ def test_a_rate_limited_route_reroutes_without_spending_the_attempt(tmp_path):
     assert [e["data"] for e in events if e["type"] == "step_ready"][-1]["not_counted"] is True
     assert [e["profile"] for e in cli.run("eligible", run, "describe")["eligible"]] == ["paid-api"]
     assert cli.run("dispatch", run, "describe", "--worker", "paid-api", "--wait")["outcome"] == "passed"
+
+
+class _FakeOpenAI:
+    """A local server speaking the OpenAI API: ``GET /v1/models`` and ``POST /v1/chat/completions``."""
+
+    def __init__(self, models, reply_text):
+        import http.server
+        import threading
+
+        outer = self
+        outer.seen = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, body):
+                raw = json.dumps(body).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                outer.seen.append(("GET", self.path, self.headers.get("Authorization")))
+                self._send({"object": "list", "data": [{"id": m, "object": "model"} for m in models]})
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                outer.seen.append(("POST", self.path, self.headers.get("Authorization")))
+                self._send({"id": "c1", "object": "chat.completion", "created": 1, "model": models[0],
+                            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": reply_text}}],
+                            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/v1"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+@needs_litellm
+@pytest.mark.slow
+def test_an_openai_compatible_endpoint_is_listed_and_dispatched_through(tmp_path):
+    from baton import resources
+    import yaml
+    from runkit import make_recipe
+
+    fake = _FakeOpenAI(["local-model-1"], reply({"ok": True}))
+    try:
+        cli, project = setup_fit_check(tmp_path)
+        recipe = make_recipe(tmp_path / "toy", [{"id": "only", "output_schema": "schemas/out.json"}], schemas={"out.json": {"type": "object"}}, run_inputs={"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]})
+        cli.run("vendor", str(recipe))
+        git(project, "add", "-A")
+        git(project, "commit", "-q", "-m", "Vendor toy")
+        resources.declare(cli.home, "local", provider="openai_compatible", base_url=fake.url)  # no credential: a local runtime
+        out = resources.refresh_listings(cli.home)
+        assert out["refreshed"] == [{"provider": "local", "models": 1, "fetched": out["refreshed"][0]["fetched"]}] and not out["failed"]
+        done = resources.setup(cli.home, discover_fn=lambda h, d: {})
+        assert "local-local-model-1" in done["written"], done
+        body = yaml.safe_load((cli.home / "workers" / "local-local-model-1.yaml").read_text(encoding="utf-8"))
+        assert body["model"] == "openai/local-model-1" and body["options"]["base_url"] == fake.url and body["tier"] == "basic"
+        assert "model_id" not in body and body["capabilities"] == ["structured_output"]  # identity unknown, never independent (0076)
+        run = cli.run("start", "toy", "--inputs", json.dumps({"title": "Toy"}))["run_id"]
+        res = cli.run("dispatch", run, "only", "--worker", "local-local-model-1", "--wait")
+        assert res["outcome"] == "passed", res
+        assert ("POST", "/v1/chat/completions", None) in [(m, p, None) for m, p, _ in fake.seen]
+    finally:
+        fake.close()
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_an_openai_compatible_endpoint_needs_a_base_url(tmp_path):
+    from baton import resources
+
+    home = tmp_path / "home"
+    home.mkdir()
+    with pytest.raises(resources.ResourcesError) as e:
+        resources.declare(home, "local", provider="openai_compatible")
+    assert "needs --base-url" in str(e.value)

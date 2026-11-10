@@ -33,7 +33,10 @@ PARAMETER_CAPABILITIES = {
     "tools": "tool_use",
 }
 
-Fetcher = Callable[[str], Any]
+#: What an OpenAI-style listing does not show, a ``litellm_api`` reply still meets: the schema goes in the prompt (§6.3), and the claim is checked by use (0087).
+PROMPT_SCHEMA = "adapter prompt-schema fallback (§6.3)"
+
+Fetcher = Callable[..., Any]
 
 
 class ListingError(Exception):
@@ -48,8 +51,8 @@ def listing_path(home: Path, provider: str) -> Path:
     return listings_dir(home) / f"{provider}.json"
 
 
-def http_fetch(url: str) -> Any:
-    req = urllib.request.Request(url, headers={"User-Agent": "baton-listings"})
+def http_fetch(url: str, headers: dict[str, str] | None = None) -> Any:
+    req = urllib.request.Request(url, headers={"User-Agent": "baton-listings", **(headers or {})})
     with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - fixed https source
         return json.loads(r.read().decode("utf-8"))
 
@@ -99,20 +102,33 @@ def normalize_openrouter(raw: Any, today: dt.date) -> list[dict[str, Any]]:
     return out
 
 
-def refresh(home: Path, provider: str, *, fetch: Fetcher = http_fetch, today: dt.date | None = None) -> dict[str, Any]:
-    """Fetch and cache one provider's listing. On any failure the last good cache stays; ``ListingError`` is raised."""
+def normalize_openai(raw: Any, today: dt.date) -> list[dict[str, Any]]:
+    """An OpenAI-style ``GET <base_url>/models`` (Decision 0118): ids only. Price, context and tool support stay unknown."""
+    data = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(data, list) or not data:
+        raise ListingError("the listing response has no model list")
+    return [{"id": m["id"], "canonical_slug": m["id"], "alias_target": None, "text": True, "context_tokens": None,
+             "capabilities": {"structured_output": PROMPT_SCHEMA}, "price": None, "free": False}
+            for m in data if isinstance(m, dict) and isinstance(m.get("id"), str)]
+
+
+def refresh(home: Path, provider: str, *, fetch: Fetcher = http_fetch, today: dt.date | None = None, key: str | None = None,
+            url: str | None = None, headers: dict[str, str] | None = None, style: str = "openrouter") -> dict[str, Any]:
+    """Fetch and cache one listing (``key``: its cache name, default the provider's). On any failure the last good cache stays; ``ListingError`` is raised."""
     today = today or dt.date.today()
-    if provider not in SOURCES:
-        raise ListingError(f"no listing source is known for {provider}")
-    url = SOURCES[provider]
+    if url is None:
+        if provider not in SOURCES:
+            raise ListingError(f"no listing source is known for {provider}")
+        url = SOURCES[provider]
     try:
-        models = normalize_openrouter(fetch(url), today)
+        raw = fetch(url, headers=headers) if headers else fetch(url)
+        models = (normalize_openai if style == "openai" else normalize_openrouter)(raw, today)
     except ListingError:
         raise
     except Exception as e:  # expected: network, TLS and decoding errors all mean "no new listing"
         raise ListingError(f"{type(e).__name__}: {e}") from e
     body = {"format": FORMAT, "provider": provider, "source": url, "fetched": today.isoformat(), "models": models}
-    path = listing_path(home, provider)
+    path = listing_path(home, key or provider)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(body, indent=1, sort_keys=True), encoding="utf-8")
@@ -142,9 +158,11 @@ class Candidate:
     price: dict[str, Any] | None
 
 
-def identity(entry: dict[str, Any], researched: dict[str, str]) -> tuple[str | None, bool]:
+def identity(entry: dict[str, Any], researched: dict[str, str], provider: str = "openrouter") -> tuple[str | None, bool]:
     """``(model_id, alias)`` for a listing entry (0112): a researched route's id, else the lower-cased canonical slug, else unknown."""
-    inv = f"openrouter/{entry['id']}"
+    if provider == "openai_compatible":  # the ids are the endpoint's own: nothing says whose model it is
+        return None, False
+    inv = f"{provider}/{entry['id']}"
     if inv in researched:
         return researched[inv], False
     alias = bool(entry.get("alias_target")) or entry["id"].startswith("openrouter/")
@@ -154,16 +172,16 @@ def identity(entry: dict[str, Any], researched: dict[str, str]) -> tuple[str | N
     return None, alias
 
 
-def candidates(listing: dict[str, Any], researched: dict[str, str]) -> list[Candidate]:
+def candidates(listing: dict[str, Any], researched: dict[str, str], provider: str = "openrouter") -> list[Candidate]:
     """Text models whose listing shows a structured-output parameter (the ``litellm_api`` reply contract, §6.3; 0113)."""
     out: list[Candidate] = []
     for e in listing.get("models", []):
         if not e.get("text") or "structured_output" not in e.get("capabilities", {}):
             continue
-        model_id, alias = identity(e, researched)
-        creator = (model_id or e["id"]).split("/", 1)[0].lower()
+        model_id, alias = identity(e, researched, provider)
+        creator = (model_id or e["id"]).split("/", 1)[0].lower() if (model_id or "/" in e["id"]) else "unknown"
         if not re.match(r"^[a-z0-9][a-z0-9._-]*$", creator):
-            continue
+            creator = "unknown"
         price = e.get("price")
         if price is not None and e.get("free"):
             price = {"input": 0.0, "output": 0.0, "free": True}

@@ -412,6 +412,13 @@ providers:
     api_key_env: OPENROUTER_API_KEY    # read by LiteLLM 1.106.6
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }
+  # Any endpoint that speaks the OpenAI API (0118): the resource gives base_url and, unless it is a
+  # local runtime, a credential. Dispatched through LiteLLM's openai/<model> route with that base URL.
+  openai_compatible:
+    kind: openai_compatible
+    api_key_env: OPENAI_API_KEY        # read by LiteLLM's openai route
+    sources:
+      - { url: "https://docs.litellm.ai/docs/providers/openai_compatible", retrieved: 2026-11-10 }
   # Tool maps (0085): the args that turn a tooling capability on. Entered by
   # hand from the installed CLIs' --help (claude 2.1.319, codex-cli 0.166.0)
   # until the first research run under 2026-11-cli-model-routes replaces them.
