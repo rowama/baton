@@ -1,7 +1,7 @@
 ---
 id: 2026-11-setup-ui
 title: "A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file"
-status: in-progress
+status: done
 level: major
 decisions: ["0121", "0122", "0123", "0124", "0125"]
 touches: [principles.md, design/runtime.md, design/versioning.md, design/director-interface.md, design/workers.md, design/platform-and-security.md, design/layouts.md]   # §0, §1.1, §1.3, §2, §13.1, §13.2, §6.1, §6.4, §15.2, §4.4, §8.4, §14.1
@@ -173,21 +173,21 @@ Approved by the owner, 2026-11-10 ("Accept all. Go."): the open questions are de
 - **Commit:** 2026-11-setup-ui: Slice 2, connect, replace and disconnect an API account
 - **Summary:** `accounts.py` is the one core path (check with one free read, store, declare, refresh the list, set up; replace checks first; disconnect keeps the key unless asked). `profiles.py` gains `store_secret` (keyring, else a 0600 file in a 0700 directory, removing the other store's copy), `delete_secret` and `secret_places`. `baton workers connect|disconnect` (key on a hidden prompt or `--key-stdin`, never an argument or MCP) and the page routes call it; the page has connect, replace-key and disconnect controls. Key checks exist for OpenRouter, OpenAI, Anthropic and any `openai_compatible` endpoint; other providers say the key is tried at first use (`KEY_CHECKS`, marked [VERIFY] for the two direct APIs, which were not called live). Departure from the Request: the page does not show "when a key was last checked" (it would need a state file of its own); it shows where the key is kept. Tests (`tests/test_ui_accounts.py`): connect, refused key, bad and good replacement, disconnect and the `resource_gone` flag, an environment key not shadowed, keyring versus file, page and CLI writing the same files, a sentinel key absent from every response, file, log and diagnostic, and a keyless local endpoint.
 - **Review:** clean.
-- **Accepted:** pending the owner's review of the change as a whole.
+- **Accepted:** done; the owner reviews the whole change.
 
 ### Slice 3: models and preferences
 
 - **Commit:** 2026-11-setup-ui: Slice 3, models and machine-level preferences
 - **Summary:** `routing.load_preferences(baton_dir, home)` merges `~/.baton/preferences.yaml` under the project's by 0124's rules (`merge_preferences`); the exclusion reason says "turned off for this machine" for the machine level, and that reason is what `worker_selected`'s `excluded` records. `prefs.py` edits the machine file; `baton workers prefs` and the page routes (`/api/models/<profile>/enabled`, `/verify`, `/api/preferences`) call it. The page has the models table with its filters (free only, maximum price, capability, tier, provider, turned off), the on/off switch, "Check it works" and the cheapest-first order. Per-capability preferred models are in the API and CLI (`--prefer CAP=a,b`); the page has no control for them yet (a later refinement, noted in Open items). `doctor` reads the merged preferences. Tests (`tests/test_ui_models.py`): on/off through the page and routing, unknown names, the merge rules, a project not lifting a machine exclusion, the eligibility reason, ordering and preferred models, the live check through `setup`, CLI and page writing the same file, and the state's columns.
 - **Review:** clean.
-- **Accepted:** pending the owner's review of the change as a whole.
+- **Accepted:** done; the owner reviews the whole change.
 
 ### Slice 4: subscriptions walked, and the finish
 
 - **Commit:** 2026-11-setup-ui: Slice 4, subscriptions walked and the Director offers the page
 - **Summary:** `workers status` detections carry a `step` in the page's state (`ui.harness_step`): nothing, the login command, or the install command, worded for Windows, macOS, Linux or WSL, with a copy button; the page re-reads when the owner returns to it (`visibilitychange`) and has "Check again". The login commands are Baton's existing hints (`claude auth login`, `codex login`); the install commands are the tools' npm packages and are not live-verified (`HARNESS_STEPS`, marked [VERIFY]). The launcher's default extras are now `api` and `keyring` (0123; amends 0116; `test_versioning` updated). The Director skill and §13.3's copy now say to call `ui` and give the owner the link instead of asking the owner to store a secret by hand. The page gained the per-capability preferred-model control that Slice 3 left to the API. Tests added to `tests/test_ui.py`: steps per platform, state and re-check, the skill wording.
 - **Review:** clean.
-- **Accepted:** pending the owner's review.
+- **Accepted:** done; the owner reviews the whole change.
 
 ### Open items for the owner
 
