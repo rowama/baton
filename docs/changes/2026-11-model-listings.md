@@ -1,15 +1,15 @@
 ---
 id: 2026-11-model-listings
 title: "Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred"
-status: proposed
+status: in-progress
 level: major
-decisions: []               # proposed records to create once the owner answers the open questions below
+decisions: ["0109", "0110", "0111", "0112", "0113", "0114", "0115", "0116", "0117", "0118", "0119"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, principles.md]   # §6.1, §6.4, §8.4, §13.1, §13.4, §2
 ---
 
 # Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred
 
-> **Proposed, 2026-11-10; extended the same day (owner) with a provider directory and an OpenAI-compatible provider kind, so switching providers is a choice, not a research run.** Request only. Design waits for the owner's answers to the open questions and approval of the Request (level major). Companion change: [2026-11-setup-ui](2026-11-setup-ui.md), which gives the owner a page to manage what this change finds; this change is useful without it (CLI and Director), and it is a prerequisite of it.
+> **Accepted by the owner 2026-11-10 (Request approved; all 11 suggested answers accepted as decisions 0109–0119).** Proposed, 2026-11-10; extended the same day (owner) with a provider directory and an OpenAI-compatible provider kind, so switching providers is a choice, not a research run.** Request only. Design waits for the owner's answers to the open questions and approval of the Request (level major). Companion change: [2026-11-setup-ui](2026-11-setup-ui.md), which gives the owner a page to manage what this change finds; this change is useful without it (CLI and Director), and it is a prerequisite of it.
 
 ## Request
 
@@ -134,13 +134,50 @@ At no point does the owner edit a file, wait for a Baton release or run research
 
 ## Design
 
-To be written once the Request is approved and the open questions are answered.
+### Doc edits
+
+- `design/workers.md` §6.4: listings (a cached, fetched list of the models a provider offers) become candidate routes beside researched routes; listing profiles carry `price`; the `providers` section gains directory fields and the `openai_compatible` kind; `workers refresh`; owner-run assessment overlay.
+- `design/workers.md` §6.1: a profile's optional `price` field and the `exclude` preference.
+- `design/runtime.md` §8.4, §8.8: the cheapest-first ordering preference, the price in `worker_selected`, and `quota_exhausted`.
+- `design/director-interface.md` §13.1, §13.4: `workers refresh`, quota in `workers status` and `doctor`.
+- `principles.md` §2: the worker-setup note says price and listings add no concept.
+
+### Mechanism (slice 1)
+
+- A listing is a JSON file `~/.baton/listings/<provider>.json` (`baton-listing/1`: `provider`, `source`, `fetched`, `models`). A failed fetch leaves the last good file.
+- `listings.py` fetches OpenRouter's public `GET /api/v1/models` (injectable fetcher for tests) and turns each entry into a candidate: `id`, `canonical_slug`, `context_length`, price per million tokens (or `free`), and catalog-basis capabilities (`structured_output` from `response_format`/`structured_outputs`, `tool_use` from `tools`, `vision` from image input). Only text-output models with a structured-output parameter become profiles (0113).
+- `resources.plan_profiles` also plans listing profiles for each declared resource whose provider has a listing and has no researched route for that id. Identity follows 0112, tier is `basic` (0110), the name is `<resource>-<slug of listing id>`.
+- A listing profile's `price` is refreshable (like `capabilities`), never a binding.
+
+### Decisions
+
+0109–0119, all accepted 2026-11-10.
 
 ## Plan
 
-Suggested slices:
-1. OpenRouter public listing into a machine-local cache, plus listing profiles for structured-output text models with catalog capabilities, price and `basic` tier, proven by routing a schema-only step to a free model.
-2. The `openai_compatible` kind with a base URL, proven against a local fake server.
-3. Directory fields on providers, and the first directory entries, through a research run.
+### Listing profiles from OpenRouter
+
+- **Outcome:** `workers refresh` caches OpenRouter's listing; `workers setup` generates profiles with price, context, catalog capabilities and `basic` tier (acceptance 1, 2, 6, 7).
+- **Effort:** L
+
+### Price preference, quota and exclusion
+
+- **Outcome:** cheapest-first routing, price in `worker_selected`, `quota_exhausted` re-routing, `exclude` and provider on/off (acceptance 4, 5, 12).
+- **Effort:** L
+
+### The openai_compatible kind
+
+- **Outcome:** a custom endpoint is a provider, proven against a local fake server (acceptance 11).
+- **Effort:** M
+
+### Directory fields and entries
+
+- **Outcome:** providers carry directory fields; a directory provider with no researched models generates profiles from its listing (acceptance 10, 3).
+- **Effort:** M
+
+### Owner-run assessment and launcher extras
+
+- **Outcome:** assessment overlay (0111); `api` in the launcher's default extras (0116).
+- **Effort:** M
 
 ## Log

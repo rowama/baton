@@ -243,3 +243,14 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0106 Steps can take the vendored and catalog recipe summaries as an input source](decisions/0106-catalog-summaries-input.md) | accepted |
 | [0107 A script gate's command can use run.slug](decisions/0107-gate-run-slug.md) | accepted |
 | [0108 Ledger and instance-leak checks are a built-in command, baton recipe check](decisions/0108-recipe-check-command.md) | accepted |
+| [0109 Listings come first from OpenRouter, then other providers through the same mechanism](decisions/0109-listing-sources.md) | accepted |
+| [0110 A listed model with no researched entry is tier basic with no judgment capabilities](decisions/0110-unjudged-model-default-tier.md) | accepted |
+| [0111 Research can run on the owner's machine for chosen models, into a machine-local overlay](decisions/0111-owner-run-assessment.md) | accepted |
+| [0112 A listing id takes its identity from a matching researched route, else its canonical slug](decisions/0112-listing-model-identity.md) | accepted |
+| [0113 Profiles are generated only for text models meeting the adapter contract; the owner can exclude](decisions/0113-listing-filter-and-exclude.md) | accepted |
+| [0114 Quota exhaustion is a classified platform condition that re-routes without spending an attempt](decisions/0114-quota-exhausted-reroutes.md) | accepted |
+| [0115 Price is a profile field and a routing preference, not an owner concept](decisions/0115-price-is-not-a-concept.md) | accepted |
+| [0116 The launcher's default extras include api](decisions/0116-launcher-default-extras-include-api.md) | accepted |
+| [0117 The provider directory is the providers section, extended and researched separately from models](decisions/0117-provider-directory.md) | accepted |
+| [0118 openai_compatible is a provider kind needing only a base URL and an optional key](decisions/0118-openai-compatible-kind.md) | accepted |
+| [0119 Providers that are not OpenAI-compatible stay directory entries with their LiteLLM prefix](decisions/0119-non-openai-providers-stay-directory-entries.md) | accepted |
