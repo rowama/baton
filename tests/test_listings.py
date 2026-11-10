@@ -155,3 +155,53 @@ def test_a_rate_limit_error_is_classified_quota_exhausted():
 
     f = wr.classify_exception(RateLimitError("429"))
     assert (f.failure_class, f.code) == ("platform", "quota_exhausted")
+
+
+# ---------------------------------------------------------------------------
+# The provider directory (slice 4; Decision 0117)
+# ---------------------------------------------------------------------------
+
+
+def test_a_directory_provider_needs_only_a_credential_and_its_models_come_from_its_listing(home):
+    from baton import known_workers as kw
+    from baton import vocab as vocab_mod
+
+    data = kw.load(vocab_mod.load(vocab_mod.DEFAULT))
+    chutes = data.providers["chutes"]
+    assert chutes.kind == "openai_compatible" and chutes.base_url.startswith("https://") and chutes.signup_url
+    assert not [r for r in data.routes if r.provider == "chutes"]  # no researched model: the listing is all there is
+    seen = []
+
+    def fetch(url, headers=None):
+        seen.append((url, headers))
+        return {"object": "list", "data": [{"id": "zed/model-a"}, {"id": "plain"}]}
+
+    resources.declare(home, "ch", provider="chutes", credential="secret:chutes_key")  # no --base-url: the directory has it
+    (home / "secrets").mkdir()
+    (home / "secrets" / "chutes_key").write_text("K", encoding="utf-8")
+    out = resources.refresh_listings(home, fetch=fetch, today=TODAY)
+    assert out["refreshed"][0]["models"] == 2 and seen == [(chutes.base_url + "/models", {"Authorization": "Bearer K"})]
+    done = resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
+    assert sorted(done["written"]) == ["ch-plain", "ch-zed-model-a"]
+    a = yaml.safe_load((home / "workers" / "ch-zed-model-a.yaml").read_text(encoding="utf-8"))
+    assert a["model"] == "openai/zed/model-a" and a["options"]["base_url"] == chutes.base_url and a["creator"] == "zed"
+    assert yaml.safe_load((home / "workers" / "ch-plain.yaml").read_text(encoding="utf-8"))["creator"] == "unknown"
+
+
+def test_a_local_runtime_is_a_directory_entry_without_a_key(home):
+    resources.declare(home, "mine", provider="ollama")
+    out = resources.refresh_listings(home, fetch=lambda url, headers=None: {"data": [{"id": "llama"}]}, today=TODAY)
+    assert out["refreshed"][0]["provider"] == "mine"
+    resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
+    body = yaml.safe_load((home / "workers" / "mine-llama.yaml").read_text(encoding="utf-8"))
+    assert body["auth"] == {"mode": "none"} and body["options"]["base_url"] == "http://localhost:11434/v1"
+
+
+def test_the_validator_refuses_a_base_url_on_a_provider_reached_through_litellm():
+    from baton import known_workers as kw
+    from baton import vocab as vocab_mod
+
+    raw = yaml.safe_load(kw.default_path().read_text(encoding="utf-8"))
+    raw["providers"]["xai"]["base_url"] = "https://example.com/v1"
+    _, issues = kw.validate(raw, vocab_mod.load(vocab_mod.DEFAULT), {"litellm_api", "subprocess_harness", "manual", "command"})
+    assert any(i.code.endswith("base_url_kind") for i in issues)

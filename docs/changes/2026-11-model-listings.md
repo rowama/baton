@@ -202,3 +202,11 @@ At no point does the owner edit a file, wait for a Baton release or run research
 - **Summary:** provider kind `openai_compatible` and a generic `openai_compatible` provider in the known-workers data; `listings.normalize_openai` and per-resource listing caches; `refresh_listings` reads `<base_url>/models`; listing planning dispatches through `openai/<id>` with the resource's `base_url`, `auth: none` for a keyless local runtime; `declare` requires `--base-url`. Edits workers.md §6.4. Tests in `tests/test_api_worker.py`: a local fake OpenAI server is listed, a profile generated and a step dispatched through it (real litellm child, acceptance 11); `declare` without a base URL is refused. Localhost reach checked on Linux only (Design noted the question, 0118). Not done: `workers declare --provider openai_compatible` help text.
 - **Review:** clean
 - **Accepted:** pending
+
+### Directory fields and entries
+
+- **Commit:** `2026-11-model-listings: Slice 4, the provider directory`
+- **Summary:** `KnownProvider` gains `display_name`, `base_url`, `signup_url` (validator: `base_url` only on `openai_compatible`); a resource's `base_url` falls back to the directory's; `declare` needs a base URL from one or the other. Nine entries added to the known-workers data (Together, Fireworks, Cerebras, DeepInfra, Chutes, Requesty; Ollama, LM Studio, vLLM), endpoints and key pages checked 2026-11-10 by request (not by a research run, so no tier or price claims). Tests in `tests/test_listings.py`: a directory provider with only a credential generates profiles from its listing (acceptance 10); a keyless local runtime; the validator refusal. Acceptance 3 is covered by slice 1's identity tests (a listed id matching a researched route takes its `model_id`; a directory provider's models have unknown identity by 0118). Not done: the per-provider key-info/quota endpoint field and showing remaining quota.
+- **Review:** clean
+- **Accepted:** pending
+

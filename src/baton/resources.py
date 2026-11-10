@@ -412,7 +412,8 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
         prov = data.providers.get(r.provider)
         generic = prov is not None and prov.kind == "openai_compatible"
         listing = listings_mod.load(home, rname if generic else r.provider)
-        if listing is None or prov is None or (generic and not r.base_url):
+        base = (r.base_url or prov.base_url) if prov is not None else None
+        if listing is None or prov is None or (generic and not base):
             continue
         if not generic and (r.credential is None or not prov.api_key_env):
             continue
@@ -431,11 +432,11 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
                 body["price"] = {**c.price, "source": listing["source"], "date": listing["fetched"]}
             if generic and r.credential is None:  # a local runtime: no key; the OpenAI client wants some value (0118)
                 body["auth"] = {"mode": "none"}
-                body["options"] = {"base_url": r.base_url, "api_key": "not-needed"}
+                body["options"] = {"base_url": base, "api_key": "not-needed"}
             else:
                 body["auth"] = {"mode": "api_key", "env": {prov.api_key_env: r.credential}}
-                if r.base_url:
-                    body["options"] = {"base_url": r.base_url}
+                if base:
+                    body["options"] = {"base_url": base}
             planned.append(Planned(f"{_slug(rname)}-{_slug(c.id)}", body, "declared"))
 
 
@@ -749,7 +750,8 @@ def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher = listings_mod.h
     jobs: list[tuple[str, dict[str, Any]]] = [(p, {}) for p in sorted({r.provider for r in res.workers().values()} & set(listings_mod.SOURCES))]
     for rname, r in sorted(res.workers().items()):
         prov = data.providers.get(r.provider)
-        if prov is None or prov.kind != "openai_compatible" or not r.base_url:
+        base = (r.base_url or prov.base_url) if prov is not None else None
+        if prov is None or prov.kind != "openai_compatible" or not base:
             continue
         headers: dict[str, str] = {}
         if r.credential:
@@ -758,7 +760,7 @@ def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher = listings_mod.h
             except Exception as e:  # expected: an unset secret means this listing cannot be read, reported below
                 failed.append({"provider": rname, "reason": f"could not read {rname}'s model list (its key is not available: {e})"})
                 continue
-        jobs.append((rname, {"provider": r.provider, "key": rname, "url": r.base_url.rstrip("/") + "/models", "headers": headers, "style": "openai"}))
+        jobs.append((rname, {"provider": r.provider, "key": rname, "url": base.rstrip("/") + "/models", "headers": headers, "style": "openai"}))
     for label, kw in jobs:
         try:
             body = listings_mod.refresh(home, kw.pop("provider", label), fetch=fetch, today=today, **kw)
@@ -804,8 +806,8 @@ def declare(
             checked, issues = validate_resources({"resources": {name: body}}, data.machine_dependent, source="declare")
             if issues or checked is None:
                 raise ResourcesError(issues)
-            if data.providers.get(checked.resources[name].provider, None) is not None \
-                    and data.providers[checked.resources[name].provider].kind == "openai_compatible" and not checked.resources[name].base_url:
+            dprov = data.providers.get(checked.resources[name].provider)
+            if dprov is not None and dprov.kind == "openai_compatible" and not (checked.resources[name].base_url or dprov.base_url):
                 raise ResourcesError([Issue(code="resources.no_base_url", where=name, message="an openai_compatible endpoint needs --base-url")])
             res.resources[name] = checked.resources[name]
             changed = {"declared": name, "resource": res.resources[name].model_dump(mode="json", exclude_none=True)}

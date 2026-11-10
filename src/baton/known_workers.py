@@ -109,6 +109,12 @@ class KnownProvider(_Strict):
     creators: list[str] = Field(default_factory=list)
     #: A harness's tool map: tooling capability -> how to turn it on (0085).
     tools: dict[str, ToolArgs] = Field(default_factory=dict)
+    #: The directory facts (0117), all optional: how the owner is told about the provider and where it is reached.
+    display_name: str | None = None
+    #: An ``openai_compatible`` provider's endpoint; a resource's own ``base_url`` overrides it. Its listing is ``<base_url>/models``.
+    base_url: str | None = Field(default=None, pattern=r"^https?://")
+    #: Where the owner gets a key.
+    signup_url: str | None = Field(default=None, pattern=r"^https?://")
     #: The variable its adapter reads the API key from (direct APIs, intermediaries).
     api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
     #: Variables a generated profile always removes (a stray key could switch a CLI login's billing, §6.1).
@@ -215,6 +221,8 @@ def validate(raw: object, vocab: Vocabulary, adapters: set[str], source: str = F
     from .capability_states import TOOLING
 
     for pname, prov in kw.providers.items():
+        if prov.base_url and prov.kind != "openai_compatible":
+            issues.append(issue("base_url_kind", f"providers.{pname}.base_url", "only an openai_compatible provider has a base_url (its other kinds are reached through LiteLLM's own route)"))
         if prov.creators and prov.kind != "harness":
             issues.append(issue("creators_not_harness", f"providers.{pname}.creators", "only a harness provider names the creators it can run"))
         for cap in prov.tools:

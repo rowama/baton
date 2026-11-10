@@ -419,6 +419,79 @@ providers:
     api_key_env: OPENAI_API_KEY        # read by LiteLLM's openai route
     sources:
       - { url: "https://docs.litellm.ai/docs/providers/openai_compatible", retrieved: 2026-11-10 }
+  # Directory (0117): providers with an OpenAI-compatible endpoint. A resource needs only a credential;
+  # the models come from the listing, so no researched model is needed. Endpoints and key pages were
+  # fetched 2026-11-10 (the endpoint answered, 401/403 without a key); free and cheap tiers are not claimed here.
+  together:
+    kind: openai_compatible
+    display_name: Together AI
+    base_url: https://api.together.xyz/v1
+    signup_url: https://api.together.ai/settings/api-keys
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://docs.together.ai/docs/openai-api-compatibility", retrieved: 2026-11-10 }
+  fireworks:
+    kind: openai_compatible
+    display_name: Fireworks AI
+    base_url: https://api.fireworks.ai/inference/v1
+    signup_url: https://app.fireworks.ai/settings/users/api-keys
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://docs.fireworks.ai/tools-sdks/openai-compatibility", retrieved: 2026-11-10 }
+  cerebras:
+    kind: openai_compatible
+    display_name: Cerebras
+    base_url: https://api.cerebras.ai/v1
+    signup_url: https://cloud.cerebras.ai
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://inference-docs.cerebras.ai/resources/openai", retrieved: 2026-11-10 }
+  deepinfra:
+    kind: openai_compatible
+    display_name: DeepInfra
+    base_url: https://api.deepinfra.com/v1/openai
+    signup_url: https://deepinfra.com/dash/api_keys
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://deepinfra.com/docs/openai_api", retrieved: 2026-11-10 }
+  chutes:
+    kind: openai_compatible
+    display_name: Chutes
+    base_url: https://llm.chutes.ai/v1
+    signup_url: https://chutes.ai
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://docs.chutes.ai", retrieved: 2026-11-10 }
+  requesty:
+    kind: openai_compatible
+    display_name: Requesty
+    base_url: https://router.requesty.ai/v1
+    signup_url: https://app.requesty.ai
+    api_key_env: OPENAI_API_KEY        # the variable Baton injects for LiteLLM's openai route
+    sources:
+      - { url: "https://docs.requesty.ai", retrieved: 2026-11-10 }
+  # Local runtimes: no key; the port is the runtime's documented default.
+  ollama:
+    kind: openai_compatible
+    display_name: Ollama
+    base_url: http://localhost:11434/v1
+    api_key_env: OPENAI_API_KEY
+    sources:
+      - { url: "https://docs.ollama.com/api/openai-compatibility", retrieved: 2026-11-10 }
+  lm_studio:
+    kind: openai_compatible
+    display_name: LM Studio
+    base_url: http://localhost:1234/v1
+    api_key_env: OPENAI_API_KEY
+    sources:
+      - { url: "https://lmstudio.ai/docs/app/api/endpoints/openai", retrieved: 2026-11-10 }
+  vllm:
+    kind: openai_compatible
+    display_name: vLLM
+    base_url: http://localhost:8000/v1
+    api_key_env: OPENAI_API_KEY
+    sources:
+      - { url: "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/", retrieved: 2026-11-10 }
   # Tool maps (0085): the args that turn a tooling capability on. Entered by
   # hand from the installed CLIs' --help (claude 2.1.319, codex-cli 0.166.0)
   # until the first research run under 2026-11-cli-model-routes replaces them.
