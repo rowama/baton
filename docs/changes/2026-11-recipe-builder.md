@@ -3,7 +3,7 @@ id: 2026-11-recipe-builder
 title: "A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe"
 status: accepted
 level: major
-decisions: ["0095", "0096", "0097", "0098", "0099", "0100", "0101", "0102", "0103", "0104", "0105", "0106", "0008", "0031", "0042"]
+decisions: ["0095", "0096", "0097", "0098", "0099", "0100", "0101", "0102", "0103", "0104", "0105", "0106", "0107", "0108", "0008", "0031", "0042"]
 touches: [design/recipes.md, design/adoption-and-framing.md, design/platform-and-security.md, design/versioning.md]
 ---
 
@@ -11,7 +11,7 @@ touches: [design/recipes.md, design/adoption-and-framing.md, design/platform-and
 
 > **Rationale note.** Recipe tree deferred (see [2026-11-recipe-tree](2026-11-recipe-tree.md), hold decision 2026-11-08). This change records provenance and ships the patterns file so the tree can be added later without loss.
 
-Originally proposed by Rob, 2026-11-05 (from `docs/catchall/`, now removed). Major: the owner approves Request and Design before Plan. Owner approved Request and Design, and all twelve decisions below, on 2026-11-09.
+Originally proposed by Rob, 2026-11-05 (from `docs/catchall/`, now removed). Major: the owner approves Request and Design before Plan. Owner approved Request and Design, and all fourteen decisions below, on 2026-11-09.
 
 ## Request
 
@@ -51,7 +51,7 @@ The guiding rule is the same as for every recipe: the builder's own friction mus
 
 ### Open questions
 
-- The `[VERIFY]` items in the recipe sketch, to be resolved against the loader in the first slice. (The twelve decisions are settled; see Decisions.)
+- The `[VERIFY]` items in the recipe sketch, to be resolved against the loader in the first slice. (The fourteen decisions are settled; see Decisions.)
 
 ## Design
 
@@ -178,8 +178,8 @@ A recipe is ready when every check below passes. Mechanical checks are gates in 
 | Check | Kind | Where |
 | --- | --- | --- |
 | Package loads, passes the neutrality lint, and every step is reachable at every level | Script | `generate`: `baton plan <package>` |
-| Ledger has no `open` entry; every `confirmed` entry carries the owner's words | Script | `generate`: a small checker shipped in the recipe's `static/` |
-| No `instance` ledger value appears in the package's prompts or static files | Script | `generate`: instance-leak check in `static/` |
+| Ledger has no `open` entry; every `confirmed` entry carries the owner's words | Script | `generate`: `baton recipe check` (decision 0108) |
+| No `instance` ledger value appears in the package's prompts or static files | Script | `generate`: `baton recipe check` (decision 0108) |
 | Every goal maps to a step whose output shows it was met | Finding | `audit` |
 | Every step's inputs have a producer; no circular dependency | Finding (design) then script (package) | `audit`, then `baton plan` |
 | Every output has an acceptance check, not just "worker finished" | Finding | `audit` |
@@ -233,7 +233,7 @@ defaults:
 
 complexity:
   levels: [simple, standard, complex]
-  triage_step: profile                   # [VERIFY] triage step may also emit non-level output
+  triage_step: profile                   # triage may emit extra fields; only `level` is constrained
 
 steps:
   - id: profile
@@ -244,7 +244,7 @@ steps:
       - { name: idea,        from: run.inputs.idea,        required: true }
       - { name: profile,     from: run.inputs.profile,     required: false }
       - { name: base_recipe, from: run.inputs.base_recipe, required: false }
-      - { name: recipes,     from: catalog.summaries,      required: false }   # [VERIFY] needs the runtime input source
+      - { name: recipes,     from: catalog.summaries,      required: false }   # decision 0106
     output_schema: schemas/profile_out.json   # level, reasons, goal, ledger
     gates:
       - { type: schema }
@@ -303,15 +303,15 @@ steps:
     workspace: write
     prompt: prompts/generate.md
     inputs:
-      - { name: design,  from: steps.shape.output, required: true }   # [VERIFY] how a group's final result is referenced
+      - { name: design,  from: steps.shape.outputs, required: true }  # a group is read as .outputs (§5.2)
       - { name: profile, from: steps.profile.output, required: true }
     output_schema: schemas/generate_out.json   # commit_sha, package_path, summary
     artifacts:
       - { name: walkthrough, required: true, media_type: text/markdown }
     gates:
       - { type: schema }
-      - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }  # [VERIFY] run.* in script gates
-      - { type: script, run: "python static/check_ledger.py", timeout_s: 60 }            # [VERIFY] path of recipe static files at gate time
+      - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }  # run.slug in gates: decision 0107
+      - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger <ledger file>", timeout_s: 60 }  # decision 0108; the ledger path is settled in slice 4
       - type: review
         applies_to: [complex]
         block_on: [critical, high]
@@ -342,19 +342,19 @@ recipe-builder/
 │                 package_review_rubric.md  accept.md
 ├── schemas/      run_inputs.json  profile_out.json  research_out.json  design_out.json
 │                 generate_out.json  accept_out.json  ledger.json
-└── static/       readiness.md  patterns.md  check_ledger.py
+└── static/       readiness.md  patterns.md
 ```
 
 ### Runtime impact
 
-The builder adds no concept, command or file type to the concept budget (§2). It needs the catalog summaries input, one additive format change and twelve recorded decisions.
+The builder adds no concept, command or file type to the concept budget (§2). It needs the catalog summaries input, two small gate additions (`run.slug` in gate commands and the `baton recipe check` helper, a command for gates, not a concept), one additive format change and fourteen recorded decisions.
 
-**Runtime addition**
+**Runtime additions**
 
 - An input source that gives an ordinary recipe step the summaries of vendored and catalog recipes, the same summaries framing already receives (§11.6). Without it, the builder can author from scratch but cannot check existing recipes first or propose specializing.
 - The same summaries for fit-check. Today its inputs are only `title` and `idea`, so its `fits` verdict ("an existing recipe, or recipe authoring") cannot name the existing recipe. On the standalone path nothing matches a recipe after fit-check; only framing does.
 
-### Format change: scope block and provenance, in one bump
+### Format change: scope block and provenance, additive
 
 Today a recipe is discovered by its one-line `description` and run-input schema. `backyard-project`'s description lists examples ("a flower bed, a raised bed, a shed"), which works as a scope statement for three dissimilar recipes. It will not tell near neighbours apart (garden beds vs backyard projects; a website vs any software). Proposed optional block, written by the builder from the chosen rung:
 
@@ -393,7 +393,7 @@ Settled by the owner on 2026-11-09, each recorded:
 
 ## Plan
 
-Four slices, in order. Each is one commit with its code, tests, doc edits, Log entry and any register update.
+Five slices, in order (slice 3 was added after slice 1 found the gate limits). Each is one commit with its code, tests, doc edits, Log entry and any register update.
 
 ### 1. Format change: `scope` and `parent`
 
@@ -409,14 +409,21 @@ Four slices, in order. Each is one commit with its code, tests, doc edits, Log e
 - **Docs:** `design/recipes.md` §5.2, §5.7; `design/adoption-and-framing.md` §11.6.
 - **Effort:** M
 
-### 3. The recipe
+### 3. Gate support: `run.slug` and `baton recipe check`
 
-- **Outcome:** `examples/recipes/recipe-builder/` with prompts, schemas, `static/readiness.md`, `static/patterns.md`, the ledger checker and the instance-leak checker; it ships in the catalog.
-- **Criteria:** `baton plan` accepts it at every level; the neutrality lint passes; the ledger checker rejects an `open` entry and a `confirmed` entry without the owner's words; the instance-leak check rejects an `instance` value in prompts or static files; `design` receives and `audit` is given `patterns.md`; generated packages from `base_recipe` carry `parent: {id, version}`, and from nothing `parent: null`; the process-plan lookup and the 0099 goal-confirmation wording are in `profile`'s prompt; framing can propose it.
+- **Outcome:** a script gate command can render `run.slug` (decision 0107); `baton recipe check <package> --ledger <file>` runs the ledger and instance-leak rules (decision 0108).
+- **Criteria:** a gate using `{{ run.slug }}` renders the value `publish.to` gets; an undefined name still fails as before; `recipe check` exits 0 on a clean package and ledger, and non-zero with one line each for an `open` entry, a `confirmed` entry without the owner's words, and an `instance` value found in a prompt or static file; a malformed ledger is an error, not a pass; the command has no MCP tool and the parity test knows why.
+- **Docs:** `design/recipes.md` §5.3, `design/gates-and-reviews.md` §9.1, `design/director-interface.md` §13.2, `principles.md` §2 (machinery note).
+- **Effort:** M
+
+### 4. The recipe
+
+- **Outcome:** `examples/recipes/recipe-builder/` with prompts, schemas, `static/readiness.md`, `static/patterns.md`, `schemas/ledger.json`; its `generate` step calls `baton recipe check` and `baton plan` as gates (no checker scripts in `static/`); it ships in the catalog.
+- **Criteria:** `baton plan` accepts it at every level; the neutrality lint passes; the `generate` gates use `{{ run.slug }}` and `baton recipe check`; `design` receives and `audit` is given `patterns.md`; generated packages from `base_recipe` carry `parent: {id, version}`, and from nothing `parent: null`; the process-plan lookup and the 0099 goal-confirmation wording are in `profile`'s prompt; framing can propose it.
 - **Docs:** `design/recipes.md` §5.7, `design/adoption-and-framing.md` §11.6, `design/platform-and-security.md` §15.3.
 - **Effort:** L
 
-### 4. Proof on two real cases
+### 5. Proof on two real cases
 
 - **Outcome:** one simple and one standard run end to end with scripted workers, and the three entry paths landing in one run.
 - **Criteria:** a simple run needs about three owner exchanges (recorded, not gated); fit-check `fits`, framing and a direct start all reach the same run; the generated package passes `baton plan` at every level; a generated script gate that runs an unexpected command draws a high `audit` finding.
@@ -429,10 +436,10 @@ On finish: change `status: done` here and in the register, then the full suite m
 - 2026-11-09: Owner approved Request and Design and all twelve decisions (0095–0106); status `accepted`. Decision 0099 resolves a conflict between steps 3 and 4 of the generality rules. Plan drafted; no code yet.
 - 2026-11-09, slice 1 (format change): `Scope`, `ScopeNotFor` and `Parent` models and `Recipe.provenance` in `src/baton/models.py`; `tests/test_recipe_scope_parent.py` (12 tests: absent, scope, parent, `parent: null`, seven malformed cases); `design/recipes.md` §5.1 and `design/versioning.md` §14. The loader took both fields additively, so decision 0105 stands with no bump. The `[VERIFY]` items resolved against the code:
   - **Triage output:** the loader requires only that the triage schema requires `level` with exactly the declared enum (`complexity.level_enum_mismatch`); extra properties are fine. As sketched.
-  - **Group output:** from outside a group the source is `steps.<group>.outputs`, not `.output` (§5.2): `generate` reads `steps.shape.outputs`, one entry holding `design` and `audit`. The sketch is wrong here; fix in slice 3.
+  - **Group output:** from outside a group the source is `steps.<group>.outputs`, not `.output` (§5.2): `generate` reads `steps.shape.outputs`, one entry holding `design` and `audit`. The sketch is wrong here; fix in slice 4.
   - **`run.*` in script gates: not as sketched.** `intake.render_command` offers `project.*`, `paths.*` and `run.id` only; `run.slug` works in `publish.to` but not in a gate, so `recipes/drafts/{{ run.slug }}` cannot be rendered.
   - **`static/` at gate time: not reachable.** Gates run in the project root under a reduced environment; a recipe's `static/` files are not there (a catalog recipe is not vendored), so `python static/check_ledger.py` cannot run. The checkers need another route.
-  - These two gate findings need an owner decision before slice 3; raised with the owner at the end of slice 1.
+  - These two gate findings need an owner decision before slice 3; raised with the owner at the end of slice 1; the owner concurred on both suggestions, recorded as 0107 and 0108, and the Plan gained slice 3.
 
 ## Sources
 

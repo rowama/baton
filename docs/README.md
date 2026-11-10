@@ -241,3 +241,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0104 static/patterns.md is a design input and an audit rubric, enforced](decisions/0104-patterns-file.md) | accepted |
 | [0105 scope and parent are optional fields in baton-recipe/1; no format bump](decisions/0105-recipe-scope-and-parent-additive.md) | accepted |
 | [0106 Steps can take the vendored and catalog recipe summaries as an input source](decisions/0106-catalog-summaries-input.md) | accepted |
+| [0107 A script gate's command can use run.slug](decisions/0107-gate-run-slug.md) | accepted |
+| [0108 Ledger and instance-leak checks are a built-in command, baton recipe check](decisions/0108-recipe-check-command.md) | accepted |
