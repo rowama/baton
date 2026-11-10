@@ -20,7 +20,7 @@ Which version runs:
 ``uv venv <dir>`` then ``uv pip install --python <dir's python> "baton[<extras>] @ <source>"``.
 ``$BATON_HOME/launcher.yaml`` (machine-local, optional) sets ``source`` (a URL
 template with ``{version}``; default ``git+https://github.com/rowama/baton@v{version}``),
-``extras`` (default ``[api]``, 0116; e.g. ``[mcp, api]``) and ``python`` (an interpreter for ``uv venv``).
+``extras`` (default ``[api, keyring]``, 0116, 0123; e.g. ``[mcp, api]``) and ``python`` (an interpreter for ``uv venv``).
 ``BATON_UV`` names the uv executable. Without uv the launcher refuses, naming
 the install command and the directory a version may also be installed into by hand.
 A version directory counts as installed once it holds ``.baton-installed``.
@@ -44,7 +44,7 @@ from . import __version__
 
 LAUNCHED = "BATON_LAUNCHED"
 DEFAULT_SOURCE = "git+https://github.com/rowama/baton@v{version}"
-DEFAULT_EXTRAS = ("api",)  # so a pinned runtime can always run API routes (0116); launcher.yaml `extras` replaces it, even with []
+DEFAULT_EXTRAS = ("api", "keyring")  # so a pinned runtime can always run API routes (0116) and keep a key the owner pastes (0123); launcher.yaml `extras` replaces it, even with []
 INSTALLED_MARKER = ".baton-installed"
 _ROOT_OPTIONS_WITH_VALUES = ("--project", "--director")
 

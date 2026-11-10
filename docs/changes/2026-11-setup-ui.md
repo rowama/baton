@@ -181,3 +181,16 @@ Approved by the owner, 2026-11-10 ("Accept all. Go."): the open questions are de
 - **Summary:** `routing.load_preferences(baton_dir, home)` merges `~/.baton/preferences.yaml` under the project's by 0124's rules (`merge_preferences`); the exclusion reason says "turned off for this machine" for the machine level, and that reason is what `worker_selected`'s `excluded` records. `prefs.py` edits the machine file; `baton workers prefs` and the page routes (`/api/models/<profile>/enabled`, `/verify`, `/api/preferences`) call it. The page has the models table with its filters (free only, maximum price, capability, tier, provider, turned off), the on/off switch, "Check it works" and the cheapest-first order. Per-capability preferred models are in the API and CLI (`--prefer CAP=a,b`); the page has no control for them yet (a later refinement, noted in Open items). `doctor` reads the merged preferences. Tests (`tests/test_ui_models.py`): on/off through the page and routing, unknown names, the merge rules, a project not lifting a machine exclusion, the eligibility reason, ordering and preferred models, the live check through `setup`, CLI and page writing the same file, and the state's columns.
 - **Review:** clean.
 - **Accepted:** pending the owner's review of the change as a whole.
+
+### Slice 4: subscriptions walked, and the finish
+
+- **Commit:** 2026-11-setup-ui: Slice 4, subscriptions walked and the Director offers the page
+- **Summary:** `workers status` detections carry a `step` in the page's state (`ui.harness_step`): nothing, the login command, or the install command, worded for Windows, macOS, Linux or WSL, with a copy button; the page re-reads when the owner returns to it (`visibilitychange`) and has "Check again". The login commands are Baton's existing hints (`claude auth login`, `codex login`); the install commands are the tools' npm packages and are not live-verified (`HARNESS_STEPS`, marked [VERIFY]). The launcher's default extras are now `api` and `keyring` (0123; amends 0116; `test_versioning` updated). The Director skill and §13.3's copy now say to call `ui` and give the owner the link instead of asking the owner to store a secret by hand. The page gained the per-capability preferred-model control that Slice 3 left to the API. Tests added to `tests/test_ui.py`: steps per platform, state and re-check, the skill wording.
+- **Review:** clean.
+- **Accepted:** pending the owner's review.
+
+### Open items for the owner
+
+- Not demonstrated live: opening the browser under WSL2 (acceptance criterion 7's **[VERIFY]**; `open_browser` tries `wslview`, `explorer.exe`, `cmd.exe`, then `webbrowser`, and prints the link in any case), the OpenAI and Anthropic key checks, and the npm install commands. Windows and macOS are covered only by the platform-neutral code paths.
+- The page shows where a key is kept but not "when it was last checked" (Slice 2).
+- Per-project preference overrides stay a CLI and Director matter, as decided.

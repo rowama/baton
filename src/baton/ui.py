@@ -81,6 +81,8 @@ def _state(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
         if isinstance(e, (ResourcesError, KnownWorkersError)):
             raise UiError(HTTPStatus.CONFLICT, "configuration.resources", str(e)) from e
         raise
+    for d in out["detected"]:
+        d["step"] = harness_step(d)
     out["models"] = _models(home, out)
     out["preferences"] = _prefs_core(lambda: prefs_mod.as_dict(prefs_mod.load(home)))
     for m in out["models"]:
@@ -109,6 +111,38 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
             "capabilities": g.get("capabilities", {}), "verified": g.get("verified"), "flag": g.get("flag"), "ownership": g.get("ownership"),
         })
     return rows
+
+
+#: A harness's exact steps (Decision 0123 leaves starting a login to the owner, 2026-11-10). The install commands are the
+#: tools' npm packages and are not run by Baton. [VERIFY against each tool's current install page before relying on one.]
+HARNESS_STEPS = {
+    "claude_code": {"name": "Claude Code", "install": "npm install -g @anthropic-ai/claude-code", "login": "claude auth login",
+                    "docs": "https://docs.claude.com/en/docs/claude-code/setup"},
+    "codex": {"name": "Codex", "install": "npm install -g @openai/codex", "login": "codex login", "docs": "https://github.com/openai/codex"},
+}
+
+
+def platform_name() -> str:
+    import platform
+
+    if os.name == "nt":
+        return "windows"
+    if "microsoft" in platform.uname().release.lower():
+        return "wsl"
+    return "macos" if sys.platform == "darwin" else "linux"
+
+
+def harness_step(det: dict[str, Any], system: str | None = None) -> dict[str, Any]:
+    """What the owner does next for one detected harness: nothing, log in, or install (the page shows the command with a copy button)."""
+    system = system or platform_name()
+    info = HARNESS_STEPS.get(det.get("provider", ""))
+    where = {"windows": "Open PowerShell", "macos": "Open Terminal", "linux": "Open a terminal", "wsl": "Open your Linux (WSL) terminal"}[system]
+    if det.get("usable") or info is None:
+        return {"kind": "ready"}
+    if det.get("found"):
+        return {"kind": "login", "command": info["login"], "text": f"{where} and run this, then sign in with your {info['name']} account:"}
+    return {"kind": "install", "command": info["install"], "docs": info["docs"], "needs": "Node.js",
+            "text": f"{where} and run this (it needs Node.js), then come back and sign in:"}
 
 
 def _text(body: dict[str, Any], field: str, *, required: bool = True) -> str | None:

@@ -221,3 +221,38 @@ def test_a_director_can_start_it_detached_and_gets_the_same_page_back(home):
         import signal
 
         os.kill(out["pid"], signal.SIGTERM) if os.name == "posix" else None
+
+
+@pytest.mark.not_slow("pure function")
+@pytest.mark.parametrize("system, where", [("windows", "PowerShell"), ("macos", "Terminal"), ("linux", "terminal"), ("wsl", "WSL")])
+def test_each_harness_gets_the_step_for_this_platform(system, where):
+    ready = ui.harness_step({"provider": "codex", "found": True, "usable": True}, system)
+    login = ui.harness_step({"provider": "claude_code", "found": True, "usable": False}, system)
+    install = ui.harness_step({"provider": "codex", "found": False, "usable": False}, system)
+    assert ready == {"kind": "ready"}
+    assert login["kind"] == "login" and login["command"] == "claude auth login" and where in login["text"]
+    assert install["kind"] == "install" and install["command"].startswith("npm install -g ") and where in install["text"]
+    assert ui.harness_step({"provider": "unknown_cli", "found": False, "usable": False}, system) == {"kind": "ready"}
+
+
+@pytest.mark.not_slow("loopback requests only")
+def test_the_state_carries_the_steps_and_a_return_to_the_page_rechecks(home, monkeypatch):  # noqa: F811
+    p = Page(home)
+    try:
+        state = json.loads(p.req("GET", "/api/state")[1])
+        assert {d["provider"]: d["step"]["kind"] for d in state["detected"]} == {"claude_code": "install", "codex": "ready"}
+        # The owner installs and logs in elsewhere, comes back: the next read finds it (nothing is cached).
+        monkeypatch.setattr(ui, "_discover", found("codex", "claude_code"))
+        again = json.loads(p.req("GET", "/api/state")[1])
+        assert {d["provider"]: d["step"]["kind"] for d in again["detected"]} == {"claude_code": "ready", "codex": "ready"}
+    finally:
+        p.close()
+    assert "visibilitychange" in (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+
+
+@pytest.mark.not_slow("reads source files")
+def test_the_director_is_told_to_use_the_page_not_to_take_a_key():
+    skill = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Never take a key in conversation" in skill and "Call `ui`" in skill
+    design = (ROOT / "docs" / "design" / "director-interface.md").read_text(encoding="utf-8")
+    assert "Call `ui` and give them the link" in design

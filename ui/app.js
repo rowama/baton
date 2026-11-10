@@ -41,13 +41,29 @@ function price(m) {
   return "$" + m.price.input + " in / $" + m.price.output + " out per million";
 }
 
+function copy(text, btn) {
+  const done = () => { btn.textContent = "Copied"; setTimeout(() => { btn.textContent = "Copy"; }, 1500); };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => notice("Select the command and copy it by hand.", true));
+  else notice("Select the command and copy it by hand.", true);
+}
+
+function stepBox(step) {
+  if (!step || step.kind === "ready") return "";
+  const btn = h("button", { class: "quiet" }, "Copy");
+  btn.addEventListener("click", () => copy(step.command, btn));
+  return h("div", {}, h("div", { class: "muted" }, step.text), h("div", { class: "row" }, h("code", {}, step.command), btn),
+    step.docs ? h("a", { href: step.docs, target: "_blank", rel: "noopener noreferrer" }, "More about installing") : "");
+}
+
 function renderHarnesses() {
   const list = $("harness-list"); list.replaceChildren();
   for (const d of state.detected) {
     const ready = d.usable;
+    const again = h("button", { class: "quiet" }, "Check again");
+    again.addEventListener("click", () => act(again, () => load(), () => ""));
     list.append(h("div", { class: "card" }, h("div", { class: "row" },
       h("span", { class: "name" }, d.provider), h("span", { class: ready ? "ok" : "warn" }, ready ? "connected" : (d.problem || "not ready")),
-      h("span", { class: "muted" }, d.version ? "version " + d.version : ""))));
+      h("span", { class: "muted" }, d.version ? "version " + d.version : ""), ready ? "" : again), stepBox(d.step)));
   }
   if (!state.detected.length) list.append(h("p", { class: "muted" }, "No supported command-line tools were found."));
 }
@@ -144,6 +160,20 @@ function renderFilters() {
     h("span", {}, cheap, h("label", { for: "p-cheap" }, " cheapest first (otherwise most proven first)")));
 }
 
+function preferBox() {
+  const caps = [...new Set(state.models.flatMap((m) => Object.keys(m.capabilities)))].sort();
+  const cap = h("select", { "aria-label": "Capability" }, h("option", { value: "" }, "Prefer a model for…"), caps.map((c) => h("option", { value: c }, c)));
+  const model = h("select", { "aria-label": "Preferred model" }, h("option", { value: "" }, "(no preference)"),
+    state.models.map((m) => h("option", { value: m.profile }, m.model_id || m.profile)));
+  const set = h("button", { class: "quiet" }, "Save");
+  cap.addEventListener("change", () => { model.value = (state.preferences.prefer_by_capability[cap.value] || [""])[0]; });
+  set.addEventListener("click", () => cap.value && act(set,
+    () => api("PUT", "/api/preferences", { prefer_by_capability: { [cap.value]: model.value ? [model.value] : [] } }),
+    () => model.value ? "Baton will try " + model.value + " first for " + cap.value + "." : "Cleared the preference for " + cap.value + "."));
+  const now = Object.entries(state.preferences.prefer_by_capability).map(([c, n]) => c + ": " + n.join(", ")).join(" · ");
+  return h("div", { class: "row" }, cap, model, set, h("span", { class: "muted" }, now));
+}
+
 function modelRow(m) {
   const on = h("input", { type: "checkbox", "aria-label": "Use " + (m.model_id || m.profile) }); on.checked = m.enabled;
   on.addEventListener("change", () => act(on, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/enabled", { enabled: on.checked }),
@@ -161,6 +191,7 @@ function modelRow(m) {
 function renderModels() {
   const box = $("model-table"); box.replaceChildren();
   const shown = state.models.filter(passes);
+  box.append(preferBox());
   box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
     ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t)))), h("tbody", {}, shown.map(modelRow)))));
   box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown."));
