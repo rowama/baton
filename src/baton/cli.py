@@ -1324,6 +1324,52 @@ def workers_check_overlay(file: Annotated[Path, typer.Argument(help="An overlay 
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 
+@workers_app.command("connect")
+def workers_connect(
+    provider: Annotated[str, typer.Argument(help="The provider, e.g. openrouter, openai, anthropic.")],
+    name: Annotated[Optional[str], typer.Option("--name", help="The account's name (default <provider>-main). An existing name replaces its key.")] = None,
+    base_url: Annotated[Optional[str], typer.Option("--base-url", help="For an endpoint that speaks the OpenAI API.")] = None,
+    key_stdin: Annotated[bool, typer.Option("--key-stdin", help="Read the key from standard input (otherwise it is asked for, hidden).")] = False,
+    no_key: Annotated[bool, typer.Option("--no-key", help="A local endpoint that needs no key.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Connect an API account: check the key, keep it in the keyring or an owner-only file, declare it and set up its models (§6.1).
+    The key is never an argument; a bad replacement key leaves the working one in place."""
+    import sys
+
+    from . import accounts
+
+    key: str | None = None
+    if not no_key:
+        key = sys.stdin.readline() if key_stdin else typer.prompt(f"{provider} API key", hide_input=True)
+    try:
+        out = _resources(as_json, lambda h: accounts.connect(h, provider, key, name=name, base_url=base_url))
+    except accounts.AccountError as e:
+        _fail(as_json, EXIT_PROBLEM, e.code, e.message)
+    lines = [f"Connected {out['account']} ({out['provider']})" + (f"; its key is kept in the {out['stored_in']}" if out["stored_in"] else ""),
+             f"{len(out['setup']['written'])} new workers set up" + (f", {len(out['setup']['refreshed'])} refreshed" if out["setup"]["refreshed"] else "")]
+    lines += [f"note: {f.get('reason')}" for f in out["listing"]["failed"]]
+    lines += [f"could not set up {f['profile']}: {f['reason']}" for f in out["setup"]["failed"]]
+    _emit(out, as_json, "\n".join(lines))
+
+
+@workers_app.command("disconnect")
+def workers_disconnect(
+    name: Annotated[str, typer.Argument(help="The account's name, as `baton workers status` lists it.")],
+    forget_key: Annotated[bool, typer.Option("--forget-key", help="Also delete the stored key (otherwise it is kept).")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Remove an account. Its workers stay recorded, flagged as no longer offered, and routing stops using them."""
+    from . import accounts
+
+    try:
+        out = _resources(as_json, lambda h: accounts.disconnect(h, name, forget_key=forget_key))
+    except accounts.AccountError as e:
+        _fail(as_json, EXIT_PROBLEM, e.code, e.message)
+    where = ", ".join(out["key_removed_from"])
+    _emit(out, as_json, f"Disconnected {name}. " + (f"Its key was removed from the {where}." if where else "Its stored key was kept (`--forget-key` removes it)."))
+
+
 @workers_app.command("declare")
 def workers_declare(
     name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,

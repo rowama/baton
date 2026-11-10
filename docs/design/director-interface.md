@@ -50,7 +50,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 ### 13.2 CLI and MCP
 
 - The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
-- `baton recipe check <package> --ledger <file>` (§5.3; Decision: [0108](../decisions/0108-recipe-check-command.md)) is a helper that script gates run. No Director calls it, so it is CLI-only and has no MCP tool, like `workers` and `diag`-style machine commands.
+- `baton recipe check <package> --ledger <file>` (§5.3; Decision: [0108](../decisions/0108-recipe-check-command.md)) is a helper that script gates run. No Director calls it, so it is CLI-only and has no MCP tool, like `workers` and `diag`-style machine commands. `baton workers connect <provider>` and `disconnect <name>` (§13.9; Decision: [0123](../decisions/0123-keys-keyring-then-file.md)) are CLI-only too, and a key never travels through MCP or the Director's conversation: the owner types it at a hidden prompt or pipes it on stdin (`--key-stdin`), or pastes it on the setup page.
 - The MCP server (`baton mcp`; the official Python SDK `mcp` 2.x, checked against 2.3.0, installed with the optional extra `baton[mcp]`) exposes the same calls as tools, one per call with the CLI's names (`-` → `_`) and arguments. Results are the CLI's `--json` payloads; a refusal is a tool error whose text is the JSON payload with `exit_code` (1 problem, 3 lease held elsewhere); `needs_owner` stands for exit code 4. Every tool call opens the project afresh, like one CLI invocation: the server holds no state, and work it dispatched runs on under its supervisors.
 - Decision: [0048](../decisions/0048-mcp-transports.md).
   - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
@@ -281,7 +281,7 @@ An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/
 | `PUT /api/preferences` | Cheapest or most-verified first, per-capability preferred models | `workers prefs` |
 | `POST /api/quit` | End the process | |
 
-**Connecting an API account** checks the key with the provider's listing (or key-info) read, never a model call (§6.4 Listings), and says why in plain words when it is refused. Where the provider reports credit or free quota, the page shows it. Nothing about a key is shown after it is stored except where it is kept (keyring or file) and when it was last checked.
+**Connecting an API account** checks the key with the provider's listing (or key-info) read, never a model call (§6.4 Listings), and says why in plain words when it is refused. Where the provider reports credit or free quota, the page shows it. Nothing about a key is shown after it is stored except where it is kept (keyring or file).
 
 **Subscriptions (CLI harnesses)** are detected, not edited: for a harness that is installed but not logged in, the page shows the exact login command for this platform with a copy button; for one that is not installed, the install step. It re-checks when the owner returns to the page (`visibilitychange`). Starting a login from the page is out of scope (owner, 2026-11-10).
 

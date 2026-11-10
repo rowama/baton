@@ -230,6 +230,78 @@ def resolve_secret(name: str, home: Path, environ: Mapping[str, str] | None = No
     return value
 
 
+def secret_places(name: str, home: Path, environ: Mapping[str, str] | None = None) -> list[str]:
+    """Where a secret is held now, without reading its value: any of ``environment``, ``keyring``, ``file``."""
+    environ = os.environ if environ is None else environ
+    places = []
+    if environ.get(secret_env_name(name)):
+        places.append("environment")
+    if _keyring_get(name):
+        places.append("keyring")
+    if (Path(home) / "secrets" / name).is_file():
+        places.append("file")
+    return places
+
+
+def store_secret(name: str, value: str, home: Path) -> str:
+    """Keep a secret: the OS keyring when it works, else ``<home>/secrets/<name>`` (0700 / 0600). Returns ``keyring`` or ``file``.
+
+    The other store's copy, if any, is removed so a stale key can never win at resolution (Decision 0123).
+    """
+    home = Path(home)
+    if not value or "\n" in value.strip():
+        raise SetupError("configuration.bad_secret", "a key is one line of text", "configuration")
+    where = "file"
+    try:
+        import keyring  # optional dependency
+
+        keyring.set_password("baton", name, value)
+        if keyring.get_password("baton", name) == value:
+            where = "keyring"
+    except ImportError:  # expected: keyring is optional; the owner-only file is the fallback
+        pass
+    except Exception as e:  # noqa: BLE001 - a missing or broken backend means the file store
+        diag.note("profiles.keyring_failed", "profiles:store_secret", error=f"{type(e).__name__}: {e}", secret=name)
+    path = home / "secrets" / name
+    if where == "keyring":
+        path.unlink(missing_ok=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            os.chmod(path.parent, 0o700)
+        tmp = path.with_name(path.name + ".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(value + "\n")
+        tmp.replace(path)
+        try:
+            import keyring
+
+            keyring.delete_password("baton", name)
+        except Exception:  # noqa: BLE001  # expected: nothing to remove, or no keyring here
+            pass
+    redact.register(value)
+    return where
+
+
+def delete_secret(name: str, home: Path) -> list[str]:
+    """Remove a secret from the keyring and the file store (never the environment); returns where it was removed from."""
+    removed = []
+    path = Path(home) / "secrets" / name
+    if path.is_file():
+        path.unlink()
+        removed.append("file")
+    if _keyring_get(name):
+        try:
+            import keyring
+
+            keyring.delete_password("baton", name)
+            removed.append("keyring")
+        except Exception as e:  # noqa: BLE001 - reported by the caller as still held
+            diag.note("profiles.keyring_failed", "profiles:delete_secret", error=f"{type(e).__name__}: {e}", secret=name)
+    return removed
+
+
 def resolve_value(value: str, home: Path, environ: Mapping[str, str] | None = None) -> str:
     if value.startswith(SECRET_PREFIX):
         return resolve_secret(value[len(SECRET_PREFIX):], home, environ)

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 
+from . import accounts
 from . import data as data_mod
 from . import diag
 
@@ -80,6 +81,7 @@ def _state(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
             raise UiError(HTTPStatus.CONFLICT, "configuration.resources", str(e)) from e
         raise
     out["models"] = _models(home, out)
+    out["accounts"] = {n: accounts.account_info(home, n) for n in out["declared"]}
     out["directory"] = {n: {"kind": p.kind, "display_name": p.display_name or n, "signup_url": p.signup_url, "base_url": p.base_url}
                         for n, p in sorted(known.providers.items()) if p.kind != "harness"}
     return out
@@ -105,6 +107,53 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _text(body: dict[str, Any], field: str, *, required: bool = True) -> str | None:
+    v = body.get(field)
+    if v is None or v == "":
+        if required:
+            raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", f"{field} is missing")
+        return None
+    if not isinstance(v, str):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", f"{field} must be text")
+    return v
+
+
+def _core(fn: Callable[[], Any]) -> Any:
+    """Run a core function; its plain-words refusals become the page's."""
+    from .known_workers import KnownWorkersError
+    from .resources import ResourcesError
+
+    try:
+        return fn()
+    except accounts.AccountError as e:
+        raise UiError(HTTPStatus.UNPROCESSABLE_ENTITY, e.code, e.message) from e
+    except (ResourcesError, KnownWorkersError) as e:
+        raise UiError(HTTPStatus.CONFLICT, "configuration.resources", str(e)) from e
+
+
+def _connect(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """``baton workers connect``: the key is read here and goes only to the check and the store."""
+    return _core(lambda: accounts.connect(home, _text(body, "provider") or "", _text(body, "key", required=False),
+                                          name=_text(body, "name", required=False), base_url=_text(body, "base_url", required=False)))
+
+
+def _replace_key(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    from . import resources
+
+    def run() -> Any:
+        _d, _s, res = resources._inputs(home)
+        r = res.workers().get(args["name"])
+        if r is None:
+            raise accounts.AccountError("accounts.unknown", f"no account named {args['name']!r}")
+        return accounts.connect(home, r.provider, _text(body, "key"), name=args["name"])
+
+    return _core(run)
+
+
+def _disconnect(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    return _core(lambda: accounts.disconnect(home, args["name"], forget_key=body.get("forget_key") is True))
+
+
 def _quit(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
     raise _Quit
 
@@ -116,6 +165,9 @@ class _Quit(Exception):
 #: (method, path) -> route. Later slices add the account, model and preference routes.
 ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/state"): _state,
+    ("POST", "/api/accounts"): _connect,
+    ("POST", "/api/accounts/<name>/key"): _replace_key,
+    ("DELETE", "/api/accounts/<name>"): _disconnect,
     ("POST", "/api/quit"): _quit,
 }
 
