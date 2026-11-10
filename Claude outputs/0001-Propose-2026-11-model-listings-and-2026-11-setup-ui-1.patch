@@ -1,0 +1,278 @@
+From 268f67766b55aa3ccc92c3b1dc5b393d1b160ffc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 01:20:53 -0600
+Subject: [PATCH 1/2] Propose 2026-11-model-listings and 2026-11-setup-ui
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two proposed change docs (level major, Request only), with register rows:
+- 2026-11-model-listings: provider model listings (OpenRouter public and
+  per-account, then direct providers) become routes deterministically, with
+  price, catalog capabilities and free-quota handling; research keeps the
+  judgment part; cheapest-first routing preference.
+- 2026-11-setup-ui: `baton ui`, an on-demand loopback page over the core for
+  connecting CLI subscriptions and API accounts and managing the stable;
+  needs an amendment of principles §0 rule 3, §1.1 #3 and §1.3.
+
+Docs tests: tests/test_docs.py green.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FVav9BoWGHSxc2z9wm2XxY
+---
+ docs/changes/2026-11-model-listings.md | 109 ++++++++++++++++++++++++
+ docs/changes/2026-11-setup-ui.md       | 110 +++++++++++++++++++++++++
+ docs/changes/REGISTER.md               |   2 +
+ 3 files changed, 221 insertions(+)
+ create mode 100644 docs/changes/2026-11-model-listings.md
+ create mode 100644 docs/changes/2026-11-setup-ui.md
+
+diff --git a/docs/changes/2026-11-model-listings.md b/docs/changes/2026-11-model-listings.md
+new file mode 100644
+index 0000000..19c89a0
+--- /dev/null
++++ b/docs/changes/2026-11-model-listings.md
+@@ -0,0 +1,109 @@
++---
++id: 2026-11-model-listings
++title: "Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred"
++status: proposed
++level: major
++decisions: []               # proposed records to create once the owner answers the open questions below
++touches: [design/workers.md, design/runtime.md, design/director-interface.md, principles.md]   # §6.1, §6.4, §8.4, §13.1, §13.4, §2
++---
++
++# Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred
++
++> **Proposed, 2026-11-10.** Request only. Design waits for the owner's answers to the open questions and approval of the Request (level major). Companion change: [2026-11-setup-ui](2026-11-setup-ui.md), which gives the owner a page to manage what this change finds; this change is useful without it (CLI and Director), and it is a prerequisite of it.
++
++## Request
++
++### Problem
++
++Today the only models Baton can route to are the routes in the shipped known-workers data (§6.4). That file is written by a maintainer-run research step, so it is a curated shortlist. The 2026-11-06 research report's criteria were the flagship plus one cheaper tier per creator, for a fixed list of creators. As a result, OpenRouter, which offers several hundred models, contributes 10 routes. They are in-scope models that OpenRouter also serves, plus `openrouter/auto`. That report also says the run could not enumerate OpenRouter's catalog: its `/api/v1/models` read came back as a 10-entry, odd-shaped response. The 2026-11-08 run carried OpenRouter over unchanged, without the LiteLLM model map (not installed in that run).
++
++So an owner with an OpenRouter key, or a Groq, Gemini or DeepSeek key, gets only what the maintainer happened to research. The free and cheap models that make Baton affordable for laypeople and small projects are almost entirely missing. The only way to add one is to write a profile by hand, which the owner rules out: it is friction that does not pay for itself (§1.1 #2).
++
++The facts needed are already published in machine-readable form, and none of them needs an agent to find:
++
++- **OpenRouter's public models API.** `GET https://openrouter.ai/api/v1/models` needs no key and was fetched on 2026-11-10. It returns, per model:
++  - `id`, `canonical_slug`, `hugging_face_id`;
++  - `context_length`;
++  - `pricing` (`prompt`, `completion`, and more);
++  - `architecture.input_modalities` / `output_modalities`;
++  - `supported_parameters` (`tools`, `response_format`, `structured_outputs`, …);
++  - `top_provider`, `knowledge_cutoff`, `expiration_date`, and on some entries `benchmarks`.
++
++  Free variants end in `:free`.
++- **OpenRouter's per-account listing.** `GET /api/v1/models/user` needs the key and lists the models that this account's provider preferences, privacy settings and guardrails allow ([OpenRouter API reference](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails)).
++- **OpenRouter's key endpoint.** `GET /api/v1/key` returns credit limit, remaining credit, usage and `free_model_daily_requests` (`used`, `limit`, `remaining`). Free models are limited to 20 requests/minute and 50/day, or 1,000/day once 10 credits have been bought ([OpenRouter limits](https://openrouter.ai/docs/api/reference/limits)).
++- **Direct providers' model lists.** OpenAI, Gemini, xAI, Anthropic, Fireworks, Bedrock, Vertex AI and others are listed by LiteLLM's model discovery (`check_provider_endpoint`). It reaches OpenRouter through its per-user endpoint and returns `openrouter/<vendor>/<model>` ids ([LiteLLM model discovery](https://docs.litellm.ai/docs/proxy/model_discovery)) **[VERIFY: the library-level call Baton would use, outside the proxy]**.
++- **LiteLLM's model map** (`litellm.model_cost`). It holds price, context and `supports_*` flags for every model LiteLLM knows. It is already used as the `catalog` capability basis (Decision: [0088](../decisions/0088-capability-basis.md)).
++- **models.dev.** An open-source database of models across providers with cost, context and output limits, tool-call, structured-output and reasoning flags, open-weights status, and knowledge and release dates ([models.dev](https://models.dev)). Hermes reads pricing and context from it **[VERIFY: its API and licence before depending on it]**.
++
++**How Hermes does it** (researched 2026-11-10):
++
++- `hermes setup` and `hermes model` are interactive pickers over about 40 providers. Subscriptions log in by OAuth or device code, other providers by API key ([quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)).
++- The model list is a curated manifest of ids hosted with the docs: 74 for OpenRouter and 58 for Nous Portal in the 2026-10-26 manifest ([model-catalog.json](https://nousresearch.github.io/hermes-agent/docs/api/model-catalog.json)).
++- Hermes caches the manifest (20-minute default) and falls back to a snapshot bundled with the CLI. Pricing and context are not in the manifest; they come live from provider `/v1/models` APIs and models.dev ([model catalog reference](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)).
++- Browsing all of OpenRouter, with a free-only filter, is a community plugin ([OR Picker](https://hermes-agent.nousresearch.com/docs/plugins/openrouter-picker)).
++
++Hermes only has to pick one model for one chat. Baton routes each step by capability, tier and independence, so it needs more per model than a picker does. Most of that comes from the same deterministic data; only the judgment part (tier, `technical_reasoning`, `long_form_writing`) does not.
++
++### What changes, in outline (not yet a Design)
++
++1. **Listings are fetched, not researched.**
++   - For each connected provider that has a listing source, Baton reads the provider's model list deterministically: on `workers setup`, on `workers refresh` (new), and on demand from the setup page.
++   - The listing is cached machine-locally with its fetch date and source.
++   - Each listed model becomes a candidate route. Its `context_tokens`, price and catalog-basis capabilities come straight from the listing fields (`tools` → `tool_use`, `response_format`/`structured_outputs` → `structured_output`, image input → `vision`), each with `capability_basis: catalog` naming the field.
++   - No agent is involved, so it cannot miss or invent a model.
++2. **Research becomes knowledge about models, applied to every route.**
++   - Researched entries keep what only judgment can give: `tier`, the judgment capabilities, and the `model_id` identity for each listing id.
++   - A listed model whose identity matches a researched model takes that knowledge, whichever provider lists it. This is the identity/route split of Decision [0075](../decisions/0075-model-identity-separate-from-route.md), now carried through to listings.
++   - Research's scope gains a target: the free and cheap models that appear in listings and are capable enough to be worth judging.
++3. **Unjudged models are usable, conservatively.**
++   - A listed model with no researched entry gets only its catalog-basis capabilities and a default tier (open question 2).
++   - It is eligible for steps that need nothing more, which is typically extraction, formatting and structured summarizing.
++   - The owner, on the setup page or by asking the Director, can ask Baton to assess selected models. That is a research dispatch scoped to those models, through the owner's own workers, writing a machine-local overlay (open question 3).
++4. **Price is a profile fact and a routing preference.**
++   - Profiles carry the route's price (per million input and output tokens, or `free`, or `subscription` for harness routes) and its source and date.
++   - A new ordering preference ranks the eligible set cheapest first. It never makes an ineligible profile eligible (§8.4 step 4 unchanged in kind).
++   - The run's record shows the price at dispatch, so cost is visible after the fact.
++5. **Free-tier limits are respected.**
++   - A `:free` route's quota is known from the provider's key endpoint where one exists.
++   - Exhausting it is a classified platform condition (open question 6) that re-routes the step to the next eligible worker.
++   - `doctor` and `workers status` show the remaining quota.
++6. **No hand-written profiles anywhere in the path.** Connecting a provider (a key, or a CLI login) is the owner's only input. Listings, profiles, prices and quotas follow from it.
++
++### Acceptance criteria (draft)
++
++1. With an OpenRouter credential declared and nothing else, `baton workers setup` generates a profile for every OpenRouter text model that the listing shows supporting `response_format` or `structured_outputs` (the `litellm_api` adapter's reply contract, §6.3). It does this without editing any file, and `workers status` reports the count and the listing's fetch date.
++2. Each generated listing profile has `model`, `context_tokens` and price from the listing, and catalog-basis capabilities that each cite the listing field. It has a researched `tier` and judgment capabilities only when its identity matches a researched model; otherwise it has the default tier.
++3. The same model listed by two providers has one `model_id` and two routes; independence (§8.4) treats them as the same model.
++4. With the cheapest-first preference on, a step whose eligible set contains a free and a paid route dispatches to the free one. The `worker_selected` event records the price.
++5. When a free route's daily quota is exhausted, the step is re-routed to the next eligible worker without counting an attempt, and `workers status` shows the quota and when it resets.
++6. A listing fetch that fails (network, auth, malformed response) changes no generated profile and keeps the last good cache. The failure is reported in plain words and recorded as a diagnostic, never a crash.
++7. An upgraded listing (models added, removed, repriced) is applied only by `workers setup`/`refresh`, under the existing refresh rules: removed models are flagged, not deleted; edited profiles are never touched.
++8. Recipes are unchanged and the neutrality lint is unchanged: vendors and prices live only in profiles and machine data (§0 rule 4).
++9. A listing never adds a capability that needs judgment, and never marks anything `verified`.
++
++### Open questions (each with a suggested answer)
++
++1. **Which listing sources in the first version?** *Suggest:* OpenRouter (public plus per-account) first; it alone covers most free and cheap models. Then Groq, Gemini, DeepSeek, Mistral and xAI through the same mechanism, using LiteLLM's model map for metadata where the provider's own list is bare. models.dev only after its licence and API are checked.
++2. **Default tier for an unjudged listed model.** *Suggest:* `basic`, with no judgment capabilities. A step requiring `technical_reasoning` or a `standard`/`strong` tier then never goes to an unassessed model, which is safe. Assessment (open question 3) lifts it. *Alternative:* derive a tier from listing `benchmarks` where present, with basis `catalog`. That is more automatic but rests on a field that is not on every entry and whose meaning OpenRouter defines.
++3. **Owner-run assessment.** Should research run on the owner's machine, scoped to chosen models and writing a machine-local overlay (`~/.baton/known-workers.local.yaml`)? Today research is maintainer-only (Decision: [0083](../decisions/0083-researcher-dispatches-through-a-profile.md)). *Suggest:* yes. The overlay can never touch `verified`, follows the same validator, and an owner's overlay can be offered upstream as a candidate change to the shipped data.
++4. **Model identity for listing ids.** OpenRouter's ids differ from Baton's (`anthropic/claude-opus-5.5` versus `anthropic/claude-opus-5-5`). *Suggest:*
++   - identity comes from a researched route's `invocation` when one matches;
++   - otherwise from the listing's `canonical_slug`, lower-cased, as `<creator>/<name>`, with `alias: true` when the listing says it is an alias (`alias_target`) or a router (`openrouter/auto`);
++   - otherwise unknown.
++
++   Unknown is never treated as independent (Decision: [0076](../decisions/0076-unknown-identity-not-independent.md)).
++5. **Filtering the listing.** Hundreds of profiles is noise in eligibility lists and `doctor`. *Suggest:* generate profiles only for text models meeting the adapter's contract, and show all of them on the setup page. Routing still considers them all, but `workers status` summarises them by provider (counts, free count, cheapest per tier) rather than listing each one. The owner can hide providers or models from routing (an `exclude` preference) without deleting anything.
++6. **Free-quota exhaustion.** Make it a classified platform condition (`quota_exhausted`) that re-routes without counting an attempt, like `capability_absent` (Decision: [0086](../decisions/0086-capability-absent-reroutes.md)). *Suggest:* yes, and cover subscription-CLI quota exhaustion the same way. That is the failover question left open in [2026-11-step-tool-harness](2026-11-step-tool-harness.md); suggest it moves here.
++7. **Is price a concept?** Price is a profile field and a preference, not a new owner concept (§2). *Suggest:* no new concept, and record that in §2's worker-setup note.
++8. **LiteLLM by default.** Every API route needs LiteLLM (`baton[api]`), and so does catalog data. The README's install command includes it, but the launcher's per-version installs add only the extras named in `~/.baton/launcher.yaml` (default: none). *Suggest:* make `api` part of the launcher's default extras, so a project-pinned runtime can always run API routes. The alternative is to make LiteLLM a core dependency. That is simpler for owners, but LiteLLM is a heavy dependency for a project that only uses CLI harnesses.
++
++## Design
++
++To be written once the Request is approved and the open questions are answered.
++
++## Plan
++
++Suggested first slice: OpenRouter public listing into a machine-local cache, plus listing profiles for structured-output text models with catalog capabilities, price and `basic` tier, proven by routing a schema-only step to a free model.
++
++## Log
+diff --git a/docs/changes/2026-11-setup-ui.md b/docs/changes/2026-11-setup-ui.md
+new file mode 100644
+index 0000000..e381786
+--- /dev/null
++++ b/docs/changes/2026-11-setup-ui.md
+@@ -0,0 +1,110 @@
++---
++id: 2026-11-setup-ui
++title: "A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file"
++status: proposed
++level: major
++decisions: []               # proposed records to create once the owner answers the open questions below
++touches: [principles.md, design/director-interface.md, design/workers.md, design/platform-and-security.md, design/layouts.md]   # §0, §1.1, §1.3, §2, §13.1, §13.2, §6.1, §6.4, §15.2, §4.4
++---
++
++# A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file
++
++> **Proposed, 2026-11-10.** Request only (level major). This change needs a principles amendment, which is the owner's decision (open question 1). It depends on [2026-11-model-listings](2026-11-model-listings.md) for the breadth of models it shows; a first version can ship over today's known-workers data. It is related to, and does not replace, [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) (on hold): a later version of that change could use this page as its landing point.
++
++## Request
++
++### Problem
++
++Connecting a worker today means CLI commands and, for API accounts, a secret the owner must store themselves:
++
++- an environment variable `BATON_SECRET_<NAME>`, the OS keyring, or the file `~/.baton/secrets/<name>` (§6.1);
++- then `baton workers declare <name> --provider <p> --credential secret:<name>`;
++- then `baton workers setup`.
++
++The Director skill walks the owner through this, but it must not take a key in conversation, so the owner still does the storing by hand. Choosing among models, or keeping one out of routing, means `.baton/preferences.yaml` (§8.4). Seeing what is available, what it costs and what has been verified means reading `workers status` output.
++
++For a technically comfortable owner that is tolerable. For the layperson owner Baton is designed for (§1.1 #5), it is not. With [2026-11-model-listings](2026-11-model-listings.md), the stable could also grow from tens of profiles to hundreds, which a terminal list serves poorly.
++
++The owner wants:
++- every subscription (CLI) and every API account integrated without editing a config file;
++- the model stable managed from one place;
++- setup to be easier than Hermes, whose `hermes setup` / `hermes model` are interactive terminal pickers and whose secrets go to `~/.hermes/.env` through `hermes config set` ([Hermes quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)).
++
++The owner also intends, later and not in this change, a Baton web interface for all owner interaction: stripped to what working with Baton processes needs, and not depending on a third-party chat interface or harness. A setup and admin page is the first step in that direction. Its first job is the stable of models and providers.
++
++**Principles conflict.** As written, the principles forbid this change:
++- §0 rule 3: "No web UI, no message broker, no database server, no long-running daemon";
++- §1.1 #3: "no daemon, no server";
++- §1.3: "No GUI".
++
++`baton mcp` already serves HTTP on request (§13.2, the `mcp` extra brings `uvicorn`), so an on-demand local server is not new to Baton. A page for the owner is.
++
++### What changes, in outline (not yet a Design)
++
++1. **`baton ui` starts a local page, on demand.**
++   - It binds to the loopback address only, on a free port, and opens the owner's browser at a URL that carries a one-time token.
++   - The process runs only while the page is in use and exits after an idle timeout or when the owner closes it. It is not a daemon and is not started at login.
++   - The Director can start it too (a `ui` action on the CLI and MCP, §13.1): it returns the URL, and the Director says "open this link to connect your accounts".
++2. **The page is a fourth interface over the one core** (§1.4 #12).
++   - Every action it takes calls the same engine functions as the CLI and MCP (`workers status`, `declare`, `setup`, `--verify`, preferences) and writes the same files.
++   - Anything done on the page can also be done, and seen, from the CLI.
++   - The page holds no state of its own.
++3. **First page: the stable.**
++   - **Providers:** each one Baton knows, whether connected, and what connecting it needs.
++     - CLI subscriptions are detected, with their login state and version.
++     - For API accounts, the owner pastes a key once. It is stored in the OS keyring when available, else the secrets file with owner-only permissions, and never written to any YAML, log or event (§6.1 redaction unchanged).
++     - The key is checked with one cheap call (a listing or key-info read, not a model call), then declared and set up.
++     - Where the provider reports it, the page shows remaining credit and free quota.
++   - **Models:** every profile with these columns: provider, price (or "free" / "subscription"), context size, tier, capabilities with their state (likely, verified, absent), and when it was last verified.
++     - Filters: free only, max price, capability, tier, provider.
++     - Per model: on or off for routing (writes an exclusion preference), "check it works" (the existing `--verify`), and "assess it" (owner-run research, if [2026-11-model-listings](2026-11-model-listings.md) open question 3 is accepted).
++   - **Preferences:** cheapest first or most-verified first, and per-capability preferred models. Everything is a choice on the page; the YAML is an implementation detail.
++4. **CLI subscriptions are walked, not edited.**
++   - For a harness that is installed but not logged in, the page shows the exact login command and can start it in a terminal **[VERIFY: each CLI's login command and whether it can be started non-interactively from a child process]**.
++   - For one that is not installed, it shows the install step for this platform.
++   - It re-checks when the owner comes back to the page.
++5. **Safety by construction.** Every request is checked against all of these:
++   - a loopback bind;
++   - a per-launch token;
++   - a `Host` header check against DNS rebinding;
++   - no cross-origin access;
++   - a key that is never sent back to the browser after it is stored.
++
++   One machine's page manages that machine's resources only (§4.4).
++6. **Thin and dependency-light.**
++   - One static HTML page with plain JavaScript, shipped inside the package. No JavaScript toolchain and no build step.
++   - Served by the standard library or by `uvicorn` from the existing `mcp` extra (open question 3).
++
++### Acceptance criteria (draft)
++
++1. On a machine with Claude Code logged in and nothing else configured, `baton ui` opens a page that shows Claude Code connected, its generated profiles, and an "add an account" choice for each API provider Baton knows. No file has been edited by the owner.
++2. Pasting an OpenRouter key and pressing connect stores the key outside any YAML, checks it, declares the resource and runs setup. The models page then shows the new profiles. Afterwards, `baton workers status` on the CLI shows the same result.
++3. Turning a model off on the page excludes it from routing. The exclusion is visible in `.baton/preferences.yaml` (or its machine-level equivalent; open question 5) and in the `worker_selected` event's exclusions.
++4. A request without the launch token, or with a non-loopback `Host`, is refused. A stored key is never present in any response body, log, event or diagnostic (tested by scanning them all).
++5. The `baton ui` process exits after the idle timeout and leaves nothing running.
++6. Every action on the page has a CLI equivalent, and a test drives both against the same fixtures and compares the files they write.
++7. The page works on Windows, macOS, Linux and WSL, with the browser opened on the host side under WSL **[VERIFY: WSL2 localhost forwarding in the default network mode]**.
++
++### Open questions (each with a suggested answer)
++
++1. **Principles amendment.** *Suggest:*
++   - §0 rule 3 becomes "No hosted service, no message broker, no database server, no long-running daemon. A local page served on demand by `baton ui` is allowed: it is an interface over the core like the CLI and MCP, binds to the loopback address, keeps no state of its own and exits when idle."
++   - §1.1 #3 gets the same carve-out.
++   - §1.3 "No GUI" becomes "No GUI beyond the local setup page (§13.x)".
++   - The broader owner-interaction UI is recorded as a direction, not a non-goal, without authorizing it here.
++2. **Scope of the first version.** *Suggest:* the stable only (providers, models, preferences). Project, run and recipe views come later, as part of the broader UI direction.
++3. **Server.** *Suggest:* the standard library `http.server` (`ThreadingHTTPServer`), so the page needs no extra. `uvicorn` would add an async stack for a page with a handful of JSON endpoints.
++4. **Where keys go by default.** *Suggest:* the OS keyring when the `keyring` package and a backend are present; otherwise `~/.baton/secrets/<name>` with owner-only permissions, and the page says which was used. Should `keyring` join the launcher's default extras alongside `api` ([2026-11-model-listings](2026-11-model-listings.md) open question 8)? Suggest yes.
++5. **Machine-level preferences.** Routing preferences today are per project (`.baton/preferences.yaml`), while the stable is per machine. *Suggest:* a machine-level preferences file (`~/.baton/preferences.yaml`) that project preferences override. The page edits the machine level, and per-project overrides stay a Director or CLI matter.
++6. **Starting CLI logins.** *Suggest:* show the command and a "copy" button in the first version, and add "start it for me" per CLI once each login flow is checked on all platforms.
++7. **Concept budget.** *Suggest:* the page adds no concept (§2). It is an interface, like the CLI. Record that in §2's interfaces note.
++
++## Design
++
++To be written once the principles amendment is decided and the Request is approved.
++
++## Plan
++
++Suggested first slice: `baton ui` serving the stable read-only (providers and models from `workers status --json`), with the token, loopback and idle-exit guarantees and their tests. The second slice adds connecting an API account.
++
++## Log
+diff --git a/docs/changes/REGISTER.md b/docs/changes/REGISTER.md
+index 8d709f9..6ea27e9 100644
+--- a/docs/changes/REGISTER.md
++++ b/docs/changes/REGISTER.md
+@@ -5,8 +5,10 @@ One row per change doc in this folder: the place to see every change's status wi
+ | Change | Title | Status | Level | Note |
+ |---|---|---|---|---|
+ | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
++| [2026-11-model-listings](2026-11-model-listings.md) | Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred | proposed | major | Request only: awaiting owner answers |
+ | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
+ | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |
++| [2026-11-setup-ui](2026-11-setup-ui.md) | A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file | proposed | major | Request only: needs a principles amendment (owner) |
+ | [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | proposed | major | On hold: after 2026-11-capability-confidence and 2026-11-cli-model-routes |
+ | [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) | Become a Baton director: setup with as little owner effort as possible | proposed | major | On hold (owner, 2026-11-05): not to be designed further or implemented until the owner accepts it |
+ | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |
+-- 
+2.43.0
+

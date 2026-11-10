@@ -1,0 +1,111 @@
+From fd6e015585a60d9d03673ff99bc37a3949020cfd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 02:04:25 -0600
+Subject: [PATCH 3/3] 2026-11-model-listings: Add the provider directory and
+ OpenAI-compatible providers
+
+- Problem: providers are a researched shortlist too; an undeclared provider
+  generates nothing.
+- Outline: a broadly researched provider directory (the providers: section,
+  extended), and an openai_compatible provider kind needing only a base URL
+  and a key.
+- New "How it feels to the owner" section (switching from OpenRouter to
+  Chutes), criteria 10-12, open questions 9-11, suggested slices.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FVav9BoWGHSxc2z9wm2XxY
+---
+ docs/changes/2026-11-model-listings.md | 43 ++++++++++++++++++++++++--
+ 1 file changed, 40 insertions(+), 3 deletions(-)
+
+diff --git a/docs/changes/2026-11-model-listings.md b/docs/changes/2026-11-model-listings.md
+index 19c89a0..686a604 100644
+--- a/docs/changes/2026-11-model-listings.md
++++ b/docs/changes/2026-11-model-listings.md
+@@ -9,7 +9,7 @@ touches: [design/workers.md, design/runtime.md, design/director-interface.md, pr
+ 
+ # Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred
+ 
+-> **Proposed, 2026-11-10.** Request only. Design waits for the owner's answers to the open questions and approval of the Request (level major). Companion change: [2026-11-setup-ui](2026-11-setup-ui.md), which gives the owner a page to manage what this change finds; this change is useful without it (CLI and Director), and it is a prerequisite of it.
++> **Proposed, 2026-11-10; extended the same day (owner) with a provider directory and an OpenAI-compatible provider kind, so switching providers is a choice, not a research run.** Request only. Design waits for the owner's answers to the open questions and approval of the Request (level major). Companion change: [2026-11-setup-ui](2026-11-setup-ui.md), which gives the owner a page to manage what this change finds; this change is useful without it (CLI and Director), and it is a prerequisite of it.
+ 
+ ## Request
+ 
+@@ -17,6 +17,8 @@ touches: [design/workers.md, design/runtime.md, design/director-interface.md, pr
+ 
+ Today the only models Baton can route to are the routes in the shipped known-workers data (§6.4). That file is written by a maintainer-run research step, so it is a curated shortlist. The 2026-11-06 research report's criteria were the flagship plus one cheaper tier per creator, for a fixed list of creators. As a result, OpenRouter, which offers several hundred models, contributes 10 routes. They are in-scope models that OpenRouter also serves, plus `openrouter/auto`. That report also says the run could not enumerate OpenRouter's catalog: its `/api/v1/models` read came back as a 10-entry, odd-shaped response. The 2026-11-08 run carried OpenRouter over unchanged, without the LiteLLM model map (not installed in that run).
+ 
++Providers are limited the same way. The `providers:` section of that file lists eight API providers and two CLI harnesses. An owner can declare any other provider, but `resources.declare` then warns that "no known routes reach provider …; nothing will be generated for it". So an owner who moves from OpenRouter to another intermediary, such as Chutes or Requesty, gets no workers at all until a maintainer researches it and a new Baton ships.
++
+ So an owner with an OpenRouter key, or a Groq, Gemini or DeepSeek key, gets only what the maintainer happened to research. The free and cheap models that make Baton affordable for laypeople and small projects are almost entirely missing. The only way to add one is to write a profile by hand, which the owner rules out: it is friction that does not pay for itself (§1.1 #2).
+ 
+ The facts needed are already published in machine-readable form, and none of them needs an agent to find:
+@@ -68,7 +70,33 @@ Hermes only has to pick one model for one chat. Baton routes each step by capabi
+    - A `:free` route's quota is known from the provider's key endpoint where one exists.
+    - Exhausting it is a classified platform condition (open question 6) that re-routes the step to the next eligible worker.
+    - `doctor` and `workers status` show the remaining quota.
+-6. **No hand-written profiles anywhere in the path.** Connecting a provider (a key, or a CLI login) is the owner's only input. Listings, profiles, prices and quotas follow from it.
++6. **Providers come from a directory, researched broadly and separately from models.**
++   - Provider facts are few and stable: display name, kind, base URL, how the key is passed (the variable LiteLLM reads, or a header), the API style it speaks, where its model list lives, whether it has a key-info or quota endpoint, and where to get a key (sign-up URL).
++   - They are much cheaper to research than per-model judgments, so the directory can cover dozens of providers. Hermes ships about 40 ([Hermes quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)).
++   - The directory is the existing `providers:` section of the known-workers data, extended with these fields. Research proposes provider entries the way it proposes models, with sources, and the validator checks them.
++   - A provider in the directory needs no researched models: its models come from its listing (point 1).
++7. **Any OpenAI-compatible endpoint is a provider, even one not in the directory.**
++   - Many intermediaries and local runtimes speak the OpenAI API, including a model list at `GET <base_url>/models`.
++   - A new provider kind, `openai_compatible`, needs only a base URL and a key (or no key, for a local runtime). Baton reads the listing from the base URL and dispatches through LiteLLM's OpenAI-compatible route with that base URL **[VERIFY: the prefix and `api_base` handling in the installed LiteLLM]**.
++   - Directory entries for OpenAI-compatible providers use the same kind, with their base URL filled in, so the generic and the directory path are one mechanism.
++   - What an OpenAI-style listing does not say (price, tool support on some providers) stays unknown, so those models get only what the listing shows, under point 3's defaults.
++8. **No hand-written profiles anywhere in the path.** Connecting a provider (a key, or a CLI login) is the owner's only input. Listings, profiles, prices and quotas follow from it.
++
++### How it feels to the owner
++
++*Switching from OpenRouter to Chutes,* on the setup page ([2026-11-setup-ui](2026-11-setup-ui.md)) or by asking the Director:
++
++1. The owner opens "Add an account" and picks Chutes from the list of providers. If Chutes were not listed, they would pick "Custom endpoint" and paste the address from Chutes' documentation instead.
++2. The page links to where Chutes issues keys. The owner pastes the key.
++3. Baton checks the key, fetches Chutes' model list and generates workers:
++   - models research already knows (the same model also reached through OpenRouter, say) arrive with their tier and judgment capabilities;
++   - the rest arrive with what the listing shows and the conservative defaults, and can be assessed later.
++4. The models page now shows Chutes' models beside OpenRouter's, each with its price where Chutes publishes one.
++5. Turning OpenRouter off is one switch. Its workers stay recorded, only routing stops using them, and turning it back on restores them.
++
++At no point does the owner edit a file, wait for a Baton release or run research. From the CLI, the same flow is:
++- `baton workers declare chutes-main --provider chutes --credential secret:chutes_main`, or `--provider openai_compatible --base-url <url>` for a custom endpoint;
++- then `baton workers setup`.
+ 
+ ### Acceptance criteria (draft)
+ 
+@@ -81,6 +109,9 @@ Hermes only has to pick one model for one chat. Baton routes each step by capabi
+ 7. An upgraded listing (models added, removed, repriced) is applied only by `workers setup`/`refresh`, under the existing refresh rules: removed models are flagged, not deleted; edited profiles are never touched.
+ 8. Recipes are unchanged and the neutrality lint is unchanged: vendors and prices live only in profiles and machine data (§0 rule 4).
+ 9. A listing never adds a capability that needs judgment, and never marks anything `verified`.
++10. Declaring a provider from the directory that has no researched models, with a working key, generates profiles from its listing. Nothing else is needed.
++11. Declaring `openai_compatible` with a base URL and key (tested against a local fake server speaking the OpenAI API) generates profiles from `<base_url>/models` and dispatches a step through it.
++12. Turning a provider off excludes all its profiles from routing without deleting them, and turning it on restores them unchanged.
+ 
+ ### Open questions (each with a suggested answer)
+ 
+@@ -97,6 +128,9 @@ Hermes only has to pick one model for one chat. Baton routes each step by capabi
+ 6. **Free-quota exhaustion.** Make it a classified platform condition (`quota_exhausted`) that re-routes without counting an attempt, like `capability_absent` (Decision: [0086](../decisions/0086-capability-absent-reroutes.md)). *Suggest:* yes, and cover subscription-CLI quota exhaustion the same way. That is the failover question left open in [2026-11-step-tool-harness](2026-11-step-tool-harness.md); suggest it moves here.
+ 7. **Is price a concept?** Price is a profile field and a preference, not a new owner concept (§2). *Suggest:* no new concept, and record that in §2's worker-setup note.
+ 8. **LiteLLM by default.** Every API route needs LiteLLM (`baton[api]`), and so does catalog data. The README's install command includes it, but the launcher's per-version installs add only the extras named in `~/.baton/launcher.yaml` (default: none). *Suggest:* make `api` part of the launcher's default extras, so a project-pinned runtime can always run API routes. The alternative is to make LiteLLM a core dependency. That is simpler for owners, but LiteLLM is a heavy dependency for a project that only uses CLI harnesses.
++9. **Which providers go in the directory first?** *Suggest:* the intermediaries with free or cheap tiers (OpenRouter, Groq, Chutes, Requesty, Together, Fireworks, Cerebras, DeepInfra), the direct APIs already in the data, and the local runtimes (Ollama, LM Studio, vLLM) as `openai_compatible` entries. Each is a research entry with sources, refreshed on the maintainer's research runs.
++10. **A local runtime as a provider.** Ollama and others on `localhost` bring the machine-dependent `loopback_network` question (Decision: [0082](../decisions/0082-machine-dependent-capabilities.md)) and no key. *Suggest:* allowed under `openai_compatible` with `credential` omitted. Whether the API adapter's child process can reach `localhost` on every platform is to be checked in Design.
++11. **Providers whose API is not OpenAI-compatible.** Anthropic's own API and Bedrock, for example. *Suggest:* they stay directory entries with their LiteLLM provider prefix, as today; only their listing source differs (LiteLLM's model discovery, or the model map).
+ 
+ ## Design
+ 
+@@ -104,6 +138,9 @@ To be written once the Request is approved and the open questions are answered.
+ 
+ ## Plan
+ 
+-Suggested first slice: OpenRouter public listing into a machine-local cache, plus listing profiles for structured-output text models with catalog capabilities, price and `basic` tier, proven by routing a schema-only step to a free model.
++Suggested slices:
++1. OpenRouter public listing into a machine-local cache, plus listing profiles for structured-output text models with catalog capabilities, price and `basic` tier, proven by routing a schema-only step to a free model.
++2. The `openai_compatible` kind with a base URL, proven against a local fake server.
++3. Directory fields on providers, and the first directory entries, through a research run.
+ 
+ ## Log
+-- 
+2.43.0
+

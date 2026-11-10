@@ -1,0 +1,126 @@
+---
+id: 2026-11-setup-ui
+title: "A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file"
+status: proposed
+level: major
+decisions: []               # proposed records to create once the owner answers the open questions below
+touches: [principles.md, design/director-interface.md, design/workers.md, design/platform-and-security.md, design/layouts.md]   # §0, §1.1, §1.3, §2, §13.1, §13.2, §6.1, §6.4, §15.2, §4.4
+---
+
+# A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file
+
+> **Proposed, 2026-11-10; revised the same day with the owner's direction:** reworded principles (open question 1), no limit on the UI's technology, key rotation and removal in scope, starting CLI logins out of scope. Request only (level major). It depends on [2026-11-model-listings](2026-11-model-listings.md) for the breadth of models it shows; a first version can ship over today's known-workers data. It is related to, and does not replace, [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) (on hold): a later version of that change could use this page as its landing point.
+
+## Request
+
+### Problem
+
+Connecting a worker today means CLI commands and, for API accounts, a secret the owner must store themselves:
+
+- an environment variable `BATON_SECRET_<NAME>`, the OS keyring, or the file `~/.baton/secrets/<name>` (§6.1);
+- then `baton workers declare <name> --provider <p> --credential secret:<name>`;
+- then `baton workers setup`.
+
+The Director skill walks the owner through this, but it must not take a key in conversation, so the owner still does the storing by hand. Choosing among models, or keeping one out of routing, means `.baton/preferences.yaml` (§8.4). Seeing what is available, what it costs and what has been verified means reading `workers status` output.
+
+For a technically comfortable owner that is tolerable. For the layperson owner Baton is designed for (§1.1 #5), it is not. With [2026-11-model-listings](2026-11-model-listings.md), the stable could also grow from tens of profiles to hundreds, which a terminal list serves poorly.
+
+The owner wants:
+- every subscription (CLI) and every API account integrated without editing a config file;
+- the model stable managed from one place;
+- setup to be easier than Hermes, whose `hermes setup` / `hermes model` are interactive terminal pickers and whose secrets go to `~/.hermes/.env` through `hermes config set` ([Hermes quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)).
+
+The owner also intends, later and not in this change, a Baton web interface for all owner interaction: stripped to what working with Baton processes needs, and not depending on a third-party chat interface or harness. A setup and admin page is the first step in that direction. Its first job is the stable of models and providers.
+
+**Principles conflict.** As written, the principles forbid this change, though their intent still holds (open question 1):
+- §0 rule 3: "No web UI, no message broker, no database server, no long-running daemon";
+- §1.1 #3: "no daemon, no server";
+- §1.3: "No GUI".
+
+The intent of those rules still holds: Baton must not *need* a UI to function, and runs entirely through its CLI and MCP. What the owner wants changed is that the rules also forbid an *optional* client built on top of the CLI and MCP. That is how this change and any later owner-facing UI fit: Baton works the same whether a UI exists or not. `baton mcp` already serves HTTP on request (§13.2, the `mcp` extra brings `uvicorn`), so an on-demand local server is not new to Baton.
+
+### What changes, in outline (not yet a Design)
+
+1. **`baton ui` starts a local web app, on demand.**
+   - It binds to the loopback address only, on a free port, and opens the owner's browser at a URL that carries a one-time token.
+   - The process runs only while the page is in use and exits after an idle timeout or when the owner closes it. It is not a daemon and is not started at login.
+   - The Director can start it too (a `ui` action on the CLI and MCP, §13.1): it returns the URL, and the Director says "open this link to connect your accounts".
+2. **The app is an optional client over the one core** (§1.4 #12).
+   - Every action it takes calls the same engine functions as the CLI and MCP (`workers status`, `declare`, `setup`, `--verify`, preferences) and writes the same files.
+   - Anything done on the page can also be done, and seen, from the CLI.
+   - The app holds no state of its own.
+   - Baton never depends on it: no runtime behaviour, recipe or Director flow requires the app to exist or be running.
+3. **First page: the stable.**
+   - **Providers:** each one Baton knows, whether connected, and what connecting it needs.
+     - CLI subscriptions are detected, with their login state and version.
+     - For API accounts, the owner pastes a key once. It is stored in the OS keyring when available, else the secrets file with owner-only permissions, and never written to any YAML, log or event (§6.1 redaction unchanged).
+     - The key is checked with one cheap call (a listing or key-info read, not a model call), then declared and set up.
+     - Where the provider reports it, the page shows remaining credit and free quota.
+     - **Managing a connected account:**
+       - *Replace key*: the new key is checked before the old one is overwritten, so a bad paste never breaks a working account.
+       - *Disconnect*: removes the declaration (`workers declare <name> --remove`) and, after confirmation, the stored secret.
+       - In both cases, generated profiles that depended on the account are flagged, not deleted, under the existing refresh rules (§6.4).
+     - Nothing about a key is shown after it is stored except where it is kept (keyring or file) and when it was last checked.
+   - **Models:** every profile with these columns: provider, price (or "free" / "subscription"), context size, tier, capabilities with their state (likely, verified, absent), and when it was last verified.
+     - Filters: free only, max price, capability, tier, provider.
+     - Per model: on or off for routing (writes an exclusion preference), "check it works" (the existing `--verify`), and "assess it" (owner-run research, if [2026-11-model-listings](2026-11-model-listings.md) open question 3 is accepted).
+   - **Preferences:** cheapest first or most-verified first, and per-capability preferred models. Everything is a choice on the page; the YAML is an implementation detail.
+4. **CLI subscriptions are walked, not edited.**
+   - For a harness that is installed but not logged in, the page shows the exact login command for this platform, with a copy button. Starting the login from the page is out of scope (owner, 2026-11-10).
+   - For one that is not installed, it shows the install step for this platform.
+   - It re-checks when the owner comes back to the page.
+5. **Safety by construction.** Every request is checked against all of these:
+   - a loopback bind;
+   - a per-launch token;
+   - a `Host` header check against DNS rebinding;
+   - no cross-origin access;
+   - a key that is never sent back to the browser after it is stored.
+
+   One machine's page manages that machine's resources only (§4.4).
+6. **The UI's technology is open** (owner, 2026-11-10). It may be a full web app: any framework, build step or dependencies, as long as:
+   - it is an optional install (an extra or a separate package), so a Baton install without it is complete and loses nothing but the app;
+   - its dependencies are kept out of the runtime's own;
+   - all writes go through the core functions (point 2).
+
+   Framework, packaging and server are Design choices (open question 3).
+
+### Acceptance criteria (draft)
+
+1. On a machine with Claude Code logged in and nothing else configured, `baton ui` opens a page that shows Claude Code connected, its generated profiles, and an "add an account" choice for each API provider Baton knows. No file has been edited by the owner.
+2. Pasting an OpenRouter key and pressing connect stores the key outside any YAML, checks it, declares the resource and runs setup. The models page then shows the new profiles. Afterwards, `baton workers status` on the CLI shows the same result.
+3. Turning a model off on the page excludes it from routing. The exclusion is visible in `.baton/preferences.yaml` (or its machine-level equivalent; open question 5) and in the `worker_selected` event's exclusions.
+4. A request without the launch token, or with a non-loopback `Host`, is refused. A stored key is never present in any response body, log, event or diagnostic (tested by scanning them all).
+5. The `baton ui` process exits after the idle timeout and leaves nothing running.
+6. Every action on the page has a CLI equivalent, and a test drives both against the same fixtures and compares the files they write.
+7. The page works on Windows, macOS, Linux and WSL, with the browser opened on the host side under WSL **[VERIFY: WSL2 localhost forwarding in the default network mode]**.
+8. Replacing an account's key with an invalid one leaves the old key and the account working, and says why the new one was refused. Disconnecting an account removes its declaration and, once confirmed, its stored secret. Its generated profiles are then flagged as no longer offered (resource gone), and routing stops using them.
+9. Baton's full test suite passes with the UI not installed, and no runtime module imports it.
+
+### Open questions (each with a suggested answer)
+
+1. **Principles wording.** Owner's direction (2026-11-10): the no-UI rules stay, as "Baton must not require one", and an optional UI over the CLI and MCP is allowed. *Suggested text:*
+   - §0 rule 3: "Thin layer. Baton needs no web UI, message broker, database server or long-running daemon to work. Filesystem, git, SQLite (as a cache only) and plain Python. Optional clients (a local web app, §13.x) may be built over the CLI and MCP; the runtime never depends on them. Every dependency must justify itself."
+   - §1.1 #3: "The runtime stays small and conventional, and needs no daemon or server", the rest unchanged.
+   - §1.3: "No required GUI. Baton is complete through its CLI and MCP; a UI is an optional client."
+   - A new key design decision in §1.4, after #12: "A UI is a client, never a dependency. It changes state only through the same core functions as the CLI and MCP."
+   - The broader owner-interaction UI is recorded as a direction, not a non-goal, without authorizing it here.
+2. **Scope of the first version.** *Suggest:* the stable only (providers, models, preferences). Project, run and recipe views come later, as part of the broader UI direction.
+3. **Packaging and stack.** *Suggest:*
+   - a JSON API served by `baton ui` from the runtime package (small, standard library or `uvicorn`), with the web app as a separately versioned front end in an extra (`baton[ui]`);
+   - the API then becomes the seam a later owner-interaction UI builds on.
+
+   The framework is a Design choice.
+4. **Where keys go by default.** *Suggest:* the OS keyring when the `keyring` package and a backend are present; otherwise `~/.baton/secrets/<name>` with owner-only permissions, and the page says which was used. Should `keyring` join the launcher's default extras alongside `api` ([2026-11-model-listings](2026-11-model-listings.md) open question 8)? Suggest yes.
+5. **Machine-level preferences.** Routing preferences today are per project (`.baton/preferences.yaml`), while the stable is per machine. *Suggest:* a machine-level preferences file (`~/.baton/preferences.yaml`) that project preferences override. The page edits the machine level, and per-project overrides stay a Director or CLI matter.
+6. ~~Starting CLI logins.~~ Decided (owner, 2026-11-10): out of scope. The page shows the command with a copy button; a later change may add starting it.
+7. **Concept budget.** *Suggest:* the page adds no concept (§2). It is an interface, like the CLI. Record that in §2's interfaces note.
+
+## Design
+
+To be written once the principles amendment is decided and the Request is approved.
+
+## Plan
+
+Suggested first slice: `baton ui` serving the stable read-only (providers and models from `workers status --json`), with the token, loopback and idle-exit guarantees and their tests. The second slice adds connecting an API account.
+
+## Log

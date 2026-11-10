@@ -1,0 +1,153 @@
+From fb7375190dd710413242cd39ec0d04ed6291f66f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 11:12:22 -0600
+Subject: [PATCH 2/2] 2026-11-diagnostics: Record the owner's answers; accept
+ decision 0094
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Usage-day retention, routing exclusions in worker_selected (additive, per
+0075), diagnostics as machinery in §2, raw worker logs reported not pruned.
+Docs only; tests/test_docs.py green.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FVav9BC732vCdJPnvJWtRs
+---
+ docs/README.md                             |  2 +-
+ docs/changes/2026-11-diagnostics.md        | 35 ++++++++++++----------
+ docs/decisions/0094-diagnostics-channel.md | 12 +++++---
+ 3 files changed, 28 insertions(+), 21 deletions(-)
+
+diff --git a/docs/README.md b/docs/README.md
+index 78c3a28..871bcb0 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -228,4 +228,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
+ | [0091 The researcher gets tool maps, starting URLs and LiteLLM entries; model availability is verified by use](decisions/0091-researcher-inputs-and-model-listing.md) | accepted |
+ | [0092 Slice commits are gated by a quick gate; finish commits by a green full run of their exact SHA](decisions/0092-two-tier-test-gate.md) | accepted |
+ | [0093 An undocumented test-only time-scale environment variable is allowed](decisions/0093-test-time-scale.md) | accepted |
+-| [0094 Diagnostics are a separate, machine-local, bounded channel](decisions/0094-diagnostics-channel.md) | proposed |
++| [0094 Diagnostics are a separate, machine-local, bounded channel](decisions/0094-diagnostics-channel.md) | accepted |
+diff --git a/docs/changes/2026-11-diagnostics.md b/docs/changes/2026-11-diagnostics.md
+index e092656..59faafb 100644
+--- a/docs/changes/2026-11-diagnostics.md
++++ b/docs/changes/2026-11-diagnostics.md
+@@ -3,8 +3,8 @@ id: 2026-11-diagnostics
+ title: "Baton records the conditions it works around, keeps them bounded, and doctor speaks up when they become unusual"
+ status: proposed
+ level: standard
+-decisions: ["0094"]
+-touches: [principles.md, design/layouts.md, design/runtime.md, design/director-interface.md, design/platform-and-security.md]   # §2, §4.4, §8.3, §8.4, §13.1, §13.2, §13.4, §15
++decisions: ["0094", "0075"]
++touches: [principles.md, design/layouts.md, design/runtime.md, design/versioning.md, design/director-interface.md, design/platform-and-security.md]   # §2, §4.4, §8.3, §8.4, §14.2, §13.1, §13.2, §13.4, §15
+ ---
+ 
+ # Baton records the conditions it works around, keeps them bounded, and doctor speaks up when they become unusual
+@@ -33,8 +33,8 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
+ - Records are written to `$BATON_HOME/diag/`, never to the project or its event logs. Each record carries `ts`, `code` (dotted, as issue codes are), `where` (module:function), `pid`, `project` (root path, when known), `run`/`step_path`/`attempt` when known, and `data`. Every string passes `redact_text` before it is written, so a record can be handed to an SME as is.
+ - Concurrent writers (Directors, supervisors, the MCP server, on POSIX and Windows) never interleave or lose lines: each process writes its own file, `diag/raw/<YYYY-MM-DD>/<pid>-<rand>.jsonl` (UTC day), so no locking is needed.
+ - **Retention, without a daemon:**
+-  - Raw days older than `raw_days` (default 14) are deleted, and raw days are deleted oldest first while the raw total exceeds `raw_max_bytes` (default 64 MiB). The current day is never deleted.
+-  - Before a raw day is deleted, it is rolled up into `diag/counts/<YYYY-MM-DD>.json`: counts per `(project, code)`, written atomically and idempotently. Counts are kept `count_days` (default 180); a day's file is a few KB.
++  - Raw records are kept for the last `raw_days` (default 14) **usage days**, not calendar days: a usage day is a UTC day with at least one raw record on this machine, so idle weeks do not age detail out. Older raw days are deleted, and raw days are deleted oldest first while the raw total exceeds `raw_max_bytes` (default 64 MiB). The current day is never deleted.
++  - Before a raw day is deleted, it is rolled up into `diag/counts/<YYYY-MM-DD>.json`: counts per `(project, code)`, written atomically and idempotently. Counts are kept for the last `count_days` (default 180) usage days; a day's file is a few KB.
+   - Per process, per code, per day, the first `burst` records (default 100) are written in full; after that, only every 100th, carrying `suppressed: 99`, so counts stay exact while a storm cannot fill the disk.
+   - Maintenance (rollup, then prune) runs at most once per UTC day per machine. The first `note` of the day that wins an exclusive-create of `diag/.maintained-<day>` does it, and `doctor` runs it too. A maintenance failure is noted once (`diag.maintenance_failed`) and never raised.
+   - Limits are machine settings with these defaults; nothing to configure when healthy.
+@@ -42,19 +42,20 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
+   - every swallowed exception in `src/baton/` is either noted with its code, or marked expected in a comment saying why (e.g. `ProcessLookupError` in a liveness check is the answer, not a fault); a test lists every broad `except` and fails on one that is neither;
+   - cache replays, with the reason (`missing`, `size_mismatch`, `key_mismatch`);
+   - capability-version checks skipped for a profile, with the reason;
+-  - routing exclusions on **every** dispatch (see Decisions: these go into the `worker_selected` event, not the diagnostic channel).
+-- **`baton diag`** (CLI and MCP tool `diag`): by default, counts per code for the last 7 days next to each code's 30-day daily baseline, with any unusual codes first; `--since`, `--code <prefix>`, `--run`, `--records` (raw records, newest last), `--json`. Exit 0.
+-- **`doctor`** adds one warning, and nothing when healthy: `diagnostics: N unusual condition(s); see baton diag`, with `diag_unusual [{code, last_7d, baseline_per_day, first_seen?}]` in `--json`. A code is unusual when its last-7-day count is at least `min_count` (default 5) and either more than 3× its 30-day baseline rate, or it has no baseline (first seen). `detect` leaves the warning out, as it does the wake warning (0061).
++  - routing exclusions on **every** dispatch: `worker_selected`'s data gains `excluded [{profile, reasons}]` (empty list when nothing was excluded). This is an event field, not a diagnostic: deterministic, small, and it travels with the repo. The field is additive, so no event-format version changes, as for the identity fields (§14.2; 0075); an older event is read as `excluded` unknown.
++- **`baton diag`** (CLI and MCP tool `diag`): by default, counts per code for the last 7 usage days next to each code's baseline rate, with any unusual codes first; `--since`, `--code <prefix>`, `--run`, `--records` (raw records, newest last), `--json`. Exit 0.
++- **`doctor`** adds one warning, and nothing when healthy: `diagnostics: N unusual condition(s); see baton diag`, with `diag_unusual [{code, last_7d, baseline_per_day, first_seen?}]` in `--json`. A code is unusual when its count over the last 7 usage days is at least `min_count` (default 5) and either more than 3× its baseline rate (per usage day, over the 30 usage days before those), or it has no baseline (first seen). `detect` leaves the warning out, as it does the wake warning (0061).
++- `doctor --json` and `diag` report raw worker logs: total size under `~/.baton/logs/` and the age of the oldest attempt log. Nothing is deleted.
+ - The platform SME's evidence for an incident (§12.3) includes the diagnostic records for that run, step and attempt.
+ - `pytest` green; tests cover: `note` never raising (unwritable home, full disk simulated), concurrent writers, burst suppression keeping counts exact, rollup idempotence, pruning by age and by size, never deleting the current day, the unusual rule, and redaction with sentinel secrets.
+ 
+-### Open questions
++### Resolved questions (owner, 2026-11-09)
+ 
+-- **Event or diagnostic for routing exclusions?** Proposed: add `excluded [{profile, reasons}]` to `worker_selected`'s data. It is deterministic, small, belongs with the run, and travels with the repo to any machine. Does adding an optional field need an event-format version bump (§14.2), or is it a compatible addition?
+-- **Concept budget (§0 rule 8).** `baton diag` is a new command visible to Directors. Proposed: diagnostics join the "machinery that owners and recipe authors never configure" line in §2, not the concept table, since owners never see them. Agree?
+-- **Default limits.** 14 days raw / 64 MiB / 180 days of counts / burst 100 / unusual at ≥5 and 3×. These are guesses; tune after real use?
+-- **Raw worker logs.** `~/.baton/logs/` has no retention today either (no pruning found in `src/`). Bring it under the same maintenance pass (e.g. delete attempt logs of runs finished more than `raw_days` ago), or leave it to a separate change?
+-- **Worker cost and token telemetry** (attempts record exit code, duration and timeout only) is out of scope here; a separate change, since it needs adapter parsing.
++- **Routing exclusions** go into the `worker_selected` event, not the diagnostic channel. No format bump: additive field, per the 0075 precedent.
++- **Concept budget:** diagnostics are machinery (the §2 line of things owners and recipe authors never configure), not a new concept.
++- **Default limits** accepted, with retention counted in **usage days**, not calendar days. Applied to the raw window (14) as decided; the counts window (180) and the unusual rule's windows (7 and 30) use usage days too, for consistency (the agent's reading; confirm or revert at Design).
++- **Raw worker logs:** check and report for now (see acceptance criteria); no pruning.
++- **Worker cost and token telemetry** stays out of scope (a separate change; needs adapter parsing).
+ 
+ ## Design
+ 
+@@ -62,14 +63,15 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
+ 
+ - `principles.md` §2: diagnostics added to the line listing machinery owners and recipe authors never configure.
+ - `design/layouts.md` §4.4: `diag/` in the machine-local tree (`raw/<day>/`, `counts/`, `.maintained-<day>`).
++- `design/versioning.md` §14.2: `worker_selected` gains `excluded`, additive, no version change.
+ - `design/runtime.md` §8.3: cache replays are noted with their reason. §8.4: `worker_selected` carries the exclusions (pending the open question). New paragraph on the diagnostic channel: what it is for, that it is never a source of truth and never read by the state machine, and the retention rules.
+ - `design/director-interface.md` §13.1, §13.2: the `diag` call. §13.4: the unusual-conditions warning and its rule.
+ - `design/platform-and-security.md` §15: diagnostic records are redacted on write; they stay machine-local.
+ 
+ ### Decisions
+ 
+-- **0094 (new, proposed): Diagnostics are a separate, machine-local, bounded channel.** They are not events: the event log stays the record of legal transitions, and diagnostics can be written by any process at any time without the state machine. They never decide anything. Their retention is enforced on write, with no daemon. Open until the owner decides.
+-- Relies on 0061 (doctor warnings that `detect` leaves out), 0084 and 0086 (capability states and version reset, whose silent skips are among the sites recorded).
++- **0094 (accepted 2026-11-09): Diagnostics are a separate, machine-local, bounded channel.** They are not events: the event log stays the record of legal transitions, and diagnostics can be written by any process at any time without the state machine. They never decide anything. Their retention is enforced on write, with no daemon, and counted in usage days.
++- Relies on 0075 (additive `worker_selected` fields need no format version), 0061 (doctor warnings that `detect` leaves out), 0084 and 0086 (capability states and version reset, whose silent skips are among the sites recorded).
+ 
+ ## Plan
+ 
+@@ -79,7 +81,7 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
+ - **Criteria:**
+   - `note` never raises; per-process files; redaction on write
+   - burst suppression keeps counts exact
+-  - daily maintenance: rollup is idempotent, pruning by age and size, current day kept
++  - daily maintenance: rollup is idempotent, pruning by usage-day age and by size, current day kept; idle calendar days do not age records out
+ - **Effort:** M
+ 
+ ### Record the silent paths
+@@ -96,6 +98,7 @@ Storage must stay bounded without a daemon (§0 rule 3). Detail is needed only l
+ - **Outcome:** a Director or the developer can see what Baton has been working around, and `doctor` says so only when it is unusual.
+ - **Criteria:**
+   - `diag` summary, filters and `--records`, CLI and MCP alike
++  - raw worker log size and oldest age reported by `doctor --json` and `diag`
+   - the unusual rule, including first-seen codes; healthy `doctor` stays one line; `detect` unchanged
+   - the platform SME's incident evidence includes the matching records
+ - **Effort:** M
+diff --git a/docs/decisions/0094-diagnostics-channel.md b/docs/decisions/0094-diagnostics-channel.md
+index 0963ca9..d50268d 100644
+--- a/docs/decisions/0094-diagnostics-channel.md
++++ b/docs/decisions/0094-diagnostics-channel.md
+@@ -1,10 +1,10 @@
+ ---
+ id: "0094"
+ title: "Diagnostics are a separate, machine-local, bounded channel"
+-status: proposed
++status: accepted
+ date: 2026-11-09
+-source: "change 2026-11-diagnostics (proposed)"
+-sections: ["§4.4", "§8.3", "§13.4"]
++source: "change 2026-11-diagnostics (owner, 2026-11-09)"
++sections: ["§2", "§4.4", "§8.3", "§8.4", "§13.4"]
+ ---
+ 
+ # 0094. Diagnostics are a separate, machine-local, bounded channel
+@@ -15,4 +15,8 @@ The runtime's own fallbacks (swallowed exceptions, cache replays, skipped checks
+ 
+ ## Decision
+ 
+-Open. Proposed: diagnostics are written by `diag.note`, which never raises, to per-process files under `$BATON_HOME/diag/`, never to the project or its event logs; they are redacted on write and never read by the state machine or used to decide anything. Raw records are kept a short window and pruned by age and size on write; before deletion they are rolled up into daily counts kept longer, so `doctor` can flag unusual codes against a baseline. Owners never see them unless `doctor` finds something unusual.
++Diagnostics are written by `diag.note`, which never raises, to per-process files under `$BATON_HOME/diag/`, never to the project or its event logs. They are redacted on write, and never read by the state machine or used to decide anything. They are machinery (§2), not a concept.
++
++Retention is counted in **usage days** (UTC days with at least one record on the machine), not calendar days. Raw records are kept 14 usage days and at most 64 MiB, pruned on write with no daemon. Before deletion they are rolled up into daily counts kept 180 usage days, so `doctor` can flag unusual codes against a baseline. Owners never see diagnostics unless `doctor` finds something unusual.
++
++Routing exclusions are not diagnostics: they are recorded in the `worker_selected` event as an additive field, with no format version change (as for 0075). Raw worker logs under `~/.baton/logs/` are reported (size, oldest age), not pruned, for now.
+-- 
+2.43.0
+
