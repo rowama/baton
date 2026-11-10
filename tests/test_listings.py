@@ -205,3 +205,48 @@ def test_the_validator_refuses_a_base_url_on_a_provider_reached_through_litellm(
     raw["providers"]["xai"]["base_url"] = "https://example.com/v1"
     _, issues = kw.validate(raw, vocab_mod.load(vocab_mod.DEFAULT), {"litellm_api", "subprocess_harness", "manual", "command"})
     assert any(i.code.endswith("base_url_kind") for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Assessed models: the owner's overlay (slice 5; Decisions 0110, 0111, 0112)
+# ---------------------------------------------------------------------------
+
+OVERLAY = """\
+format: baton-known-workers/1
+models:
+  acme/big-2:
+    creator: acme
+    capabilities: [structured_output, technical_reasoning]
+    capability_basis:
+      structured_output: { kind: catalog, litellm: supports_response_schema }
+      technical_reasoning: { kind: judgment, reason: assessed on the owner's machine }
+    tier: standard
+    context_tokens: 64000
+    sources: [{ url: "https://example.com/acme", retrieved: 2026-11-10 }]
+    researched: 2026-11-10
+"""
+
+
+def test_an_assessed_model_lifts_its_listing_profiles_from_basic(home):
+    declare_or(home)
+    listings.refresh(home, "openrouter", fetch=lambda url: RAW, today=TODAY)
+    (home / "known-workers.local.yaml").write_text(OVERLAY, encoding="utf-8")
+    resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
+    big = yaml.safe_load((home / "workers" / "or-acme-big.yaml").read_text(encoding="utf-8"))
+    assert big["tier"] == "standard" and "technical_reasoning" in big["capabilities"] and big["context_tokens"] == 32000  # listing's context wins
+    assert yaml.safe_load((home / "workers" / "or-acme-small-free.yaml").read_text(encoding="utf-8"))["tier"] == "basic"  # unassessed stays basic
+
+
+@pytest.mark.parametrize("edit, fragment", [
+    (lambda t: t.replace("acme/big-2:", "anthropic/claude-opus-5-5:").replace("creator: acme", "creator: anthropic"), "never edits one"),
+    (lambda t: t + "routes:\n  - { model_id: acme/big-2, provider: openrouter, adapter: litellm_api, invocation: x, supported: true, verified: { date: 2026-11-10, tool: t, version: '1' } }\n", "only a live check"),
+    (lambda t: t.replace("      technical_reasoning: { kind: judgment, reason: assessed on the owner's machine }\n", ""), "has no basis"),
+    (lambda t: t + "providers: {}\n", "only models and routes"),
+])
+def test_an_overlay_is_refused_when_it_edits_shipped_data_claims_verified_or_lacks_a_basis(home, edit, fragment):
+    from baton import known_workers as kw
+
+    (home / "known-workers.local.yaml").write_text(edit(OVERLAY), encoding="utf-8")
+    with pytest.raises(kw.KnownWorkersError) as e:
+        resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
+    assert fragment in str(e.value)

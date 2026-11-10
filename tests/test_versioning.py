@@ -394,3 +394,11 @@ def test_two_worktrees_run_two_runtime_versions_and_the_trial_merges(tmp_path):
     assert {e["type"] for e in _raw_events(main / ".baton" / "runs" / new / "events.jsonl")} >= {"run_completed"}
     assert baton(main, env, "check")["ok"]
     assert baton(main, env, "board")["runs"] == []
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_launcher_installs_the_api_extra_unless_the_owner_says_otherwise():
+    """Decision 0116: a pinned runtime can always run API routes; an explicit extras list, even empty, replaces the default."""
+    assert launcher.requirement({}, "1.0.0") == "baton[api] @ git+https://github.com/rowama/baton@v1.0.0"
+    assert launcher.requirement({"extras": ["mcp"]}, "1.0.0").startswith("baton[mcp] @ ")
+    assert launcher.requirement({"extras": []}, "1.0.0").startswith("baton @ ")

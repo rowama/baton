@@ -288,3 +288,55 @@ def load(vocab: Vocabulary, path: Path | None = None) -> KnownWorkers:
     if issues or kw is None:
         raise KnownWorkersError(issues)
     return kw
+
+
+LOCAL_FILE = "known-workers.local.yaml"
+
+
+def load_with_overlay(vocab: Vocabulary, home: Path, path: Path | None = None) -> KnownWorkers:
+    """The shipped data plus the owner's machine-local overlay ``<home>/known-workers.local.yaml`` (Decision 0111).
+
+    The overlay (the result of an owner-run assessment) adds ``models`` and
+    ``routes`` only: it never replaces or edits a shipped model, never carries
+    ``verified`` (a live check is a separate fact), and every model it adds
+    needs a basis for each capability, as a research proposal does. The merged
+    data passes the same validator. ``KnownWorkersError`` lists every problem.
+    """
+    from .adapters import ADAPTERS
+
+    path = path or default_path()
+    shipped = load(vocab, path)
+    overlay_path = Path(home) / LOCAL_FILE
+    if not overlay_path.is_file():
+        return shipped
+    where = LOCAL_FILE
+
+    def problem(code: str, message: str) -> KnownWorkersError:
+        return KnownWorkersError([Issue(code=f"known_workers.{code}", where=where, message=message)])
+
+    try:
+        extra: Any = load_yaml(overlay_path)
+    except YamlError as e:
+        raise problem("yaml", str(e)) from e
+    if not isinstance(extra, dict) or extra.get("format") != FORMAT:
+        raise problem("format", f"expected a mapping with format {FORMAT}")
+    if set(extra) - {"format", "models", "routes"}:
+        raise problem("sections", "an overlay may hold only models and routes")
+    raw: Any = load_yaml(path)
+    for mid, m in (extra.get("models") or {}).items():
+        if mid in raw.get("models", {}):
+            raise problem("replaces_shipped", f"{mid} is in the shipped data; an overlay adds models, it never edits one")
+        raw.setdefault("models", {})[mid] = m
+    for i, r in enumerate(extra.get("routes") or []):
+        if isinstance(r, dict) and "verified" in r:
+            raise problem("verified", f"routes[{i}] carries verified; only a live check sets it")
+        raw.setdefault("routes", []).append(r)
+    merged, issues = validate(raw, vocab, set(ADAPTERS), source=where)
+    if issues or merged is None:
+        raise KnownWorkersError(issues)
+    # A model the overlay adds must show a basis for each capability it claims (as a research proposal does).
+    _, basis_issues = validate({**raw, "models": {m: raw["models"][m] for m in (extra.get("models") or {})}, "routes": [], "providers": raw.get("providers", {})},
+                               vocab, set(ADAPTERS), source=where, require_basis=True)
+    if basis_issues:
+        raise KnownWorkersError(basis_issues)
+    return merged

@@ -210,3 +210,10 @@ At no point does the owner edit a file, wait for a Baton release or run research
 - **Review:** clean
 - **Accepted:** pending
 
+### Owner-run assessment and launcher extras
+
+- **Commit:** `2026-11-model-listings: Slice 5, assessed-model overlay and launcher extras`
+- **Summary:** `known_workers.load_with_overlay` merges `~/.baton/known-workers.local.yaml` (models and routes only; never edits a shipped model; no `verified`; a basis for every capability; same validator), used by the resource manager. Listing profiles now take creator, tier and capabilities from a matching researched or assessed model (the 0112 knowledge flow that slice 1 left at `basic`). The launcher's default extras are `[api]`; an explicit list, even empty, replaces it (0116). Edits workers.md §6.4, versioning.md §14.1. Tests: an assessed model lifts its listing profiles and leaves the unassessed at `basic`; four overlay refusals; the launcher requirement string. **Not built: the dispatch that produces an overlay (research scoped to chosen models through the owner's workers).** It needs the `worker-research` recipe, which ships only from a source checkout (0083), so it is a design question of its own (how an installed Baton reaches that recipe), left for the owner. The change therefore stays `in-progress`.
+- **Review:** clean
+- **Accepted:** pending
+

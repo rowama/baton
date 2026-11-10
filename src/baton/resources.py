@@ -421,13 +421,15 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
             invocation = f"openai/{c.id}" if generic else f"{r.provider}/{c.id}"
             if invocation in have or (r.models and (c.model_id or c.id) not in r.models):
                 continue
-            body: dict[str, Any] = {"adapter": "litellm_api", "creator": c.creator}
+            known = data.models.get(c.model_id) if c.model_id and not c.alias else None  # judged by research or an assessment (0112)
+            body: dict[str, Any] = {"adapter": "litellm_api", "creator": known.creator if known else c.creator}
             if c.model_id and not c.alias:
                 body["model_id"] = c.model_id
             body.update({"provider": r.provider, "model": invocation, "resource": rname,
-                         "capabilities": list(dict.fromkeys([*c.capabilities, *r.capabilities])), "tier": "basic"})
-            if c.context_tokens:
-                body["context_tokens"] = c.context_tokens
+                         "capabilities": list(dict.fromkeys([*(known.capabilities if known else []), *c.capabilities, *r.capabilities])),
+                         "tier": (known.tier if known and known.tier else "basic")})
+            if c.context_tokens or (known and known.context_tokens):
+                body["context_tokens"] = c.context_tokens or known.context_tokens
             if c.price:
                 body["price"] = {**c.price, "source": listing["source"], "date": listing["fetched"]}
             if generic and r.credential is None:  # a local runtime: no key; the OpenAI client wants some value (0118)
@@ -480,7 +482,7 @@ def live_check(home: Path, name: str, profile: WorkerProfile) -> tuple[bool, str
 def _inputs(home: Path) -> tuple[kw_mod.KnownWorkers, str, Resources]:
     voc = vocab_mod.load(vocab_mod.DEFAULT)
     path = kw_mod.default_path()
-    data = kw_mod.load(voc, path)
+    data = kw_mod.load_with_overlay(voc, home, path)  # the owner's assessed models (0111) join the shipped data
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     return data, sha, load_resources(home, data.machine_dependent)
 
