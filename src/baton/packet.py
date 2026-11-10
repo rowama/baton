@@ -332,7 +332,13 @@ def _resolve(
         from .frame import recipe_listing
         from .project import Project
 
-        value = recipe_listing(Project.over_store(ctx.store), with_scope=True)
+        try:
+            value = recipe_listing(Project.over_store(ctx.store), with_scope=True)
+        except EngineError as e:  # a recipe that will not load must not stop an unrelated step; an optional input is left out
+            from . import diag
+
+            diag.note("catalog.summaries_unavailable", "packet:catalog", error=f"{e.code}: {e}", run=ctx.run_id)
+            raise _Unresolvable(f"the recipe summaries could not be read ({e.code})") from e
     elif ref.kind == "research":
         ev = record.last("research_recorded")
         if ev is None or not ev.data.get("research_sha256"):

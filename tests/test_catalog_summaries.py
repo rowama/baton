@@ -89,3 +89,22 @@ def test_fit_check_verdict_can_name_an_existing_recipe():
     assert ok.is_valid({**base, "recipe": None})
     assert not ok.is_valid({**base, "recipe": {"id": "backyard-project"}})
     assert not ok.is_valid({**base, "recipe": {"id": "x", "version": 1, "extra": 1}})
+
+
+def test_an_unreadable_recipe_leaves_the_optional_input_out_and_notes_it(store, monkeypatch):
+    from baton import diag
+    from baton.packet import EngineError
+
+    def broken(project, with_scope=False):
+        raise EngineError("recipe.invalid", "shipped recipe x is invalid")
+
+    seen = []
+    monkeypatch.setattr("baton.frame.recipe_listing", broken)
+    monkeypatch.setattr(diag, "note", lambda code, where, **data: seen.append(code))
+    ctx = start(store, FIT_CHECK)
+    p = engine.begin_attempt(ctx, "describe", "owner", WRITER)
+    write_result(p, PROFILE_OUT)
+    assert engine.submit(ctx, "describe").outcome == "passed"
+    packet = engine.begin_attempt(ctx, "assess", "owner", WRITER)
+    assert not (packet.dir / "inputs" / "recipes.json").exists()
+    assert "catalog.summaries_unavailable" in seen
