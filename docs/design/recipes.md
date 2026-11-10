@@ -168,6 +168,7 @@ An absent `parent` marks a recipe that predates the field; `null` and a named pa
 | `human_revision.<step>.<artifact>` | The latest human edit to a published artifact that was explicitly ingested (§10.5); `not_applicable` while none is |
 | `research.findings` | Adoption research result (§11.2) |
 | `platform.facts` | The project's platform facts (§12.3) |
+| `catalog.summaries` | A summary of each recipe the project can run (Decision: [0106](../decisions/0106-catalog-summaries-input.md)): every vendored recipe (its newest version), then every shipped recipe not vendored, as `{id, version, description, levels, run_inputs, vendored, scope}`, `scope` being the recipe's scope block (§5.1) or `null`. The same listing framing receives (§11.6), plus `scope`. Always resolvable: a project with no lockfile lists only the shipped recipes |
 
 "Required" applies only when the source step is included at the run's complexity level. Inputs from skipped steps are omitted and listed as `not_applicable` in the manifest. Expert answers are deliberately **not** referenceable; they enter a run only when promoted (§12.2).
 
@@ -252,7 +253,7 @@ Unknown names are load errors for recipes and profiles. New capabilities mean a 
 | `software-feature` | The §5.1 example: a feature from request to accepted slices | Complexity levels, groups, reviews, publishing |
 | `backyard-project` | A non-software project (a flower bed vs a shed) | Manual workers, photo artifacts, human gates, levels |
 
-**`fit-check`** keeps itself to minutes, or it defeats its purpose. It is version 2 since Phase 17 (the profile gained `assumptions`; a published version is never edited in place, §5.8), and `init` vendors it (§11.6):
+**`fit-check`** keeps itself to minutes, or it defeats its purpose. It is version 3 (version 2: the profile gained `assumptions`; version 3: `assess` takes the optional `catalog.summaries` input and a `fits` verdict names the existing recipe that covers the idea, as `recipe: {id, version}`, or `null` when none does; a published version is never edited in place, §5.8), and `init` vendors it (§11.6):
 1. **`describe`:** a worker profiles the idea, mainly *each occurrence*: how often it happens, how much judgment it needs, how long it takes, which agents and people are involved, whether a repo audit trail is a benefit. Output: a structured profile of the idea. **It infers first** (Decision: [0029](../decisions/0029-fit-check-infers-first.md)): it fills the profile from the idea as far as it reasonably can, lists each inference under `assumptions` (`{field, value, basis}`) for the Director to confirm, and asks only about what it cannot infer, as structured questions (§7.2) in the owner's terms. The rubric's words ("occurrence", "audit trail", "live integration") are internal: a question about a water-vending idea asks about opening a site or serving a customer, not about an "occurrence". An idea that holds several kinds of work (setting up a business *and* running it) is not forced into one profile: the worker says so (`status: blocked`, one question offering the parts as options), and the Director suggests framing it (§11.6).
 2. **`assess`:** scores the profile against a fixed rubric (static file in the recipe):
 

@@ -1,7 +1,7 @@
 # `describe`: Profile the idea
 
 - Run: `r_20261101_ab12`
-- Recipe: `fit-check@2`
+- Recipe: `fit-check@3`
 - State: **passed**
 - Attempts: 2
 

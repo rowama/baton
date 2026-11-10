@@ -28,6 +28,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("human_revision", re.compile(rf"^human_revision\.({_ID})\.({_SEG})$")),
     ("research", re.compile(r"^research\.findings$")),
     ("platform", re.compile(r"^platform\.facts$")),
+    ("catalog", re.compile(r"^catalog\.summaries$")),
 ]
 
 # Kinds that may only appear inside a group.

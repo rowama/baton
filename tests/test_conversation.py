@@ -311,7 +311,7 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     note = "Let's do the business setup, the first site and the signs. Yes, those three."
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk,signage", "--note", note)
     assert sel["selected"] == ["setup", "kiosk", "signage"]
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@3"), ("kiosk", "backyard-project@1")]
     assert [g["part"] for g in sel["gaps"]] == ["signage"] and "description" in sel["gaps"][0]["reason"]
     assert sel["vendored"] == ["backyard-project@1"] and sel["state"] == "completed"
 
@@ -354,7 +354,7 @@ def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
         assert nxt["signage"]["next"].startswith("can't start yet: ") and "description" in nxt["signage"]["next"]
     # Reading next changes nothing: the selection still starts exactly the proposals.
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "Those two. Yes.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@3"), ("kiosk", "backyard-project@1")]
 
 
 PLAN = "docs/pure-water-vending-business-self-serve-process-plan.md"
@@ -366,7 +366,7 @@ def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
     fr = _frame(cli, project)
     manual(cli, project, fr, "frame", frame_output())
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "The setup and the first site. Yes.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@2"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@3"), ("kiosk", "backyard-project@1")]
     assert sel["plan"] == PLAN and sel["state"] == "completed"
     text = (project / PLAN).read_text(encoding="utf-8")
     sections = text.split("\n## ")[1:]
@@ -538,7 +538,7 @@ def test_a_bare_project_vendors_fit_check_on_selection(tmp_path):
     fr = _frame(cli, project)
     manual(cli, project, fr, "frame", frame_output())
     sel = cli.run("decide", fr, "frame", "select", "--items", "running", "--note", "Just the day-to-day question. Yes.")
-    assert sel["vendored"] == ["fit-check@2"] and sel["runs"][0]["recipe"] == "fit-check@2"
+    assert sel["vendored"] == ["fit-check@3"] and sel["runs"][0]["recipe"] == "fit-check@3"
 
 
 @pytest.mark.slow

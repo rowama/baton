@@ -1,5 +1,5 @@
 id: fit-check
-version: 2
+version: 3
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Decide in minutes whether an idea suits Baton, before investing in it.
@@ -25,6 +25,7 @@ steps:
     inputs:
       - { name: profile, from: steps.describe.output, required: true }
       - { name: rubric,  from: static.rubric.md,      required: true }
+      - { name: recipes, from: catalog.summaries,     required: false }
     output_schema: schemas/verdict.json
     gates:
       - { type: schema }

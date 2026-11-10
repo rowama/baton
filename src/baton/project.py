@@ -192,6 +192,11 @@ class Project:
             raise EngineError("configuration.project", "; ".join(f"{i.where}: {i.message}" for i in issues))
         return cls(r, Store(r, clock=clock), config, Path(home) if home else machine_home())
 
+    @classmethod
+    def over_store(cls, store: Store) -> Project:
+        """A view of the project a store belongs to, for reading its lockfile and vendored recipes (no configuration)."""
+        return cls(store.root, store, None, machine_home())  # type: ignore[arg-type]
+
     @property
     def baton(self) -> Path:
         return self.root / BATON_DIR

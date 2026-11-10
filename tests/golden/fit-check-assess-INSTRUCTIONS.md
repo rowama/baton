@@ -17,6 +17,12 @@ Score the `profile` input against the `rubric` input, row by row.
 
 Do not add rows, weights or criteria the rubric does not contain.
 
+If a `recipes` input is given, it lists the recipes this project can already run, each with a
+`scope` (what it covers and what it is not for) where the recipe has one. For a `fits` verdict,
+set `recipe` to the one recipe whose scope or description covers the whole idea, as `{id, version}`,
+and say so in the next step; set it to `null` when none does, and the next step is then to
+author one. Never name a recipe that is not in the list. Leave `recipe` out for any other verdict.
+
 ## Inputs
 
 ### `profile`
@@ -45,6 +51,24 @@ File: `inputs/profile.json` (application/json)
 ### `rubric`
 
 File: `inputs/rubric.md`
+
+### `recipes`
+
+File: `inputs/recipes.json` (application/json)
+
+```json
+[
+  {
+    "description": "An example.",
+    "id": "example-recipe",
+    "levels": [],
+    "run_inputs": null,
+    "scope": null,
+    "vendored": false,
+    "version": 1
+  }
+]
+```
 
 ## Done when
 
@@ -140,6 +164,26 @@ Also in `output_schema.json`.
     },
     "next_step": {
       "type": "string"
+    },
+    "recipe": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "For a `fits` verdict: the existing recipe that covers the idea; null when none does",
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

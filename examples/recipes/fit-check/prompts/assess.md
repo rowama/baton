@@ -9,3 +9,9 @@ Score the `profile` input against the `rubric` input, row by row.
 - Give the next step the rubric names for that verdict, made concrete for this idea.
 
 Do not add rows, weights or criteria the rubric does not contain.
+
+If a `recipes` input is given, it lists the recipes this project can already run, each with a
+`scope` (what it covers and what it is not for) where the recipe has one. For a `fits` verdict,
+set `recipe` to the one recipe whose scope or description covers the whole idea, as `{id, version}`,
+and say so in the next step; set it to `null` when none does, and the next step is then to
+author one. Never name a recipe that is not in the list. Leave `recipe` out for any other verdict.

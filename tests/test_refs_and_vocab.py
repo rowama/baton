@@ -51,3 +51,10 @@ def test_vocabulary():
     assert vocab.supported() == ["baton-capabilities/1"]
     with pytest.raises(vocab.UnknownVocabulary):
         vocab.load("baton-capabilities/2")
+
+
+def test_catalog_summaries_reference_parses():
+    from baton.refs import parse
+
+    r = parse("catalog.summaries")
+    assert (r.kind, r.step, r.name, r.path) == ("catalog", None, None, ())

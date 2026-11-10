@@ -41,28 +41,42 @@ def awaiting_selection(events: list[Any]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _summary(loaded: Any, vendored: bool) -> dict[str, Any]:
+def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str, Any]:
     r = loaded.recipe
     schema = loaded.schemas[r.run_inputs.schema_] if r.run_inputs is not None else None
-    return {
+    out = {
         "id": r.id, "version": r.version, "description": r.description or "",
         "levels": list(r.complexity.levels) if r.complexity else [], "run_inputs": schema, "vendored": vendored,
     }
+    if with_scope:  # the `catalog.summaries` input (§5.2) also carries what the recipe covers (§5.1)
+        out["scope"] = r.scope.model_dump(mode="json") if r.scope is not None else None
+    return out
 
 
-def recipe_listing(project: Any) -> list[dict[str, Any]]:
-    """Every recipe a part may propose: each vendored recipe (its newest version), then each shipped one not vendored."""
+def recipe_listing(project: Any, with_scope: bool = False) -> list[dict[str, Any]]:
+    """Every recipe a part may propose: each vendored recipe (its newest version), then each shipped one not vendored.
+
+    Also the ``catalog.summaries`` input of an ordinary step (§5.2; Decision 0106), which adds each recipe's ``scope``.
+    """
     from .project import catalog
 
+    from .packet import EngineError
+
     out: dict[str, dict[str, Any]] = {}
-    for ref in project.vendored():
+    try:
+        vendored = project.vendored()
+    except EngineError as e:  # a bare store with no lockfile (a test or an unadopted directory) vendors nothing
+        if e.code != "project.no_lock":
+            raise
+        vendored = []
+    for ref in vendored:
         loaded = project.recipe(ref)
         prev = out.get(loaded.recipe.id)
         if prev is None or loaded.recipe.version > prev["version"]:
-            out[loaded.recipe.id] = _summary(loaded, True)
+            out[loaded.recipe.id] = _summary(loaded, True, with_scope)
     for rid, loaded in catalog().items():
         if rid not in out:
-            out[rid] = _summary(loaded, False)
+            out[rid] = _summary(loaded, False, with_scope)
     return [out[k] for k in sorted(out)]
 
 

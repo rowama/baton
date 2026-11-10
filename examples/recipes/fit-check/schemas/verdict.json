@@ -18,7 +18,14 @@
         "additionalProperties": false
       }
     },
-    "next_step": {"type": "string"}
+    "next_step": {"type": "string"},
+    "recipe": {
+      "type": ["object", "null"],
+      "description": "For a `fits` verdict: the existing recipe that covers the idea; null when none does",
+      "required": ["id", "version"],
+      "properties": {"id": {"type": "string"}, "version": {"type": "integer"}},
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

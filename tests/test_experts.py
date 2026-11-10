@@ -228,7 +228,7 @@ def test_answer_is_unreachable_from_steps_until_promoted(tmp_path: Path) -> None
 def test_lesson_and_proposal_promotions_write_project_files(tmp_path: Path) -> None:
     s = Setup(tmp_path)
     s.behave_sme("answer", answer="When a profile is vague, ask for one example occurrence, because scoring needs it.")
-    out = s.ask("process", "How could describe go faster?", "--ref", "stats", "--ref", "recipe:fit-check@2")
+    out = s.ask("process", "How could describe go faster?", "--ref", "stats", "--ref", "recipe:fit-check@3")
     c = out["consultation"]
     s.cli.run("promote-sme", c, "lesson", "--note", "Good lesson.")
     lessons = (s.baton / "process" / "lessons.md").read_text(encoding="utf-8")
@@ -353,12 +353,12 @@ def test_worker_process_feedback_reaches_the_project_log_and_stats(tmp_path: Pat
     s.cli.run("submit", s.run, "describe", expect=None)  # rejected by schema; feedback is still recorded
     fb = [e["data"] for e in s.project_events() if e["type"] == "process_feedback"]
     assert [(f["kind"], f["text"]) for f in fb] == [("confusing", "The idea field was ambiguous."), ("friction", "too many questions")]
-    assert fb[0]["qualified"] == "fit-check@2/describe"
+    assert fb[0]["qualified"] == "fit-check@3/describe"
     out = s.ask("process", "Where is time going?", "--ref", "stats", "--ref", "feedback", "--run", s.run, "--ref", "events")
     pdir = Path(out["turns"][0]["packet"])
     m = _manifest(pdir)
     stats = json.loads((pdir / next(i["path"] for i in m["inputs"] if i["ref"] == "stats")).read_text(encoding="utf-8"))
-    d = stats["steps"]["fit-check@2/describe"]
+    d = stats["steps"]["fit-check@3/describe"]
     assert d["attempts"] == 1 and d["rejected"] == 1 and d["runs"] == 1
 
 

@@ -328,6 +328,11 @@ def _resolve(
         if not facts.is_file():
             raise _Unresolvable("the project has no platform facts")
         return _Resolved(name, raw, "file", f"{name}.md", facts.read_bytes(), "text/markdown")
+    elif ref.kind == "catalog":
+        from .frame import recipe_listing
+        from .project import Project
+
+        value = recipe_listing(Project.over_store(ctx.store), with_scope=True)
     elif ref.kind == "research":
         ev = record.last("research_recorded")
         if ev is None or not ev.data.get("research_sha256"):

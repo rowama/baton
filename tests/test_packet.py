@@ -44,14 +44,17 @@ def test_packet_layout_and_manifest(store):
     p = engine.begin_attempt(ctx, "assess", "owner", WRITER)
     assert p.dir == store.baton / "runs" / ctx.run_id / "steps" / "assess" / "attempt-1" / "packet"
     names = sorted(x.relative_to(p.dir).as_posix() for x in p.dir.rglob("*") if x.is_file())
-    assert names == ["INSTRUCTIONS.md", "inputs/profile.json", "inputs/rubric.md", "manifest.json", "output_schema.json"]
+    assert names == [
+        "INSTRUCTIONS.md", "inputs/profile.json", "inputs/recipes.json", "inputs/rubric.md", "manifest.json", "output_schema.json",
+    ]
     m = json.loads((p.dir / "manifest.json").read_text(encoding="utf-8"))
     assert m["protocol"] == "baton-packet/1"
-    assert m["recipe"] == "fit-check@2" and m["recipe_sha256"] == ctx.recipe.sha256
+    assert m["recipe"] == "fit-check@3" and m["recipe_sha256"] == ctx.recipe.sha256
     assert (m["step_path"], m["attempt"], m["worker_profile"]) == ("assess", 1, "owner")
     assert [(i["name"], i["kind"], i["from"]) for i in m["inputs"]] == [
         ("profile", "json", "steps.describe.output"),
         ("rubric", "file", "static.rubric.md"),
+        ("recipes", "json", "catalog.summaries"),
     ]
     assert json.loads((p.dir / "inputs" / "profile.json").read_text(encoding="utf-8")) == PROFILE_OUT
     assert (p.dir / "inputs" / "rubric.md").read_bytes() == (FIT_CHECK / "static" / "rubric.md").read_bytes()
@@ -71,8 +74,17 @@ def test_packet_is_read_only(store):
         (p.dir / "inputs" / "new.json").write_text("{}")
 
 
-def test_instructions_golden(store):
-    """INSTRUCTIONS.md for fit-check/assess is pinned (§17 golden files). BATON_UPDATE_GOLDEN=1 rewrites it."""
+CATALOG = [
+    {"id": "example-recipe", "version": 1, "description": "An example.", "levels": [], "run_inputs": None, "vendored": False, "scope": None}
+]
+
+
+def test_instructions_golden(store, monkeypatch):
+    """INSTRUCTIONS.md for fit-check/assess is pinned (§17 golden files). BATON_UPDATE_GOLDEN=1 rewrites it.
+
+    The catalog is fixed, so the golden does not change whenever a recipe ships or changes.
+    """
+    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False: CATALOG)
     ctx = passed_describe(store)
     p = engine.begin_attempt(ctx, "assess", "owner", WRITER)
     text = (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")
