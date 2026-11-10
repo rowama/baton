@@ -10,6 +10,7 @@ call (the last one repeats). The key is tried as ``<step id>:<slice title>``
 - ``output``: the output (for a commit, ``commit_sha`` is filled in);
 - ``artifacts``: ``{name: text}``, written to ``result/artifacts/<name>.md``;
 - ``commit``: ``{path, text}``, written in the workspace and committed there;
+- ``commit_files``: ``{path: text, ...}``, all written and committed together (a generated package);
 - ``dispose``: ``fixed`` or ``rejected``: a disposition for every open finding
   the packet shows (``open_findings``), with the new commit as ``fixed`` evidence;
 - ``status``, ``questions_for_human``.
@@ -56,6 +57,16 @@ if "commit" in resp:
     target.write_bytes(resp["commit"]["text"].encode("utf-8"))
     git("add", resp["commit"]["path"])
     git("commit", "-q", "-m", f"{title or step}: {resp['commit']['path']}")
+    sha = git("rev-parse", "HEAD")
+    output["commit_sha"] = sha
+
+if "commit_files" in resp:
+    for rel, text in resp["commit_files"].items():
+        target = workspace / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(text.encode("utf-8"))
+        git("add", rel)
+    git("commit", "-q", "-m", f"{title or step}: {len(resp['commit_files'])} files")
     sha = git("rev-parse", "HEAD")
     output["commit_sha"] = sha
 
