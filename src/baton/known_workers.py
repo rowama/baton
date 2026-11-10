@@ -293,31 +293,18 @@ def load(vocab: Vocabulary, path: Path | None = None) -> KnownWorkers:
 LOCAL_FILE = "known-workers.local.yaml"
 
 
-def load_with_overlay(vocab: Vocabulary, home: Path, path: Path | None = None) -> KnownWorkers:
-    """The shipped data plus the owner's machine-local overlay ``<home>/known-workers.local.yaml`` (Decision 0111).
+def merge_overlay(vocab: Vocabulary, extra: Any, path: Path | None = None, *, where: str = LOCAL_FILE) -> KnownWorkers:
+    """The shipped data plus an overlay document (already parsed), validated; ``KnownWorkersError`` lists every problem.
 
-    The overlay (the result of an owner-run assessment) adds ``models`` and
-    ``routes`` only: it never replaces or edits a shipped model, never carries
-    ``verified`` (a live check is a separate fact), and every model it adds
-    needs a basis for each capability, as a research proposal does. The merged
-    data passes the same validator. ``KnownWorkersError`` lists every problem.
+    The one validator for overlays (Decisions 0111, 0120): the loader, ``workers check-overlay`` and ``workers assess`` all call it.
     """
     from .adapters import ADAPTERS
 
     path = path or default_path()
-    shipped = load(vocab, path)
-    overlay_path = Path(home) / LOCAL_FILE
-    if not overlay_path.is_file():
-        return shipped
-    where = LOCAL_FILE
 
     def problem(code: str, message: str) -> KnownWorkersError:
         return KnownWorkersError([Issue(code=f"known_workers.{code}", where=where, message=message)])
 
-    try:
-        extra: Any = load_yaml(overlay_path)
-    except YamlError as e:
-        raise problem("yaml", str(e)) from e
     if not isinstance(extra, dict) or extra.get("format") != FORMAT:
         raise problem("format", f"expected a mapping with format {FORMAT}")
     if set(extra) - {"format", "models", "routes"}:
@@ -340,3 +327,21 @@ def load_with_overlay(vocab: Vocabulary, home: Path, path: Path | None = None) -
     if basis_issues:
         raise KnownWorkersError(basis_issues)
     return merged
+
+
+def load_with_overlay(vocab: Vocabulary, home: Path, path: Path | None = None) -> KnownWorkers:
+    """The shipped data plus the owner's machine-local overlay ``<home>/known-workers.local.yaml`` (Decision 0111).
+
+    The overlay (the result of an owner-run assessment) adds ``models`` and
+    ``routes`` only: it never replaces or edits a shipped model, never carries
+    ``verified``, and every model it adds needs a basis for each capability.
+    """
+    shipped = load(vocab, path)
+    overlay_path = Path(home) / LOCAL_FILE
+    if not overlay_path.is_file():
+        return shipped
+    try:
+        extra: Any = load_yaml(overlay_path)
+    except YamlError as e:
+        raise KnownWorkersError([Issue(code="known_workers.yaml", where=LOCAL_FILE, message=str(e))]) from e
+    return merge_overlay(vocab, extra, path)

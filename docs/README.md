@@ -254,3 +254,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0117 The provider directory is the providers section, extended and researched separately from models](decisions/0117-provider-directory.md) | accepted |
 | [0118 openai_compatible is a provider kind needing only a base URL and an optional key](decisions/0118-openai-compatible-kind.md) | accepted |
 | [0119 Providers that are not OpenAI-compatible stay directory entries with their LiteLLM prefix](decisions/0119-non-openai-providers-stay-directory-entries.md) | accepted |
+| [0120 Owner-run assessment fetches its recipe pinned to the runtime's version and reuses the runtime's validator](decisions/0120-assessment-recipe-fetched-pinned.md) | accepted |

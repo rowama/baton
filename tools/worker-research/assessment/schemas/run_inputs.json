@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": ["title", "models", "today", "capabilities", "litellm", "validator"],
+  "properties": {
+    "title": { "type": "string" },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The models to assess: model_id, the ids providers list them under, and the facts their listings show (context, price, catalog capabilities)",
+      "items": { "type": "object", "required": ["model_id"], "properties": { "model_id": { "type": "string" } } }
+    },
+    "today": { "type": "string", "format": "date" },
+    "capabilities": { "type": "object", "description": "The capability vocabulary: name -> meaning, tiers, machine-dependent ones" },
+    "litellm": { "type": "object", "description": "version, and entries: listing id -> the installed LiteLLM model-map fields, where it knows the model" },
+    "validator": { "type": "string", "description": "A command; append an overlay file path to validate it as Baton will" }
+  }
+}

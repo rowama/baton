@@ -107,6 +107,11 @@ baton/
 ├── workers.yaml      # the owner's worker profiles; never written by Baton
 ├── workers/          # generated profiles, one <name>.yaml each, written only by `baton workers setup` (§6.4)
 ├── resources.yaml    # the owner's resource declarations and setup state (baton-resources/1, §6.4)
+├── listings/         # cached provider model lists, <provider or resource>.json (baton-listing/1, §6.4)
+├── quota.yaml        # routes whose quota is used up, until when (baton-quota/1, §8.8)
+├── known-workers.local.yaml  # the owner's assessed models, merged over the shipped data (§6.4)
+├── assessment/       # the assessment recipe fetched for this version, <version>/recipe (§6.4)
+├── assessments/      # reports of owner-run assessments, <date>.json (§6.4)
 ├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)

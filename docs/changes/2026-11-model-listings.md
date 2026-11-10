@@ -3,7 +3,7 @@ id: 2026-11-model-listings
 title: "Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred"
 status: in-progress
 level: major
-decisions: ["0109", "0110", "0111", "0112", "0113", "0114", "0115", "0116", "0117", "0118", "0119"]
+decisions: ["0109", "0110", "0111", "0112", "0113", "0114", "0115", "0116", "0117", "0118", "0119", "0120"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, principles.md]   # §6.1, §6.4, §8.4, §13.1, §13.4, §2
 ---
 
@@ -213,7 +213,14 @@ At no point does the owner edit a file, wait for a Baton release or run research
 ### Owner-run assessment and launcher extras
 
 - **Commit:** `2026-11-model-listings: Slice 5, assessed-model overlay and launcher extras`
-- **Summary:** `known_workers.load_with_overlay` merges `~/.baton/known-workers.local.yaml` (models and routes only; never edits a shipped model; no `verified`; a basis for every capability; same validator), used by the resource manager. Listing profiles now take creator, tier and capabilities from a matching researched or assessed model (the 0112 knowledge flow that slice 1 left at `basic`). The launcher's default extras are `[api]`; an explicit list, even empty, replaces it (0116). Edits workers.md §6.4, versioning.md §14.1. Tests: an assessed model lifts its listing profiles and leaves the unassessed at `basic`; four overlay refusals; the launcher requirement string. **Not built: the dispatch that produces an overlay (research scoped to chosen models through the owner's workers).** It needs the `worker-research` recipe, which ships only from a source checkout (0083), so it is a design question of its own (how an installed Baton reaches that recipe), left for the owner. The change therefore stays `in-progress`.
+- **Summary:** `known_workers.load_with_overlay` merges `~/.baton/known-workers.local.yaml` (models and routes only; never edits a shipped model; no `verified`; a basis for every capability; same validator), used by the resource manager. Listing profiles now take creator, tier and capabilities from a matching researched or assessed model (the 0112 knowledge flow that slice 1 left at `basic`). The launcher's default extras are `[api]`; an explicit list, even empty, replaces it (0116). Edits workers.md §6.4, versioning.md §14.1. Tests: an assessed model lifts its listing profiles and leaves the unassessed at `basic`; four overlay refusals; the launcher requirement string. The overlay-producing dispatch followed in the next slice.
+- **Review:** clean
+- **Accepted:** pending
+
+### Owner-run assessment dispatch
+
+- **Commit:** `2026-11-model-listings: Slice 6, baton workers assess`
+- **Summary:** owner decision 2026-11-10 (record 0120): fetch the recipe pinned to the runtime's version, reuse the runtime's validator. `assess.py` (fetch at tag `v<version>` from `launcher.yaml`'s source, cached; wanted-model checks; scratch-project run through the owner's profile; validation by `known_workers.merge_overlay`, now the single overlay validator; atomic overlay write; report), recipe `tools/worker-research/assessment/` (not in the wheel), `baton workers assess` and `baton workers check-overlay`. Edits workers.md §6.4, layouts.md §4.4, director-interface.md §13.1. Tests `tests/test_assess.py` and a fake worker: pinned fetch and cache, refusal for a missing tag or non-git source, validator, end-to-end assess then setup lifts the profile, a refused draft writes nothing, only listed unjudged models accepted, the recipe lints.
 - **Review:** clean
 - **Accepted:** pending
 

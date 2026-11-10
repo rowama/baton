@@ -1216,6 +1216,44 @@ def workers_refresh(as_json: JsonOpt = False) -> None:
     raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
 
 
+@workers_app.command("assess")
+def workers_assess(
+    models: Annotated[list[str], typer.Argument(help="model_ids to judge (as `baton workers status` lists them).")],
+    profile: Annotated[str, typer.Option("--profile", help="Your worker profile that does the research (web_access, file_write, structured_output, technical_reasoning).")],
+    timeout: Annotated[Optional[float], typer.Option("--timeout", help="Seconds to wait for the worker.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Judge chosen models into your overlay (fetches the recipe for this version; §6.4)."""
+    from . import assess
+    from .packet import EngineError
+
+    def run(h: Path) -> Any:
+        try:
+            return assess.assess(h, models, profile, timeout=timeout)
+        except assess.AssessError as e:
+            _fail(as_json, EXIT_PROBLEM, "assess.refused", str(e))
+        except EngineError as e:
+            _fail(as_json, EXIT_PROBLEM, e.code, str(e))
+
+    out = _resources(as_json, run)
+    lines = [f"assessed {a['model_id']}: {a['tier']}. {a['summary']}" for a in out["assessed"]]
+    lines += [f"not assessed {n['model_id']}: {n['reason']}" for n in out["not_assessed"]]
+    lines.append(f"Wrote {out['overlay']}: {out['note']}")
+    _emit(out, as_json, "\n".join(lines))
+
+
+@workers_app.command("check-overlay")
+def workers_check_overlay(file: Annotated[Path, typer.Argument(help="An overlay file to validate.")], as_json: JsonOpt = False) -> None:
+    """Say why Baton would refuse an overlay file (the validator `workers assess` gives its worker; §6.4)."""
+    from . import assess
+
+    if not file.is_file():
+        _fail(as_json, EXIT_PROBLEM, "assess.no_file", f"no file {file}")
+    problems = assess.check_overlay_text(file.read_text(encoding="utf-8"))
+    _emit({"ok": not problems, "problems": problems}, as_json, "\n".join([*(f"- {p}" for p in problems), "refused" if problems else "accepted"]))
+    raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
+
+
 @workers_app.command("declare")
 def workers_declare(
     name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,

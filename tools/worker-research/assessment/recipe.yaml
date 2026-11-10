@@ -1,0 +1,26 @@
+# Owner-run model assessment (§6.4, Decisions 0111, 0120). Not shipped in the wheel: `baton workers
+# assess` fetches this directory from the repository at the running version's tag.
+id: model-assessment
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Judge chosen models (tier and judgment capabilities, with sources) into an overlay for the owner's known-workers data.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: assess
+    title: Assess the chosen models
+    requires: { capabilities: [structured_output, web_access, file_write, technical_reasoning], tier: strong }
+    prompt: prompts/assess.md
+    inputs:
+      - { name: models,       from: run.inputs.models,       required: true }
+      - { name: today,        from: run.inputs.today,        required: true }
+      - { name: capabilities, from: run.inputs.capabilities, required: true }
+      - { name: litellm,      from: run.inputs.litellm,      required: true }
+      - { name: validator,    from: run.inputs.validator,    required: true }
+    output_schema: schemas/report.json
+    artifacts:
+      - { name: overlay, required: true, media_type: application/yaml }
+    gates: [ { type: schema } ]

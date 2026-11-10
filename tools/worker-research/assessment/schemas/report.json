@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "required": ["assessed", "not_assessed"],
+  "properties": {
+    "assessed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model_id", "tier", "summary", "sources"],
+        "properties": {
+          "model_id": { "type": "string" },
+          "tier": { "type": "string" },
+          "summary": { "type": "string", "description": "One or two plain sentences: what the model is good and bad at, and why that tier" },
+          "sources": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "not_assessed": {
+      "type": "array",
+      "description": "Requested models you could not assess, with the reason (not found, no reliable source, withdrawn)",
+      "items": { "type": "object", "required": ["model_id", "reason"], "properties": { "model_id": { "type": "string" }, "reason": { "type": "string" } } }
+    },
+    "notes": { "type": "string" }
+  }
+}
