@@ -390,3 +390,26 @@ def test_gates_after_a_human_gate_run_after_approval(store, tmp_path):
     assert attempt(ctx, "work", {})[1].outcome == "needs_human"
     out = engine.decide(ctx, "work", "approve")
     assert out.outcome == "retry" and out.reasons[0].endswith("exited 2")
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_script_gate_command_renders_run_slug(store, tmp_path):
+    """Decision 0107: a gate command sees the slug ``publish.to`` gets."""
+    cmd = f"{PY} -c \"print('{{{{ run.slug }}}}')\""
+    ctx = start(store, script_recipe(tmp_path / "r", cmd), {}, work_item={"kind": "feature", "slug": "backyard-bed", "branch": "main"})
+    _, out = attempt(ctx, "work", {})
+    assert out.outcome == "passed"
+    g = ctx.record().last("gate_passed", "work")
+    assert ctx.log.cas.read(g.data["output_sha256"]).strip() == b"backyard-bed"
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_script_gate_slug_falls_back_to_the_run_id_and_unknown_names_still_fail(store, tmp_path):
+    cmd = f"{PY} -c \"print('{{{{ run.slug }}}}')\""
+    ctx = start(store, script_recipe(tmp_path / "r", cmd), {})
+    _, out = attempt(ctx, "work", {})
+    assert out.outcome == "passed"
+    assert ctx.log.cas.read(ctx.record().last("gate_passed", "work").data["output_sha256"]).strip() == b"r_20261101_ab12"
+    bad = start(Store(tmp_path / "other"), script_recipe(tmp_path / "r2", f"{PY} -c \"print('{{{{ run.nope }}}}')\""), {})
+    _, out = attempt(bad, "work", {})
+    assert out.outcome != "passed"

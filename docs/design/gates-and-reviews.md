@@ -5,7 +5,7 @@
 | Type | Behaviour | Passes when |
 |---|---|---|
 | `schema` | Recorded at intake | Output valid |
-| `script` | Runs a command (`cwd`, `timeout_s`) under a clean env; output redacted into CAS | Exit 0 |
+| `script` | Runs a command (`cwd`, `timeout_s`) under a clean env; output redacted into CAS. The command renders `project.*`, `paths.*`, `run.id` and `run.slug` (the value `publish.to` gets; Decision: [0107](../decisions/0107-gate-run-slug.md)) | Exit 0 |
 | `review` | The runtime readies a **review step** `<step_path>~review` and the step waits in `verifying`. The Director picks a reviewer from `eligible` (`reviewer_requires`, `independence`) and dispatches it like any step; its packet holds the step's inputs, the result under review and the rubric (§7.1); it returns `baton:findings`. A rejected reviewer result is retried as the review's own attempt; abandoning an escalated review fails this gate | No finding at a `block_on` severity is open (§9.2) |
 | `findings` | For a step whose own output is findings (e.g. a code-review step). Records `findings_recorded` | Same rule |
 | `human` | Step waits in `awaiting_human`; the Director records the owner's decision | Approved |

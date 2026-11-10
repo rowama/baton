@@ -1122,6 +1122,24 @@ def mcp(
 # The worker resource manager (§6.4, 0077): machine scope, no project needed
 # ---------------------------------------------------------------------------
 
+recipe_app = typer.Typer(no_args_is_help=True, help="Checks for a recipe being built (§5.3).")
+app.add_typer(recipe_app, name="recipe")
+
+
+@recipe_app.command("check")
+def recipe_check(
+    package: Annotated[Path, typer.Argument(help="The recipe folder to check.")],
+    ledger: Annotated[Path, typer.Option("--ledger", help="The requirements ledger (JSON).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe."""
+    from . import recipe_check as rc
+
+    problems = rc.check(package, ledger)
+    _emit({"ok": not problems, "problems": problems}, as_json, "".join(f"ERROR {p}\n" for p in problems))
+    raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
+
+
 workers_app = typer.Typer(no_args_is_help=True, help="This machine's workers: what is found, declared and generated (§6.4).")
 app.add_typer(workers_app, name="workers")
 

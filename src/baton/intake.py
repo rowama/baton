@@ -179,12 +179,16 @@ def _gate_env(ctx: RunContext, step_path: str) -> dict[str, str]:
 
 
 def render_command(ctx: RunContext, template: str) -> str:
-    """Substitute ``project.*``, ``paths.*`` and ``run.*`` in a gate command. Undefined names raise."""
+    """Substitute ``project.*``, ``paths.*`` and ``run.id`` / ``run.slug`` in a gate command. Undefined names raise.
+
+    ``run.slug`` is the value ``publish.to`` gets (Decision 0107); a slug is lower-case words joined by hyphens, so it is
+    safe in a shell command.
+    """
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False, keep_trailing_newline=False)
     variables = {
         "project": ctx.project.get("project", {}),
         "paths": ctx.project.get("paths", {}),
-        "run": {"id": ctx.run_id},
+        "run": {"id": ctx.run_id, "slug": ctx.record().started.get("slug") or ctx.run_id},
     }
     return env.from_string(template).render(**variables)
 

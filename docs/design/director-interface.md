@@ -49,6 +49,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 ### 13.2 CLI and MCP
 
 - The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
+- `baton recipe check <package> --ledger <file>` (§5.3; Decision: [0108](../decisions/0108-recipe-check-command.md)) is a helper that script gates run. No Director calls it, so it is CLI-only and has no MCP tool, like `workers` and `diag`-style machine commands.
 - The MCP server (`baton mcp`; the official Python SDK `mcp` 2.x, checked against 2.3.0, installed with the optional extra `baton[mcp]`) exposes the same calls as tools, one per call with the CLI's names (`-` → `_`) and arguments. Results are the CLI's `--json` payloads; a refusal is a tool error whose text is the JSON payload with `exit_code` (1 problem, 3 lease held elsewhere); `needs_owner` stands for exit code 4. Every tool call opens the project afresh, like one CLI invocation: the server holds no state, and work it dispatched runs on under its supervisors.
 - Decision: [0048](../decisions/0048-mcp-transports.md).
   - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
