@@ -859,6 +859,7 @@ def doctor(
     out = _call(as_json, lambda: _api().doctor(profile, run_noop=not no_run))
     lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
     lines += _blocking_lines(out)
+    lines += [f"quota {n}: {q}" for n, q in (out.get("worker_setup") or {}).get("quota", {}).items()]
     lines += [f"WARNING {w}" for w in out["warnings"]]
     _emit({**out}, as_json, "\n".join(lines))
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
@@ -1167,7 +1168,15 @@ def workers_status(as_json: JsonOpt = False) -> None:
         lines.append(f"found {d['provider']}: " + ("ready" if d["usable"] else d["problem"] or "not usable"))
     for n, r in out["declared"].items():
         lines.append(f"declared {n}: {r['provider']}")
+    for n, e in out.get("providers", {}).items():
+        cheap = ", ".join(f"{t}: {c['profile']} ({'free' if c['free'] else c['cost']})" for t, c in sorted(e["cheapest"].items()))
+        lines.append(f"{n}{'' if e['enabled'] else ' (SWITCHED OFF)'}: {e['profiles']} profiles, {e['free']} free"
+                     + (f", listed {e['listing_fetched']}" if e["listing_fetched"] else "") + (f"; cheapest {cheap}" if cheap else ""))
+        if e.get("quota_line"):
+            lines.append(f"  quota: {e['quota_line']}")
     for n, g in out["generated"].items():
+        if g.get("listed") and g["ownership"] == "untouched":
+            continue  # listing profiles are summarised above, not listed one by one (0113)
         state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
         lines.append(f"profile {n}: {state}" + (f"; {g['flag']}" if g.get("flag") else ""))
         observed = {st: [c for c, s in g.get("capabilities", {}).items() if s == st] for st in ("verified", "absent")}
@@ -1211,8 +1220,28 @@ def workers_refresh(as_json: JsonOpt = False) -> None:
 
     out = _resources(as_json, resources.refresh_listings)
     lines = [f"{r['provider']}: {r['models']} models listed ({r['fetched']})" for r in out["refreshed"]]
+    lines += [f"{q['provider']} quota: {q['line']}" for q in out.get("quota", [])]
     lines += [f"FAILED {f['provider']}: {f['reason']}" for f in out["failed"]]
     _emit(out, as_json, "\n".join(lines) or "No declared provider has a model list to fetch.")
+
+
+def _switch(name: str, on: bool, as_json: bool) -> None:
+    from . import resources
+
+    out = _resources(as_json, lambda h: resources.declare(h, name, enabled=on))
+    _emit(out, as_json, f"{name}: routing {'uses its workers again' if on else 'no longer uses its workers; they stay recorded'}")
+
+
+@workers_app.command("disable")
+def workers_disable(name: Annotated[str, typer.Argument(help="A declared resource, e.g. openrouter.")], as_json: JsonOpt = False) -> None:
+    """Stop routing to a declared account's workers. Nothing is deleted; `enable` restores them (0113)."""
+    _switch(name, False, as_json)
+
+
+@workers_app.command("enable")
+def workers_enable(name: Annotated[str, typer.Argument(help="A declared resource, e.g. openrouter.")], as_json: JsonOpt = False) -> None:
+    """Route to a declared account's workers again."""
+    _switch(name, True, as_json)
     raise typer.Exit(EXIT_PROBLEM if out["failed"] else EXIT_OK)
 
 
@@ -1257,7 +1286,7 @@ def workers_check_overlay(file: Annotated[Path, typer.Argument(help="An overlay 
 @workers_app.command("declare")
 def workers_declare(
     name: Annotated[Optional[str], typer.Argument(help="The resource's name, e.g. openrouter-main.")] = None,
-    provider: Annotated[Optional[str], typer.Option("--provider", help="Its provider, e.g. openrouter.")] = None,
+    provider: Annotated[Optional[str], typer.Option("--provider", help="Its provider, e.g. openrouter; `openai_compatible` for any endpoint that speaks the OpenAI API (needs --base-url).")] = None,
     credential: Annotated[Optional[str], typer.Option("--credential", help="secret:<name> (never the key itself, §6.1).")] = None,
     base_url: Annotated[Optional[str], typer.Option("--base-url")] = None,
     model: Annotated[Optional[list[str]], typer.Option("--model", help="Limit to this model_id (repeatable).")] = None,

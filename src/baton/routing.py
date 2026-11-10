@@ -306,6 +306,8 @@ def eligible_workers(
                 waived = True
         if name in prefs.exclude:
             reasons.append("excluded by preferences.yaml")
+        if p.switched_off():
+            reasons.append(f"its provider account {p.resource!r} is switched off (`baton workers enable {p.resource}`)")
         if p.quota_until() is not None:
             reasons.append(f"quota exhausted until {p.quota_until().strftime('%Y-%m-%d %H:%M UTC')}")
         if reasons:

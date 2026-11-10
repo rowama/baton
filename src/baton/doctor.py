@@ -533,11 +533,14 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
             if i["status"] == "open":
                 warnings.append(f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}")
     warnings += [f"no healthy profile on this machine can do {s}" for s in uncovered]
+    from .resources import readiness
+
+    for rname, line in (readiness(project.home).get("quota") or {}).items() if only is None else []:
+        if line.startswith("0 free-model requests left"):
+            warnings.append(f"{rname}: {line}; its free routes are skipped until the reset")
     web = _web_advice(project, profiles) if only is None else None
     if web is not None:
         warnings.append(f"steps that search the web have no worker here ({', '.join(web['steps'])}): {web['advice']}")
-    from .resources import readiness
-
     worker_setup = readiness(project.home)
     if only is None:
         if worker_setup.get("problem"):

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-model-listings
 title: "Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred"
-status: in-progress
+status: done
 level: major
 decisions: ["0109", "0110", "0111", "0112", "0113", "0114", "0115", "0116", "0117", "0118", "0119", "0120"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, principles.md]   # §6.1, §6.4, §8.4, §13.1, §13.4, §2
@@ -224,3 +224,9 @@ At no point does the owner edit a file, wait for a Baton release or run research
 - **Review:** clean
 - **Accepted:** pending
 
+### Account list, quota figures, summary and the provider switch
+
+- **Commit:** `2026-11-model-listings: Slice 7, quota figures, provider summary and switch`
+- **Summary:** closes the gaps earlier slices listed. `workers refresh` reads OpenRouter's per-account list when a key is declared (public list as a stated fallback) and caches the key endpoint's figures; `workers status` and `doctor` show them, dated, without network; `status` summarises listing profiles by resource (counts, free, cheapest per tier), marked by `generated.listing`; `WorkerResource.enabled` with `workers disable|enable` and a routing exclusion reason; `workers declare --provider` help names `openai_compatible`. **Deferred by the owner, 2026-11-10: subscription-CLI quota signals** (the Request's "subscription CLIs report what they can" item); route-level re-routing on `quota_exhausted` covers them when a worker reports it. Edits workers.md §6.4, director-interface.md §13.1. Tests in `tests/test_listings.py`: account list and figures; the public fallback; a failed key read keeps the last figures; the provider summary and readiness quota; the switch keeps workers recorded and routing skips them; the `workers refresh`, `disable` and `enable` commands (the CLI-level test slice 1 lacked).
+- **Review:** clean
+- **Accepted:** pending

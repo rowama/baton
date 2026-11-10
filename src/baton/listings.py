@@ -26,6 +26,12 @@ FORMAT = "baton-listing/1"
 #: Where each provider's public listing is read (Decision 0109: OpenRouter first).
 SOURCES = {"openrouter": "https://openrouter.ai/api/v1/models"}
 
+#: The account's own listing, read with its key: only what its provider preferences, privacy settings and guardrails allow (Decision 0109).
+USER_SOURCES = {"openrouter": "https://openrouter.ai/api/v1/models/user"}
+
+#: A provider's key endpoint: remaining credit and free-model requests (Decision 0114).
+KEY_SOURCES = {"openrouter": "https://openrouter.ai/api/v1/key"}
+
 #: Listing parameters that show a capability (basis ``catalog``, 0088, named by field).
 PARAMETER_CAPABILITIES = {
     "response_format": "structured_output",
@@ -187,3 +193,74 @@ def candidates(listing: dict[str, Any], researched: dict[str, str], provider: st
             price = {"input": 0.0, "output": 0.0, "free": True}
         out.append(Candidate(e["id"], creator, model_id, alias, e.get("context_tokens"), dict(e["capabilities"]), price))
     return out
+
+
+def quota_path(home: Path, provider: str) -> Path:
+    return listings_dir(home) / f"{provider}.quota.json"
+
+
+def _number(v: Any) -> float | int | None:
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def normalize_key_info(raw: Any) -> dict[str, Any]:
+    """OpenRouter's ``GET /api/v1/key`` in the form ``workers status`` shows, or ``ListingError``."""
+    d = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(d, dict):
+        raise ListingError("the key response has no data")
+    out: dict[str, Any] = {}
+    credit = {k: _number(d.get(k)) for k in ("limit", "limit_remaining", "usage")}
+    if any(v is not None for v in credit.values()):
+        out["credit"] = {k: v for k, v in credit.items() if v is not None}
+    free = d.get("free_model_daily_requests")
+    if isinstance(free, dict):
+        got = {k: _number(free.get(k)) for k in ("used", "limit", "remaining")}
+        if any(v is not None for v in got.values()):
+            out["free_requests"] = {k: v for k, v in got.items() if v is not None}
+    if not out:
+        raise ListingError("the key response shows no credit or free-request figures")
+    return out
+
+
+def refresh_key_info(home: Path, provider: str, *, headers: dict[str, str], fetch: Fetcher = http_fetch,
+                     today: dt.date | None = None) -> dict[str, Any]:
+    """Cache what the provider's key endpoint says about remaining quota; a failure keeps the last good record."""
+    url = KEY_SOURCES.get(provider)
+    if url is None:
+        raise ListingError(f"no key endpoint is known for {provider}")
+    try:
+        info = normalize_key_info(fetch(url, headers=headers))
+    except ListingError:
+        raise
+    except Exception as e:  # expected: network, TLS and decoding errors all mean "no new figures"
+        raise ListingError(f"{type(e).__name__}: {e}") from e
+    body = {"format": "baton-listing-quota/1", "provider": provider, "source": url,
+            "fetched": (today or dt.date.today()).isoformat(), **info}
+    path = quota_path(home, provider)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(body, indent=1, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+    return body
+
+
+def load_key_info(home: Path, provider: str) -> dict[str, Any] | None:
+    try:
+        body = json.loads(quota_path(home, provider).read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # expected: no or unreadable record means no figures
+        return None
+    return body if isinstance(body, dict) and body.get("format") == "baton-listing-quota/1" else None
+
+
+def quota_line(info: dict[str, Any]) -> str:
+    """One plain line from a cached key record, dated because the figures are as of the last refresh."""
+    parts: list[str] = []
+    f = info.get("free_requests") or {}
+    if "remaining" in f:
+        parts.append(f"{f['remaining']} free-model requests left today" + (f" of {f['limit']}" if "limit" in f else ""))
+    c = info.get("credit") or {}
+    if "limit_remaining" in c:
+        parts.append(f"{c['limit_remaining']} credit left")
+    elif "usage" in c:
+        parts.append(f"{c['usage']} credit used")
+    return f"{', '.join(parts)} (as of {info['fetched']})"

@@ -309,8 +309,12 @@ class Project:
             raise EngineError("configuration.capability_states", str(e)) from e
         from . import quota
 
+        from . import resources
+
         until = quota.load(self.home)
-        return {n: (lambda q: q.with_quota(until[n]) if n in until else q)(p.with_capability_states(states.get(n, {}))) for n, p in out.items()}
+        off = resources.switched_off(self.home)
+        shaped = {n: (lambda q: q.with_quota(until[n]) if n in until else q)(p.with_capability_states(states.get(n, {}))) for n, p in out.items()}
+        return {n: (p.with_switched_off(True) if p.resource in off else p) for n, p in shaped.items()}
 
     # -- git ----------------------------------------------------------------
 

@@ -80,7 +80,7 @@ def test_a_failed_fetch_keeps_the_last_good_cache_and_reports_plainly(home):
         raise OSError("network down")
 
     out = resources.refresh_listings(home, fetch=broken, today=TODAY)
-    assert out["refreshed"] == [] and "network down" in out["failed"][0]["reason"]
+    assert out["refreshed"] == [] and any("network down" in f["reason"] for f in out["failed"])
     assert listings.listing_path(home, "openrouter").read_text(encoding="utf-8") == before
     malformed = resources.refresh_listings(home, fetch=lambda url: {"data": "odd"}, today=TODAY)
     assert malformed["failed"] and listings.listing_path(home, "openrouter").read_text(encoding="utf-8") == before
@@ -250,3 +250,103 @@ def test_an_overlay_is_refused_when_it_edits_shipped_data_claims_verified_or_lac
     with pytest.raises(kw.KnownWorkersError) as e:
         resources.setup(home, today=TODAY, discover_fn=lambda h, d: {})
     assert fragment in str(e.value)
+
+
+# ---------------------------------------------------------------------------
+# Slice 7: account listing, quota figures, provider summary and the switch (Decisions 0109, 0113, 0114)
+# ---------------------------------------------------------------------------
+
+KEY = {"data": {"limit": 10, "limit_remaining": 7.5, "usage": 2.5, "free_model_daily_requests": {"used": 50, "limit": 50, "remaining": 0}}}
+ACCOUNT = {"data": [m for m in RAW["data"] if m["id"] in ("acme/big", "acme/small:free")]}
+
+
+def account_fetch(calls):
+    def fetch(url, headers=None):
+        calls.append((url, bool(headers)))
+        if url.endswith("/models/user"):
+            return ACCOUNT
+        if url.endswith("/key"):
+            return KEY
+        return RAW
+    return fetch
+
+
+@pytest.fixture
+def keyed(home, monkeypatch):
+    monkeypatch.setenv("BATON_SECRET_OR_KEY", "k")
+    monkeypatch.setattr(resources.profiles_mod, "resolve_value", lambda ref, h: "k")
+    declare_or(home)
+    return home
+
+
+def test_a_key_makes_refresh_read_the_account_list_and_the_quota_figures(keyed):
+    calls: list = []
+    out = resources.refresh_listings(keyed, fetch=account_fetch(calls), today=TODAY)
+    assert out["refreshed"][0]["models"] == 2 and out["refreshed"][0]["source"].endswith("/models/user")
+    assert "0 free-model requests left today of 50" in out["quota"][0]["line"] and "7.5 credit left" in out["quota"][0]["line"]
+    assert all(h for _u, h in calls) and not out["failed"]
+
+
+def test_a_failed_account_list_falls_back_to_the_public_list_and_says_so(keyed):
+    def fetch(url, headers=None):
+        if url.endswith("/models/user"):
+            raise OSError("forbidden")
+        if url.endswith("/key"):
+            return KEY
+        return RAW
+
+    out = resources.refresh_listings(keyed, fetch=fetch, today=TODAY)
+    assert out["refreshed"][0]["models"] == len(listings.normalize_openrouter(RAW, TODAY))
+    assert "account list" in out["failed"][0]["reason"] and "public list is read instead" in out["failed"][0]["reason"]
+
+
+def test_a_failed_key_read_keeps_the_last_figures(keyed):
+    resources.refresh_listings(keyed, fetch=account_fetch([]), today=TODAY)
+
+    def fetch(url, headers=None):
+        if url.endswith("/key"):
+            raise OSError("down")
+        return ACCOUNT if url.endswith("/user") else RAW
+
+    out = resources.refresh_listings(keyed, fetch=fetch, today=TODAY)
+    assert "remaining quota" in out["failed"][0]["reason"]
+    assert listings.load_key_info(keyed, "openrouter")["free_requests"]["remaining"] == 0
+
+
+def test_status_summarises_listing_profiles_by_provider_with_quota_and_doctor_warns(keyed):
+    resources.refresh_listings(keyed, fetch=account_fetch([]), today=TODAY)
+    resources.setup(keyed, today=TODAY, discover_fn=lambda h, d: {})
+    st = resources.status(keyed, discover_fn=lambda h, d: {})
+    s = st["providers"]["or"]
+    assert (s["profiles"], s["free"], s["enabled"], s["listing_fetched"]) == (2, 1, True, "2026-11-10")
+    assert s["cheapest"]["basic"]["free"] is True and "0 free-model requests left" in s["quota_line"]
+    assert resources.readiness(keyed)["quota"]["or"] == s["quota_line"]
+
+
+def test_switching_a_provider_off_keeps_its_workers_but_routing_skips_them(keyed):
+    resources.refresh_listings(keyed, fetch=account_fetch([]), today=TODAY)
+    resources.setup(keyed, today=TODAY, discover_fn=lambda h, d: {})
+    assert resources.switched_off(keyed) == set()
+    resources.declare(keyed, "or", enabled=False)
+    assert resources.switched_off(keyed) == {"or"}
+    assert (keyed / "workers" / "or-acme-big.yaml").exists()  # recorded, not deleted
+    assert "enabled: false" in (keyed / "resources.yaml").read_text(encoding="utf-8")
+    el = order({"a": prof({"free": True}).with_switched_off(True), "b": prof({"input": 1.0, "output": 2.0})}, Preferences())
+    assert [e["profile"] for e in el.eligible] == ["b"] and "switched off" in el.excluded[0]["reasons"][0]
+    resources.declare(keyed, "or", enabled=True)
+    assert resources.switched_off(keyed) == set() and "enabled" not in (keyed / "resources.yaml").read_text(encoding="utf-8")
+
+
+def test_the_workers_commands_refresh_disable_and_enable(keyed, monkeypatch):
+    from typer.testing import CliRunner
+
+    from baton.cli import app
+
+    monkeypatch.setattr(resources.listings_mod, "http_fetch", account_fetch([]))
+    monkeypatch.setattr("baton.project.machine_home", lambda: keyed)
+    r = CliRunner()
+    out = r.invoke(app, ["workers", "refresh"]).output
+    assert "openrouter: 2 models listed" in out and "free-model requests" in out
+    assert "no longer uses its workers" in r.invoke(app, ["workers", "disable", "or"]).output
+    assert resources.switched_off(keyed) == {"or"}
+    assert "uses its workers again" in r.invoke(app, ["workers", "enable", "or"]).output

@@ -66,6 +66,8 @@ class WorkerResource(_Strict):
     #: Machine-dependent capabilities the owner declares for this resource (0082).
     capabilities: list[str] = Field(default_factory=list)
     note: str | None = None
+    #: False = routing leaves this account's workers out; they stay recorded (0113). Switched with ``baton workers enable|disable``.
+    enabled: bool = True
 
 
 class SetupState(_Strict):
@@ -160,7 +162,7 @@ def save_resources(home: Path, res: Resources) -> Path:
     path = resources_path(home)
     body = res.model_dump(mode="json", exclude_none=True, exclude_defaults=False)
     for r in body.get("resources", {}).values():
-        for k in [k for k, v in r.items() if v in ([], None)]:
+        for k in [k for k, v in r.items() if v in ([], None) or (k == "enabled" and v is True)]:
             r.pop(k)
     header = "# Machine resources (baton-resources/1, §6.4). Edit with `baton workers declare` or by hand.\n"
     _atomic_write(path, header + yaml.safe_dump(body, sort_keys=False))
@@ -319,6 +321,7 @@ class Planned:
     name: str
     body: dict[str, Any]
     availability: str  # detected | declared
+    listed: bool = False  # from a provider listing, not a researched route (0113): the generated marker records it
 
 
 def _slug(s: str) -> str:
@@ -439,7 +442,7 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
                 body["auth"] = {"mode": "api_key", "env": {prov.api_key_env: r.credential}}
                 if base:
                     body["options"] = {"base_url": base}
-            planned.append(Planned(f"{_slug(rname)}-{_slug(c.id)}", body, "declared"))
+            planned.append(Planned(f"{_slug(rname)}-{_slug(c.id)}", body, "declared", listed=True))
 
 
 # ---------------------------------------------------------------------------
@@ -600,10 +603,65 @@ def generated_profiles(home: Path) -> dict[str, dict[str, Any]]:
         own = ownership(body)
         marker = body.get("generated") if isinstance(body, dict) else None
         entry: dict[str, Any] = {"path": str(path), "ownership": own}
+        if isinstance(body, dict) and body.get("resource"):
+            entry["resource"] = body["resource"]
+            entry["listed"] = bool(isinstance(marker, dict) and marker.get("listing"))  # a listing profile: summarised, not listed (0113)
         if isinstance(marker, dict):
             entry["availability"] = marker.get("availability")
             entry["verified"] = marker.get("verified")
         out[name] = entry
+    return out
+
+
+def switched_off(home: Path) -> set[str]:
+    """Names of the resources the owner switched off; none when the file is unreadable (routing must not fail on it)."""
+    try:
+        data = kw_mod.load(vocab_mod.load(vocab_mod.DEFAULT))
+        return {n for n, r in load_resources(home, data.machine_dependent).workers().items() if not r.enabled}
+    except (ResourcesError, kw_mod.KnownWorkersError) as e:
+        diag.note("resources.unreadable", "resources:switched_off", error=str(e))
+        return set()
+
+
+def provider_summary(home: Path) -> dict[str, dict[str, Any]]:
+    """Generated listing profiles by resource: counts, free count, cheapest per tier, listing date, switch, quota (Decision 0113).
+
+    Reads files only. A summary, not a list: hundreds of listing profiles are noise one by one.
+    """
+    home = Path(home)
+    try:
+        data = kw_mod.load(vocab_mod.load(vocab_mod.DEFAULT))
+        res = load_resources(home, data.machine_dependent)
+    except (ResourcesError, kw_mod.KnownWorkersError):  # expected: status reports the problem itself; the summary is then empty
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, (_path, body) in read_generated_dir(home).items():
+        rname = body.get("resource") if isinstance(body, dict) else None
+        marker = body.get("generated") if isinstance(body, dict) else None
+        if rname not in res.workers() or not (isinstance(marker, dict) and marker.get("listing")):
+            continue
+        e = out.setdefault(rname, {"provider": res.workers()[rname].provider, "enabled": res.workers()[rname].enabled,
+                                   "profiles": 0, "priced": 0, "free": 0, "cheapest": {}})
+        e["profiles"] += 1
+        price = body.get("price")
+        if not isinstance(price, dict):
+            continue
+        e["priced"] += 1
+        if price.get("free"):
+            e["free"] += 1
+        cost = 0.0 if price.get("free") else float(price.get("input", 0)) + float(price.get("output", 0))
+        tier = body.get("tier") or "unknown"
+        best = e["cheapest"].get(tier)
+        if best is None or cost < best["cost"]:
+            e["cheapest"][tier] = {"profile": name, "cost": cost, "free": bool(price.get("free"))}
+    for rname, e in out.items():
+        prov = res.workers()[rname].provider
+        lst = listings_mod.load(home, rname) or listings_mod.load(home, prov)
+        e["listing_fetched"] = lst["fetched"] if lst else None
+        info = listings_mod.load_key_info(home, prov)
+        if info:
+            e["quota"] = {k: v for k, v in info.items() if k in ("credit", "free_requests", "fetched")}
+            e["quota_line"] = listings_mod.quota_line(info)
     return out
 
 
@@ -634,6 +692,7 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         "available_not_generated": new,
         "unverified": unverified,
         "skipped": skipped,
+        "providers": provider_summary(home),
         "capability_states": {n: {c: st.as_dict() for c, st in caps.items()} for n, caps in states.items()},
     }
 
@@ -719,7 +778,7 @@ def setup(
                     if new_body is not None:
                         refreshed.append(p.name)
                 continue
-            marker = {**stamp, "availability": p.availability}
+            marker = {**stamp, "availability": p.availability, **({"listing": True} if p.listed else {})}
             if wants(p.name):
                 v = check(p.name, p.body)
                 if v is None:
@@ -741,15 +800,36 @@ def setup(
             "not_offered": not_offered, "skipped": skipped, "detected": [d.as_dict() for d in detected.values()], "setup_complete": True}
 
 
-def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher = listings_mod.http_fetch, today: dt.date | None = None) -> dict[str, Any]:
+def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher | None = None, today: dt.date | None = None) -> dict[str, Any]:
     """Fetch the listing of every declared provider that has a source (acceptance 6): a failure keeps the last good cache.
 
     A provider of kind ``openai_compatible`` is listed per resource, from ``<base_url>/models`` (Decision 0118).
     """
+    fetch = fetch or listings_mod.http_fetch
     data, _, res = _inputs(home)
     refreshed: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
-    jobs: list[tuple[str, dict[str, Any]]] = [(p, {}) for p in sorted({r.provider for r in res.workers().values()} & set(listings_mod.SOURCES))]
+    jobs: list[tuple[str, dict[str, Any]]] = []
+    quotas: list[dict[str, Any]] = []
+    for p in sorted({r.provider for r in res.workers().values()} & set(listings_mod.SOURCES)):
+        owners = [r for r in res.workers().values() if r.provider == p and r.credential]
+        headers: dict[str, str] = {}
+        if owners:
+            try:
+                headers = {"Authorization": "Bearer " + profiles_mod.resolve_value(owners[0].credential, home)}
+            except Exception as e:  # expected: an unset secret means no account listing and no key figures; the public list is still read
+                failed.append({"provider": p, "reason": f"{p}'s key is not available ({e}); reading its public model list instead"})
+        job: dict[str, Any] = {}
+        if headers and p in listings_mod.USER_SOURCES:
+            job = {"provider": p, "url": listings_mod.USER_SOURCES[p], "headers": headers}  # the account's own list (0109)
+        jobs.append((p, job))
+        if headers and p in listings_mod.KEY_SOURCES:
+            try:
+                info = listings_mod.refresh_key_info(home, p, headers=headers, fetch=fetch, today=today)
+                quotas.append({"provider": p, "line": listings_mod.quota_line(info)})
+            except listings_mod.ListingError as e:
+                diag.note("listings.key_failed", "resources:refresh_listings", provider=p, error=str(e))
+                failed.append({"provider": p, "reason": f"could not read {p}'s remaining quota ({e}); the last figures, if any, are kept"})
     for rname, r in sorted(res.workers().items()):
         prov = data.providers.get(r.provider)
         base = (r.base_url or prov.base_url) if prov is not None else None
@@ -765,12 +845,19 @@ def refresh_listings(home: Path, *, fetch: listings_mod.Fetcher = listings_mod.h
         jobs.append((rname, {"provider": r.provider, "key": rname, "url": base.rstrip("/") + "/models", "headers": headers, "style": "openai"}))
     for label, kw in jobs:
         try:
-            body = listings_mod.refresh(home, kw.pop("provider", label), fetch=fetch, today=today, **kw)
-            refreshed.append({"provider": label, "models": len(body["models"]), "fetched": body["fetched"]})
+            try:
+                body = listings_mod.refresh(home, kw.pop("provider", label), fetch=fetch, today=today, **kw)
+            except listings_mod.ListingError as e:
+                if kw.get("url") not in listings_mod.USER_SOURCES.values():
+                    raise
+                diag.note("listings.user_failed", "resources:refresh_listings", provider=label, error=str(e))
+                failed.append({"provider": label, "reason": f"could not read {label}'s account list ({e}); its public list is read instead"})
+                body = listings_mod.refresh(home, label, fetch=fetch, today=today)
+            refreshed.append({"provider": label, "models": len(body["models"]), "fetched": body["fetched"], "source": body["source"]})
         except listings_mod.ListingError as e:
             diag.note("listings.fetch_failed", "resources:refresh_listings", provider=label, error=str(e))
             failed.append({"provider": label, "reason": f"could not read {label}'s model list ({e}); the last good list, if any, is kept"})
-    return {"refreshed": refreshed, "failed": failed}
+    return {"refreshed": refreshed, "failed": failed, "quota": quotas}
 
 
 def declare(
@@ -785,6 +872,7 @@ def declare(
     note: str | None = None,
     remove: bool = False,
     nothing_more: bool | None = None,
+    enabled: bool | None = None,
 ) -> dict[str, Any]:
     """Add, change or remove a worker resource, or record that there is nothing more to add (0077, 0078)."""
     home = Path(home)
@@ -802,7 +890,7 @@ def declare(
             if provider is None and prev is None:
                 raise ResourcesError([Issue(code="resources.no_provider", where=name, message="a new resource needs --provider")])
             for k, v in (("provider", provider), ("credential", credential), ("base_url", base_url), ("models", models),
-                         ("capabilities", capabilities), ("note", note)):
+                         ("capabilities", capabilities), ("note", note), ("enabled", enabled)):
                 if v is not None:
                     body[k] = v
             checked, issues = validate_resources({"resources": {name: body}}, data.machine_dependent, source="declare")
@@ -885,5 +973,6 @@ def readiness(home: Path) -> dict[str, Any]:
         "offer_setup": state.completed is None and not state.nothing_more,
         "generated": sum(1 for g in gen.values() if g["ownership"] != "owner"),
         "declared": len(res.workers()),
+        "quota": {n: e["quota_line"] for n, e in provider_summary(home).items() if e.get("quota_line")},
     }
 

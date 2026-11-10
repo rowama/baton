@@ -478,6 +478,8 @@ class WorkerProfile(_Strict):
     _capability_states: dict[str, Any] = PrivateAttr(default_factory=dict)
     #: When this route's exhausted quota resets (``quota.py``, 0114); attached by ``Project.profiles``, never stored in a profile.
     _quota_until: Any = PrivateAttr(default=None)
+    #: True when the owner switched this route's resource off (``resources.yaml`` ``enabled: false``, 0113); attached by ``Project.profiles``.
+    _switched_off: bool = PrivateAttr(default=False)
 
     @model_validator(mode="before")
     @classmethod
@@ -524,6 +526,16 @@ class WorkerProfile(_Strict):
 
     def quota_until(self) -> Any:
         return self._quota_until
+
+    def with_switched_off(self, off: bool) -> "WorkerProfile":
+        out = self.model_copy()
+        out._capability_states = dict(self._capability_states)
+        out._quota_until = self._quota_until
+        out._switched_off = off
+        return out
+
+    def switched_off(self) -> bool:
+        return self._switched_off
 
     def canonical_model(self) -> str | None:
         """The canonical model identity: ``model_id``; for a ``manual`` profile, ``human/<person>`` (0075)."""
