@@ -256,3 +256,19 @@ def test_the_director_is_told_to_use_the_page_not_to_take_a_key():
     assert "Never take a key in conversation" in skill and "Call `ui`" in skill
     design = (ROOT / "docs" / "design" / "director-interface.md").read_text(encoding="utf-8")
     assert "Call `ui` and give them the link" in design
+
+
+def test_stop_ends_the_registered_page_and_clears_its_file(tmp_path, monkeypatch):
+    import json
+    import os
+    import signal
+
+    from baton import ui
+
+    (tmp_path / ui.UI_FILE).write_text(json.dumps({"pid": os.getpid(), "url": "http://127.0.0.1:1/"}))
+    sent = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)) if sig == signal.SIGTERM else None)
+    monkeypatch.setattr("baton.supervisor.pid_alive", lambda pid: True)
+    assert ui.stop(tmp_path)["stopped"] is True
+    assert sent == [(os.getpid(), signal.SIGTERM)] and not (tmp_path / ui.UI_FILE).exists()
+    assert ui.stop(tmp_path)["stopped"] is False

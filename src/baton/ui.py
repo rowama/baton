@@ -512,10 +512,13 @@ def open_browser(url: str) -> bool:
     import webbrowser
 
     if "microsoft" in platform.uname().release.lower() and os.name == "posix":
-        for exe in ("wslview", "explorer.exe", "cmd.exe"):
+        # explorer.exe is not tried: given a link it can open a File Explorer window instead of the default browser.
+        for exe in ("wslview", "powershell.exe", "cmd.exe"):
             found = shutil.which(exe)
             if found:
-                argv = [found, url] if exe != "cmd.exe" else [found, "/c", "start", "", url.replace("&", "^&")]
+                argv = {"wslview": [found, url],
+                        "powershell.exe": [found, "-NoProfile", "-Command", f"Start-Process '{url}'"]}.get(
+                    exe, [found, "/c", "start", "", url.replace("&", "^&")])
                 try:
                     subprocess.run(argv, capture_output=True, timeout=15, check=False)
                     return True
@@ -525,6 +528,24 @@ def open_browser(url: str) -> bool:
         return bool(webbrowser.open(url))
     except webbrowser.Error:  # expected: no browser here; the owner gets the link in words
         return False
+
+
+def stop(home: Path) -> dict[str, Any]:
+    """Close the page this machine is serving (``baton ui --stop``): ends its process and clears ``ui.json``."""
+    import signal
+
+    live = running(home)
+    if not live:
+        return {"stopped": False, "reason": "no setup page is running"}
+    try:
+        os.kill(int(live["pid"]), signal.SIGTERM)
+    except OSError:  # expected: it ended on its own between the check and the signal
+        pass
+    try:
+        (Path(home) / UI_FILE).unlink()
+    except OSError:  # expected: the page already removed its own file
+        pass
+    return {"stopped": True, "pid": live["pid"]}
 
 
 def start_detached(home: Path, *, idle_timeout: float = DEFAULT_IDLE, wait: float = 15.0) -> dict[str, Any]:

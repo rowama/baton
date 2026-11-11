@@ -189,8 +189,12 @@ Approved by the owner, 2026-11-10 ("Accept all. Go."): the open questions are de
 - **Review:** clean.
 - **Accepted:** done; the owner reviews the whole change.
 
+### Follow-up: first live use under WSL2
+
+- **Fixed:** `open_browser` no longer tries `explorer.exe` (it opened a File Explorer window for the link); under WSL2 it tries `wslview`, `powershell.exe Start-Process`, then `cmd.exe /c start`. Added `baton ui --stop` (`ui.stop`) to close a detached page: SIGTERM to the pid in `ui.json`, then the file is removed. Test: `test_stop_ends_the_registered_page_and_clears_its_file`.
+
 ### Open items for the owner
 
-- Not demonstrated live: opening the browser under WSL2 (acceptance criterion 7's **[VERIFY]**; `open_browser` tries `wslview`, `explorer.exe`, `cmd.exe`, then `webbrowser`, and prints the link in any case), the OpenAI and Anthropic key checks, and the npm install commands. Windows and macOS are covered only by the platform-neutral code paths.
+- Not demonstrated live: opening the browser under WSL2 (acceptance criterion 7's **[VERIFY]**; `open_browser` tries `wslview`, `powershell.exe`, `cmd.exe`, then `webbrowser`, and prints the link in any case), the OpenAI and Anthropic key checks, and the npm install commands. Windows and macOS are covered only by the platform-neutral code paths.
 - The page shows where a key is kept but not "when it was last checked" (Slice 2).
 - Per-project preference overrides stay a CLI and Director matter, as decided.

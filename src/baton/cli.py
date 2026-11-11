@@ -1147,6 +1147,7 @@ def ui_command(
     port: Annotated[int, typer.Option("--port", help="A port on 127.0.0.1 (default: a free one).")] = 0,
     idle_timeout: Annotated[float, typer.Option("--idle-timeout", help="Seconds without a request before the page closes itself.")] = 900.0,
     detach: Annotated[bool, typer.Option("--detach", help="Start it in the background and print the link (what a Director does).")] = False,
+    stop: Annotated[bool, typer.Option("--stop", help="Close the setup page that is running (for one started with --detach).")] = False,
     as_json: JsonOpt = False,
 ) -> None:
     """Open the local setup page: connect accounts and choose the models Baton may use (§13.9). Closes itself when idle."""
@@ -1154,6 +1155,10 @@ def ui_command(
     from .project import machine_home
 
     home = machine_home()
+    if stop:
+        out = ui_mod.stop(home)
+        _emit(out, as_json, "Setup page closed." if out["stopped"] else out["reason"].capitalize() + ".")
+        return
     if detach:
         try:
             out = ui_mod.start_detached(home, idle_timeout=idle_timeout)
