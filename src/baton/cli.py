@@ -1386,7 +1386,10 @@ def workers_connect(
     try:
         out = _resources(as_json, lambda h: accounts.connect(h, provider, key, name=name, base_url=base_url))
     except accounts.AccountError as e:
-        _fail(as_json, EXIT_PROBLEM, e.code, e.message)
+        from . import manual
+
+        ref = manual.for_error(e.code)  # the same pointer the setup page shows (context.yaml, errors)
+        _fail(as_json, EXIT_PROBLEM, e.code, e.message + (f"\nMore: baton help {ref}" if ref and not as_json else ""), **({"help": ref} if ref else {}))
     lines = [f"Connected {out['account']} ({out['provider']})" + (f"; its key is kept in the {out['stored_in']}" if out["stored_in"] else ""),
              f"{len(out['setup']['written'])} new workers set up" + (f", {len(out['setup']['refreshed'])} refreshed" if out["setup"]["refreshed"] else "")]
     lines += [f"note: {f.get('reason')}" for f in out["listing"]["failed"]]

@@ -367,35 +367,41 @@ models:
 providers:
   anthropic:
     kind: direct_api
+    display_name: Anthropic
     api_key_env: ANTHROPIC_API_KEY     # read by LiteLLM 1.106.6
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
   openai:
     kind: direct_api
+    display_name: OpenAI
     api_key_env: OPENAI_API_KEY        # LiteLLM docs, providers/openai
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
       - { url: "https://docs.litellm.ai/docs/providers/openai", retrieved: 2026-11-06 }
   gemini:
     kind: direct_api
+    display_name: Google Gemini
     api_key_env: GEMINI_API_KEY        # LiteLLM docs, providers/gemini
     sources:
       - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
       - { url: "https://docs.litellm.ai/docs/providers/gemini", retrieved: 2026-11-06 }
   mistral:
     kind: direct_api
+    display_name: Mistral
     api_key_env: MISTRAL_API_KEY       # LiteLLM docs, providers/mistral
     sources:
       - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
       - { url: "https://docs.litellm.ai/docs/providers/mistral", retrieved: 2026-11-06 }
   deepseek:
     kind: direct_api
+    display_name: DeepSeek
     api_key_env: DEEPSEEK_API_KEY      # LiteLLM docs, providers/deepseek
     sources:
       - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
       - { url: "https://docs.litellm.ai/docs/providers/deepseek", retrieved: 2026-11-06 }
   xai:
     kind: direct_api
+    display_name: xAI
     api_key_env: XAI_API_KEY           # LiteLLM docs, providers/xai
     sources:
       - { url: "https://docs.x.ai/docs/models", retrieved: 2026-11-06 }
@@ -403,12 +409,15 @@ providers:
   # Groq hosts other creators' (mostly open-weight) models.
   groq:
     kind: intermediary
+    display_name: Groq
     api_key_env: GROQ_API_KEY          # LiteLLM docs, providers/groq
     sources:
       - { url: "https://console.groq.com/docs/models", retrieved: 2026-11-06 }
       - { url: "https://docs.litellm.ai/docs/providers/groq", retrieved: 2026-11-06 }
   openrouter:
     kind: intermediary
+    display_name: OpenRouter
+    signup_url: https://openrouter.ai/keys   # answered 2026-11-11 (a redirect to sign-in, then the account's keys page)
     api_key_env: OPENROUTER_API_KEY    # read by LiteLLM 1.106.6
     sources:
       - { url: "https://openrouter.ai/anthropic/claude-opus-5.5", retrieved: 2026-11-06 }

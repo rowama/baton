@@ -104,7 +104,7 @@ def test_a_context_pointer_must_resolve(mini):
 
 def test_search_resolve_and_sections():
     m = manual.Manual()
-    assert m.search("openrouter")[0]["id"] == "user.connect-an-account"
+    assert m.search("openrouter")[0]["id"] == "providers.openrouter"
     t, a = m.resolve("user.connect-an-account#key-refused")
     section = m.section(t, a)
     assert section.startswith("## Key refused") and "## Replace or remove" not in section

@@ -18,11 +18,12 @@ import yaml
 
 from . import data
 
-PARTS = ("user", "recipes", "admin", "reference")
-AUDIENCE = {"user": "owner", "recipes": "owner", "admin": "admin", "reference": "admin"}
-PART_TITLES = {"user": "User guide", "recipes": "Recipes", "admin": "Admin guide", "reference": "Reference"}
+PARTS = ("user", "providers", "recipes", "admin", "reference")
+AUDIENCE = {"user": "owner", "providers": "owner", "recipes": "owner", "admin": "admin", "reference": "admin"}
+PART_TITLES = {"user": "User guide", "providers": "Providers", "recipes": "Recipes", "admin": "Admin guide", "reference": "Reference"}
 PART_BLURBS = {
     "user": "What you can do with Baton, and how, step by step.",
+    "providers": "Getting each provider working: where to get a key and what to expect. Generated from Baton's provider directory.",
     "recipes": "The processes that ship with Baton: what each is for, what you will be asked, what it makes.",
     "admin": "Installing, configuring and securing Baton on a machine.",
     "reference": "Every command, setting, path and message, generated from Baton itself.",
@@ -216,14 +217,15 @@ class Manual:
                      "headings": [{"level": h.level, "text": h.text, "anchor": h.anchor} for h in t.headings]} for t in topics]})
         return out
 
-    def page(self, tid: str) -> dict[str, Any]:
-        """One topic for the reader: its Markdown, its neighbours in reading order and its related topics."""
-        t, _ = self.resolve(tid)
+    def page(self, tid: str, anchor: str | None = None) -> dict[str, Any]:
+        """One topic for the reader (or one section of it, for the context panel): Markdown, neighbours, related topics."""
+        t, found = self.resolve(tid if anchor is None else f"{tid.partition('#')[0]}#{anchor}")
+        anchor = found if anchor is not None else None
         order = list(self.topics.values())
         i = order.index(t)
         brief = lambda x: {"id": x.id, "part": x.part, "slug": x.slug, "title": x.title}  # noqa: E731
         return {"id": t.id, "part": t.part, "slug": t.slug, "part_title": PART_TITLES[t.part], "title": t.title,
-                "summary": t.summary, "markdown": t.body.strip("\n"),
+                "summary": t.summary, "anchor": anchor, "markdown": self.section(t, anchor),
                 "headings": [{"level": h.level, "text": h.text, "anchor": h.anchor} for h in t.headings],
                 "prev": brief(order[i - 1]) if i > 0 else None, "next": brief(order[i + 1]) if i + 1 < len(order) else None,
                 "related": [brief(self.resolve(r)[0]) for r in t.related if r.partition("#")[0] in self.topics]}
@@ -395,5 +397,14 @@ def manual_for_command(name: str) -> str | None:
     try:
         ref = (context().get("commands") or {}).get(name)
     except (OSError, yaml.YAMLError):  # expected: a missing or unreadable context map just means no pointer is shown
+        return None
+    return str(ref) if ref else None
+
+
+def for_error(code: str, base: Path | None = None) -> str | None:
+    """The topic that explains a refusal code (``context.yaml``'s ``errors``), as ``topic#anchor``."""
+    try:
+        ref = (context(base).get("errors") or {}).get(code)
+    except (OSError, yaml.YAMLError):  # expected: no context map just means no pointer
         return None
     return str(ref) if ref else None

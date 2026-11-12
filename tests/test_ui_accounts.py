@@ -211,6 +211,9 @@ def test_the_cli_refuses_a_bad_key_and_disconnects(tmp_path, monkeypatch, fake):
     monkeypatch.setattr(resources, "discover", found())
     bad = CliRunner().invoke(cli.app, ["workers", "connect", "openrouter", "--key-stdin", "--json"], input="sk-or-BAD-0123456789\n")
     assert bad.exit_code == 1 and "accounts.key_refused" in bad.output and "BAD" not in bad.output
+    assert json.loads(bad.output)["help"] == "user.connect-an-account#key-refused"  # the pointer the page shows too
+    plain = CliRunner().invoke(cli.app, ["workers", "connect", "openrouter", "--key-stdin"], input="sk-or-BAD-0123456789\n")
+    assert "More: baton help user.connect-an-account#key-refused" in plain.output
     ok = CliRunner().invoke(cli.app, ["workers", "connect", "openrouter", "--key-stdin", "--json"], input=KEY + "\n")
     assert ok.exit_code == 0
     off = CliRunner().invoke(cli.app, ["workers", "disconnect", "openrouter-main", "--forget-key", "--json"])

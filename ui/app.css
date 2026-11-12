@@ -97,8 +97,8 @@ tr:last-child td { border-bottom: 0; }
 #doc h3 { font-size: 1.15rem; margin: 1.8rem 0 .5rem; }
 #doc .anchor { margin-left: .4rem; opacity: 0; font-weight: 400; text-decoration: none; color: var(--muted); }
 #doc h2:hover .anchor, #doc h3:hover .anchor, #doc .anchor:focus { opacity: 1; }
-#doc p, #doc li { margin: .75rem 0; } #doc li { margin: .35rem 0; } #doc ul, #doc ol { padding-left: 1.4rem; }
-#doc li::marker { color: var(--muted); }
+#doc p, #doc li, #help-body p, #help-body li { margin: .75rem 0; } #doc li, #help-body li { margin: .35rem 0; } #doc ul, #doc ol, #help-body ul, #help-body ol { padding-left: 1.4rem; }
+#doc li::marker, #help-body li::marker { color: var(--muted); }
 .here-now { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 12px; padding: 1.1rem 1.4rem 1.2rem; margin: 0 0 2rem; }
 .here-now h2 { font-size: .8rem !important; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); margin: 0 0 .3rem !important; padding: 0 !important; border: 0 !important; }
 .here-now > :last-child { margin-bottom: 0; }
@@ -113,7 +113,7 @@ tr:last-child td { border-bottom: 0; }
 .code .copy:hover { background: #222c3c; filter: none; }
 .code pre { margin: 0; padding: .9rem 1rem; overflow-x: auto; color: var(--code-fg); font: .88rem/1.6 var(--mono); }
 .code code { background: none; border: 0; padding: 0; font-size: inherit; word-break: normal; }
-#doc .table-wrap { margin: 1.2rem 0; } #doc td, #doc th { font-size: .94rem; }
+#doc .table-wrap, #help-body .table-wrap { margin: 1.2rem 0; } #doc td, #doc th { font-size: .94rem; }
 .related { margin-top: 2.5rem; } .plain { list-style: none; padding: 0 !important; }
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3rem; }
 .pager a { display: block; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-decoration: none; color: var(--fg); }
@@ -143,3 +143,21 @@ tr:last-child td { border-bottom: 0; }
 }
 @media (prefers-reduced-motion: no-preference) { button, a, #hits li a { transition: background-color .12s, border-color .12s, color .12s; } }
 @media print { .top, #nav, #toc, .nav-toggle, .pager, .copy, .anchor { display: none !important; } .reader { display: block; } body { background: #fff; color: #000; } }
+
+/* ---- context help (§13.10): the "?" beside a part of the page and the panel it opens ---- */
+button.help { width: 1.35rem; height: 1.35rem; padding: 0; margin-left: .45rem; border-radius: 50%; font-size: .75rem; line-height: 1; font-weight: 600; vertical-align: middle;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+button.help:hover { background: var(--accent); color: var(--accent-fg); filter: none; }
+button.small { padding: .1rem .5rem; font-size: .85rem; }
+.panel { position: fixed; z-index: 30; top: var(--header); right: 0; bottom: 0; width: min(30rem, 100vw); display: flex; flex-direction: column;
+  background: var(--surface); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(16, 24, 40, .14); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .9rem 1.1rem; border-bottom: 1px solid var(--line); }
+.panel-head h2 { margin: 0; font-size: 1.1rem; letter-spacing: -.01em; }
+.panel-body { flex: 1; overflow: auto; padding: .5rem 1.2rem 1.5rem; font-size: .98rem; line-height: 1.6; outline: none; }
+.panel-body h2 { display: none; } .panel-body h3 { font-size: 1.02rem; margin: 1.3rem 0 .3rem; }
+.panel-body .sec { margin: 0; } .panel-body .anchor { display: none; }
+.panel-body .code { font-size: .9rem; }
+.panel-foot { padding: .75rem 1.1rem; border-top: 1px solid var(--line); background: var(--sunk); font-weight: 500; }
+@media (min-width: 1100px) { body.help-open #view-setup main { margin-right: 31rem; max-width: none; margin-left: 2rem; } }
+.panel-body .here-now { background: none; border: 0; padding: 0; margin: 0; border-radius: 0; }
+.panel-body .here-now > :first-child { margin-top: .9rem; }

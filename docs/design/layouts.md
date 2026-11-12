@@ -16,6 +16,7 @@ baton/
 │   ├── known_workers.py     # known-workers data: schema and validation (§6.4)
 │   ├── accounts.py          # connect, re-key and disconnect an API account (§6.4, §13.9)
 │   ├── prefs.py             # the machine-level preferences file (§8.4)
+│   ├── manual_gen.py        # generated manual topics: provider pages from the provider directory (§13.10)
 │   ├── manual.py            # the manual: topics, anchors, validation, search (§13.10); manual_cli.py checks the examples against the CLI
 │   ├── ui.py                # the optional local setup page: server and API (§13.9); imported only by `baton ui` and `ui`
 │   ├── store.py             # event logs (run + project), CAS, SQLite cache rebuild
@@ -43,7 +44,7 @@ baton/
 │   ├── worker_runner.py     # child-process entrypoint for API workers
 │   ├── adapters/            # base, litellm_api, subprocess_harness, claude_code, codex, command, manual
 │   ├── cli.py   mcp_server.py   check.py   doctor.py
-├── manual/                  # the manual (§13.10): user/, recipes/, admin/, reference/ topics, context.yaml, anchors.yaml, terms.yaml; shipped as data
+├── manual/                  # the manual (§13.10): user/, providers/ (generated), recipes/, admin/, reference/ topics, context.yaml, anchors.yaml, terms.yaml, provider-notes.yaml; shipped as data
 ├── ui/                      # the setup page's front end: plain HTML, CSS, JS; shipped as data (§13.9)
 ├── vocab/baton-capabilities-1.yaml
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   # generated from models (§15.3)

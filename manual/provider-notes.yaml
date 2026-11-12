@@ -1,0 +1,6 @@
+# What is worth knowing about a provider beyond what the directory says. Markdown, owner-facing words (user terms only).
+# The generated provider pages (tools/build_manual.py) put each under "Good to know". Only claims a person can check go here.
+openrouter: |-
+  - OpenRouter lists a price for every model, and some are listed as free. In **Models**, tick **free only** to see just those, or leave it off to see every model with its price.
+  - The card shows OpenRouter's credit or free allowance when OpenRouter reports it.
+  - Keys are made on OpenRouter's keys page. After you sign in, choose to create a key and give it a name you will recognise.

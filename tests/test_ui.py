@@ -292,7 +292,7 @@ def test_the_manual_is_served_read_only_behind_the_same_checks(home):
         assert get("/api/manual/topic/..%2F..%2Fetc%2Fpasswd")[0] == 404
         assert get("/api/manual/topic/user.nope")[0] == 404
         status, raw = get("/api/manual/search?q=openrouter")
-        assert json.loads(raw)["results"][0]["id"] == "user.connect-an-account"
+        assert json.loads(raw)["results"][0]["id"] == "providers.openrouter"
         for path in ("/manual", "/manual/user/connect-an-account"):
             status, raw = get(path)
             assert status == 200 and b"view-manual" in raw
@@ -300,5 +300,21 @@ def test_the_manual_is_served_read_only_behind_the_same_checks(home):
         assert get("/api/manual/tree", cookie=False)[0] == 401
         assert get("/api/manual/tree", host="evil.example")[0] == 403
         assert page.post("/api/manual/tree")[0].status == 404
+    finally:
+        page.close()
+
+
+def test_the_manual_serves_a_section_and_the_context_map(home):
+    page = Page(home)
+    try:
+        r, raw = page.req("GET", "/api/manual/topic/user.connect-an-account?anchor=key-refused")
+        out = json.loads(raw)
+        assert r.status == 200 and out["anchor"] == "key-refused" and out["markdown"].startswith("## Key refused")
+        assert "## Replace or remove" not in out["markdown"]
+        assert page.req("GET", "/api/manual/topic/user.connect-an-account?anchor=nope")[0].status == 404
+        r, raw = page.req("GET", "/api/manual/context")
+        ctx = json.loads(raw)
+        assert ctx["ui"]["ui.accounts"] == "user.connect-an-account#here-now"
+        assert ctx["errors"]["accounts.key_refused"] == "user.connect-an-account#key-refused"
     finally:
         page.close()

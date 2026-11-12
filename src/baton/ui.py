@@ -40,7 +40,7 @@ UI_FILE = "ui.json"
 #: The files the front end may serve, by URL path: nothing else on disk is ever reachable.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/app.css": ("app.css", "text/css; charset=utf-8"), "/render.js": ("render.js", "text/javascript; charset=utf-8"),
-          "/manual.js": ("manual.js", "text/javascript; charset=utf-8")}
+          "/manual.js": ("manual.js", "text/javascript; charset=utf-8"), "/help.js": ("help.js", "text/javascript; charset=utf-8")}
 #: The manual reader's pages are one shell; the script reads the path (`/manual/<part>/<slug>#anchor`).
 MANUAL_PAGES = "/manual"
 MAX_BODY = 64 * 1024
@@ -262,9 +262,15 @@ def _manual_tree(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> A
 
 def _manual_topic(_home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
     try:
-        return {"ok": True, **_manual().page(unquote(args["id"]))}
+        return {"ok": True, **_manual().page(unquote(args["id"]), args.get("?anchor"))}
     except KeyError:
         raise UiError(HTTPStatus.NOT_FOUND, "ui.no_topic", "There is no such manual topic.") from None
+
+
+def _manual_context(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """Which topic each page control and each refusal opens (context.yaml): the page holds no copy of it."""
+    c = manual_mod.context()
+    return {"ok": True, "ui": c.get("ui") or {}, "errors": c.get("errors") or {}}
 
 
 def _manual_search(_home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
@@ -284,6 +290,7 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("POST", "/api/quit"): _quit,
     ("GET", "/api/manual/tree"): _manual_tree,
     ("GET", "/api/manual/search"): _manual_search,
+    ("GET", "/api/manual/context"): _manual_context,
     ("GET", "/api/manual/topic/<id>"): _manual_topic,
 }
 

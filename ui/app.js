@@ -19,14 +19,21 @@ async function api(method, path, body) {
   if (method !== "GET") { init.headers["X-Baton-UI"] = "1"; init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body || {}); }
   const res = await fetch(path, init);
   const out = await res.json().catch(() => ({ ok: false, message: "Unreadable answer." }));
-  if (!res.ok) throw new Error(out.message || "Refused.");
+  if (!res.ok) { const err = new Error(out.message || "Refused."); err.code = out.error; throw err; }
   return out;
 }
 
-function notice(text, bad) {
+function notice(text, bad, code) {
   const n = $("notice");
   n.textContent = text || ""; n.hidden = !text; n.className = bad ? "bad" : "";
+  // A refusal the manual explains gets a link to the explanation (context.yaml, errors).
+  if (text && code && window.BatonHelp) window.BatonHelp.forError(code).then((ref) => {
+    if (ref && n.textContent === text) n.append(" ", h("button", { type: "button", class: "quiet small", "data-help": ref }, "What does this mean?"));
+  });
 }
+
+function helpBtn(ref, label) { return h("button", { type: "button", class: "help", "data-help": ref, "aria-label": "Help: " + label }, "?"); }
+const slug = (name) => name.replace(/_/g, "-");
 
 async function load() {
   try { state = await api("GET", "/api/state"); notice(""); }
@@ -62,7 +69,7 @@ function renderHarnesses() {
     const again = h("button", { class: "quiet" }, "Check again");
     again.addEventListener("click", () => act(again, () => load(), () => ""));
     list.append(h("div", { class: "card" }, h("div", { class: "row" },
-      h("span", { class: "name" }, d.provider), h("span", { class: ready ? "ok" : "warn" }, ready ? "connected" : (d.problem || "not ready")),
+      h("span", { class: "name" }, d.provider, ready ? "" : helpBtn("ui.subscriptions.not-ready", "a subscription that is not ready")), h("span", { class: ready ? "ok" : "warn" }, ready ? "connected" : (d.problem || "not ready")),
       h("span", { class: "muted" }, d.version ? "version " + d.version : ""), ready ? "" : again), stepBox(d.step)));
   }
   if (!state.detected.length) list.append(h("p", { class: "muted" }, "No supported command-line tools were found."));
@@ -73,7 +80,7 @@ function busy(btn, on) { btn.disabled = on; }
 async function act(btn, fn, done) {
   busy(btn, true);
   try { const out = await fn(); notice(done(out)); await load(); }
-  catch (e) { notice(e.message, true); }
+  catch (e) { notice(e.message, true, e.code); }
   finally { busy(btn, false); }
 }
 
@@ -105,7 +112,7 @@ function accountCard(name, r) {
     () => api("DELETE", "/api/accounts/" + encodeURIComponent(name), { forget_key: forget.checked }),
     () => "Disconnected " + name + ". Its models stay listed but are no longer used."));
   return h("div", { class: "card" },
-    h("div", { class: "row" }, h("span", { class: "name" }, name),
+    h("div", { class: "row" }, h("span", { class: "name" }, name, helpBtn("providers." + slug(r.provider) + "#here-now", r.provider)),
       h("span", { class: "muted" }, r.provider + (p ? " · " + p.profiles + " models" + (p.free ? ", " + p.free + " free" : "") : "")),
       h("span", { class: "muted" }, keptIn(name)), h("span", { class: "muted" }, p && p.quota_line ? p.quota_line : "")),
     h("div", { class: "row" }, key, replace, h("span", {}, forget, h("label", { for: "forget-" + name }, " also delete the stored key")), off));
@@ -117,7 +124,7 @@ function renderProviders() {
   const connected = new Set(Object.values(state.declared).map((r) => r.provider));
   for (const [prov, info] of Object.entries(state.directory)) {
     if (connected.has(prov)) continue;
-    list.append(h("div", { class: "card" }, h("div", { class: "name" }, info.display_name), connectForm(prov, info)));
+    list.append(h("div", { class: "card" }, h("div", { class: "name" }, info.display_name, helpBtn("providers." + slug(prov) + "#here-now", info.display_name)), connectForm(prov, info)));
   }
 }
 
@@ -171,7 +178,7 @@ function preferBox() {
     () => api("PUT", "/api/preferences", { prefer_by_capability: { [cap.value]: model.value ? [model.value] : [] } }),
     () => model.value ? "Baton will try " + model.value + " first for " + cap.value + "." : "Cleared the preference for " + cap.value + "."));
   const now = Object.entries(state.preferences.prefer_by_capability).map(([c, n]) => c + ": " + n.join(", ")).join(" · ");
-  return h("div", { class: "row" }, cap, model, set, h("span", { class: "muted" }, now));
+  return h("div", { class: "row" }, cap, model, set, h("span", { class: "muted" }, now), helpBtn("ui.models.prefer", "preferring a model"));
 }
 
 function modelRow(m) {
@@ -193,8 +200,8 @@ function renderModels() {
   const shown = state.models.filter(passes);
   box.append(preferBox());
   box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
-    ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t)))), h("tbody", {}, shown.map(modelRow)))));
-  box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown."));
+    ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t, t === "Capabilities" ? helpBtn("ui.models.capabilities", "capabilities") : "")))), h("tbody", {}, shown.map(modelRow)))));
+  box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown. ", helpBtn("ui.models.table", "reading the table")));
 }
 
 function render() { renderHarnesses(); renderProviders(); renderFilters(); renderModels(); }

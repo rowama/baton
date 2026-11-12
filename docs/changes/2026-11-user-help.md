@@ -3,7 +3,7 @@ id: 2026-11-user-help
 title: "One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change"
 status: in-progress
 level: major
-manual: [user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
+manual: [providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
 decisions: ["0126", "0127", "0128", "0129", "0130", "0131", "0132", "0133"]
 touches: [principles.md, design/director-interface.md, design/layouts.md, design/versioning.md, design/testing.md]   # §0, §2, §13.2, §4.1, §14.1, §19
 ---
@@ -216,3 +216,12 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Tests:** `tests/test_ui.py` (the reader's routes, refusals without the token, a bad Host, a path in a topic id, no write method); `tests/test_ui_render.py` (the renderer under node: sections and anchors, topic and external links, nested inline text terminates, HTML in a topic stays text, tables, notes and code).
 - **Review:** one bug found and fixed while looking at it: `inline()` shared one global regex between its recursive calls, which corrupted `lastIndex` and looped on nested bold and code; it now builds one per call, and the renderer test covers it.
 - **Accepted:** pending the owner, who is to see the page running: `baton ui`, then Manual.
+
+### Slice 3: context help and the OpenRouter walk-through
+
+- **Commit:** `2026-11-user-help: Slice 3, context help and generated provider pages`
+- **Summary:** Setup has a "?" beside its sections, each provider's card, the capabilities column and the preference row; each opens the manual's short answer in a side panel (`help.js`) with "Open the full guide" to the reader at the same anchor; panel links stay in the panel. `GET /api/manual/context` serves the map; `/api/manual/topic/<id>?anchor=` serves one section. A refusal the manual explains carries "What does this mean?" (`context.yaml` `errors:`), and `baton workers connect` prints the same pointer (`More: baton help ...`, and `help` in `--json`). `manual_gen.py` and `tools/build_manual.py` write 18 provider pages (`manual/providers/`) from the provider directory and `manual/provider-notes.yaml`; the directory gains `display_name` for the direct APIs and Groq, and OpenRouter gains `display_name` and `signup_url` (https://openrouter.ai/keys answered on 2026-11-11), so its card now shows "Get a key". The seed topics now use the page's own labels (Use, Capabilities, Checked, Prefer a model for...). Seen running: the OpenRouter card opens its page in the panel (desktop, dark, phone).
+- **Tests:** `tests/test_manual_gen.py` (pages match the directory; every provider has a page with its command; a new directory entry makes the manual stale; local runtimes say no key; the page's `data-help` ids equal the map's keys; every mapped error code is a real code), `tests/test_ui.py` (a section by anchor, the context map), `tests/test_ui_accounts.py` (the CLI's pointer in text and JSON).
+- **Review:** clean.
+- **Accepted:** pending the owner.
+
