@@ -4,7 +4,8 @@
   "required": ["title", "idea"],
   "properties": {
     "title": {"type": "string", "minLength": 1},
-    "idea": {"type": "string", "minLength": 1, "description": "The idea, in the owner's words"}
+    "idea": {"type": "string", "minLength": 1, "description": "The idea, in the owner's words"},
+    "context": {"type": "string", "minLength": 1, "description": "Optional: a short summary of the existing project the idea is about, written by the Director. Text only; the worker reads no files."}
   },
   "additionalProperties": false
 }

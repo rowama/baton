@@ -18,7 +18,7 @@ To use it, tell your assistant the idea: "Is this a good fit for Baton: ...". Yo
 
 ## What you will be asked {#what-you-are-asked}
 
-- At the start: the idea, in your own words, and a short title.
+- At the start: the idea, in your own words, and a short title. For an idea about a project that already exists, your assistant also gives a short summary of what is already there, so the suggested process fits it. It reads nothing in your project itself.
 - At the end: **That verdict sounds right** or **I don't think that's right**. If it is not right, say why and it is redone.
 
 It works out what it can from your description and says what it assumed, so you confirm rather than answer a list of questions.

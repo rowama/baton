@@ -4,6 +4,11 @@ You are profiling an idea so it can be scored for fit. Keep this to a few minute
 
 The idea, in the owner's words, is in the `idea` input.
 
+If a `context` input is given, it is a short summary of an existing project that the idea is
+about (what is already there), written for you. Treat it as a fact about the project, not as
+something to ask the owner again, and note anything you take from it under `assumptions`. You
+cannot read the project's files; work only from the text you are given.
+
 Focus on **one occurrence** of the idea: one instance of the work it describes.
 Establish, for one occurrence:
 

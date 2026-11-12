@@ -1,7 +1,7 @@
 # `assess`: Score against the fit rubric
 
 - Run: `r_20261101_ab12`
-- Recipe: `fit-check@3`
+- Recipe: `fit-check@4`
 - State: **passed**
 - Attempts: 1
 

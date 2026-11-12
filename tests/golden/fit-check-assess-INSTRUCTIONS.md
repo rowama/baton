@@ -23,6 +23,10 @@ set `recipe` to the one recipe whose scope or description covers the whole idea,
 and say so in the next step; set it to `null` when none does, and the next step is then to
 author one. Never name a recipe that is not in the list. Leave `recipe` out for any other verdict.
 
+If a `context` input is given, it summarizes an existing project the idea is about. Use it to
+choose the recipe: prefer the recipe whose steps produce what the project already has. Do not
+add rubric rows for it, and do not claim to know which files exist beyond what it says.
+
 ## Inputs
 
 ### `profile`

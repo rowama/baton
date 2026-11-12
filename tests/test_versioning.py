@@ -118,7 +118,7 @@ def test_an_unreadable_format_is_refused_with_the_migrate_hint_and_migrate_fixes
     assert out["migrated"] and out["checkpoint"]["committed"]
     assert out["checkpoint"]["subject"].startswith("baton(migrate): 4 file(s) to current formats")
     assert _commit_files(project) == {
-        ".baton/baton.lock", ".baton/recipes/fit-check@3.migrated.json", ".baton/project/events.jsonl",
+        ".baton/baton.lock", ".baton/recipes/fit-check@4.migrated.json", ".baton/project/events.jsonl",
         f".baton/runs/{run}/events.jsonl", f".baton/runs/{run}/events.migrated-{len(original.splitlines())}.jsonl",
         ".baton/project/events.migrated-2.jsonl",
     }
