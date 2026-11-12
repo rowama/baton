@@ -408,3 +408,22 @@ def for_error(code: str, base: Path | None = None) -> str | None:
     except (OSError, yaml.YAMLError):  # expected: no context map just means no pointer
         return None
     return str(ref) if ref else None
+
+
+class NoTopic(ManualError):
+    """``baton help <x>`` where nothing matches; the message says what to try."""
+
+
+def help_payload(topic: str | None = None, search: str | None = None, base: Path | None = None) -> dict[str, Any]:
+    """What the CLI's ``help`` prints and the Director's ``help`` returns: the topics, a search, or one topic or section."""
+    m = Manual(base)
+    if search is not None:
+        return {"ok": True, "results": m.search(search)}
+    if topic is None:
+        return {"ok": True, "topics": m.listing()}
+    try:
+        t, anchor = m.resolve(topic)
+    except KeyError:
+        near = [h["id"] for h in m.search(topic.replace(".", " ").replace("-", " "), 3)]
+        raise NoTopic(f"no manual topic {topic!r}" + (f"; did you mean {', '.join(near)}?" if near else "; list them with: baton help")) from None
+    return {"ok": True, "id": t.id, "anchor": anchor, "title": t.title, "summary": t.summary, "markdown": m.section(t, anchor)}

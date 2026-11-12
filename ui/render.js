@@ -12,7 +12,7 @@
   // A topic id (user.connect-an-account) is its address: /manual/user/connect-an-account
   function topicUrl(id, anchor) {
     const i = id.indexOf(".");
-    return "/manual/" + id.slice(0, i) + "/" + id.slice(i + 1) + (anchor ? "#" + anchor : "");
+    return (window.BATON_BASE || "") + "/manual/" + id.slice(0, i) + "/" + id.slice(i + 1) + (anchor ? "#" + anchor : "");
   }
 
   function link(text, target, parent) {

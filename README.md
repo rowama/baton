@@ -44,162 +44,15 @@ project: { test_command: "pytest -q", preflight: "pytest -q --collect-only" }
 
 `project.yaml` is committed and must never hold secrets (`check` refuses them).
 
-## Worker profiles
+## The manual
 
-Profiles live on each machine, in `~/.baton/workers.yaml` (project-specific overrides in the gitignored `.baton/workers.local.yaml`), never in a repository. A profile says how to run one worker and what it can honestly do on this machine (§6.1):
+The documentation for owners and administrators is the **manual**. It ships with Baton, so it matches the version you run and works offline:
 
-```yaml
-claude-code-sub:                       # a coding agent on its subscription login
-  adapter: claude_code
-  vendor: anthropic                    # used for reviewer independence
-  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
-  tier: strong
-  context_tokens: 200000
-  auth: { mode: cli_login }
-  env_deny: [ANTHROPIC_API_KEY]        # a stray key would switch billing to the API
-  path: { search: [nvm] }              # find CLIs installed under nvm
+- `baton ui` opens the setup page. Its **Manual** tab is the whole manual, with search, and a **?** beside each part of the page opens the short answer for it.
+- `baton help` lists every topic in the terminal; `baton help <topic>` prints one; `baton help --search <words>` finds one. Every command's `--help` ends with the topic that explains it.
+- Your AI assistant can read it too: ask "how do I...?".
 
-codex-sub:
-  adapter: codex
-  vendor: openai
-  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
-  tier: strong
-  auth: { mode: cli_login }
-  env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
-  path: { search: [nvm] }
-
-api-writer:                            # a model API call
-  adapter: litellm_api
-  vendor: some-vendor
-  model: "<provider>/<model>"
-  capabilities: [structured_output, long_form_writing, technical_reasoning]
-  tier: strong
-  context_tokens: 200000
-  auth: { mode: api_key, env: { PROVIDER_API_KEY: "secret:provider_main" } }
-
-owner:                                 # a person: the manual adapter
-  adapter: manual
-  vendor: human
-  capabilities: [human_judgment, long_form_writing, vision, file_write]
-```
-
-Secrets are referenced as `secret:<name>` and resolved at spawn time from `BATON_SECRET_<NAME>`, the OS keyring (service `baton`) or `~/.baton/secrets/<name>`. Workers start from a clean or allow-listed environment, so one step's key never reaches another step. The `command` adapter runs any other tool through a command line with `{packet}`, `{result}`, `{workspace}` and `{prompt_file}` placeholders.
-
-## Check the machine and the repository
-
-```sh
-baton doctor            # per profile: environment, executable, auth mode, a no-op run; one line when healthy
-baton doctor --no-run   # skip the no-op runs (no model calls)
-baton check             # for pre-commit and CI: hash chains, CAS, lockfile, lint, secrets; exit 0 when clean
-```
-
-`doctor` reports what each worker would really bill (a `cli_login` profile that would pick up an API key is a problem) and, for coding agents, whether their permission mode lets the project's test command run (gate preflight).
-
-## Run work
-
-A Director is any harness with the `baton-director` skill (vendored by `init`) that can run `baton` in a shell on this machine, or reach `baton mcp`. Ask it to start a work item; underneath, it runs:
-
-```sh
-baton start software-feature --inputs '{"title": "Sign in", "kind": "feature", "feature_request": "Let users sign in and out."}'
-baton status <run>
-baton eligible <run> <step>
-baton dispatch <run> <step> --worker <profile>      # returns once started; add --wait to block
-baton decide <run> <step> approve --note "<the owner's words>"
-baton board                                          # every active work item
-```
-
-Dispatch is asynchronous: a detached supervisor finishes the work, records it and commits a checkpoint. A Director that ends its turn while work runs needs something to wake it: see [Directors that end their turn](#directors-that-end-their-turn). For Directors without a shell, `baton mcp` serves the same calls over MCP (stdio; `--http` binds loopback only and needs a bearer token from `~/.baton/mcp.yaml`).
-
-### Exit codes
-
-| Exit | Meaning |
-|---|---|
-| 0 | Done; nothing needs the owner |
-| 1 | A problem: the call was refused or the work failed |
-| 2 | Usage: bad arguments, or a `BATON_OWNER_EXIT` other than `0` or `4` |
-| 3 | The run's lease is held by another Director |
-| 4 | **Finished, and the owner is needed now.** Not a failure: a decision, approval or question waits on the owner (`needs_owner: true` in the JSON). From `dispatch --wait` or `wait`, it means: go to the owner now |
-
-Some harnesses show any non-zero exit as `failed`. For those, set `BATON_OWNER_EXIT=0`: the owner-needed case then exits 0 and `needs_owner: true` is the signal. MCP tools have no exit codes and always return `needs_owner`.
-
-## Directors that end their turn
-
-A Director in a terminal can `wait` (or `dispatch --wait`) until the work is recorded. A Director that ends its turn while work runs (a cloud chat agent with a shell on this machine, for example) is brought back only by a **completion hook**, or by its harness if that really wakes it when a background job ends. Without one, nobody notices when the work finishes. So:
-
-- Before it dispatches, the Director reads `wake` from `baton eligible`. With no hook that would fire when the work needs you (`on_needs_human`, or `on_complete`), it stays attached. If it will end its turn anyway, it first tells you, in plain words, that it might not notice when the work finishes and roughly how long that may take, so you know when to check back.
-- `baton dispatch` and `baton ask-sme` warn whenever no hook would wake the Director. `baton doctor` warns too, and reports a problem when a run is led by a Director that ends its turn.
-- Set these in the Director's environment:
-
-| Variable | Meaning |
-|---|---|
-| `BATON_DIRECTOR` | A stable identity for the Director (default `<user>@<host>`), so its leases survive between turns |
-| `BATON_HARNESS` | Which harness the Director runs in (e.g. `cloud-chat`; default `cli`, meaning a terminal that stays attached). Shown in leases; `doctor` uses it |
-| `BATON_OWNER_EXIT` | `0` makes "the owner is needed" exit 0 instead of 4 (see [Exit codes](#exit-codes)) |
-
-Hooks go in `.baton/project.yaml` (committed, no secrets) or `~/.baton/hooks.yaml` (this machine; `secret:` values allowed). Each hook gets `BATON_RUN_ID`, `BATON_STEP_PATH`, `BATON_OUTCOME` (`passed`, `needs_human`, `failed`, …) and more (§8.7). Two examples:
-
-A webhook that wakes a remote agent, in `~/.baton/hooks.yaml`, with the URL kept as a secret:
-
-```yaml
-hooks:
-  on_complete: "curl -fsS -m 20 -X POST -d run=$BATON_RUN_ID -d step=$BATON_STEP_PATH -d outcome=$BATON_OUTCOME secret:director_wake_url"
-```
-
-A local inbox file, for a Director that checks a file when it next runs (or a watcher that tails it), in `.baton/project.yaml`:
-
-```yaml
-hooks:
-  on_complete: "printf '%s %s %s\\n' \"$BATON_RUN_ID\" \"$BATON_STEP_PATH\" \"$BATON_OUTCOME\" >> .baton/cache/inbox.log"
-```
-
-`on_needs_human` (falls back to `on_complete`) fires when the work needs you; `on_platform_failure` alone wakes nobody for that.
-
-## Frame a goal
-
-Owners usually bring goals, not tasks. Tell the Director what you want, in your own words ("I want to start a pure-water vending business"), and it frames it:
-
-```sh
-baton frame --note "<the owner's goal, in their words>"
-baton eligible <framing run> frame
-baton dispatch <framing run> frame --worker <profile>
-baton decide <framing run> frame select --items setup,running --note "<the owner's words>"
-```
-
-A worker breaks the goal into pieces of work, each proposing a recipe (a shipped one is vendored when you choose it) or a quick `fit-check`. The Director confirms the goal with you, lets you choose, and starts one work item per chosen piece. A piece that can't start yet (its details don't fit the recipe, or the recipe publishes to paths `project.yaml` doesn't map) is reported to you as a gap, never started.
-
-## Talking with the owner
-
-The Director talks with the owner like a project manager with a stakeholder: in the owner's terms, a topic at a time, offering best guesses to confirm, and confirming back before anything is recorded. When a step needs answers, the Director records the confirmed ones from a file: `baton decide <run> <step> retry --answers answers.json --note "<owner's words>"`, where each answer is `{id, answer, owner_words}` (`--partial` leaves a question open on purpose). Every pending decision in `status` and `board` comes with plain-language labels (`defaults/labels.yaml`; a recipe may label its own human gates).
-
-`.baton/communication.md` sets the style. The default is conversational. For the terse operator style (brief status, a list of your actions with each command in its own block, then the one decision owed), copy Baton's `defaults/communication-operator.md` over it.
-
-## Using Codex as Director
-
-Codex sandboxes the commands it runs: in its default `workspace-write` mode they can change only the project folder and usually can't reach the internet, and everything they start inherits that. Baton keeps its working files in `~/.baton` and its workers need the internet, so connect Baton to Codex as an MCP tool instead of letting Codex run `baton` in its shell. Codex runs MCP servers outside its sandbox, and stays sandboxed for everything else (§13.2). Once, in your own terminal:
-
-```sh
-codex mcp add baton -- baton mcp
-```
-
-Codex asks before every MCP tool call unless told otherwise (and `codex exec` refuses them), and `codex mcp add` has no option for that. So open `~/.codex/config.toml` and add one line under the `[mcp_servers.baton]` section the command wrote:
-
-```toml
-[mcp_servers.baton]
-# … what codex mcp add wrote …
-default_tools_approval_mode = "approve"
-```
-
-Then restart Codex. It calls Baton's tools directly, with the same names and arguments as the CLI. If Codex runs `baton detect` from its sandboxed shell anyway, Baton stops with `director_sandboxed` and this fix, rather than failing part way (§13.4). Checked live with `codex-cli` 0.166.0 on Linux: sandboxed Codex completes a run over MCP with a real worker (`tests/test_live_codex_mcp.py`).
-
-## Example recipes
-
-| Recipe | What it shows |
-|---|---|
-| [`fit-check`](examples/recipes/fit-check) | Decide in minutes whether an idea suits Baton. Two steps, one human gate; it infers first and asks only what it can't. Vendored by `init`. |
-| [`software-feature`](examples/recipes/software-feature) | A feature from request to accepted, tested slices: three complexity levels, requirements and design published to project paths, reviews by a different vendor, a per-slice implement, review and accept loop. |
-| [`backyard-project`](examples/recipes/backyard-project) | A non-software project (a flower bed or a shed): people as workers, photos as artifacts, permits and inspections at the highest level. |
-
-`baton plan <recipe dir>` validates a recipe and prints the steps and gates at every level.
+It covers getting started, connecting accounts and subscriptions, starting with a goal or bringing in an existing project, answering questions, the shipped recipes, and, for an administrator, installation, files and what to commit, network and security, settings, setting up an assistant, troubleshooting, and a reference for every command, setting and variable. `python tools/build_site.py` builds the same manual as a static site. The design documents for people who build Baton are in [docs/](docs/README.md).
 
 ## Author a recipe
 
@@ -257,49 +110,6 @@ Rules worth knowing before you start:
 - **Deliverables:** `publish: { to: "{{ paths.specs }}/{{ run.slug }}-requirements.md" }` writes an artifact to a project path after the step passes and tracks edits to it (§10.4).
 
 The recipe format is published as JSON Schema in `formats/baton-recipe-1.schema.json`.
-
-## Vendor a recipe
-
-```sh
-baton vendor path/to/recipe
-```
-
-Vendoring copies the recipe to `.baton/recipes/<id>@<version>/` and pins its hash in `baton.lock`. Recipes are trusted code (script gates run commands), so review them first. A new version that changes a kept step's signature or reuses a retired id needs the owner's decision: `vendor` exits 4 and lists the flags, then `baton vendor <dir> --approved --note "<owner's words>"`. Runs keep the recipe version they started with; new work items use the new one.
-
-## Adopt an existing project
-
-```sh
-baton adopt path/to/recipe [--crosswalk <name or file>] [--scope docs/]
-```
-
-Adoption is an ordinary run of a built-in recipe (§11). A read-only research step finds which of the recipe's outputs already exist (a **crosswalk** maps a known prior process's files to recipe steps). Then each in-flight work item becomes its own run and is triaged, and the runtime writes a baseline proposal to `.baton/adoption/<run>/baseline.yaml`: configuration, levels, work imported as already done, proposed waivers and known gaps. The owner reads it, may edit it, and makes the **one** adoption decision:
-
-```sh
-baton establish-baseline <adoption run> --note "<owner's words>"
-```
-
-## Resume on another machine
-
-Everything a run is lives in the repository (`.baton/runs/<run>/`, committed at checkpoints). On a new machine:
-
-```sh
-git clone <repo> && cd <repo>
-baton doctor              # this machine's own worker profiles must be in ~/.baton/workers.yaml
-baton resume <run>        # verify the record, reconcile in-flight work, claim the lease
-```
-
-A run is changed by one Director at a time (its **lease**); `baton lease <run> take-over --reason "…"` takes it over with the owner's approval.
-
-## Try a new Baton version on a branch
-
-```sh
-git worktree add ../my-project-trial -b baton-trial
-cd ../my-project-trial
-baton upgrade --to <version>     # changes only the lockfile and the vendored skills
-# run real work here; to keep it, merge the branch; to drop it, delete the branch and worktree
-```
-
-Stored formats are versioned; a runtime reads the current and previous version of each. Older files are refused with a hint to run `baton migrate` (`--dry-run` previews and changes nothing).
 
 ## Development
 

@@ -472,7 +472,7 @@ def _wake_check(project: Any) -> tuple[list[str], list[str]]:
 
     if wake_path(project) is not None:
         return [], []
-    fix = "set on_needs_human (or on_complete) in .baton/project.yaml or ~/.baton/hooks.yaml (README: Directors that end their turn)"
+    fix = "set on_needs_human (or on_complete) in .baton/project.yaml or ~/.baton/hooks.yaml (see `baton help admin.directors#wake`)"
     detached = []
     for rid in project.store.run_ids():
         try:

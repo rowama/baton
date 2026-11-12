@@ -466,35 +466,39 @@ def test_a_healthy_project_makes_no_routine_owner_prompts(tmp_path):
 
 
 @pytest.mark.not_slow("measured under 1 s")
-def test_readme_profile_example_is_valid(tmp_path):
-    """The README's worker profiles load as written (§19: the README covers writing profiles)."""
+def test_the_manuals_profile_example_is_valid(tmp_path):
+    """The manual's worker profiles (admin.machine-settings) load as written (§19: the manual covers writing profiles)."""
     import re
 
+    from baton import manual
     from baton.profiles import load_profiles
 
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
-    block = re.search(r"## Worker profiles.*?```yaml\n(.*?)```", text, re.S).group(1)
+    m = manual.Manual()
+    text = m.section(*m.resolve("admin.machine-settings#profiles"))
+    block = re.search(r"```yaml\n(.*?)```", text, re.S).group(1)
     f = tmp_path / "workers.yaml"
     f.write_text(block, encoding="utf-8")
     assert sorted(load_profiles(f)) == ["api-writer", "claude-code-sub", "codex-sub", "owner"]
 
 
 @pytest.mark.not_slow("measured under 1 s")
-def test_readme_covers_directors_that_end_their_turn(tmp_path):
-    """Change 2026-11-director-wake, criterion 6: the exit-code table, the environment, and two hook examples that work."""
+def test_the_manual_covers_directors_that_end_their_turn(tmp_path):
+    """Change 2026-11-director-wake, criterion 6 (now in the manual, admin.directors): the exit-code table, the environment, two hook examples that work."""
     import re
 
-    from baton import supervisor
+    from baton import manual, supervisor
     from baton.models import HooksConfig
 
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
-    codes = text[text.index("### Exit codes"):text.index("## Directors that end their turn")]
+    m = manual.Manual()
+    topic, _ = m.resolve("admin.directors")
+    codes = m.section(topic, "exit-codes")
     for n in range(5):
         assert f"| {n} |" in codes, n
     assert "**Finished, and the owner is needed now.** Not a failure" in codes and "`BATON_OWNER_EXIT=0`" in codes
-    section = text[text.index("## Directors that end their turn"):text.index("## Frame a goal")]
+    env = m.section(topic, "environment")
     for var in ("BATON_DIRECTOR", "BATON_HARNESS", "BATON_OWNER_EXIT"):
-        assert f"| `{var}` |" in section, var
+        assert f"| `{var}` |" in env, var
+    section = m.section(topic, "wake")
     blocks = [yaml.safe_load(b) for b in re.findall(r"```yaml\n(.*?)```", section, re.S)]
     assert len(blocks) == 2
     webhook, inbox = (HooksConfig.model_validate(b["hooks"]) for b in blocks)

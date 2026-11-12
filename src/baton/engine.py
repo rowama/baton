@@ -3185,6 +3185,15 @@ class Api:
 
     # -- the worker resource manager (§6.4, 0077): machine scope ------------
 
+    def help(self, topic: str | None = None, search: str | None = None) -> dict[str, Any]:
+        """The manual (§13.10), read-only: the topics, a search, or one topic or section. A Director answers "how do I..." from it."""
+        from . import manual
+
+        try:
+            return manual.help_payload(topic, search)
+        except manual.NoTopic as e:
+            raise EngineError("help.no_topic", str(e)) from e
+
     def ui(self, detach: bool = True, idle_timeout: float | None = None) -> dict[str, Any]:
         """The optional local setup page (§13.9): start it detached, or find the running one; returns its URL."""
         from . import ui as ui_mod

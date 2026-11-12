@@ -11,13 +11,14 @@ related: [admin.files-and-paths, admin.troubleshooting]
 
 Baton needs Python 3.11 or newer, git and [uv](https://docs.astral.sh/uv/). Install the `baton` command once per machine; it is a **launcher** that runs the exact Baton version each project pins in `.baton/baton.lock`, installing that version under `~/.baton/versions/` on first use. Two projects on two versions work side by side.
 
-```baton
+```sh
+uv tool install "baton[mcp,api] @ git+https://github.com/rowama/baton"
 baton --version
 ```
 
 ## Install {#install}
 
-One command with uv, naming the extras you want:
+One command with uv, as above, naming the extras you want in the brackets:
 
 | Extra | Adds |
 |---|---|

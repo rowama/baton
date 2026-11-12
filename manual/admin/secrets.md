@@ -2,6 +2,7 @@
 id: admin.secrets
 title: Where API keys are kept
 audience: admin
+order: 15
 summary: How Baton stores, resolves and protects provider keys on a machine.
 related: [user.connect-an-account]
 ---

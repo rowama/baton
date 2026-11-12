@@ -26,6 +26,15 @@ claude-code-sub:                       # a coding assistant on its subscription 
   env_deny: [ANTHROPIC_API_KEY]        # a stray key would switch billing to the API
   path: { search: [nvm] }              # find CLIs installed under nvm
 
+codex-sub:
+  adapter: codex
+  vendor: openai
+  capabilities: [structured_output, tool_use, file_write, shell, code_exec, repo_workspace, workspace_read, long_form_writing, technical_reasoning]
+  tier: strong
+  auth: { mode: cli_login }
+  env_deny: [OPENAI_API_KEY, CODEX_API_KEY]
+  path: { search: [nvm] }
+
 api-writer:                            # a model API call
   adapter: litellm_api
   vendor: some-vendor

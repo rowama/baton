@@ -109,6 +109,11 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.diag(since, code, run, records, limit))
 
     @tool
+    def help(topic: str | None = None, search: str | None = None) -> dict[str, Any]:
+        """Baton's own manual, read-only. No arguments: the topics. search: find topics by words. topic: one topic, or one section as topic#anchor. Answer questions about using or setting up Baton from this, never from memory."""
+        return t.call(lambda api: api.help(topic, search))
+
+    @tool
     def ui(idle_timeout: float | None = None) -> dict[str, Any]:
         """Start the optional local setup page (or find the running one) and return its link. Tell the owner to open it to connect accounts and choose models; it closes itself when idle."""
         return t.call(lambda api: api.ui(True, idle_timeout))

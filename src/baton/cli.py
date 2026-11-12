@@ -1151,30 +1151,23 @@ def help_command(
     """The manual: list its topics, print one, or search it. Reads the manual that ships with this version (§13.10)."""
     from . import manual
 
-    m = manual.Manual()
-    if search is not None:
-        hits = m.search(search)
-        text = "\n".join(f"{h['id']}{'#' + h['anchor'] if h['anchor'] else ''}  {h['title']}: {h['summary']}" for h in hits) or "No topic matches."
-        _emit({"ok": True, "results": hits}, as_json, text)
-        return
-    if topic is None:
-        rows = m.listing()
-        text = []
-        for part in manual.PARTS:
-            mine = [r for r in rows if r["part"] == part]
-            if mine:
-                text += [manual.PART_TITLES[part]] + [f"  {r['id']}  {r['title']}" for r in mine] + [""]
-        _emit({"ok": True, "topics": rows}, as_json, "\n".join(text).rstrip() + "\n\nRead one with: baton help <topic>")
-        return
     try:
-        t, anchor = m.resolve(topic)
-    except KeyError:
-        near = [h["id"] for h in m.search(topic.replace(".", " ").replace("-", " "), 3)]
-        _fail(as_json, EXIT_PROBLEM, "help.no_topic", f"no manual topic {topic!r}" + (f"; did you mean {', '.join(near)}?" if near else "; list them with: baton help"))
-    body = m.section(t, anchor)
-    shown = re.sub(r"[ \t]*\{#[a-z0-9-]+\}[ \t]*$", "", body, flags=re.MULTILINE)
-    _emit({"ok": True, "id": t.id, "anchor": anchor, "title": t.title, "summary": t.summary, "markdown": body},
-          as_json, (f"{t.title}\n{'=' * len(t.title)}\n\n" if anchor is None else "") + shown + "\n")
+        out = manual.help_payload(topic, search)
+    except manual.NoTopic as e:
+        _fail(as_json, EXIT_PROBLEM, "help.no_topic", str(e))
+    if "results" in out:
+        text = "\n".join(f"{h['id']}{'#' + h['anchor'] if h['anchor'] else ''}  {h['title']}: {h['summary']}" for h in out["results"]) or "No topic matches."
+    elif "topics" in out:
+        lines = []
+        for part in manual.PARTS:
+            mine = [r for r in out["topics"] if r["part"] == part]
+            if mine:
+                lines += [manual.PART_TITLES[part]] + [f"  {r['id']}  {r['title']}" for r in mine] + [""]
+        text = "\n".join(lines).rstrip() + "\n\nRead one with: baton help <topic>"
+    else:
+        shown = re.sub(r"[ \t]*\{#[a-z0-9-]+\}[ \t]*$", "", out["markdown"], flags=re.MULTILINE)
+        text = (f"{out['title']}\n{'=' * len(out['title'])}\n\n" if out["anchor"] is None else "") + shown + "\n"
+    _emit(out, as_json, text)
 
 
 @app.command("ui")

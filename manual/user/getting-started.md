@@ -18,13 +18,14 @@ Each step is below.
 
 ## Install {#install}
 
-Baton needs Python 3.11 or newer, git and [uv](https://docs.astral.sh/uv/). Then:
+Baton needs Python 3.11 or newer, git and [uv](https://docs.astral.sh/uv/). Then, in a terminal:
 
-```baton
+```sh
+uv tool install "baton[mcp,api] @ git+https://github.com/rowama/baton"
 baton --version
 ```
 
-If that prints a version, Baton is installed. If you have not installed it yet, the install command is on the project's page; it is one `uv tool install` command. For installation options and what is put where, see the admin guide.
+If the second command prints a version, Baton is installed. For installation options and what is put where, see the admin guide: [install, versions and upgrades](admin.install-and-versions#here-now).
 
 ## Set up a project {#set-up-a-project}
 

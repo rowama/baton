@@ -249,3 +249,11 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Review:** clean.
 - **Accepted:** pending the owner.
 
+### Slice 7: the Director's `help` action, the site build and the README
+
+- **Commit:** `2026-11-user-help: Slice 7, the Director's help action, the static site and a shorter README`
+- **Summary:** `help(topic?, search?)` is an API call, an MCP tool and the CLI's `baton help`, all through `manual.help_payload`, so the words are the same on every interface; the Director skill (and its copy in §13.3) says to answer "how do I..." about Baton from it, never from memory. `tools/build_site.py` writes the manual as a static site under a version prefix (every topic at `/<version>/manual/<part>/<slug>/` with its anchor, JSON beside the pages where the page script reads the local API, browser-side search with the server's scoring, `versions.json` and a forwarding `index.html`); the page scripts are prefix-aware and share one source with `baton ui`. The reader's contents list now folds by part. The README keeps the install, the project set-up, a pointer to the manual and the recipe-authoring guide (not yet in the manual, decision 0127), and drops what the manual now holds; `doctor` points at `baton help admin.directors#wake` instead of the README, and the wake-up test reads the manual. §19 and §13.10 carry the finished rules.
+- **Tests:** `tests/test_director_surface.py` (MCP lists `help`; its words equal the CLI's; a missing topic is `help.no_topic`), `tests/test_manual_site.py` (every topic has its page and data; the site is self-contained under its prefix; search data and the version index; a manual that does not validate is not published; the scripts are prefix-aware), `tests/test_real_use.py` (the wake-up test reads the manual).
+- **Review:** clean.
+- **Accepted:** pending the owner. The change stays `in-progress` until the owner has seen the look of the page (decision 0128: slice 2 is accepted only after they have) and read the manual's words; then `status: done`.
+

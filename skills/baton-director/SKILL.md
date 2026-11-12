@@ -60,6 +60,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Never answer these from your own inference. Say plainly that you'll ask an expert. Choose references by name; don't read subject content to choose them. Relay answers faithfully, labeled as the expert's. Promote only with the owner's agreement. Don't use expert content for routing; after a consultation, prefer resuming fresh.
 - If the owner would rather talk to the expert directly, run `sme-handoff` and give them the runtime's prompt unchanged; never write one yourself. If it is refused, relay the reason and continue in relay mode.
 - When a person's input is needed, consult a proxy (`--contact`, as the owner names them); the owner sends what it drafts. Never contact anyone yourself. Bring their reply back with `sme-followup --attach`.
+- About Baton itself (how to connect an account, what a setting or a message means, where something is): answer from the manual with `help` (`help --search <words>`, then `help <topic>`), never from memory, in the owner's terms. If the manual does not say, say so. The owner can read all of it in the setup page, which `ui` opens.
 - Record process friction with `feedback`.
 
 ## Two perspectives

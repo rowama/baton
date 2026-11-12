@@ -3,10 +3,19 @@
 (function () {
   const { render, topicUrl, el } = window.BatonRender;
   const $ = (id) => document.getElementById(id);
-  const inManual = () => location.pathname === "/manual" || location.pathname.startsWith("/manual/");
+  // The same script reads the local API (baton ui) or, in the static site (tools/build_site.py), JSON files beside the pages.
+  const BASE = window.BATON_BASE || "", STATIC = !!window.BATON_STATIC;
+  const here = () => location.pathname.slice(BASE.length) || "/";
+  const inManual = () => here() === "/manual" || here().startsWith("/manual/");
   let tree = null, current = null, spy = null;
 
+  let corpus = null;
   async function get(path) {
+    if (STATIC) {
+      const m = /^\/api\/manual\/(tree|topic\/(.+))$/.exec(path);
+      if (m) path = "/api/manual/" + (m[2] ? "topic/" + m[2] : "tree") + ".json";
+      path = BASE + path;
+    }
     const res = await fetch(path);
     const out = await res.json().catch(() => ({ ok: false, message: "Unreadable answer." }));
     if (!res.ok) throw new Error(out.message || "Not available.");
@@ -16,11 +25,11 @@
   // ---- navigation tree ---------------------------------------------------
   function buildNav() {
     const nav = $("nav"); nav.replaceChildren();
-    nav.append(el("a", { href: "/manual", class: "nav-home", "data-topic": "1" }, "Manual home"));
+    nav.append(el("a", { href: BASE + "/manual", class: "nav-home", "data-topic": "1" }, "Manual home"));
     for (const part of tree) {
-      nav.append(el("div", { class: "nav-part" }, part.title));
-      nav.append(el("ul", {}, part.topics.map((t) =>
-        el("li", {}, el("a", { href: topicUrl(t.id), "data-topic": "1", "data-id": t.id }, t.title)))));
+      nav.append(el("details", { class: "nav-group", "data-part": part.part },
+        el("summary", { class: "nav-part" }, part.title),
+        el("ul", {}, part.topics.map((t) => el("li", {}, el("a", { href: topicUrl(t.id), "data-topic": "1", "data-id": t.id }, t.title))))));
     }
   }
 
@@ -28,6 +37,8 @@
     for (const a of $("nav").querySelectorAll("a[data-id]")) {
       if (a.dataset.id === id) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     }
+    // The part you are reading is open; at the manual's home, the user guide is.
+    for (const d of $("nav").querySelectorAll("details.nav-group")) d.open = id ? d.querySelector("[aria-current]") !== null : d.dataset.part === "user";
   }
 
   // ---- pages ------------------------------------------------------------------
@@ -52,11 +63,11 @@
   async function show(id, anchor) {
     let page;
     try { page = await get("/api/manual/topic/" + encodeURIComponent(id)); }
-    catch (e) { $("doc").replaceChildren(el("h1", {}, "Not found"), el("p", {}, "There is no manual page at this address."), el("a", { href: "/manual", "data-topic": "1" }, "Back to the manual home")); return; }
+    catch (e) { $("doc").replaceChildren(el("h1", {}, "Not found"), el("p", {}, "There is no manual page at this address."), el("a", { href: BASE + "/manual", "data-topic": "1" }, "Back to the manual home")); return; }
     current = id; markNav(id);
     document.title = page.title + " · Baton manual";
     const doc = $("doc"); doc.replaceChildren(
-      el("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, el("a", { href: "/manual", "data-topic": "1" }, "Manual"), " / ", page.part_title),
+      el("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, el("a", { href: BASE + "/manual", "data-topic": "1" }, "Manual"), " / ", page.part_title),
       el("h1", {}, page.title), el("p", { class: "lead" }, page.summary), render(page.markdown));
     if (page.related.length) doc.append(el("section", { class: "related" }, el("h2", {}, "Related"),
       el("ul", { class: "plain" }, page.related.map((r) => el("li", {}, el("a", { href: topicUrl(r.id), "data-topic": "1" }, r.title))))));
@@ -82,7 +93,7 @@
   }
 
   function route() {
-    const m = /^\/manual\/([a-z]+)\/([a-z0-9-]+)\/?$/.exec(location.pathname);
+    const m = /^\/manual\/([a-z]+)\/([a-z0-9-]+)\/?$/.exec(here());
     if (!m) return landing();
     return show(m[1] + "." + m[2], decodeURIComponent(location.hash.slice(1)));
   }
@@ -114,12 +125,25 @@
   async function search() {
     const text = q.value.trim();
     if (text.length < 2) return hideHits();
-    let out; try { out = await get("/api/manual/search?q=" + encodeURIComponent(text)); } catch (e) { return hideHits(); }
+    let out; try { out = STATIC ? { results: await staticSearch(text) } : await get("/api/manual/search?q=" + encodeURIComponent(text)); } catch (e) { return hideHits(); }
     hits.replaceChildren();
     if (!out.results.length) hits.append(el("li", { class: "none" }, "Nothing found for “" + text + "”."));
     for (const r of out.results) hits.append(el("li", { role: "option" }, el("a", { href: topicUrl(r.id, r.anchor), "data-topic": "1" },
       el("strong", {}, r.title), el("span", { class: "muted" }, r.summary))));
     hits.hidden = false; q.setAttribute("aria-expanded", "true"); active = -1;
+  }
+  // Static site: the same scoring as the server's, over search.json.
+  async function staticSearch(text) {
+    if (!corpus) corpus = await (await fetch(BASE + "/search.json")).json();
+    const words = (text.toLowerCase().match(/[a-z0-9]+/g) || []).filter((w) => w.length > 1);
+    const out = [];
+    for (const t of corpus) {
+      let score = 0, anchor = null;
+      for (const w of words) score += 5 * t.title.toLowerCase().includes(w) + 3 * t.summary.toLowerCase().includes(w) + t.text.toLowerCase().includes(w);
+      for (const h of t.headings) if (words.some((w) => h.text.toLowerCase().includes(w))) { score += 2; anchor = anchor || h.anchor; }
+      if (score) out.push({ id: t.id, anchor, title: t.title, summary: t.summary, score });
+    }
+    return out.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1)).slice(0, 12);
   }
   q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 120); });
   q.addEventListener("keydown", (e) => {
@@ -138,7 +162,7 @@
   for (const t of tabs) if ((t.dataset.tab === "manual") === inManual()) t.setAttribute("aria-current", "page");
   window.BatonManual = { inManual };
   if (inManual()) {
-    $("view-setup").hidden = true; $("view-manual").hidden = false; $("quit").hidden = false;
+    $("view-setup").hidden = true; $("view-manual").hidden = false; if (!STATIC) $("quit").hidden = false;
     get("/api/manual/tree").then((out) => { tree = out.parts; buildNav(); return route(); })
       .catch((e) => { $("doc").replaceChildren(el("h1", {}, "The manual is not available"), el("p", {}, e.message)); });
   }

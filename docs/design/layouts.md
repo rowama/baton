@@ -57,6 +57,7 @@ baton/
 ├── defaults/labels.yaml     # plain-language labels for decision options (§13.8)
 ├── defaults/known-workers.yaml   # shared, read-only data about models and routes (§6.4)
 ├── examples/recipes/fit-check/   examples/recipes/software-feature/   examples/recipes/backyard-project/   # the catalog: shipped in the package (§11.6)
+├── tools/build_manual.py  manual_anchors.py  build_site.py   # maintainers only: write the generated manual topics, record published anchors, build the static manual site (§13.10)
 ├── tools/worker-research/   # maintainers only, never shipped with Baton: its own package, the baton-worker-research command and its one-step recipe, proposes known-workers updates, starting from `harness-docs.yaml`, the maintainer's list of documentation pages per harness (§6.4)
 └── tests/
 ```

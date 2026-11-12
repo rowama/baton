@@ -401,7 +401,7 @@ API_CALLS = {
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
     "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame", "note",
-    "workers_status", "workers_setup", "workers_declare", "diag", "ui",
+    "workers_status", "workers_setup", "workers_declare", "diag", "ui", "help",
 }
 
 
@@ -692,3 +692,24 @@ def test_http_serves_the_api_to_bearer_holders_only(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+@pytest.mark.not_slow("measured under 2 s")
+def test_the_director_reads_the_manual_through_mcp_and_the_cli_gives_the_same_words(tmp_path, monkeypatch):
+    """The manual's `help` is read-only, works with no arguments, a search or a topic, and says the same on both interfaces (0131)."""
+    from mcp import Client
+
+    cli, project = setup_fit_check(tmp_path)
+    monkeypatch.setenv("BATON_HOME", str(cli.home))
+
+    async def main():
+        async with Client(build_server(project, "bob@host2")) as c:
+            return (await c.call_tool("help", {}), await c.call_tool("help", {"search": "keyring"}),
+                    await c.call_tool("help", {"topic": "user.connect-an-account#key-refused"}), await c.call_tool("help", {"topic": "user.nope"}))
+
+    listing, found, section, missing = asyncio.run(main())
+    assert any(t["id"] == "admin.secrets" for t in listing.structured_content["topics"])
+    assert any(r["id"] == "admin.secrets" for r in found.structured_content["results"])
+    assert section.structured_content["markdown"].startswith("## Key refused")
+    assert _tool_error(missing)["error"] == "help.no_topic"
+    assert cli.run("help", "user.connect-an-account#key-refused")["markdown"] == section.structured_content["markdown"]
