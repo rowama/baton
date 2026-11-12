@@ -2,6 +2,7 @@
 id: user.choose-models
 title: Choose which models Baton may use
 audience: owner
+order: 30
 summary: Filter the models table, turn models off, prefer cheaper or more proven ones, and check that one works.
 related: [user.connect-an-account, user.connect-a-subscription]
 ---

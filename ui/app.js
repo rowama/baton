@@ -10,7 +10,7 @@ function h(tag, attrs, ...kids) {
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat()) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  for (const kid of kids.flat()) { if (kid == null || kid === false) continue; el.append(kid instanceof Node ? kid : document.createTextNode(String(kid))); }
   return el;
 }
 
@@ -204,4 +204,4 @@ $("quit").addEventListener("click", async () => {
   document.body.replaceChildren(h("p", { class: "muted" }, "Closed. You can close this tab."));
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state) load(); });
-load();
+if (!window.BatonManual.inManual()) load();

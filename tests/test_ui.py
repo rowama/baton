@@ -272,3 +272,33 @@ def test_stop_ends_the_registered_page_and_clears_its_file(tmp_path, monkeypatch
     assert ui.stop(tmp_path)["stopped"] is True
     assert sent == [(os.getpid(), signal.SIGTERM)] and not (tmp_path / ui.UI_FILE).exists()
     assert ui.stop(tmp_path)["stopped"] is False
+
+
+# ---- the manual reader (§13.10; decision 0129) --------------------------------
+
+
+def test_the_manual_is_served_read_only_behind_the_same_checks(home):
+    page = Page(home)
+    try:
+        def get(path, **kw):
+            r, raw = page.req("GET", path, **kw)
+            return r.status, raw
+
+        status, raw = get("/api/manual/tree")
+        assert status == 200 and {p["part"] for p in json.loads(raw)["parts"]} >= {"user", "admin"}
+        status, raw = get("/api/manual/topic/user.connect-an-account")
+        out = json.loads(raw)
+        assert status == 200 and out["title"] == "Connect an API account" and out["next"]["id"] == "user.connect-a-subscription"
+        assert get("/api/manual/topic/..%2F..%2Fetc%2Fpasswd")[0] == 404
+        assert get("/api/manual/topic/user.nope")[0] == 404
+        status, raw = get("/api/manual/search?q=openrouter")
+        assert json.loads(raw)["results"][0]["id"] == "user.connect-an-account"
+        for path in ("/manual", "/manual/user/connect-an-account"):
+            status, raw = get(path)
+            assert status == 200 and b"view-manual" in raw
+        assert get("/manual", cookie=False)[0] == 401
+        assert get("/api/manual/tree", cookie=False)[0] == 401
+        assert get("/api/manual/tree", host="evil.example")[0] == 403
+        assert page.post("/api/manual/tree")[0].status == 404
+    finally:
+        page.close()

@@ -3,21 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Baton setup</title>
+<meta name="color-scheme" content="light dark">
+<title>Baton</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<header>
-  <h1>Baton setup</h1>
-  <p class="sub">The accounts and models Baton may use on this computer.</p>
+<a class="skip" href="#content">Skip to content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Baton setup"><span class="mark" aria-hidden="true"></span>Baton</a>
+  <nav class="tabs" aria-label="Sections">
+    <a href="/" data-tab="setup">Setup</a>
+    <a href="/manual" data-tab="manual">Manual</a>
+  </nav>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search the manual" aria-label="Search the manual" autocomplete="off" spellcheck="false" aria-controls="hits" aria-expanded="false">
+    <kbd class="hint" aria-hidden="true">/</kbd>
+    <ul id="hits" role="listbox" aria-label="Search results" hidden></ul>
+  </div>
   <button id="quit" class="quiet">Close this page</button>
 </header>
-<main>
-  <p id="notice" role="status" hidden></p>
-  <section id="harnesses"><h2>Subscriptions on this computer</h2><div id="harness-list"></div></section>
-  <section id="providers"><h2>Accounts</h2><div id="provider-list"></div></section>
-  <section id="models"><h2>Models</h2><div id="filters"></div><div id="model-table"></div></section>
-</main>
+
+<div id="view-setup">
+  <main id="content">
+    <div class="page-head"><h1>Setup</h1><p class="sub">The accounts and models Baton may use on this computer.</p></div>
+    <p id="notice" role="status" hidden></p>
+    <section id="harnesses"><h2>Subscriptions on this computer</h2><div id="harness-list"></div></section>
+    <section id="providers"><h2>Accounts</h2><div id="provider-list"></div></section>
+    <section id="models"><h2>Models</h2><div id="filters"></div><div id="model-table"></div></section>
+  </main>
+</div>
+
+<div id="view-manual" hidden>
+  <button id="nav-toggle" class="quiet nav-toggle" aria-expanded="false" aria-controls="nav">Contents</button>
+  <div class="reader">
+    <nav id="nav" aria-label="Manual contents"></nav>
+    <main id="doc" tabindex="-1"></main>
+    <aside id="toc" aria-label="On this page"></aside>
+  </div>
+</div>
+
+<script src="/render.js"></script>
+<script src="/manual.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

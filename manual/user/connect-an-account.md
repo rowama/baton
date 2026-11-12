@@ -2,6 +2,7 @@
 id: user.connect-an-account
 title: Connect an API account
 audience: owner
+order: 10
 summary: Give Baton a key for a provider such as OpenRouter so its models can do work for you.
 related: [user.choose-models, user.connect-a-subscription, admin.secrets]
 ---

@@ -209,3 +209,10 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Review:** clean.
 - **Accepted:** pending the owner.
 
+### Slice 2: the manual reader and the design system in `baton ui`
+
+- **Commit:** `2026-11-user-help: Slice 2, the manual reader and one design system in baton ui`
+- **Summary:** `baton ui` is now Setup and Manual under one header with a search box. Server: `GET /api/manual/tree`, `/api/manual/topic/<id>`, `/api/manual/search?q=` and the page shell at `/manual` and `/manual/<part>/<slug>`, behind the unchanged token, Host and Origin checks; query strings now reach routes as `?name` arguments. Front end: `render.js` (the Markdown subset to DOM nodes), `manual.js` (tree, topic, outline with scroll-spy, breadcrumbs, previous and next, deep links, search with keyboard use, narrow-screen contents drawer), a new `app.css` design system for both parts, light and dark. `manual.py` gains `tree`, `page` and the optional `order` front-matter field. Also fixed: the Setup cards printed the word "null" where a control was absent (`h()` now skips null kids). Seen running in headless Chrome at desktop, dark and phone widths.
+- **Tests:** `tests/test_ui.py` (the reader's routes, refusals without the token, a bad Host, a path in a topic id, no write method); `tests/test_ui_render.py` (the renderer under node: sections and anchors, topic and external links, nested inline text terminates, HTML in a topic stays text, tables, notes and code).
+- **Review:** one bug found and fixed while looking at it: `inline()` shared one global regex between its recursive calls, which corrupted `lastIndex` and looped on nested bold and code; it now builds one per call, and the renderer test covers it.
+- **Accepted:** pending the owner, who is to see the page running: `baton ui`, then Manual.

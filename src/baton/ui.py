@@ -26,19 +26,23 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import accounts
 from . import prefs as prefs_mod
 from . import data as data_mod
 from . import diag
+from . import manual as manual_mod
 
 COOKIE = "baton_ui"
 DEFAULT_IDLE = 900.0
 UI_FILE = "ui.json"
 #: The files the front end may serve, by URL path: nothing else on disk is ever reachable.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-          "/app.css": ("app.css", "text/css; charset=utf-8")}
+          "/app.css": ("app.css", "text/css; charset=utf-8"), "/render.js": ("render.js", "text/javascript; charset=utf-8"),
+          "/manual.js": ("manual.js", "text/javascript; charset=utf-8")}
+#: The manual reader's pages are one shell; the script reads the path (`/manual/<part>/<slug>#anchor`).
+MANUAL_PAGES = "/manual"
 MAX_BODY = 64 * 1024
 
 
@@ -248,7 +252,26 @@ class _Quit(Exception):
     pass
 
 
-#: (method, path) -> route. Later slices add the account, model and preference routes.
+def _manual() -> manual_mod.Manual:
+    return manual_mod.Manual()
+
+
+def _manual_tree(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
+    return {"ok": True, "parts": _manual().tree()}
+
+
+def _manual_topic(_home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    try:
+        return {"ok": True, **_manual().page(unquote(args["id"]))}
+    except KeyError:
+        raise UiError(HTTPStatus.NOT_FOUND, "ui.no_topic", "There is no such manual topic.") from None
+
+
+def _manual_search(_home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    return {"ok": True, "results": _manual().search(args.get("?q", "")[:200], limit=12)}
+
+
+#: (method, path) -> route.
 ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/state"): _state,
     ("POST", "/api/accounts"): _connect,
@@ -259,6 +282,9 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("POST", "/api/models/<profile>/enabled"): _set_enabled,
     ("POST", "/api/models/<profile>/verify"): _verify,
     ("POST", "/api/quit"): _quit,
+    ("GET", "/api/manual/tree"): _manual_tree,
+    ("GET", "/api/manual/search"): _manual_search,
+    ("GET", "/api/manual/topic/<id>"): _manual_topic,
 }
 
 
@@ -413,7 +439,9 @@ class Server:
                         return self._refuse(HTTPStatus.BAD_REQUEST, "ui.header", "Changes must come from the page itself.")
                 if method == "GET" and url.path in STATIC:
                     return self._static(url.path)
-                return self._route(method, url.path)
+                if method == "GET" and (url.path == MANUAL_PAGES or url.path.startswith(MANUAL_PAGES + "/")):
+                    return self._static("/")
+                return self._route(method, url.path, query)
 
             def _static(self, path: str) -> None:
                 name, ctype = STATIC[path]
@@ -421,14 +449,14 @@ class Server:
                     return self._refuse(HTTPStatus.NOT_FOUND, "ui.no_front_end", "This install has no page files; the API still works.")
                 self._send(HTTPStatus.OK, (server.assets / name).read_bytes(), ctype)
 
-            def _route(self, method: str, path: str) -> None:
+            def _route(self, method: str, path: str, query: dict[str, list[str]]) -> None:
                 route, args = None, {}
                 for (m, pattern), fn in server.routes.items():
                     if m != method:
                         continue
                     got = _match(pattern, path)
                     if got is not None:
-                        route, args = fn, got
+                        route, args = fn, {**got, **{"?" + k: v[0] for k, v in query.items() if v}}
                         break
                 if route is None:
                     return self._refuse(HTTPStatus.NOT_FOUND, "ui.not_found", "No such page action.")

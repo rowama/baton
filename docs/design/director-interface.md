@@ -280,6 +280,7 @@ An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/
 | `POST /api/models/<profile>/verify` | The one live check | `workers setup --verify` |
 | `PUT /api/preferences` | Cheapest or most-verified first, per-capability preferred models | `workers prefs` |
 | `POST /api/quit` | End the process | |
+| `GET /api/manual/tree`, `GET /api/manual/topic/<id>`, `GET /api/manual/search?q=` | The manual reader (§13.10): the navigation, one topic with its neighbours, a search. Read-only: they serve only the shipped manual, by topic id, never a path from the request | `baton help` |
 
 **Connecting an API account** checks the key with the provider's listing (or key-info) read, never a model call (§6.4 Listings), and says why in plain words when it is refused. Where the provider reports credit or free quota, the page shows it. Nothing about a key is shown after it is stored except where it is kept (keyring or file).
 
@@ -289,11 +290,13 @@ An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/
 
 **Front end.** Plain HTML, CSS and JavaScript, no framework or build step, shipped as data (`baton/_data/ui`); it reads the API only. It lists providers, then models with filters (free only, maximum price, capability, tier, provider).
 
+**Setup and Manual.** One header, one design system (light and dark following the system, phone to wide desktop, keyboard focus, accessible contrast) and a search box serve both parts (Decision: [0129](../decisions/0129-ui-serves-the-whole-manual.md)). `GET /manual` and `/manual/<part>/<slug>` serve the one page shell; its script reads the path and the manual routes above, and `#anchor` scrolls to a heading. The reader has a contents tree by part, the topic in a reading column, an on-this-page outline that follows the scroll, breadcrumbs, previous and next, and search by title, summary, heading and text (`/` focuses it). `render.js` turns the Markdown subset (§13.10) into DOM nodes, never HTML strings, so nothing in a topic can inject markup; `tests/test_ui_render.py` runs it under node.
+
 ### 13.10 The manual and `baton help`
 
 The owner's and the administrator's documentation: one corpus, `manual/`, written once and read three ways (Decisions: [0126](../decisions/0126-manual-one-corpus.md), [0127](../decisions/0127-manual-audiences-and-recipes.md), [0128](../decisions/0128-manual-markdown-subset-and-visual-bar.md), [0129](../decisions/0129-ui-serves-the-whole-manual.md), [0132](../decisions/0132-change-docs-name-their-manual-edits.md)). It adds no concept (§2). It ships as data (`baton/_data/manual`), so it matches the pinned runtime (§14.1) and works offline; nothing in the runtime requires it.
 
-**Corpus.** `manual/<part>/<slug>.md` with parts `user/` (what an owner can and should do, by task), `recipes/` (one topic per shipped recipe), `admin/` (configuration and operations for IT) and `reference/` (generated). A topic's front matter has `id` (`<part>.<slug>`), `title`, `audience` (`owner` for `user/` and `recipes/`, `admin` for the others), `summary`, and optionally `related`, `aliases` (old topic ids) and `anchor_aliases` (old anchor to new). Three files sit beside the parts: `context.yaml`, `anchors.yaml` and `terms.yaml`.
+**Corpus.** `manual/<part>/<slug>.md` with parts `user/` (what an owner can and should do, by task), `recipes/` (one topic per shipped recipe), `admin/` (configuration and operations for IT) and `reference/` (generated). A topic's front matter has `id` (`<part>.<slug>`), `title`, `audience` (`owner` for `user/` and `recipes/`, `admin` for the others), `summary`, and optionally `order` (reading order within its part), `related`, `aliases` (old topic ids) and `anchor_aliases` (old anchor to new). Three files sit beside the parts: `context.yaml`, `anchors.yaml` and `terms.yaml`.
 
 **Markdown subset** (checked): `##` and `###` headings, each with an explicit anchor `{#lowercase-words}` unique in its topic (the title is the front matter's); paragraphs; bullet and numbered lists; tables; fenced code, bare or with one language; `**bold**`, `*em*`, `` `code` ``; links to `https://` or to a topic as `topic.id#anchor` (never a file path); notes as `> **Note:** ...` or `> **Warning:** ...`. No raw HTML. A guide topic opens with `## Here, now {#here-now}`: the short answer for the place the reader is in. Context help shows that section, and the guide reads the whole topic, so there is one text.
 
@@ -305,4 +308,4 @@ The owner's and the administrator's documentation: one corpus, `manual/`, writte
 
 **`baton help`.** `baton help` lists topics by part; `baton help <topic>[#anchor]` prints a topic or one section; `baton help --search <words>` finds topics; `--json` for tools.
 
-Later slices of [2026-11-user-help](../changes/2026-11-user-help.md) add the reader and the context panel to `baton ui`, the Director's `help` action, the generated reference (§13.10 gains its rules as they land) and the static site build.
+The reader in `baton ui` (§13.9) serves every topic in full, read-only. Later slices of [2026-11-user-help](../changes/2026-11-user-help.md) add the context panel to it, the Director's `help` action, the generated reference (§13.10 gains its rules as they land) and the static site build.

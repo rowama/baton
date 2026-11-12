@@ -21,6 +21,12 @@ from . import data
 PARTS = ("user", "recipes", "admin", "reference")
 AUDIENCE = {"user": "owner", "recipes": "owner", "admin": "admin", "reference": "admin"}
 PART_TITLES = {"user": "User guide", "recipes": "Recipes", "admin": "Admin guide", "reference": "Reference"}
+PART_BLURBS = {
+    "user": "What you can do with Baton, and how, step by step.",
+    "recipes": "The processes that ship with Baton: what each is for, what you will be asked, what it makes.",
+    "admin": "Installing, configuring and securing Baton on a machine.",
+    "reference": "Every command, setting, path and message, generated from Baton itself.",
+}
 HERE_NOW = "here-now"  # the short, in-context answer every guide topic opens with
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*(?:\{#([^}\s]*)\})?\s*$")
@@ -55,6 +61,7 @@ class Topic:
     aliases: list[str]
     anchor_aliases: dict[str, str]
     body: str
+    order: int = 100
     headings: list[Heading] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
 
@@ -111,7 +118,8 @@ class Manual:
                 t = Topic(id=str(meta.get("id", "")), part=part, slug=slug, path=path, title=str(meta.get("title", "")),
                           audience=str(meta.get("audience", "")), summary=str(meta.get("summary", "")),
                           related=list(meta.get("related") or []), aliases=list(meta.get("aliases") or []),
-                          anchor_aliases=dict(meta.get("anchor_aliases") or {}), body=body)
+                          anchor_aliases=dict(meta.get("anchor_aliases") or {}), body=body,
+                          order=int(meta.get("order", 100)))
                 for key in REQUIRED:
                     if not meta.get(key):
                         t.problems.append(f"{rel}: front matter lacks {key}")
@@ -123,6 +131,8 @@ class Manual:
                     t.problems.append(f"{rel}: audience must be {AUDIENCE[part]!r} in {part}/")
                 self.topics[tid] = t
                 self._scan(t, rel)
+        ordered = sorted(self.topics.values(), key=lambda t: (PARTS.index(t.part), t.order, t.slug))
+        self.topics = {t.id if False else f"{t.part}.{t.slug}": t for t in ordered}
         self.aliases = {a: t.id for t in self.topics.values() for a in t.aliases}
 
     def _scan(self, t: Topic, rel: str) -> None:
@@ -194,6 +204,29 @@ class Manual:
             if score:
                 out.append({"id": t.id, "anchor": where, "title": t.title, "summary": t.summary, "score": score})
         return sorted(out, key=lambda r: (-r["score"], r["id"]))[:limit]
+
+    def tree(self) -> list[dict[str, Any]]:
+        """The reader's navigation: parts in order, each with its topics and their headings."""
+        out = []
+        for part in PARTS:
+            topics = [t for t in self.topics.values() if t.part == part]
+            if topics:
+                out.append({"part": part, "title": PART_TITLES[part], "blurb": PART_BLURBS[part], "topics": [
+                    {"id": t.id, "slug": t.slug, "title": t.title, "summary": t.summary,
+                     "headings": [{"level": h.level, "text": h.text, "anchor": h.anchor} for h in t.headings]} for t in topics]})
+        return out
+
+    def page(self, tid: str) -> dict[str, Any]:
+        """One topic for the reader: its Markdown, its neighbours in reading order and its related topics."""
+        t, _ = self.resolve(tid)
+        order = list(self.topics.values())
+        i = order.index(t)
+        brief = lambda x: {"id": x.id, "part": x.part, "slug": x.slug, "title": x.title}  # noqa: E731
+        return {"id": t.id, "part": t.part, "slug": t.slug, "part_title": PART_TITLES[t.part], "title": t.title,
+                "summary": t.summary, "markdown": t.body.strip("\n"),
+                "headings": [{"level": h.level, "text": h.text, "anchor": h.anchor} for h in t.headings],
+                "prev": brief(order[i - 1]) if i > 0 else None, "next": brief(order[i + 1]) if i + 1 < len(order) else None,
+                "related": [brief(self.resolve(r)[0]) for r in t.related if r.partition("#")[0] in self.topics]}
 
     # ---- the registry of published anchors -----------------------------
 

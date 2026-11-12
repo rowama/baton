@@ -2,6 +2,7 @@
 id: user.connect-a-subscription
 title: Use a subscription you already have
 audience: owner
+order: 20
 summary: Let Baton use a coding assistant you are already logged in to, such as Claude Code or Codex.
 related: [user.connect-an-account, user.choose-models]
 ---
