@@ -17,6 +17,43 @@ errors:
   accounts.no_key: user.connect-an-account#here-now
   accounts.key_from_environment: admin.secrets#where-keys-are-kept
 commands:
+  vendor: admin.recipes-and-vendoring
+  plan: admin.recipes-and-vendoring
+  recipes: admin.recipes-and-vendoring
+  recipe: admin.recipes-and-vendoring
+  upgrade: admin.install-and-versions
+  migrate: admin.install-and-versions
+  check: admin.troubleshooting
+  diag: admin.troubleshooting
+  detect: admin.troubleshooting
+  mcp: admin.directors
+  abandon: admin.director-commands
+  ask-sme: admin.director-commands
+  cancel: admin.director-commands
+  dispatch: admin.director-commands
+  disposition: admin.director-commands
+  eligible: admin.director-commands
+  explain: admin.director-commands
+  feedback: admin.director-commands
+  ingest-revision: admin.director-commands
+  lease: admin.director-commands
+  note: admin.director-commands
+  platform-fact: admin.director-commands
+  platform-incident: admin.director-commands
+  promote-sme: admin.director-commands
+  record: admin.director-commands
+  retriage: admin.director-commands
+  retry: admin.director-commands
+  revise: admin.director-commands
+  sme: admin.director-commands
+  sme-eligible: admin.director-commands
+  sme-followup: admin.director-commands
+  sme-handoff: admin.director-commands
+  start: admin.director-commands
+  submit: admin.director-commands
+  trace: admin.director-commands
+  wait: admin.director-commands
+  waive: admin.director-commands
   ui: user.connect-an-account
   workers: user.connect-an-account
   init: user.getting-started
@@ -32,4 +69,4 @@ commands:
   push: user.what-baton-may-do
   permission: user.what-baton-may-do
   help: user.using-the-manual
-pending_commands: [abandon, ask-sme, cancel, check, detect, diag, dispatch, disposition, eligible, explain, feedback, ingest-revision, lease, mcp, migrate, note, plan, platform-fact, platform-incident, promote-sme, recipe, recipes, record, retriage, retry, revise, sme, sme-eligible, sme-followup, sme-handoff, start, submit, trace, upgrade, vendor, wait, waive]
+pending_commands: []

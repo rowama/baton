@@ -10,7 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import json
+import re
+import typing
+
 import yaml
+from pydantic import BaseModel
 
 from . import data, manual, recipe, vocab
 from . import known_workers as kw
@@ -80,6 +85,7 @@ def render_all(base: Path | None = None) -> dict[str, str]:
     base = base or manual.root()
     notes = _notes(base)
     out = {f"providers/{slug(n)}.md": render(n, p, notes.get(n), 10 + i) for i, (n, p) in enumerate(_providers().items())}
+    out.update(reference_pages(base))
     for rid, root in shipped_recipes().items():
         src = base / "recipe-sources" / f"{rid}.md"
         if src.is_file():
@@ -153,8 +159,9 @@ def write(base: Path | None = None) -> list[str]:
     (base / "providers").mkdir(exist_ok=True)
     for rel, text in want.items():
         (base / rel).write_text(text, encoding="utf-8")
-    (base / "recipes").mkdir(exist_ok=True)
-    for sub in ("providers", "recipes"):
+    for sub in ("recipes", "reference"):
+        (base / sub).mkdir(exist_ok=True)
+    for sub in ("providers", "recipes", "reference"):
         for old in (base / sub).glob("*.md"):
             if f"{sub}/{old.name}" not in want:
                 old.unlink()
@@ -166,6 +173,204 @@ def stale(base: Path | None = None) -> list[str]:
     want = render_all(base)
     out = [f"{rel}: missing or out of date" for rel, text in want.items() if not (base / rel).is_file() or (base / rel).read_text(encoding="utf-8") != text]
     out += [f"providers/{p.name}: no such provider in the directory" for p in sorted((base / "providers").glob("*.md")) if f"providers/{p.name}" not in want]
+    out += [f"reference/{p.name}: not a generated reference page" for p in sorted((base / "reference").glob("*.md")) if f"reference/{p.name}" not in want]
     out += [f"recipes/{p.name}: no recipe source" for p in sorted((base / "recipes").glob("*.md")) if f"recipes/{p.name}" not in want]
     out += [f"shipped recipe {rid} has no manual/recipe-sources/{rid}.md" for rid in shipped_recipes() if not (base / "recipe-sources" / f"{rid}.md").is_file()]
+    return out
+
+
+# ---- the reference: commands, project settings, environment, diagnostics (generated; decision 0133) ----------
+
+def _notes_file(base: Path) -> dict[str, Any]:
+    p = base / "reference-notes.yaml"
+    return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
+
+
+def _clean(text: str) -> str:
+    """Design references mean nothing to an administrator: take them out."""
+    text = re.sub(r"\s*\((?:§|decision )[^)]*\)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"§\d+(?:\.\d+)?", "", text).strip()
+    # `<name>` outside code would read as HTML: put it in code. A pipe in a table cell is escaped.
+    parts = text.split("`")
+    parts[::2] = [re.sub(r"<([A-Za-z][^<>`]*)>", r"`<\1>`", seg) for seg in parts[::2]]
+    return "`".join(parts).replace("|", "\\|")
+
+
+def _front(tid: str, title: str, summary: str, order: int) -> list[str]:
+    return ["---", f"id: reference.{tid}", f"title: {title}", "audience: admin", f"summary: {summary}", f"order: {order}", "generated: true", "---", ""]
+
+
+def _anchor(words: list[str]) -> str:
+    return "-".join(re.sub(r"[^a-z0-9]+", "-", w.lower()).strip("-") for w in words)
+
+
+def _params(cmd: Any) -> list[str]:
+    rows = []
+    for p in cmd.params:
+        opts = getattr(p, "opts", None) or []
+        if opts and "--help" in opts:
+            continue
+        label = ", ".join(opts) if opts else p.name
+        if opts and not getattr(p, "is_flag", False):
+            label += f" <{getattr(p.type, 'name', 'value')}>"
+        if not opts and p.required:
+            label += " (required)"
+        rows.append(f"| `{label}` | {_clean(getattr(p, 'help', None) or '')} |")
+    return rows
+
+
+def _command_section(path: list[str], cmd: Any, level: int, topic_of: Any) -> list[str]:
+    name = "baton " + " ".join(path)
+    out = [f"{'#' * level} {name} {{#{_anchor(['baton'] + path)}}}", ""]
+    out += [_clean(cmd.help or ""), ""] if cmd.help else []
+    ref = topic_of(path[0])
+    if ref:
+        out += [f"Explained in the manual: [{ref[1]}]({ref[0]}#here-now).", ""]
+    rows = _params(cmd)
+    if rows:
+        out += ["| Argument or option | What it does |", "|---|---|"] + rows + [""]
+    return out
+
+
+def commands_page(base: Path) -> str:
+    from . import manual_cli
+
+    ctx = manual.context(base)
+    m = manual.Manual(base)
+
+    def topic_of(name: str) -> tuple[str, str] | None:
+        ref = (ctx.get("commands") or {}).get(name)
+        return (ref, m.resolve(ref)[0].title) if ref else None
+
+    root = manual_cli._group()
+    out = _front("commands", "Command reference", "Every baton command and option.", 10)
+    out += ["## Here, now {#here-now}", "", "Every command takes `--json` for machine-readable output. Global options: `--project <path>` (or `BATON_PROJECT`), `--director <id>` (or `BATON_DIRECTOR`). Exit codes are in [setting up an assistant](admin.directors#exit-codes).", ""]
+    for name in sorted(root.commands):
+        cmd = root.commands[name]
+        out += _command_section([name], cmd, 2, topic_of)
+        if hasattr(cmd, "commands"):
+            for sub in sorted(cmd.commands):
+                out += _command_section([name, sub], cmd.commands[sub], 3, topic_of)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def _type_name(ann: Any) -> str:
+    origin = typing.get_origin(ann)
+    if origin is typing.Literal:
+        return ", ".join(str(a) for a in typing.get_args(ann)[:-1]) + " or " + str(typing.get_args(ann)[-1])
+    if origin in (typing.Union, getattr(__import__("types"), "UnionType", None)):
+        args = [a for a in typing.get_args(ann) if a is not type(None)]
+        return _type_name(args[0]) + " (optional)" if len(args) == 1 else " or ".join(_type_name(a) for a in args)
+    if origin is dict:
+        return "mapping"
+    if origin is list:
+        return "list"
+    return {bool: "yes/no", int: "whole number", float: "number", str: "text"}.get(ann, getattr(ann, "__name__", str(ann)))
+
+
+def project_settings() -> list[tuple[str, Any, Any]]:
+    """Every ``project.yaml`` key, flattened from the model: (key, type, default)."""
+    from .models import ProjectConfig
+
+    out: list[tuple[str, Any, Any]] = []
+
+    def walk(model: type[BaseModel], prefix: str) -> None:
+        for name, f in model.model_fields.items():
+            ann = f.annotation
+            if isinstance(ann, type) and issubclass(ann, BaseModel):
+                walk(ann, prefix + name + ".")
+            else:
+                out.append((prefix + name, ann, f.get_default(call_default_factory=True)))
+
+    walk(ProjectConfig, "")
+    return out
+
+
+def _default(v: Any) -> str:
+    if v in ("", None, {}, []):
+        return "none" if v in (None, {}, []) else "empty"
+    return "`" + (json.dumps(v) if not isinstance(v, str) else v).replace("|", "\\|") + "`"
+
+
+def settings_page(base: Path) -> str:
+    notes = _notes_file(base).get("project_settings") or {}
+    out = _front("project-settings", "Project settings reference", "Every setting in .baton/project.yaml, its type and default.", 20)
+    out += ["## Here, now {#here-now}", "", "These are the keys of `.baton/project.yaml`, which is committed and never holds secrets. For the ones most projects change first, see [project settings](admin.project-settings#here-now).", "",
+            "| Key | Type | Default | What it does |", "|---|---|---|---|"]
+    for key, ann, default in project_settings():
+        out.append(f"| `{key}` | {_type_name(ann)} | {_default(default)} | {_clean(notes.get(key, ''))} |")
+    return "\n".join(out) + "\n"
+
+
+def environment_page(base: Path) -> str:
+    env = _notes_file(base).get("environment") or {}
+    out = _front("environment", "Environment variables", "The variables Baton reads, and the ones it sets for hooks and helpers.", 30)
+    out += ["## Here, now {#here-now}", "", "Variables **you** may set, then the ones **Baton** sets for the programs it starts.", ""]
+    for who, head, anchor in (("you", "Variables you set", "you-set"), ("baton", "Variables Baton sets", "baton-sets")):
+        out += [f"## {head} {{#{anchor}}}", "", "| Variable | Meaning |", "|---|---|"]
+        out += [f"| `{k}` | {_clean(v['text'])} |" for k, v in sorted(env.items()) if v["who"] == who]
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def diagnostics_page(base: Path) -> str:
+    codes = _notes_file(base).get("diagnostics") or {}
+    out = _front("diagnostics", "Diagnostic codes", "Every condition Baton records in ~/.baton/diag, and what it means.", 40)
+    out += ["## Here, now {#here-now}", "", "Read them with `baton diag`. Each is something Baton worked around instead of failing; most are harmless once, and worth a look when they recur.", "",
+            "| Code | What happened |", "|---|---|"]
+    out += [f"| `{c}` | {_clean(t)} |" for c, t in sorted(codes.items())]
+    return "\n".join(out) + "\n"
+
+
+def reference_pages(base: Path) -> dict[str, str]:
+    return {"reference/commands.md": commands_page(base), "reference/project-settings.md": settings_page(base),
+            "reference/environment.md": environment_page(base), "reference/diagnostics.md": diagnostics_page(base)}
+
+
+# ---- coverage: the code's own facts against the hand-written words -------------------------------
+
+def _source_text() -> str:
+    pkg = Path(manual.__file__).parent
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg.glob("*.py")) if p.name not in ("manual_gen.py",))
+
+
+def source_env_vars() -> set[str]:
+    names = set(re.findall(r"[\"'](BATON_[A-Z0-9_]+)[\"']", _source_text()))
+    return {n + "<NAME>" if n.endswith("_") else n for n in names}
+
+
+def source_diag_codes() -> set[str]:
+    return set(re.findall(r"diag\.note\(\s*\"([a-z_.]+)\"", _source_text()))
+
+
+def coverage(base: Path | None = None) -> list[str]:
+    """What the code has that the reference does not describe, and what it describes that the code no longer has."""
+    from . import manual_cli
+
+    base = base or manual.root()
+    notes = _notes_file(base)
+    out = []
+    keys = {k for k, _a, _d in project_settings()}
+    have = set(notes.get("project_settings") or {})
+    out += [f"project setting {k} has no description in reference-notes.yaml" for k in sorted(keys - have)]
+    out += [f"reference-notes.yaml describes project setting {k}, which does not exist" for k in sorted(have - keys)]
+    env, found = set(notes.get("environment") or {}), source_env_vars()
+    out += [f"environment variable {v} is used in the code but not described in reference-notes.yaml" for v in sorted(found - env)]
+    out += [f"reference-notes.yaml describes {v}, which the code no longer uses" for v in sorted(env - found)]
+    codes, seen = set(notes.get("diagnostics") or {}), source_diag_codes()
+    out += [f"diagnostic code {c} is raised in the code but not described in reference-notes.yaml" for c in sorted(seen - codes)]
+    out += [f"reference-notes.yaml describes diagnostic code {c}, which the code no longer raises" for c in sorted(codes - seen)]
+    root = manual_cli._group()
+
+    def walk(cmd: Any, path: list[str]) -> None:
+        if path and not (cmd.help or "").strip():
+            out.append(f"command `baton {' '.join(path)}` has no help text")
+        for p in getattr(cmd, "params", []):
+            opts = getattr(p, "opts", None) or []
+            if opts and "--help" not in opts and not (getattr(p, "help", None) or "").strip():
+                out.append(f"option {opts[0]} of `baton {' '.join(path)}` has no help text")
+        for name, sub in getattr(cmd, "commands", {}).items():
+            walk(sub, path + [name])
+
+    walk(root, [])
     return out

@@ -89,12 +89,14 @@ def test_a_new_anchor_must_be_recorded(mini):
 def test_a_command_with_no_topic_is_reported_and_pending_is_honest(mini):
     ctx = mini / "context.yaml"
     data = yaml.safe_load(ctx.read_text(encoding="utf-8"))
-    data["pending_commands"].remove("trace")
+    data["commands"].pop("trace")
     ctx.write_text(yaml.safe_dump(data), encoding="utf-8")
     assert any("command 'trace' has no manual topic" in p for p in problems(mini))
-    data["pending_commands"] += ["trace", "nonesuch"]
+    data["pending_commands"] = ["trace", "nonesuch"]
     ctx.write_text(yaml.safe_dump(data), encoding="utf-8")
-    assert any("'nonesuch', which is not a baton command" in p for p in problems(mini))
+    found = problems(mini)
+    assert any("'nonesuch', which is not a baton command" in p for p in found)
+    assert not any("command 'trace' has no manual topic" in p for p in found)
 
 
 def test_a_context_pointer_must_resolve(mini):
@@ -126,3 +128,8 @@ def test_help_lists_prints_and_searches():
 def test_a_command_s_help_names_its_manual_topic():
     out = runner.invoke(cli.app, ["ui", "--help"])
     assert "baton help user.connect-an-account" in out.output.replace("\n", " ")
+
+
+def test_every_command_has_a_manual_topic():
+    """The manual is complete: no command waits in `pending_commands` (decision 0132)."""
+    assert manual.context()["pending_commands"] == []

@@ -94,3 +94,38 @@ def test_a_changed_recipe_makes_its_table_stale(monkeypatch):
 
     monkeypatch.setattr(manual_gen.recipe, "build_plan", changed)
     assert any("recipes/fit-check.md" in s for s in manual_gen.stale())
+
+
+def test_the_reference_describes_everything_the_code_has():
+    assert manual_gen.coverage() == []
+
+
+def test_the_generated_reference_matches_the_code():
+    assert [s for s in manual_gen.stale() if s.startswith("reference/")] == []
+    commands = (ROOT / "manual" / "reference" / "commands.md").read_text(encoding="utf-8")
+    assert "## baton help {#baton-help}" in commands and "### baton workers connect {#baton-workers-connect}" in commands
+    assert "(§" not in commands and "§" not in commands
+
+
+def test_the_reference_notices_a_new_option_variable_setting_or_diagnostic(monkeypatch, tmp_path):
+    import shutil
+
+    base = tmp_path / "manual"
+    shutil.copytree(ROOT / "manual", base)
+    notes = base / "reference-notes.yaml"
+    text = notes.read_text(encoding="utf-8")
+    notes.write_text(text.replace("  BATON_HOME:", "  BATON_GONE: {who: you, text: x}\n  BATON_HOME:", 1)
+                     .replace("  ui.route_failed:", "  nothing.here: x\n  ui.route_failed:", 1)
+                     .replace("  leases.minutes:", "  leases.nope: x\n  leases.minutes:", 1), encoding="utf-8")
+    found = manual_gen.coverage(base)
+    assert any("BATON_GONE" in f for f in found) and any("nothing.here" in f for f in found) and any("leases.nope" in f for f in found)
+    monkeypatch.setattr(manual_gen, "source_env_vars", lambda: {"BATON_NEW"} | set(manual_gen._notes_file(ROOT / "manual")["environment"]))
+    assert any("BATON_NEW is used in the code" in f for f in manual_gen.coverage())
+    monkeypatch.setattr(manual_gen, "source_diag_codes", lambda: {"brand.new_code"})
+    assert any("brand.new_code is raised in the code" in f for f in manual_gen.coverage())
+
+
+def test_a_table_cell_may_hold_an_escaped_pipe():
+    m = manual.Manual()
+    body = m.resolve("reference.project-settings")[0].body
+    assert "slugify }}`" in body and "\\|" in body

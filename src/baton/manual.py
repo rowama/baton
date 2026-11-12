@@ -312,7 +312,7 @@ def _check_body(m: Manual, t: Topic, rel: str, terms: list[str], cli: Any) -> li
         if line.startswith(">") and not NOTE.match(line) and not _in_note(lines, n):
             out.append(f"{where}: a quote is a note: '> **Note:** ...' or '> **Warning:** ...'")
         if line.startswith("|"):
-            cols = line.count("|")
+            cols = len(re.findall(r"(?<!\\)\|", line))
             if table_cols not in (None, cols):
                 out.append(f"{where}: table rows have different numbers of columns")
             table_cols = cols

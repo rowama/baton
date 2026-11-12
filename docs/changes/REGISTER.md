@@ -4,7 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | in-progress | major | Slice 5 of 7 |
+| [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | in-progress | major | Slice 6 of 7 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |

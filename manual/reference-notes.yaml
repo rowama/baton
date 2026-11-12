@@ -1,0 +1,76 @@
+# The hand-written words behind the generated reference (§13.10; decision 0133). tools/build_manual.py puts them beside what the code
+# itself says (commands, settings, defaults). A setting, variable or diagnostic code in the code with no entry here is a failing test.
+project_settings:
+  paths: "Logical folder names a recipe publishes to (`{{ paths.specs }}`), mapped to folders in the project. A name a recipe uses and the project has not mapped is reported as a gap. `init` maps `process_plans` and `notes` to `docs`."
+  project: "Your own variables, available to recipes as `{{ project.<name> }}`. `test_command` is what a recipe's check runs; `preflight` is the quick command `baton doctor` uses to confirm an assistant's permissions let the tests run."
+  run_slug: "How a piece of work's short name is made from its inputs, used in file names (a template; the default slugifies the title)."
+  leases.minutes: "How long an assistant holds a piece of work without activity. The hold is renewed on activity."
+  checkpoints.commit: "Commit the record of the work at checkpoints, to the current branch."
+  lfs.threshold_mb: "Stored files larger than this go to git-lfs, when it is installed; otherwise they are committed directly."
+  contacts: "Maps roles (`owner`, `platform`) to the people or assistants that fill them."
+  effort.bands: "The time a helper gets for a piece of work of effort S, M or L, as durations such as `90s`, `45m`, `2h`."
+  effort.extend_once: "Give overdue work one extra band before it is stopped."
+  effort.default: "The effort used by a part that declares none."
+  hooks.on_complete: "A shell command run when work finishes. Committed, so it holds no secrets; put one that needs a secret in `~/.baton/hooks.yaml`."
+  hooks.on_needs_human: "A shell command run when work is waiting on the owner. Falls back to `on_complete`."
+  hooks.on_platform_failure: "A shell command run when work fails because of the platform. Falls back to `on_complete`; on its own it wakes nobody for owner decisions."
+  limits.active_runs: "The most pieces of work that may be active at once; `start` refuses beyond it. Unset means no limit."
+  sme: "Per subject (`project`, `platform`, `process`), the profiles tried first when an expert is consulted: `preferred_profiles: [...]`."
+  permissions.push.docs_only: "Pushing commits that change only documents (see `docs_only_globs`): `allow`, `ask` or `deny`."
+  permissions.push.after_verified: "Pushing commits that are Baton checkpoints, or that a passed step's own checks vouched for."
+  permissions.push.other: "Pushing anything else."
+  permissions.tag: "Tagging a release."
+  permissions.force_push: "Force-pushing. The default never does."
+  permissions.merge: "Merging. The default never does."
+  permissions.deploy: "Deploying. The default never does."
+  docs_only_globs: "Paths that count as documents only for `permissions.push.docs_only`."
+environment:
+  BATON_HOME: {who: you, text: "Where the machine's `~/.baton` is (profiles, secrets, diagnostics, installed versions). Default `~/.baton`."}
+  BATON_PROJECT: {who: you, text: "The project's root, instead of the nearest folder with `.baton/project.yaml`. Same as `--project`."}
+  BATON_DIRECTOR: {who: you, text: "A stable identity for the assistant, so its hold on a piece of work survives between turns. Default `<user>@<host>`. Same as `--director`."}
+  BATON_HARNESS: {who: you, text: "Which assistant the Director runs in, for example `cloud-chat`. Default `cli`, meaning a terminal that stays attached. Shown in leases; `doctor` uses it."}
+  BATON_OWNER_EXIT: {who: you, text: "`0` makes the owner-needed case exit 0 instead of 4, for harnesses that treat any non-zero exit as failure; `needs_owner: true` is then the signal."}
+  BATON_VERSION: {who: you, text: "Run this runtime version for one invocation, instead of the one `baton.lock` pins."}
+  BATON_UV: {who: you, text: "The `uv` executable the launcher uses to install a runtime version, when it is not on the path."}
+  BATON_SECRET_<NAME>: {who: you, text: "The key of the account named `<name>` (upper-cased, other characters `_`). Looked up before the keyring and the secret file."}
+  BATON_SUPERVISOR_HEARTBEAT_S: {who: you, text: "How often, in seconds, a running piece of work's supervisor writes its heartbeat. Default 30; for tests and unusual hosts."}
+  BATON_LAUNCHED: {who: baton, text: "Set by the launcher on the runtime it starts, so a hook or check that runs `baton` again does not loop."}
+  BATON_RUN_ID: {who: baton, text: "To a completion hook: the piece of work the outcome is about."}
+  BATON_STEP_PATH: {who: baton, text: "To a completion hook: the part of it."}
+  BATON_OUTCOME: {who: baton, text: "To a completion hook: `passed`, `gate_failed`, `needs_human`, `needs_review`, `timed_out`, `failed`, `overdue`, `not_started` or `answered`."}
+  BATON_CLASSIFICATION: {who: baton, text: "To a completion hook: how a failure was classified, when it was."}
+  BATON_INCIDENT: {who: baton, text: "To a completion hook: the platform incident the outcome opened, if any."}
+  BATON_STEP_STATE: {who: baton, text: "To a completion hook: the part's state after the outcome."}
+  BATON_DISPATCH_ID: {who: baton, text: "To a completion hook: which hand-off the outcome came from."}
+  BATON_REPO: {who: baton, text: "To a completion hook: the project's root."}
+  BATON_RECORD: {who: baton, text: "To a completion hook: the part's readable record, already regenerated."}
+  BATON_PACKET_DIR: {who: baton, text: "To a helper: the folder holding what it is to work from."}
+  BATON_RESULT_DIR: {who: baton, text: "To a helper: the folder it writes its result to."}
+  BATON_WORKSPACE: {who: baton, text: "To a helper working in the project: the working folder (only for parts that use the project's files)."}
+diagnostics:
+  accounts.check_failed: "Checking an account's key with its provider failed for a network or decoding reason. The page shows the reason without the key."
+  cache.replay: "The cache of a run's record was out of step with its log and was rebuilt by replaying the log. Harmless; recurring means something edits the cache or the log."
+  capability.version_check_skipped: "A helper's version could not be read, so its observed capability states were not reset after an upgrade."
+  catalog.summaries_unavailable: "A recipe in the project would not load, so its summary was left out of the list offered to a part that wants the catalog."
+  docs.record_unreadable: "A stored result could not be read when writing a step record; the record is left out."
+  frame.profiles_unreadable: "Profiles could not be read while checking whether the work will need web search, so no advice about it was given."
+  harness.version_probe_failed: "Running a coding assistant to read its version failed, so its version is unknown."
+  harness.version_stat_failed: "A coding assistant's file could not be inspected, so its version is unknown."
+  hooks.config_invalid: "`~/.baton/hooks.yaml` could not be loaded, so it counts as no wake path."
+  incident.resolve_run_unreadable: "A run could not be read when resolving a platform incident, so the incident was not matched to it."
+  known_workers.load_failed: "Baton's shipped known-workers data, or your overlay, failed validation. Run `baton workers check-overlay`."
+  listings.fetch_failed: "A provider's model list could not be read; the last good list, if any, is kept."
+  listings.key_failed: "A provider's remaining quota could not be read; the last figures, if any, are kept."
+  listings.user_failed: "A user-chosen model source could not be read; it is skipped."
+  permissions.output_unreadable: "A passed step's output could not be read when deciding whether a commit was vouched for; it counts as not vouched for."
+  permissions.run_unreadable: "A run could not be read when deciding whether commits were vouched for; it vouches for nothing."
+  profiles.keyring_failed: "The OS keyring failed or is missing, so the secret file store was used instead."
+  queue.dequeue_run_unreadable: "A queued dispatch belonged to a run that is gone or unreadable, so there was nothing to record the drop in."
+  resources.unreadable: "`~/.baton/resources.yaml` or the directory data could not be read when listing switched-off accounts."
+  resources.yaml_invalid: "A machine resources file is not valid YAML; its declarations are ignored until fixed."
+  sme.profiles_unreadable: "Profiles could not be read when listing experts."
+  sme.run_unreadable: "A run could not be read when indexing or counting expert consultations."
+  supervisor.marker_unreadable: "A running marker could not be read, so that dispatch is treated as not running here."
+  tool_evidence.log_unreadable: "A helper's log could not be read to observe which tools it used; capability states are not updated from it."
+  tool_evidence.tree_unreadable: "The project's working tree could not be read after a dispatch, so file changes were not observed."
+  ui.route_failed: "A request to the setup page failed on a bug; the page answered with a generic error and no request detail was recorded."

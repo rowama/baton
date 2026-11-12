@@ -64,7 +64,7 @@
         out.push({ t: "h", level: m[1].length, text: m[2], id: m[3] }); i++;
       } else if (l.startsWith("|")) {
         const rows = [];
-        for (; i < lines.length && lines[i].startsWith("|"); i++) rows.push(lines[i].trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+        for (; i < lines.length && lines[i].startsWith("|"); i++) rows.push(lines[i].trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|")));
         out.push({ t: "table", head: rows[0], rows: rows.slice(2) });
       } else if (l.startsWith(">")) {
         const body = [];
