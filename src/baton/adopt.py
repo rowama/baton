@@ -40,6 +40,16 @@ SCOPE_MAX_BYTES = 200 * 1024 * 1024
 AGENTS_POINTER = "This repo uses Baton; see .agents/skills/baton-director"
 
 
+RECIPE_NEEDED_STEPS = (
+    "Write a short text summary of what the project already has (its layout, its docs and tests, its working practice) from the situation and a top-level look; never read the files in depth.",
+    "Start a fit-check run with the owner's idea and that summary as `context`.",
+    "A `fits` verdict naming a recipe: run `adopt <that recipe>`.",
+    "A `fits` verdict with no recipe: start recipe-builder with the same summary, vendor what it produces once the owner accepts it, then run `adopt <that recipe>`.",
+    "Any other verdict, or the owner disagrees: stop; nothing has been written.",
+)
+RECIPE_NEEDED_NEXT = "Adoption needs a recipe: find one with fit-check (give it the project summary as context) or have one built, then run `adopt <recipe>`."
+
+
 def adoption_dir(baton: Path, run_id: str) -> Path:
     return baton / "adoption" / run_id
 

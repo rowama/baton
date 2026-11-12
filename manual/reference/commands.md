@@ -31,7 +31,7 @@ Explained in the manual: [Bring in an existing project](user.bring-an-existing-p
 
 | Argument or option | What it does |
 |---|---|
-| `recipe <str>` | Recipe ref (vendored) or recipe directory (vendored first). |
+| `recipe <str>` | Recipe ref (vendored) or recipe directory (vendored first). Without one, nothing starts and the steps to find or build it are shown. |
 | `--crosswalk <str>` | A crosswalk shipped with the recipe (by name) or a crosswalk file. |
 | `--scope <str>` | Limit research to this path (repeatable). |
 | `--json` | Machine-readable output. |

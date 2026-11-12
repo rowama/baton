@@ -238,6 +238,8 @@ def _director() -> Any:
 
 
 def _adoption_text(out: dict) -> str:
+    if out.get("state") == "recipe_needed":
+        return "\n".join(["Adoption needs a recipe; nothing was started.", *[f"  {i}. {t}" for i, t in enumerate(out["steps"], 1)], f"Next: {out['next']}"])
     lines = [f"Adoption {out['adoption']} of {out['recipe']}" + (f" (crosswalk {out['crosswalk']})" if out.get("crosswalk") else "") + f": {out['state']}"]
     lines.append(f"  research: {out['research']}")
     for key, r in out["runs"].items():
@@ -252,7 +254,7 @@ def _adoption_text(out: dict) -> str:
 
 @app.command()
 def adopt(
-    recipe: Annotated[str, typer.Argument(help="Recipe ref (vendored) or recipe directory (vendored first).")],
+    recipe: Annotated[Optional[str], typer.Argument(help="Recipe ref (vendored) or recipe directory (vendored first). Without one, nothing starts and the steps to find or build it are shown.")] = None,
     crosswalk: Annotated[Optional[str], typer.Option("--crosswalk", help="A crosswalk shipped with the recipe (by name) or a crosswalk file.")] = None,
     scope: Annotated[Optional[list[str]], typer.Option("--scope", help="Limit research to this path (repeatable).")] = None,
     as_json: JsonOpt = False,

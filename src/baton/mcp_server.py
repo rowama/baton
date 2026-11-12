@@ -351,8 +351,9 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     # -- adoption, setup, permissions -------------------------------------------------
 
     @tool
-    def adopt(recipe: str, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
-        """Adopt this project with a vendored recipe: start the adoption run, or show the active one."""
+    def adopt(recipe: str | None = None, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
+        """Adopt this project with a vendored recipe: start the adoption run, or show the active one. With no recipe,
+        nothing starts: the result is state `recipe_needed` and the steps to find or build one."""
         return t.call(lambda api: api.adopt(recipe, crosswalk=crosswalk, scope=scope or None))
 
     @tool

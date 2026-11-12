@@ -4250,13 +4250,18 @@ class Api:
 
         return framing.status(self, run_id)
 
-    def adopt(self, recipe: str, *, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
-        """Start an adoption run (§11.1), or report the one in progress."""
+    def adopt(self, recipe: str | None = None, *, crosswalk: str | None = None, scope: list[str] | None = None) -> dict[str, Any]:
+        """Start an adoption run (§11.1), or report the one in progress. With no recipe and no run in progress, start
+        nothing and say how to find or build the recipe (Decision: 0136)."""
         from . import adopt as ad
 
         active = self._active_adoption()
         if active is not None:
             return {**self.adoption_status(active), "started": False}
+        if not recipe:
+            situation = ad.detect(self.project.root, home=self.project.home, director=self.director, machine=False)
+            return {"state": "recipe_needed", "started": False, "situation": {"project": situation["project"], "runs": situation["runs"]},
+                    "steps": list(ad.RECIPE_NEEDED_STEPS), "next": ad.RECIPE_NEEDED_NEXT}
         ref = self.vendor(recipe)["recipe"] if Path(recipe).is_dir() else self.project.resolve_ref(recipe)
         loaded = self.project.recipe(ref)
         root = self.project.root

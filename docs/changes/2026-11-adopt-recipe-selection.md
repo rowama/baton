@@ -72,4 +72,12 @@ manual: [user/bring-an-existing-project.md, recipes/fit-check.md]
 - **Summary:** `examples/recipes/fit-check` is version 4: optional `context` run input (text), passed to `describe` and `assess`, whose prompts say to use it as given and that the worker reads no files. Design §5.7 version note; the fit-check manual page ("What you will be asked") and generated manual; `fit-check@3` references in tests and goldens moved to `@4`; the assess instructions golden regenerated. New `tests/test_fit_check_context.py` covers the schema (optional, text only), a run with context (both inputs reach the packet) and a run without (no context input).
 - **Review:** clean
 - **Accepted:** pending the owner.
-- **Repair:** the full run on the change's docs commit `2e79c36` was red from an environment fault (a running `baton ui` held the page's fixed port); fixed in `70913fa`, logged under 2026-11-user-help.
+- **Repair:** the full run on the change's docs commit `2e79c36` was red from an environment fault (a running `baton ui` held the page's fixed port); fixed in `70913fa`, logged under 2026-11-user-help. The full run on slice 1's commit `1ee8a28` was then red: `test_continuity.py::test_records_golden` pins fit-check's content hash, and only the packet golden had been regenerated. Fixed in the commit `repair Slice 1, goldens carry the new recipe hash`.
+
+### adopt with no recipe returns "recipe needed"; the manual explains the procedure
+
+- **Commit:** 2026-11-adopt-recipe-selection: Slice 2, adopt with no recipe returns recipe-needed
+- **Summary:** `Api.adopt`, `baton adopt` and the MCP `adopt` tool take an optional recipe. With none and no adoption run active, nothing starts: the result is `state: recipe_needed`, the project situation, the steps (`adopt.RECIPE_NEEDED_STEPS`) and `next`. An active adoption still returns its status. The Director skill and its copy in the design (§13.3) gain the procedure (fit-check with `context`, then `adopt`, `recipe-builder` or stop). Design §11.1, §11.6 note and the director-interface table; the manual's "bring in an existing project" page (new section, corrected example), and the regenerated command reference.
+- **Tests:** `tests/test_adopt_recipe_needed.py` (nothing started and `.baton` unchanged; the text form; the skill and its design copy name the procedure).
+- **Review:** clean
+- **Accepted:** pending the owner.

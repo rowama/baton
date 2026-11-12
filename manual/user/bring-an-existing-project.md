@@ -17,11 +17,16 @@ You are shown a baseline: how the project is set up, the size of each piece of w
 
 Reading changes none of your files. Baton records what it found under `.baton`, and the baseline takes effect only when you say it is accurate.
 
+## Which process to follow {#which-process}
+
+Adoption needs a process (a recipe) to read your project against. If you do not know which one, ask your assistant to bring the project in anyway. It checks the project, then either picks a process Baton already has, has a new one made for you with your agreement, or stops, with no work adopted, if Baton is not a good fit. None of your own files are changed until you accept the baseline.
+
 ## From the command line {#command-line}
 
 ```baton
-baton adopt fit-check
+baton adopt
+baton adopt software-feature
 baton establish-baseline --help
 ```
 
-Replace `fit-check` with the process you want to follow. `--scope docs/` limits the reading to one folder.
+`baton adopt` on its own starts nothing: it lists the steps for finding or making a process. Replace `software-feature` with the process you want to follow. `--scope docs/` limits the reading to one folder.
