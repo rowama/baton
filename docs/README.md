@@ -271,3 +271,7 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0131 The Director can read the manual through a read-only `help` action](decisions/0131-director-reads-the-manual.md) | accepted |
 | [0132 Every change doc names its manual edits, or says why there are none](decisions/0132-change-docs-name-their-manual-edits.md) | accepted |
 | [0133 Generated manual reference is committed and checked for drift](decisions/0133-generated-reference-is-committed.md) | accepted |
+| [0134 fit-check takes optional project context as text; it never reads the project](decisions/0134-fit-check-takes-optional-project-context.md) | accepted |
+| [0135 The Director writes fit-check's project context from detect and a shallow look](decisions/0135-director-writes-the-project-context.md) | accepted |
+| [0136 adopt with no recipe returns a recipe-needed status that points at fit-check](decisions/0136-adopt-without-recipe-returns-recipe-needed.md) | accepted |
+| [0137 The manual's adopt example no longer uses fit-check as the recipe](decisions/0137-fix-the-adopt-manual-example.md) | accepted |
