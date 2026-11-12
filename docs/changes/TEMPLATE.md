@@ -5,6 +5,7 @@ status: proposed            # proposed | accepted | in-progress | done | abandon
 level: standard             # minor | standard | major (the software-feature triage scale, §5.5)
 decisions: []               # decision records this change relies on or adds, e.g. ["0053"]
 touches: []                 # design docs this change reads and edits, e.g. [design/runtime.md]
+manual: []                  # manual files this change edits, e.g. [user/connect-an-account.md]; or a string "none: <reason>" (checked once in-progress or done)
 ---
 
 <!--
@@ -45,6 +46,10 @@ Keep the headings and field names. As in the recipe, the level decides how much 
 ### Doc edits
 
 - `<design doc>` §<n.m>: <what changes in the design, in a sentence>.
+
+### Manual edits
+
+- `manual/<part>/<topic>.md`: <what an owner or administrator will now read; or "none: <reason>">.
 
 ### Decisions
 

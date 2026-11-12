@@ -1,0 +1,24 @@
+# Every anchor ever published. One may be renamed only by leaving the old name as an alias.
+# Refresh with: python tools/manual_anchors.py
+published:
+- admin.secrets
+- admin.secrets#here-now
+- admin.secrets#replacing-and-removing
+- admin.secrets#setup-page-protection
+- admin.secrets#where-keys-are-kept
+- user.choose-models
+- user.choose-models#here-now
+- user.choose-models#likely-verified-absent
+- user.choose-models#prefer-a-model
+- user.choose-models#reading-the-table
+- user.connect-a-subscription
+- user.connect-a-subscription#here-now
+- user.connect-a-subscription#not-ready
+- user.connect-a-subscription#what-for
+- user.connect-an-account
+- user.connect-an-account#command-line
+- user.connect-an-account#here-now
+- user.connect-an-account#key-refused
+- user.connect-an-account#openrouter
+- user.connect-an-account#replace-or-remove
+- user.connect-an-account#what-connecting-does

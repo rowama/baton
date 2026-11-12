@@ -1,8 +1,9 @@
 ---
 id: 2026-11-user-help
 title: "One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change"
-status: accepted
+status: in-progress
 level: major
+manual: [user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
 decisions: ["0126", "0127", "0128", "0129", "0130", "0131", "0132", "0133"]
 touches: [principles.md, design/director-interface.md, design/layouts.md, design/versioning.md, design/testing.md]   # §0, §2, §13.2, §4.1, §14.1, §19
 ---
@@ -64,7 +65,7 @@ manual/
   anchors.yaml every anchor ever published, with its current location (aliases)
 ```
 
-- **Topic file** (`manual/<part>/<slug>.md`): Markdown with front matter: `id` (permanent, e.g. `user.connect-an-account`), `title`, `audience` (`owner` or `admin`), `summary` (one sentence, shown in lists and search), `context` (the UI and CLI places that open it), `related`, and `aliases` (old ids and anchors). One topic is one task or one question, a screen or two long.
+- **Topic file** (`manual/<part>/<slug>.md`): Markdown with front matter: `id` (permanent, e.g. `user.connect-an-account`), `title`, `audience` (`owner` or `admin`), `summary` (one sentence, shown in lists and search), `related`, and `aliases` and `anchor_aliases` (old ids and anchors). Where a topic opens from is kept in one place, `context.yaml`. One topic is one task or one question, a screen or two long.
 - **Anchors.** Every heading carries an explicit, stable id (`## Where keys are kept {#where-keys-are-kept}`); the URL form is `<part>/<slug>#<anchor>`. Ids are never renamed in place: a rename adds the old id as an alias, and a test fails if a published anchor stops resolving (the same rule as § numbers, which never renumber).
 - **A topic's opening is written for context.** Its first section, `## Here, now` ... is the short answer, what to do on this screen. Below it is the full story. In context help the panel opens at the short answer with "More" going to the rest of the topic; the guide reads the same topic from the top. There is no separate context text to keep in step.
 
@@ -150,7 +151,7 @@ The manual adds no concept: it is documentation, and `baton help` an interface, 
 
 ### Manual edits
 
-The change creates the manual; its own edits are the Plan.
+The change creates the manual; its own edits are the slices below. Slice 1 seeds four topics for the setup page's current sections (`user/connect-an-account`, `user/connect-a-subscription`, `user/choose-models`, `admin/secrets`) with the context map, the anchor registry and the terms list.
 
 ### Decisions
 
@@ -201,4 +202,10 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 
 ## Log
 
-*(no slices yet)*
+### Slice 1: the corpus, its anchors, its checks and `baton help`
+
+- **Commit:** `2026-11-user-help: Slice 1, the manual corpus, anchors, checks and baton help`
+- **Summary:** `src/baton/manual.py` (topics, the checked Markdown subset, anchors and aliases, search, the context map) and `manual_cli.py` (examples checked against the CLI); `baton help` (list, print a topic or a section, `--search`, `--json`); every command's `--help` ends with `Manual: baton help <topic>` for mapped commands; `manual/` ships as `baton/_data/manual`. Four seed topics, `context.yaml` (every other command is in `pending_commands`, to be emptied by slice 6), `anchors.yaml` (refreshed by `tools/manual_anchors.py`) and `terms.yaml`. The keep-current rule is in AGENTS.md, the template (`manual:` and `### Manual edits`), §0 rule 9, §19 and `tests/test_docs.py` (a change in progress or done must name its manual edits; the changes done before it are exempt). Design: new §13.10, §13.2, §4.1, §14.1, §2. Tests: `tests/test_manual.py` (the shipped manual is valid; each kind of break in format, link, anchor, example, vocabulary and context map is reported; a renamed anchor needs an alias; `baton help` and the `--help` footer).
+- **Review:** clean.
+- **Accepted:** pending the owner.
+

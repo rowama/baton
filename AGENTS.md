@@ -2,7 +2,7 @@
 
 These are the working instructions for every agent working in this repo (Claude Code, Codex, or any other). `CLAUDE.md` imports this file; keep the instructions here, not there.
 
-The docs are in `docs/`; `docs/README.md` maps every file and every § to where it lives. Work is change-sized: each piece of work has a change doc in `docs/changes/`, and every change doc has a row in the change register, `docs/changes/REGISTER.md`. The original build guide was split up after Phase 17; its build phases are frozen in `docs/history/build-phases.md`.
+The docs for builders are in `docs/`; the documentation for owners and administrators is the manual, `manual/` (§13.10); `docs/README.md` maps every file and every § to where it lives. Work is change-sized: each piece of work has a change doc in `docs/changes/`, and every change doc has a row in the change register, `docs/changes/REGISTER.md`. The original build guide was split up after Phase 17; its build phases are frozen in `docs/history/build-phases.md`.
 
 ## Every session
 
@@ -40,6 +40,7 @@ The docs are in `docs/`; `docs/README.md` maps every file and every § to where 
   - After each slice commit, start the full suite on that exact SHA in the background and keep working: `.venv/bin/python tools/testrun.py start`.
   - Before the next slice commit, read the ledger: `.venv/bin/python tools/testrun.py status`. A red or lost run is fixed first, in a commit that names the slice it repairs, and the fix goes in that slice's Log entry. `status --red` lists red SHAs for `git bisect skip`.
   - Keep the `slow` marker honest: a test that spawns Baton processes, waits on real time, or takes over 1 s is `slow`; a quick test in a process-spawning file is `not_slow("reason")` (`tests/test_markers.py` checks).
+- The manual (`manual/`, §13.10) is the owner's and the administrator's documentation. A slice that changes what an owner sees or an administrator configures edits the manual in its own commit: a new or changed command, option, setting, file, path, message, page control or recipe behavior. List the files in the change doc's `manual:` front matter (or `none: <reason>`), and describe them under `### Manual edits`. Run `.venv/bin/python tools/manual_anchors.py` after adding topics or headings; a published anchor is never removed (rename it and leave an alias). `tests/test_manual.py` and `tests/test_docs.py` check all of this.
 - Section numbers are stable references: never renumber a heading. A new section takes the next free number in its file and gets a row in the `docs/README.md` § index. `tests/test_docs.py` checks that every § reference and every relative link in `docs/` resolves.
 - Never edit `docs/history/`.
 

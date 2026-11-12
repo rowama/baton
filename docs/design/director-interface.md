@@ -50,7 +50,7 @@ No call lets the Director write step outputs, artifacts or events directly. Quie
 ### 13.2 CLI and MCP
 
 - The CLI is the primary interface for a Director with a shell on the runtime host. It finds the project from `--project` / `BATON_PROJECT` or the nearest directory holding `.baton/project.yaml`; machine-local files come from `BATON_HOME` (default `~/.baton`).
-- `baton recipe check <package> --ledger <file>` (§5.3; Decision: [0108](../decisions/0108-recipe-check-command.md)) is a helper that script gates run. No Director calls it, so it is CLI-only and has no MCP tool, like `workers` and `diag`-style machine commands. `baton workers connect <provider>` and `disconnect <name>` (§13.9; Decision: [0123](../decisions/0123-keys-keyring-then-file.md)) are CLI-only too, and a key never travels through MCP or the Director's conversation: the owner types it at a hidden prompt or pipes it on stdin (`--key-stdin`), or pastes it on the setup page.
+- `baton recipe check <package> --ledger <file>` (§5.3; Decision: [0108](../decisions/0108-recipe-check-command.md)) is a helper that script gates run. No Director calls it, so it is CLI-only and has no MCP tool, like `workers` and `diag`-style machine commands. `baton help` (§13.10) is CLI-only until the Director's `help` action lands. `baton workers connect <provider>` and `disconnect <name>` (§13.9; Decision: [0123](../decisions/0123-keys-keyring-then-file.md)) are CLI-only too, and a key never travels through MCP or the Director's conversation: the owner types it at a hidden prompt or pipes it on stdin (`--key-stdin`), or pastes it on the setup page.
 - The MCP server (`baton mcp`; the official Python SDK `mcp` 2.x, checked against 2.3.0, installed with the optional extra `baton[mcp]`) exposes the same calls as tools, one per call with the CLI's names (`-` → `_`) and arguments. Results are the CLI's `--json` payloads; a refusal is a tool error whose text is the JSON payload with `exit_code` (1 problem, 3 lease held elsewhere); `needs_owner` stands for exit code 4. Every tool call opens the project afresh, like one CLI invocation: the server holds no state, and work it dispatched runs on under its supervisors.
 - Decision: [0048](../decisions/0048-mcp-transports.md).
   - **stdio** (default): the harness starts `baton mcp` as a child process for its session. This is not a daemon: it lives and dies with the session.
@@ -288,3 +288,21 @@ An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/
 **Preferences.** The page edits the machine-level `~/.baton/preferences.yaml` (§8.4; Decision: [0124](../decisions/0124-machine-level-preferences.md)); per-project overrides remain a Director or CLI matter.
 
 **Front end.** Plain HTML, CSS and JavaScript, no framework or build step, shipped as data (`baton/_data/ui`); it reads the API only. It lists providers, then models with filters (free only, maximum price, capability, tier, provider).
+
+### 13.10 The manual and `baton help`
+
+The owner's and the administrator's documentation: one corpus, `manual/`, written once and read three ways (Decisions: [0126](../decisions/0126-manual-one-corpus.md), [0127](../decisions/0127-manual-audiences-and-recipes.md), [0128](../decisions/0128-manual-markdown-subset-and-visual-bar.md), [0129](../decisions/0129-ui-serves-the-whole-manual.md), [0132](../decisions/0132-change-docs-name-their-manual-edits.md)). It adds no concept (§2). It ships as data (`baton/_data/manual`), so it matches the pinned runtime (§14.1) and works offline; nothing in the runtime requires it.
+
+**Corpus.** `manual/<part>/<slug>.md` with parts `user/` (what an owner can and should do, by task), `recipes/` (one topic per shipped recipe), `admin/` (configuration and operations for IT) and `reference/` (generated). A topic's front matter has `id` (`<part>.<slug>`), `title`, `audience` (`owner` for `user/` and `recipes/`, `admin` for the others), `summary`, and optionally `related`, `aliases` (old topic ids) and `anchor_aliases` (old anchor to new). Three files sit beside the parts: `context.yaml`, `anchors.yaml` and `terms.yaml`.
+
+**Markdown subset** (checked): `##` and `###` headings, each with an explicit anchor `{#lowercase-words}` unique in its topic (the title is the front matter's); paragraphs; bullet and numbered lists; tables; fenced code, bare or with one language; `**bold**`, `*em*`, `` `code` ``; links to `https://` or to a topic as `topic.id#anchor` (never a file path); notes as `> **Note:** ...` or `> **Warning:** ...`. No raw HTML. A guide topic opens with `## Here, now {#here-now}`: the short answer for the place the reader is in. Context help shows that section, and the guide reads the whole topic, so there is one text.
+
+**Anchors never break.** `anchors.yaml` lists every anchor ever published (refreshed by `tools/manual_anchors.py`). A test fails when one stops resolving, directly or through `aliases` and `anchor_aliases`, and when a current anchor is missing from the list.
+
+**Context map.** `context.yaml` says where each topic opens from: `ui` maps the setup page's `data-help` ids to topics; `commands` maps a CLI command to the topic its `--help` names (as `Manual: baton help <topic>`). Every command is either mapped or in `pending_commands`; that list only shrinks and is empty when the manual is complete.
+
+**Checks** (`tests/test_manual.py`): the subset; every link, related and context pointer resolves; every `baton` example names real commands and options; owner-facing parts use none of `terms.yaml`'s internal terms (§2); the context map covers every command. `tests/test_docs.py` also requires a change doc in progress or done to name its manual edits.
+
+**`baton help`.** `baton help` lists topics by part; `baton help <topic>[#anchor]` prints a topic or one section; `baton help --search <words>` finds topics; `--json` for tools.
+
+Later slices of [2026-11-user-help](../changes/2026-11-user-help.md) add the reader and the context panel to `baton ui`, the Director's `help` action, the generated reference (§13.10 gains its rules as they land) and the static site build.

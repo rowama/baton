@@ -10,6 +10,7 @@
 | Recipe format (`baton-recipe/N`) and recipe version | `recipe.yaml`, lockfile, `run_started` | project; run |
 | Capability vocabulary (`baton-capabilities/N`) | recipe, lockfile | project |
 | Skills | vendored with the runtime version | project |
+| Manual | ships with the runtime (`baton/_data/manual`), so `baton help` matches the pinned version (§13.10) | project, with the runtime |
 
 **Launcher.** The `baton` command installed on a machine is a thin launcher. It reads `baton.lock` in the current repo and runs that exact runtime version, installing it into `~/.baton/versions/` on first use (via `uv`). `BATON_VERSION` overrides it for one invocation. Different projects, branches and worktrees on one machine can therefore use different Baton versions without conflict.
 

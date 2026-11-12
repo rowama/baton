@@ -24,7 +24,7 @@
 ## 19. Definition of Done
 
 - All phases' acceptance criteria pass, on Linux and native Windows.
-- README covers:
+- The manual (`manual/`, §13.10) covers, and its checks (`tests/test_manual.py`) pass:
   - installing the launcher and `baton init`;
   - writing worker profiles;
   - `doctor` and `check`;
@@ -34,6 +34,7 @@
   - framing a goal into work items, and choosing the conversational or operator communication style;
   - resuming on a new machine;
   - trialing a new version on a branch.
+- Every shipped recipe has a manual topic, and the manual covers every command (Decision: [0127](../decisions/0127-manual-audiences-and-recipes.md)).
 - Three example recipes ship (§5.7): `fit-check`, `software-feature` (software) and `backyard-project` (non-software).
 - Swapping the Director harness or any worker needs only machine-local configuration. New recipes need no runtime changes.
 - Principle checks, demonstrated in Phase 16:

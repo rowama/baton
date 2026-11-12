@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
@@ -1141,6 +1142,41 @@ def recipe_check(
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 
+@app.command("help")
+def help_command(
+    topic: Annotated[Optional[str], typer.Argument(help="A topic, like user.connect-an-account, or one section of it: user.connect-an-account#key-refused.")] = None,
+    search: Annotated[Optional[str], typer.Option("--search", help="Find topics that mention these words.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """The manual: list its topics, print one, or search it. Reads the manual that ships with this version (§13.10)."""
+    from . import manual
+
+    m = manual.Manual()
+    if search is not None:
+        hits = m.search(search)
+        text = "\n".join(f"{h['id']}{'#' + h['anchor'] if h['anchor'] else ''}  {h['title']}: {h['summary']}" for h in hits) or "No topic matches."
+        _emit({"ok": True, "results": hits}, as_json, text)
+        return
+    if topic is None:
+        rows = m.listing()
+        text = []
+        for part in manual.PARTS:
+            mine = [r for r in rows if r["part"] == part]
+            if mine:
+                text += [manual.PART_TITLES[part]] + [f"  {r['id']}  {r['title']}" for r in mine] + [""]
+        _emit({"ok": True, "topics": rows}, as_json, "\n".join(text).rstrip() + "\n\nRead one with: baton help <topic>")
+        return
+    try:
+        t, anchor = m.resolve(topic)
+    except KeyError:
+        near = [h["id"] for h in m.search(topic.replace(".", " ").replace("-", " "), 3)]
+        _fail(as_json, EXIT_PROBLEM, "help.no_topic", f"no manual topic {topic!r}" + (f"; did you mean {', '.join(near)}?" if near else "; list them with: baton help"))
+    body = m.section(t, anchor)
+    shown = re.sub(r"[ \t]*\{#[a-z0-9-]+\}[ \t]*$", "", body, flags=re.MULTILINE)
+    _emit({"ok": True, "id": t.id, "anchor": anchor, "title": t.title, "summary": t.summary, "markdown": body},
+          as_json, (f"{t.title}\n{'=' * len(t.title)}\n\n" if anchor is None else "") + shown + "\n")
+
+
 @app.command("ui")
 def ui_command(
     no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser; print the link.")] = False,
@@ -1443,6 +1479,27 @@ def workers_declare(
                                                           capabilities=capability, note=note, remove=remove, nothing_more=nothing_more))
     text = [f"{k}: {v}" for k, v in out.items() if k in ("declared", "removed", "nothing_more", "warning")]
     _emit(out, as_json, "\n".join(text + [f"saved {out['path']}"]))
+
+
+def _point_help_at_the_manual() -> None:
+    """Each command's --help ends with the manual topic that explains it (context.yaml, §13.10)."""
+    from . import manual
+
+    for info in app.registered_commands:
+        name = info.name or (info.callback.__name__.replace("_", "-") if info.callback else "")
+        ref = manual.manual_for_command(name)
+        if ref and not info.epilog:
+            info.epilog = f"Manual: baton help {ref}"
+    for g in app.registered_groups:
+        ref = manual.manual_for_command(g.name or "")
+        if ref and g.typer_instance is not None and not g.typer_instance.info.epilog:
+            g.typer_instance.info.epilog = f"Manual: baton help {ref}"
+
+
+try:
+    _point_help_at_the_manual()
+except (OSError, ImportError, ValueError):  # expected: a missing manual never stops a command; --help just has no pointer
+    pass
 
 
 def main() -> None:

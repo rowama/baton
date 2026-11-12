@@ -10,6 +10,7 @@ How the docs are laid out, and where every § lives. Section numbers (§) are st
 | [design/](design/) | The design, one file per topic (§3–§15), plus the testing strategy and definition of done (§17, §19) | The files a change doc lists under `touches:`, and any § you follow from them |
 | [decisions/](decisions/) | One record per owner decision (`NNNN-<slug>.md`: context, decision, date, status). `status: proposed` is an open decision: never decide it silently | The records a change doc lists under `decisions:`; any `proposed` record the work touches |
 | [changes/](changes/) | One change doc per piece of work (`YYYY-MM-<slug>.md`), from [TEMPLATE.md](changes/TEMPLATE.md): request, design, plan and log. [REGISTER.md](changes/REGISTER.md) lists every change with its status | The register, to find work or a status; then the one you are working on |
+| [../manual/](../manual/) | The manual: what owners and administrators read (guide, recipes, admin, generated reference), in the setup page, `baton help` and the site. Edited in the same slice as any change that alters what they see | When a change alters what an owner sees or an administrator configures |
 | [history/build-phases.md](history/build-phases.md) | §16: the build order of Phases 1–17, frozen | When you need to know how something was first built |
 
 The design files:
@@ -111,6 +112,7 @@ The design files:
 | §13.7 | [design/director-interface.md](design/director-interface.md) | Action permissions |
 | §13.8 | [design/director-interface.md](design/director-interface.md) | The conversation layer |
 | §13.9 | [design/director-interface.md](design/director-interface.md) | The local setup page (`baton ui`) |
+| §13.10 | [design/director-interface.md](design/director-interface.md) | The manual and `baton help` |
 | §14 | [design/versioning.md](design/versioning.md) | Versioning and Trying New Versions |
 | §14.1 | [design/versioning.md](design/versioning.md) | What is versioned |
 | §14.2 | [design/versioning.md](design/versioning.md) | Compatibility and migration |

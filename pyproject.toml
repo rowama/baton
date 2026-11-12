@@ -38,6 +38,7 @@ packages = ["src/baton"]
 "skills" = "baton/_data/skills"
 "examples" = "baton/_data/examples"
 "ui" = "baton/_data/ui"
+"manual" = "baton/_data/manual"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

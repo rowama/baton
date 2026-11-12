@@ -14,6 +14,7 @@
 6. **Ask the human** when a requirement is ambiguous. Never silently decide an open decision (§18: a decision record in `docs/decisions/` with `status: proposed`).
 7. **The name is a label, not a spec.** "Baton" evokes work passed between workers under a Director. Use the metaphor only to explain; never derive a design decision or a term from it. Code and docs use plain names (step, packet, result, worker, gate).
 8. **Respect the concept budget (§2).** Do not introduce a new user-visible concept, file or command without updating §2 and justifying it against the principles in §1.
+9. **Keep the manual current.** A change that alters what an owner sees or an administrator configures edits the manual (`manual/`, §13.10) in the same slice. The change doc names the files (`manual:`), and tests enforce the format, the anchors, the links, the examples and the coverage (Decision: [0132](decisions/0132-change-docs-name-their-manual-edits.md)).
 
 ## 1. What We Are Building, and the Principles That Bound It
 
@@ -96,7 +97,7 @@ Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe
 
 Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
 
-The local setup page (§13.9) adds none: it is an interface, like the CLI and MCP (Decision: [0125](decisions/0125-ui-adds-no-concept.md)).
+The local setup page (§13.9) adds none: it is an interface, like the CLI and MCP (Decision: [0125](decisions/0125-ui-adds-no-concept.md)). The manual and `baton help` (§13.10) add none either: they are documentation and an interface onto it (Decisions: [0126](decisions/0126-manual-one-corpus.md), [0129](decisions/0129-ui-serves-the-whole-manual.md)).
 
 Worker setup (§6.4) adds none either: a *resource declaration* is the owner's input for generating worker profiles, the *known-workers data* is shipped profile knowledge, and a *generated profile* is a worker profile written by `baton workers setup` (Decision: [0077](decisions/0077-workers-command.md)).
 

@@ -192,3 +192,37 @@ def test_change_register_matches_change_docs():
             problems.append(f"{path.name}: register row {(link, title, status, level)} != front matter {expected}")
     problems += [f"register row {name} has no change doc" for name in rows]
     assert not problems, "docs/changes/REGISTER.md is out of date (see AGENTS.md):\n" + "\n".join(problems)
+
+
+# Changes finished before the `manual:` field existed (decision 0132): not checked.
+MANUAL_NOT_REQUIRED = {
+    "2026-11-capability-confidence", "2026-11-change-register", "2026-11-cli-model-routes", "2026-11-codex-director-sandbox",
+    "2026-11-diagnostics", "2026-11-director-question-check", "2026-11-director-wake", "2026-11-fast-tests",
+    "2026-11-framing-perspective", "2026-11-model-listings", "2026-11-not-offered-reasons", "2026-11-recipe-builder",
+    "2026-11-setup-ui", "2026-11-windows-harness-version-change", "2026-11-windows-real-use-timeout",
+    "2026-11-windows-running-marker", "2026-11-windows-supervisor-console", "2026-11-worker-setup",
+}
+
+
+def test_changes_in_progress_or_done_name_their_manual_edits():
+    """`manual:` lists the manual files the change edits, or `none: <reason>` (decision 0132; AGENTS.md)."""
+    problems = []
+    for path in sorted((DOCS / "changes").glob("*.md")):
+        if path.name in NOT_CHANGE_DOCS or path.stem in MANUAL_NOT_REQUIRED:
+            continue
+        meta = _front_matter(path)
+        if meta["status"] not in {"in-progress", "done"}:
+            continue
+        value = meta.get("manual")
+        if value is None:
+            problems.append(f"{path.name}: front matter lacks `manual:` (files under manual/, or `none: <reason>`)")
+        elif isinstance(value, str):
+            if not (value.startswith("none:") and value[5:].strip()):
+                problems.append(f"{path.name}: `manual:` is a list of manual files, or `none: <reason>`")
+        else:
+            for f in value:
+                if not (ROOT / "manual" / f).exists():
+                    problems.append(f"{path.name}: manual: {f} does not exist under manual/")
+        if "\n### Manual edits\n" not in path.read_text(encoding="utf-8"):
+            problems.append(f"{path.name}: lacks a '### Manual edits' heading under Design")
+    assert not problems, "\n".join(problems)
