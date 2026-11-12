@@ -261,3 +261,11 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0123 The UI stores an API key in the OS keyring, else in an owner-only file, and keyring joins the launcher's default extras](decisions/0123-keys-keyring-then-file.md) | accepted |
 | [0124 Routing preferences have a machine level that project preferences override](decisions/0124-machine-level-preferences.md) | accepted |
 | [0125 The setup page adds no concept; it is an interface like the CLI](decisions/0125-ui-adds-no-concept.md) | accepted |
+| [0126 One manual, written once, read three ways, lives in a top-level `manual/`](decisions/0126-manual-one-corpus.md) | accepted |
+| [0127 The manual has user, admin and recipe parts; recipe-author documentation is a later change](decisions/0127-manual-audiences-and-recipes.md) | accepted |
+| [0128 The manual is a restricted Markdown subset, rendered by a small shipped renderer, to a clean, professional, modern standard](decisions/0128-manual-markdown-subset-and-visual-bar.md) | accepted |
+| [0129 `baton ui` serves the whole manual, not only the context panel](decisions/0129-ui-serves-the-whole-manual.md) | accepted |
+| [0130 A static site is built from the same files; hosting is the owner's separate step](decisions/0130-manual-site-build.md) | accepted |
+| [0131 The Director can read the manual through a read-only `help` action](decisions/0131-director-reads-the-manual.md) | accepted |
+| [0132 Every change doc names its manual edits, or says why there are none](decisions/0132-change-docs-name-their-manual-edits.md) | accepted |
+| [0133 Generated manual reference is committed and checked for drift](decisions/0133-generated-reference-is-committed.md) | accepted |
