@@ -1,7 +1,8 @@
 """The optional local setup page (§13.9; Decisions 0121, 0122, 0125).
 
-``baton ui`` serves a small JSON API and a static front end on a free port of
-``127.0.0.1`` and exits after an idle timeout. It is a client over the one core:
+``baton ui`` serves a small JSON API and a static front end on port 47474 of
+``127.0.0.1`` (so it can be bookmarked) and runs until closed, unless an idle timeout is set. Running it
+again closes the old one first. It is a client over the one core:
 every route calls the function the matching CLI command calls, and nothing here
 holds state of its own. No runtime module imports this one.
 
@@ -36,6 +37,8 @@ from . import manual as manual_mod
 
 COOKIE = "baton_ui"
 DEFAULT_IDLE = 900.0
+DEFAULT_PORT = 47474  # the page's usual address, so it can be bookmarked (`baton ui --port N` changes it)
+TOKEN_FILE = "ui-token"
 UI_FILE = "ui.json"
 #: The files the front end may serve, by URL path: nothing else on disk is ever reachable.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -307,13 +310,30 @@ class Launch:
     token: str
 
 
+def persistent_token(home: Path) -> str:
+    """The page's token, kept in a private file so a bookmark and the browser's cookie survive a restart."""
+    path = Path(home) / TOKEN_FILE
+    try:
+        tok = path.read_text(encoding="utf-8").strip()
+        if len(tok) >= 32:
+            return tok
+    except OSError:  # expected: first launch, no token yet
+        pass
+    tok = secrets.token_urlsafe(32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(tok)
+    return tok
+
+
 class Server:
     """One launch: a token, a loopback socket and an idle clock."""
 
     def __init__(self, home: Path, *, port: int = 0, idle_timeout: float = DEFAULT_IDLE, assets: Path | None = None,
                  routes: dict[tuple[str, str], Route] | None = None) -> None:
         self.home = Path(home)
-        self.token = secrets.token_urlsafe(32)
+        self.token = persistent_token(self.home)
         self.idle_timeout = idle_timeout
         self.assets = assets if assets is not None else assets_dir()
         self.routes = routes if routes is not None else ROUTES
@@ -341,7 +361,7 @@ class Server:
 
         def watch() -> None:
             while not stop.wait(min(0.2, max(self.idle_timeout / 4, 0.02))):
-                if self.idle_for() >= self.idle_timeout:
+                if self.idle_timeout > 0 and self.idle_for() >= self.idle_timeout:
                     why["v"] = "idle"
                     self.httpd.shutdown()
                     return
@@ -437,7 +457,7 @@ class Server:
                         return self._refuse(HTTPStatus.UNAUTHORIZED, "ui.token", "That link is not valid. Start the page again.")
                     server.touch()
                     return self._send(HTTPStatus.FOUND, b"", "text/plain", {
-                        "Location": "/", "Set-Cookie": f"{COOKIE}={server.token}; HttpOnly; SameSite=Strict; Path=/"})
+                        "Location": "/", "Set-Cookie": f"{COOKIE}={server.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000"})
                 if not self._token_ok():
                     return self._refuse(HTTPStatus.UNAUTHORIZED, "ui.token", "Open the page with the link Baton gave you.")
                 server.touch()
@@ -581,6 +601,20 @@ def stop(home: Path) -> dict[str, Any]:
     except OSError:  # expected: the page already removed its own file
         pass
     return {"stopped": True, "pid": live["pid"]}
+
+
+def replace_running(home: Path, wait: float = 10.0) -> bool:
+    """Close the page already running, if any, and wait for it to let go of its port; True if one was closed."""
+    from .supervisor import pid_alive
+
+    live = running(home)
+    if not live:
+        return False
+    stop(home)
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline and pid_alive(live.get("pid")):
+        time.sleep(0.1)
+    return True
 
 
 def start_detached(home: Path, *, idle_timeout: float = DEFAULT_IDLE, wait: float = 15.0) -> dict[str, Any]:

@@ -49,6 +49,7 @@ Commit what the process **is** and what it has **produced**; never commit who ru
 | `~/.baton/diag.yaml`, `~/.baton/diag/` | Diagnostics limits, and the diagnostics themselves (redacted) |
 | `~/.baton/versions/` | Installed runtime versions |
 | `~/.baton/logs/` | Unredacted raw worker output |
+| `~/.baton/ui-token` | The setup page's access token, kept so a bookmark keeps working (0600) |
 | `~/.baton/ui.json` | The running `baton ui`: URL, pid, start time (0600; removed on exit) |
 
 `BATON_HOME` moves `~/.baton`. The full list of settings is in the [project settings reference](reference.project-settings#here-now).

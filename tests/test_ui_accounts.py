@@ -197,7 +197,7 @@ def test_the_page_and_the_cli_write_the_same_files(tmp_path, monkeypatch, fake):
     assert KEY not in res.output
     def tree(h: Path) -> dict[str, str]:
         return {str(f.relative_to(h)): f.read_text(encoding="utf-8") for f in sorted(h.rglob("*"))
-                if f.is_file() and f.parent.name != "listings" and f.name not in ("ui.json", "capability-states.yaml") and "diag" not in f.parts}
+                if f.is_file() and f.parent.name != "listings" and f.name not in ("ui.json", "ui-token", "capability-states.yaml") and "diag" not in f.parts}
     a, b = tree(page_home), tree(cli_home)
     assert a.keys() == b.keys() and "secrets/openrouter_main" in a
     for k in a:

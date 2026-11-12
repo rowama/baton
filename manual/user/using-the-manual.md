@@ -19,6 +19,8 @@ Open the page with:
 baton ui
 ```
 
+The page is always at `http://127.0.0.1:47474/`, so you can bookmark it. It stays up until you close it (Ctrl-C in the terminal, or **Quit** on the page). Running `baton ui` again closes the old page and starts the current version, so it is the way to pick up an update. If another program already uses that port, choose a different one with `--port`.
+
 ## Reading in the terminal {#terminal}
 
 ```baton

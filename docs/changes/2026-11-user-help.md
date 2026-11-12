@@ -257,3 +257,5 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Review:** clean.
 - **Accepted:** pending the owner. The change stays `in-progress` until the owner has seen the look of the page (decision 0128: slice 2 is accepted only after they have) and read the manual's words; then `status: done`.
 
+
+- 2026-11-12, follow-up (owner request): `baton ui` now listens on port 47474 by default (`--port` overrides, 0 = free), has no idle timeout by default (`--idle-timeout S` opts in; the Director's detached start keeps 15 minutes), and running it again closes the running page first (`ui.replace_running`). The token is kept in `~/.baton/ui-token` (0600) and the cookie lasts a year, so a bookmark survives restarts. Manual: using-the-manual, network-and-security, files-and-paths, regenerated commands reference. Design §13.9 and tests in `test_ui.py`.

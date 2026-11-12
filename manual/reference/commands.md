@@ -611,15 +611,15 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 
 ## baton ui {#baton-ui}
 
-Open the local setup page: connect accounts and choose the models Baton may use. Closes itself when idle.
+Open the local setup page: connect accounts and choose the models Baton may use. Stays on one address you can bookmark; running it again restarts it.
 
 Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `--no-open` | Do not open the browser; print the link. |
-| `--port <int>` | A port on 127.0.0.1 (default: a free one). |
-| `--idle-timeout <float>` | Seconds without a request before the page closes itself. |
+| `--port <int>` | A port on 127.0.0.1 (default: 47474, so the page can be bookmarked; 0 picks a free one). |
+| `--idle-timeout <float>` | Seconds without a request before the page closes itself (default 0: it stays up until you close it). |
 | `--detach` | Start it in the background and print the link (what a Director does). |
 | `--stop` | Close the setup page that is running (for one started with --detach). |
 | `--json` | Machine-readable output. |

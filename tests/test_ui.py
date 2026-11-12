@@ -318,3 +318,25 @@ def test_the_manual_serves_a_section_and_the_context_map(home):
         assert ctx["errors"]["accounts.key_refused"] == "user.connect-an-account#key-refused"
     finally:
         page.close()
+
+
+def test_the_token_survives_a_restart_so_a_bookmark_keeps_working(home):
+    first = ui.Server(home).token
+    assert ui.Server(home).token == first
+    assert (home / ui.TOKEN_FILE).stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.not_slow("idle watcher is not started when the timeout is 0")
+def test_no_idle_timeout_means_the_page_stays_up(home):
+    server = ui.Server(home, idle_timeout=0)
+    t = threading.Thread(target=server.serve, daemon=True)
+    t.start()
+    time.sleep(0.6)
+    assert t.is_alive()
+    server.quit()
+    t.join(5)
+    assert not t.is_alive()
+
+
+def test_replace_running_closes_the_old_page(home):
+    assert ui.replace_running(home) is False

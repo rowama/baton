@@ -9,7 +9,7 @@ related: [admin.secrets, admin.files-and-paths]
 
 ## Here, now {#here-now}
 
-Baton runs no daemon, server or database of its own. It is files, git and processes started on demand. The only listening socket is the optional setup page, bound to loopback and closed when idle.
+Baton runs no daemon, server or database of its own. It is files, git and processes started on demand. The only listening socket is the optional setup page, bound to loopback, on port 47474 unless you choose another.
 
 ## What it talks to {#network}
 
@@ -41,7 +41,7 @@ A coding assistant used as a helper may be able to edit files and run commands. 
 
 ## The setup page and MCP over HTTP {#local-servers}
 
-`baton ui` binds `127.0.0.1` only, checks a per-launch token, the `Host` and `Origin` headers and a custom request header on every request, and never returns a stored key. `baton mcp --http` also binds loopback only and needs the bearer token from `~/.baton/mcp.yaml`.
+`baton ui` binds `127.0.0.1` only, checks a token kept in `~/.baton/ui-token` (0600), the `Host` and `Origin` headers and a custom request header on every request, and never returns a stored key. `baton mcp --http` also binds loopback only and needs the bearer token from `~/.baton/mcp.yaml`.
 
 ## What Baton may do to the repository {#permissions}
 
