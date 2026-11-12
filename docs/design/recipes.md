@@ -288,6 +288,8 @@ The requirements ledger carries every requirement, assumption and decision from 
 
 Because it is small, `fit-check` is also the builder's first end-to-end recipe: with the `manual` adapter it is the Phase 4 toy run, and with an API worker it is the first real run in Phase 5.
 
+**Planned `eng-process` recipe:** the proposed engineering workflow preserves eng-process phases and checkpoints using Baton state, handoff and worker machinery. It does not require the eng-process CLI or duplicate authoritative process-state files. Engineering deliverables remain project artifacts. The remaining process policy and implementation are proposed in [2026-11-eng-process-recipe](../changes/2026-11-eng-process-recipe.md). Decision: [0138](../decisions/0138-eng-process-uses-baton-machinery.md). Medium/large plan review is blocking; code review is advisory, with vendors selected through worker profiles. Decision: [0139](../decisions/0139-eng-process-review-policy.md).
+
 ### 5.8 Identifiers
 
 Ids name **roles, never positions**. Recipes and plans change over time; an id that encodes order or sequence gets renumbered or reused, and history then attaches to different work. Every rule below exists to keep provenance unambiguous across recipe versions and plan revisions.

@@ -275,3 +275,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0135 The Director writes fit-check's project context from detect and a shallow look](decisions/0135-director-writes-the-project-context.md) | accepted |
 | [0136 adopt with no recipe returns a recipe-needed status that points at fit-check](decisions/0136-adopt-without-recipe-returns-recipe-needed.md) | accepted |
 | [0137 The manual's adopt example no longer uses fit-check as the recipe](decisions/0137-fix-the-adopt-manual-example.md) | accepted |
+| [0138 The eng-process recipe uses Baton machinery without duplicate process state](decisions/0138-eng-process-uses-baton-machinery.md) | accepted |
+| [0139 The eng-process recipe blocks on plan review and keeps code review advisory](decisions/0139-eng-process-review-policy.md) | accepted |
