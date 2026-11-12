@@ -3,7 +3,7 @@
 - Work item: Contract review
 - Slug: `contract-review`
 - Branch: `–`
-- Recipe: `fit-check@4` (`0a631e275db2c25529d4ee3951c03242721f6d0b4a1732ef3d4bd85c8895702a`)
+- Recipe: `fit-check@4` (`5c2936797a44a99c2dc0c831c562cb51c21ef81edbb36321648f227b91ffb83a`)
 - Formats: events `baton-events/1`, packet `baton-packet/1`, recipe `baton-recipe/1`
 - Max attempts per step: 3
 - State: **completed**
