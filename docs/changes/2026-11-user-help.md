@@ -3,7 +3,7 @@ id: 2026-11-user-help
 title: "One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change"
 status: in-progress
 level: major
-manual: [user/what-is-baton.md, user/getting-started.md, user/using-the-manual.md, user/start-with-a-goal.md, user/bring-an-existing-project.md, user/answer-questions-and-decide.md, user/check-on-your-work.md, user/long-running-work.md, user/how-you-want-to-be-told.md, user/what-baton-may-do.md, user/when-something-is-wrong.md, providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
+manual: [recipes/fit-check.md, recipes/software-feature.md, recipes/backyard-project.md, recipes/recipe-builder.md, recipes/baton-adopt.md, recipes/baton-frame.md, user/what-is-baton.md, user/getting-started.md, user/using-the-manual.md, user/start-with-a-goal.md, user/bring-an-existing-project.md, user/answer-questions-and-decide.md, user/check-on-your-work.md, user/long-running-work.md, user/how-you-want-to-be-told.md, user/what-baton-may-do.md, user/when-something-is-wrong.md, providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
 decisions: ["0126", "0127", "0128", "0129", "0130", "0131", "0132", "0133"]
 touches: [principles.md, design/director-interface.md, design/layouts.md, design/versioning.md, design/testing.md]   # §0, §2, §13.2, §4.1, §14.1, §19
 ---
@@ -230,6 +230,14 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Commit:** `2026-11-user-help: Slice 4, the user guide`
 - **Summary:** Eleven new owner-facing topics in `manual/user/`: what Baton is and who does what, getting started, using the manual, starting with a goal, bringing in an existing project, answering questions and deciding (every choice's label and effect, from `defaults/labels.yaml`), checking on your work, long-running work and coming back, how you want to be told, what Baton may do to your repository (the permission defaults from `init`), and when something is wrong (the `doctor` messages, the sandboxed Codex fix). Thirteen commands moved from `pending_commands` to mapped, so each one's `--help` now names its topic. `terms.yaml` also bars worker, gate, dispatch, escalation, attempt and work item from owner-facing prose. The generic provider's card and page are now titled "OpenAI-compatible service". Claims were checked against `baton init`, `doctor`, `board`, `defaults/labels.yaml`, the Director skill and the README, not written from memory.
 - **Tests:** `tests/test_manual.py` (the whole manual validates, including the stricter terms list, every example's commands and options, every link and anchor).
+- **Review:** clean.
+- **Accepted:** pending the owner.
+
+### Slice 5: the recipe topics
+
+- **Commit:** `2026-11-user-help: Slice 5, a topic for each shipped recipe`
+- **Summary:** One owner-facing topic for each of `fit-check`, `software-feature`, `backyard-project`, `recipe-builder`, `baton-adopt` and `baton-frame` (purpose, what you will be asked, what it produces, what it needs, an example, what to do when it goes wrong). The prose is in `manual/recipe-sources/`; `manual_gen.py` writes `manual/recipes/` with each topic's parts table generated from the recipe (`build_plan`): its parts, the sizes they apply at, and the human gates, so the questions listed are the recipe's own. A shipped recipe with no source, or a table that no longer matches its recipe, makes `tests/test_manual_gen.py` fail until `python tools/build_manual.py` is run. Facts were checked against each recipe's plan, run inputs, prompts and §5.7, not remembered.
+- **Tests:** `tests/test_manual_gen.py` (all six shipped recipes have a topic with a generated table; a new shipped recipe, and a changed recipe, each make the manual stale).
 - **Review:** clean.
 - **Accepted:** pending the owner.
 

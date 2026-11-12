@@ -56,3 +56,41 @@ def test_every_refusal_the_map_explains_is_a_real_account_error_code():
     src = (ROOT / "src" / "baton" / "accounts.py").read_text(encoding="utf-8")
     for code in manual.context()["errors"]:
         assert f'"{code}"' in src, code
+
+
+def test_every_shipped_recipe_has_a_topic_with_a_table_generated_from_it():
+    m = manual.Manual()
+    shipped = manual_gen.shipped_recipes()
+    assert set(shipped) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "baton-adopt", "baton-frame"}
+    for rid in shipped:
+        t, _ = m.resolve(f"recipes.{rid}")
+        assert "| Part | When | You are asked |" in t.body and "%parts%" not in t.body, rid
+    body = m.resolve("recipes.software-feature")[0].body
+    assert "Approve the plan and its slices?" in body and "Accept this slice as done?" in body
+    assert "| Clarify requirements | at standard, major |" in body
+    assert "Did the finished structure pass inspection?" in m.resolve("recipes.backyard-project")[0].body
+
+
+def test_a_shipped_recipe_without_a_topic_is_a_stale_manual(monkeypatch, tmp_path):
+    real = manual_gen.shipped_recipes()
+    monkeypatch.setattr(manual_gen, "shipped_recipes", lambda: {**real, "newest": real["fit-check"]})
+    assert any("shipped recipe newest has no manual/recipe-sources/newest.md" in s for s in manual_gen.stale())
+
+
+def test_a_changed_recipe_makes_its_table_stale(monkeypatch):
+    import copy
+
+    from baton import recipe as recipe_mod
+
+    real = recipe_mod.build_plan
+
+    def changed(loaded, level=None):
+        plan = real(loaded, level)
+        if plan.recipe.startswith("fit-check"):
+            plan = copy.deepcopy(plan)
+            for lv in plan.levels:
+                lv.steps[0].title = "Renamed first part"
+        return plan
+
+    monkeypatch.setattr(manual_gen.recipe, "build_plan", changed)
+    assert any("recipes/fit-check.md" in s for s in manual_gen.stale())

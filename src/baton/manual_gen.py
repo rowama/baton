@@ -1,4 +1,4 @@
-"""Generated manual topics (§13.10; decision 0133): one provider page per directory entry.
+"""Generated manual topics (§13.10; decisions 0127, 0133): one provider page per directory entry, and the parts table of each recipe topic.
 
 ``python tools/build_manual.py`` writes them; ``tests/test_manual_gen.py`` regenerates and compares, so a new
 directory entry (or a changed fact about one) cannot leave the manual stale. The hand-written part of a
@@ -12,8 +12,8 @@ from typing import Any
 
 import yaml
 
+from . import data, manual, recipe, vocab
 from . import known_workers as kw
-from . import manual, vocab
 
 
 def slug(name: str) -> str:
@@ -79,7 +79,72 @@ def render_all(base: Path | None = None) -> dict[str, str]:
     """Relative path under the manual -> generated text."""
     base = base or manual.root()
     notes = _notes(base)
-    return {f"providers/{slug(n)}.md": render(n, p, notes.get(n), 10 + i) for i, (n, p) in enumerate(_providers().items())}
+    out = {f"providers/{slug(n)}.md": render(n, p, notes.get(n), 10 + i) for i, (n, p) in enumerate(_providers().items())}
+    for rid, root in shipped_recipes().items():
+        src = base / "recipe-sources" / f"{rid}.md"
+        if src.is_file():
+            out[f"recipes/{rid}.md"] = render_recipe(src.read_text(encoding="utf-8"), root)
+    return out
+
+
+# ---- recipe topics: hand-written prose, generated parts table ---------------------------------
+
+def shipped_recipes() -> dict[str, Path]:
+    """Every recipe that ships with Baton: the examples and the built-in ones."""
+    found: dict[str, Path] = {}
+    for top in (data.path("examples") / "recipes", data.path("builtin")):
+        for d in sorted(top.glob("*")):
+            if (d / "recipe.yaml").is_file():
+                found[d.name] = d
+    return found
+
+
+def _human(text: str) -> str:
+    return text.replace("|", "/")
+
+
+def parts_table(root: Path, labels: dict[str, str]) -> str:
+    """What the recipe does, step by step, and where the owner is asked: read from the recipe itself (§5.5)."""
+    plan = recipe.build_plan(recipe.load_recipe(root))
+    levels = [lv.level for lv in plan.levels]
+    order: list[str] = []
+    for lv in plan.levels:
+        for st in lv.steps:
+            if st.path not in order:
+                order.append(st.path)
+    rows = []
+    for path in order:
+        per = {lv.level: next((st for st in lv.steps if st.path == path), None) for lv in plan.levels}
+        here = {lv: st for lv, st in per.items() if st is not None and st.included}
+        any_step = next(st for st in per.values() if st is not None)
+        title = labels.get(path) or (any_step.title[:1].upper() + any_step.title[1:])
+        when = "always" if len(here) == len(levels) else "at " + ", ".join(lv for lv in levels if lv in here)
+        if levels == [None]:
+            when = "always"
+        asks: dict[str, list[str]] = {}
+        for lv, st in here.items():
+            for g in st.gates:
+                if g.type != "human" or g.blocking is False:
+                    continue
+                note = "Is the size right?" if g.implicit else g.note
+                asks.setdefault(note, []).append(lv)
+        asked = "; ".join(q if (levels == [None] or len(v) == len(here)) else f"{q} (at {', '.join(v)})" for q, v in asks.items())
+        indent = "↳ " if any_step.depth else ""
+        rows.append(f"| {indent}{_human(title)} | {when} | {_human(asked) if asked else 'nothing'} |")
+    head = ["| Part | When | You are asked |", "|---|---|---|"]
+    note = "" if levels == [None] else f"\n\nThe size of the work is {', '.join(f'**{lv}**' for lv in levels)}. The first part works out which one fits, and you confirm it above the smallest."
+    return "\n".join(head + rows) + note
+
+
+def render_recipe(src: str, root: Path) -> str:
+    meta, body = manual._split(src)
+    labels = dict(meta.pop("step_labels", None) or {})
+    meta["generated"] = True
+    table = parts_table(root, labels)
+    if "%parts%" not in body:
+        raise manual.ManualError("a recipe source needs a %parts% line")
+    front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=1000).rstrip("\n")
+    return f"---\n{front}\n---\n{body.replace('%parts%', table)}"
 
 
 def write(base: Path | None = None) -> list[str]:
@@ -88,9 +153,11 @@ def write(base: Path | None = None) -> list[str]:
     (base / "providers").mkdir(exist_ok=True)
     for rel, text in want.items():
         (base / rel).write_text(text, encoding="utf-8")
-    for old in (base / "providers").glob("*.md"):
-        if f"providers/{old.name}" not in want:
-            old.unlink()
+    (base / "recipes").mkdir(exist_ok=True)
+    for sub in ("providers", "recipes"):
+        for old in (base / sub).glob("*.md"):
+            if f"{sub}/{old.name}" not in want:
+                old.unlink()
     return sorted(want)
 
 
@@ -99,4 +166,6 @@ def stale(base: Path | None = None) -> list[str]:
     want = render_all(base)
     out = [f"{rel}: missing or out of date" for rel, text in want.items() if not (base / rel).is_file() or (base / rel).read_text(encoding="utf-8") != text]
     out += [f"providers/{p.name}: no such provider in the directory" for p in sorted((base / "providers").glob("*.md")) if f"providers/{p.name}" not in want]
+    out += [f"recipes/{p.name}: no recipe source" for p in sorted((base / "recipes").glob("*.md")) if f"recipes/{p.name}" not in want]
+    out += [f"shipped recipe {rid} has no manual/recipe-sources/{rid}.md" for rid in shipped_recipes() if not (base / "recipe-sources" / f"{rid}.md").is_file()]
     return out
