@@ -1174,7 +1174,7 @@ def help_command(
 def ui_command(
     no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser; print the link.")] = False,
     port: Annotated[int, typer.Option("--port", help="A port on 127.0.0.1 (default: 47474, so the page can be bookmarked; 0 picks a free one).")] = 47474,
-    idle_timeout: Annotated[float, typer.Option("--idle-timeout", help="Seconds without a request before the page closes itself (default 0: it stays up until you close it).")] = 0.0,
+    idle_timeout: Annotated[Optional[float], typer.Option("--idle-timeout", help="Seconds without a request before the page closes itself (default: none; a running page is only ever extended).")] = None,
     detach: Annotated[bool, typer.Option("--detach", help="Start it in the background and print the link (what a Director does).")] = False,
     stop: Annotated[bool, typer.Option("--stop", help="Close the setup page that is running (for one started with --detach).")] = False,
     as_json: JsonOpt = False,
@@ -1190,12 +1190,14 @@ def ui_command(
         return
     if detach:
         try:
-            out = ui_mod.start_detached(home, idle_timeout=idle_timeout)
+            out = ui_mod.start_detached(home, idle_timeout=idle_timeout, restart=True)
         except RuntimeError as e:
             _fail(as_json, EXIT_PROBLEM, "ui.not_started", str(e))
-        _emit(out, as_json, f"Open this link: {out['url']}")
+        _emit(out, as_json, f"Open this link: {out['url']}" + (f"\n{out['note']}" if out.get("note") else ""))
         return
-    ui_mod.replace_running(home)  # a page already running is closed, so this one is the current version
+    old = ui_mod.replace_running(home)  # a page already running is closed, so this one is the current version
+    idle_timeout, honored = ui_mod.merge_timeout(None if old is None else float(old.get("idle_timeout") or 0), idle_timeout)
+    note = ui_mod.timeout_note(idle_timeout, honored)
     try:
         server = ui_mod.Server(home, port=port, idle_timeout=idle_timeout)
     except OSError as e:
@@ -1205,10 +1207,11 @@ def ui_command(
 
     def announce(launch: ui_mod.Launch) -> None:
         opened = False if no_open else ui_mod.open_browser(launch.url)
-        _emit({"ok": True, "url": launch.url, "port": launch.port, "idle_timeout": idle_timeout}, as_json,
+        _emit({"ok": True, "url": launch.url, "port": launch.port, "idle_timeout": idle_timeout, **({"note": note} if note else {})}, as_json,
               ("Opened the setup page in your browser. " if opened else "Open this link in your browser: ") + launch.url
               + (f"\nIt closes by itself after {idle_timeout / 60:.0f} minutes without use; Ctrl-C closes it now." if idle_timeout > 0
-               else "\nIt stays up until you close it (Ctrl-C, or Quit on the page). Bookmark: " + launch.url.split("?")[0]))
+               else "\nIt stays up until you close it (Ctrl-C, or Quit on the page). Bookmark: " + launch.url.split("?")[0])
+              + (f"\n{note}" if note else ""))
 
     try:
         why = server.serve(announce=announce)

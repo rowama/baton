@@ -338,5 +338,34 @@ def test_no_idle_timeout_means_the_page_stays_up(home):
     assert not t.is_alive()
 
 
-def test_replace_running_closes_the_old_page(home):
-    assert ui.replace_running(home) is False
+def test_replace_running_with_no_page_does_nothing(home):
+    assert ui.replace_running(home) is None
+
+
+@pytest.mark.parametrize("current,requested,effective,honored", [
+    (None, None, 0, None), (None, 600, 600, True), (None, 0, 0, True),
+    (0, 600, 0, False), (0, None, 0, None), (0, 0, 0, True),
+    (900, 600, 900, False), (900, 900, 900, False), (900, 1800, 1800, True),
+    (900, 0, 0, True), (900, None, 900, None),
+])
+def test_a_launch_can_only_extend_a_timeout(current, requested, effective, honored):
+    assert ui.merge_timeout(current, requested) == (effective, honored)
+
+
+def test_a_refused_timeout_is_explained():
+    assert "not applied" in ui.timeout_note(0, False)
+    assert ui.timeout_note(900, True) is None
+
+
+@pytest.mark.not_slow("watcher tick of 0.5 s at most")
+def test_an_extended_timeout_reaches_the_running_page(home):
+    server = ui.Server(home, idle_timeout=0.4)
+    t = threading.Thread(target=server.serve, daemon=True)
+    t.start()
+    time.sleep(0.05)
+    live = ui.running(home)
+    ui.extend_running(home, live, 0)  # now no timeout
+    time.sleep(1.2)
+    assert t.is_alive()
+    server.quit()
+    t.join(5)

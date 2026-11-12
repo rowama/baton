@@ -310,6 +310,31 @@ class Launch:
     token: str
 
 
+def merge_timeout(current: float | None, requested: float | None) -> tuple[float, bool | None]:
+    """The idle timeout a launch ends up with, and whether the requested one was honored.
+
+    ``current`` is the running page's timeout (0 = none; None = no page running); ``requested`` is the launch's
+    (None = not given; 0 = none). A launch can only extend a running page's timeout, never shorten it.
+    Returns ``(effective, honored)``; ``honored`` is None when none was requested.
+    """
+    if requested is None:
+        return (current or 0.0), None
+    if current is None:
+        return requested, True
+    if current == 0:
+        return 0.0, False if requested > 0 else True
+    if requested == 0 or requested > current:
+        return requested, True
+    return current, False
+
+
+def timeout_note(effective: float, honored: bool | None) -> str | None:
+    if honored is False:
+        return ("The page already running would stay up " + ("with no timeout" if effective == 0 else f"for {effective / 60:.0f} minutes without use")
+                + ", so the timeout you asked for was not applied; a launch can only extend a timeout, never shorten it.")
+    return None
+
+
 def persistent_token(home: Path) -> str:
     """The page's token, kept in a private file so a bookmark and the browser's cookie survive a restart."""
     path = Path(home) / TOKEN_FILE
@@ -360,7 +385,8 @@ class Server:
         stop = threading.Event()
 
         def watch() -> None:
-            while not stop.wait(min(0.2, max(self.idle_timeout / 4, 0.02))):
+            while not stop.wait(min(0.2, max(self.idle_timeout / 4, 0.02)) if self.idle_timeout > 0 else 0.5):
+                self._refresh_timeout()
                 if self.idle_timeout > 0 and self.idle_for() >= self.idle_timeout:
                     why["v"] = "idle"
                     self.httpd.shutdown()
@@ -382,10 +408,19 @@ class Server:
     def quit(self) -> None:
         threading.Thread(target=self.httpd.shutdown, daemon=True).start()
 
+    def _refresh_timeout(self) -> None:
+        """A later launch may have extended the timeout: it says so in ``ui.json``."""
+        try:
+            doc = json.loads((self.home / UI_FILE).read_text(encoding="utf-8"))
+            if doc.get("pid") == os.getpid() and isinstance(doc.get("idle_timeout"), (int, float)):
+                self.idle_timeout = float(doc["idle_timeout"])
+        except (OSError, ValueError):  # expected: the file is being rewritten; the next tick reads it
+            pass
+
     def write_registration(self) -> None:
         path = self.home / UI_FILE
         self.home.mkdir(parents=True, exist_ok=True)
-        body = json.dumps({"url": self.launch.url, "port": self.port, "pid": os.getpid(), "started": time.time()})
+        body = json.dumps({"url": self.launch.url, "port": self.port, "pid": os.getpid(), "started": time.time(), "idle_timeout": self.idle_timeout})
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(body)
@@ -603,36 +638,60 @@ def stop(home: Path) -> dict[str, Any]:
     return {"stopped": True, "pid": live["pid"]}
 
 
-def replace_running(home: Path, wait: float = 10.0) -> bool:
-    """Close the page already running, if any, and wait for it to let go of its port; True if one was closed."""
+def replace_running(home: Path, wait: float = 10.0) -> dict[str, Any] | None:
+    """Close the page already running, if any, and wait for it to let go of its port; returns what it was."""
     from .supervisor import pid_alive
 
     live = running(home)
     if not live:
-        return False
+        return None
     stop(home)
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline and pid_alive(live.get("pid")):
         time.sleep(0.1)
-    return True
+    return live
 
 
-def start_detached(home: Path, *, idle_timeout: float = DEFAULT_IDLE, wait: float = 15.0) -> dict[str, Any]:
-    """The Director's ``ui``: the running page, or one started detached; returns its URL (§13.9)."""
+def extend_running(home: Path, live: dict[str, Any], timeout: float) -> None:
+    """Tell the running page its new (longer) timeout."""
+    doc = {**live, "idle_timeout": timeout}
+    path = Path(home) / UI_FILE
+    tmp = path.with_name(UI_FILE + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(doc))
+    os.replace(tmp, path)
+
+
+def start_detached(home: Path, *, idle_timeout: float | None = None, restart: bool = False, wait: float = 15.0) -> dict[str, Any]:
+    """Start the page detached, or find the running one; returns its URL (§13.9).
+
+    ``idle_timeout`` None / 0 means no timeout. With ``restart`` a running page is closed and started again (the owner's
+    ``baton ui``); without it the running page is kept (the Director's ``ui``). Either way a timeout can only be extended.
+    """
     from .supervisor import _detached
 
     home = Path(home)
     live = running(home)
+    cur = None if live is None else float(live.get("idle_timeout") or 0)
+    effective, honored = merge_timeout(cur, idle_timeout)
+    note = timeout_note(effective, honored)
+    if live and not restart:
+        if honored:
+            extend_running(home, live, effective)
+        return {"url": live["url"], "pid": live["pid"], "started": False, "idle_timeout": effective or None,
+                "timeout_honored": honored, **({"note": note} if note else {})}
     if live:
-        return {"url": live["url"], "pid": live["pid"], "started": False, "idle_timeout": None}
-    argv = [sys.executable, "-m", "baton", "ui", "--no-open", "--idle-timeout", str(idle_timeout)]
+        replace_running(home)
+    argv = [sys.executable, "-m", "baton", "ui", "--no-open", "--idle-timeout", str(effective)]
     env = {**os.environ, "BATON_HOME": str(home)}
     proc = _detached(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
-        live = running(home)
-        if live:
-            return {"url": live["url"], "pid": live["pid"], "started": True, "idle_timeout": idle_timeout}
+        now = running(home)
+        if now:
+            return {"url": now["url"], "pid": now["pid"], "started": True, "idle_timeout": effective or None,
+                    "timeout_honored": honored, **({"note": note} if note else {})}
         if proc.poll() is not None:
             break
         time.sleep(0.1)

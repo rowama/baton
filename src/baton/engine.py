@@ -3199,7 +3199,7 @@ class Api:
         from . import ui as ui_mod
 
         try:
-            return ui_mod.start_detached(self.project.home, idle_timeout=idle_timeout or ui_mod.DEFAULT_IDLE)
+            return ui_mod.start_detached(self.project.home, idle_timeout=idle_timeout or ui_mod.DEFAULT_IDLE, restart=False)  # the Director always sets a timeout
         except RuntimeError as e:
             raise EngineError("ui.not_started", str(e)) from e
 

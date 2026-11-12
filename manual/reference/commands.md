@@ -619,7 +619,7 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 |---|---|
 | `--no-open` | Do not open the browser; print the link. |
 | `--port <int>` | A port on 127.0.0.1 (default: 47474, so the page can be bookmarked; 0 picks a free one). |
-| `--idle-timeout <float>` | Seconds without a request before the page closes itself (default 0: it stays up until you close it). |
+| `--idle-timeout <float>` | Seconds without a request before the page closes itself (default: none; a running page is only ever extended). |
 | `--detach` | Start it in the background and print the link (what a Director does). |
 | `--stop` | Close the setup page that is running (for one started with --detach). |
 | `--json` | Machine-readable output. |

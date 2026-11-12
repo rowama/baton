@@ -19,7 +19,7 @@ Open the page with:
 baton ui
 ```
 
-The page is always at `http://127.0.0.1:47474/`, so you can bookmark it. It stays up until you close it (Ctrl-C in the terminal, or **Quit** on the page). Running `baton ui` again closes the old page and starts the current version, so it is the way to pick up an update. If another program already uses that port, choose a different one with `--port`.
+The page is always at `http://127.0.0.1:47474/`, so you can bookmark it. It stays up until you close it (Ctrl-C in the terminal, or **Quit** on the page); `baton ui --detach` runs it in the background the same way. Running `baton ui` again closes the old page and starts the current version, so it is the way to pick up an update. Give `--idle-timeout SECONDS` to have it close itself when unused; a later launch can only lengthen a running page's timeout, never shorten it, and tells you when yours was not applied. When your assistant starts the page it always sets a timeout. If another program already uses that port, choose a different one with `--port`.
 
 ## Reading in the terminal {#terminal}
 
