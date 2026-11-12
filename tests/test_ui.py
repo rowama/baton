@@ -211,10 +211,10 @@ def test_no_runtime_module_imports_the_page_and_the_front_end_ships_as_data():
 
 @pytest.mark.slow
 def test_a_director_can_start_it_detached_and_gets_the_same_page_back(home):
-    out = ui.start_detached(home, idle_timeout=60)
+    out = ui.start_detached(home, idle_timeout=60, port=0)
     try:
         assert out["started"] and out["url"].startswith("http://127.0.0.1:") and "?t=" in out["url"]
-        again = ui.start_detached(home, idle_timeout=60)
+        again = ui.start_detached(home, idle_timeout=60, port=0)
         assert not again["started"] and again["url"] == out["url"]
     finally:
         import os

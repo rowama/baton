@@ -663,7 +663,7 @@ def extend_running(home: Path, live: dict[str, Any], timeout: float) -> None:
     os.replace(tmp, path)
 
 
-def start_detached(home: Path, *, idle_timeout: float | None = None, restart: bool = False, wait: float = 15.0) -> dict[str, Any]:
+def start_detached(home: Path, *, idle_timeout: float | None = None, restart: bool = False, wait: float = 15.0, port: int = DEFAULT_PORT) -> dict[str, Any]:
     """Start the page detached, or find the running one; returns its URL (§13.9).
 
     ``idle_timeout`` None / 0 means no timeout. With ``restart`` a running page is closed and started again (the owner's
@@ -683,7 +683,7 @@ def start_detached(home: Path, *, idle_timeout: float | None = None, restart: bo
                 "timeout_honored": honored, **({"note": note} if note else {})}
     if live:
         replace_running(home)
-    argv = [sys.executable, "-m", "baton", "ui", "--no-open", "--idle-timeout", str(effective)]
+    argv = [sys.executable, "-m", "baton", "ui", "--no-open", "--idle-timeout", str(effective), "--port", str(port)]
     env = {**os.environ, "BATON_HOME": str(home)}
     proc = _detached(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     deadline = time.monotonic() + wait
