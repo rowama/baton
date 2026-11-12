@@ -50,7 +50,7 @@ def render(name: str, p: Any, notes: str | None, order: int) -> str:
         get = f"Get a key from [{title}]({p.signup_url}). It opens {title}'s own page for creating one." if p.signup_url else f"Create a key in your {title} account."
         steps = [get, f"In **Accounts**, find the **{title}** card, paste the key into its box and choose **Connect**."]
         summary = f"Get a key for {title} and connect it so its models can do work for you."
-    out = ["---", f"id: providers.{slug(name)}", f"title: Connect {title}" if not local else f"title: Use {title}", "audience: owner", f"summary: {summary}",
+    out = ["---", f"id: providers.{slug(name)}", "title: Connect any OpenAI-compatible service" if generic else (f"title: Use {title}" if local else f"title: Connect {title}"), "audience: owner", f"summary: {summary}",
            f"order: {order}", "generated: true", "related: [user.connect-an-account, admin.secrets]", "---", "", "## Here, now {#here-now}", ""]
     out += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
     out += ["", "Baton checks the connection with a quick read of the model list, which never asks a model anything and costs nothing. Then the models appear in **Models**.", "",

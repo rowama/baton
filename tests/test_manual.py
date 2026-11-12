@@ -89,10 +89,10 @@ def test_a_new_anchor_must_be_recorded(mini):
 def test_a_command_with_no_topic_is_reported_and_pending_is_honest(mini):
     ctx = mini / "context.yaml"
     data = yaml.safe_load(ctx.read_text(encoding="utf-8"))
-    data["pending_commands"].remove("doctor")
+    data["pending_commands"].remove("trace")
     ctx.write_text(yaml.safe_dump(data), encoding="utf-8")
-    assert any("command 'doctor' has no manual topic" in p for p in problems(mini))
-    data["pending_commands"] += ["doctor", "nonesuch"]
+    assert any("command 'trace' has no manual topic" in p for p in problems(mini))
+    data["pending_commands"] += ["trace", "nonesuch"]
     ctx.write_text(yaml.safe_dump(data), encoding="utf-8")
     assert any("'nonesuch', which is not a baton command" in p for p in problems(mini))
 

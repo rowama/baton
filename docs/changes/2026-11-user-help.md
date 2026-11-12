@@ -3,7 +3,7 @@ id: 2026-11-user-help
 title: "One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change"
 status: in-progress
 level: major
-manual: [providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
+manual: [user/what-is-baton.md, user/getting-started.md, user/using-the-manual.md, user/start-with-a-goal.md, user/bring-an-existing-project.md, user/answer-questions-and-decide.md, user/check-on-your-work.md, user/long-running-work.md, user/how-you-want-to-be-told.md, user/what-baton-may-do.md, user/when-something-is-wrong.md, providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml]
 decisions: ["0126", "0127", "0128", "0129", "0130", "0131", "0132", "0133"]
 touches: [principles.md, design/director-interface.md, design/layouts.md, design/versioning.md, design/testing.md]   # §0, §2, §13.2, §4.1, §14.1, §19
 ---
@@ -222,6 +222,14 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Commit:** `2026-11-user-help: Slice 3, context help and generated provider pages`
 - **Summary:** Setup has a "?" beside its sections, each provider's card, the capabilities column and the preference row; each opens the manual's short answer in a side panel (`help.js`) with "Open the full guide" to the reader at the same anchor; panel links stay in the panel. `GET /api/manual/context` serves the map; `/api/manual/topic/<id>?anchor=` serves one section. A refusal the manual explains carries "What does this mean?" (`context.yaml` `errors:`), and `baton workers connect` prints the same pointer (`More: baton help ...`, and `help` in `--json`). `manual_gen.py` and `tools/build_manual.py` write 18 provider pages (`manual/providers/`) from the provider directory and `manual/provider-notes.yaml`; the directory gains `display_name` for the direct APIs and Groq, and OpenRouter gains `display_name` and `signup_url` (https://openrouter.ai/keys answered on 2026-11-11), so its card now shows "Get a key". The seed topics now use the page's own labels (Use, Capabilities, Checked, Prefer a model for...). Seen running: the OpenRouter card opens its page in the panel (desktop, dark, phone).
 - **Tests:** `tests/test_manual_gen.py` (pages match the directory; every provider has a page with its command; a new directory entry makes the manual stale; local runtimes say no key; the page's `data-help` ids equal the map's keys; every mapped error code is a real code), `tests/test_ui.py` (a section by anchor, the context map), `tests/test_ui_accounts.py` (the CLI's pointer in text and JSON).
+- **Review:** clean.
+- **Accepted:** pending the owner.
+
+### Slice 4: the user guide
+
+- **Commit:** `2026-11-user-help: Slice 4, the user guide`
+- **Summary:** Eleven new owner-facing topics in `manual/user/`: what Baton is and who does what, getting started, using the manual, starting with a goal, bringing in an existing project, answering questions and deciding (every choice's label and effect, from `defaults/labels.yaml`), checking on your work, long-running work and coming back, how you want to be told, what Baton may do to your repository (the permission defaults from `init`), and when something is wrong (the `doctor` messages, the sandboxed Codex fix). Thirteen commands moved from `pending_commands` to mapped, so each one's `--help` now names its topic. `terms.yaml` also bars worker, gate, dispatch, escalation, attempt and work item from owner-facing prose. The generic provider's card and page are now titled "OpenAI-compatible service". Claims were checked against `baton init`, `doctor`, `board`, `defaults/labels.yaml`, the Director skill and the README, not written from memory.
+- **Tests:** `tests/test_manual.py` (the whole manual validates, including the stricter terms list, every example's commands and options, every link and anchor).
 - **Review:** clean.
 - **Accepted:** pending the owner.
 

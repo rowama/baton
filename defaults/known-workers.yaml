@@ -425,6 +425,7 @@ providers:
   # local runtime, a credential. Dispatched through LiteLLM's openai/<model> route with that base URL.
   openai_compatible:
     kind: openai_compatible
+    display_name: OpenAI-compatible service
     api_key_env: OPENAI_API_KEY        # read by LiteLLM's openai route
     sources:
       - { url: "https://docs.litellm.ai/docs/providers/openai_compatible", retrieved: 2026-11-10 }

@@ -19,4 +19,17 @@ errors:
 commands:
   ui: user.connect-an-account
   workers: user.connect-an-account
-pending_commands: [abandon, help, adopt, ask-sme, board, cancel, check, decide, detect, diag, dispatch, disposition, doctor, eligible, establish-baseline, explain, feedback, frame, ingest-revision, init, lease, mcp, migrate, note, permission, plan, platform-fact, platform-incident, promote-sme, push, recipe, recipes, record, resume, retriage, retry, revise, sme, sme-eligible, sme-followup, sme-handoff, start, status, submit, summary, trace, upgrade, vendor, wait, waive]
+  init: user.getting-started
+  doctor: user.when-something-is-wrong
+  frame: user.start-with-a-goal
+  adopt: user.bring-an-existing-project
+  establish-baseline: user.bring-an-existing-project
+  board: user.check-on-your-work
+  status: user.check-on-your-work
+  summary: user.check-on-your-work
+  decide: user.answer-questions-and-decide
+  resume: user.long-running-work
+  push: user.what-baton-may-do
+  permission: user.what-baton-may-do
+  help: user.using-the-manual
+pending_commands: [abandon, ask-sme, cancel, check, detect, diag, dispatch, disposition, eligible, explain, feedback, ingest-revision, lease, mcp, migrate, note, plan, platform-fact, platform-incident, promote-sme, recipe, recipes, record, retriage, retry, revise, sme, sme-eligible, sme-followup, sme-handoff, start, submit, trace, upgrade, vendor, wait, waive]

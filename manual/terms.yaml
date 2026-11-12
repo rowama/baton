@@ -1,3 +1,3 @@
 # Internal vocabulary (principles §2). Owners never need these words, so the owner-facing parts
 # (user/, recipes/) may not use them in prose; admin/ and reference/ may.
-internal: [packet, CAS, lease, event log, intake, supervisor, foreach, repeat_until, crosswalk, SME, worker profile, capability vocabulary, adapter, hash-chained]
+internal: [packet, packets, CAS, lease, event log, work item, work items, worker, workers, gate, gates, dispatch, dispatched, escalation, escalate, attempt, attempts, intake, supervisor, foreach, repeat_until, crosswalk, SME, worker profile, capability vocabulary, adapter, hash-chained]
