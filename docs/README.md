@@ -278,3 +278,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0138 The eng-process recipe uses Baton machinery without duplicate process state](decisions/0138-eng-process-uses-baton-machinery.md) | accepted |
 | [0139 The eng-process recipe blocks on plan review and keeps code review advisory](decisions/0139-eng-process-review-policy.md) | accepted |
 | [0140 Fit-check assesses the requested work and can recommend against Baton for any unsuitable goal](decisions/0140-fit-check-assesses-requested-work.md) | accepted |
+| [0141 Implementation options are discovered before recipe design when they change its structure, otherwise within the generated recipe](decisions/0141-implementation-discovery-timing.md) | accepted |
