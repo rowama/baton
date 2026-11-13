@@ -122,7 +122,7 @@ def test_missing_communication_contract(done):
 @pytest.mark.slow
 def test_vendored_recipe_edited_in_place(done):
     cli, project, _ = done
-    prompt = project / ".baton" / "recipes" / "fit-check@4" / "prompts" / "describe.md"
+    prompt = project / ".baton" / "recipes" / "fit-check@5" / "prompts" / "describe.md"
     prompt.write_text(prompt.read_text() + "\nAlso do something else.\n", encoding="utf-8")
     codes = [e["code"] for e in _errors(cli)]
     assert "lock.recipe_hash" in codes
@@ -131,7 +131,7 @@ def test_vendored_recipe_edited_in_place(done):
 @pytest.mark.slow
 def test_neutrality_violation_in_vendored_recipe(done):
     cli, project, _ = done
-    rf = project / ".baton" / "recipes" / "fit-check@4" / "recipe.yaml"
+    rf = project / ".baton" / "recipes" / "fit-check@5" / "recipe.yaml"
     rf.write_text(rf.read_text().replace("tier: standard }", "tier: standard, model: x }", 1), encoding="utf-8")
     assert "neutrality.forbidden_key" in {e["code"] for e in _errors(cli)}
 

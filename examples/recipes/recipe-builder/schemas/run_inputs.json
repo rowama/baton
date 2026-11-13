@@ -17,7 +17,7 @@
     },
     "profile": {
       "type": "object",
-      "description": "A fit-check profile of the idea, when there is one"
+      "description": "A fit-check profile of the requested work (its `scope` and `work`), when there is one"
     },
     "base_recipe": {
       "type": "string",

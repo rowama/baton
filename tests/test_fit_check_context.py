@@ -1,4 +1,4 @@
-"""fit-check version 4: an optional project `context` input, text only (Decision 0134)."""
+"""fit-check (since version 4): an optional project `context` input, text only (Decision 0134)."""
 from __future__ import annotations
 
 import json
@@ -20,9 +20,9 @@ def store(tmp_path: Path):
         yield s
 
 
-def test_version_four_declares_an_optional_context_input():
+def test_declares_an_optional_context_input():
     loaded = load_recipe(FIT_CHECK)
-    assert loaded.recipe.version == 4
+    assert loaded.recipe.version >= 4
     props = json.loads((FIT_CHECK / "schemas" / "run_inputs.json").read_text())
     assert "context" in props["properties"] and "context" not in props["required"]
 

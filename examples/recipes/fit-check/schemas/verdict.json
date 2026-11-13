@@ -1,31 +1,139 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["verdict", "reasons", "next_step"],
+  "required": [
+    "verdict",
+    "assessed_work",
+    "reasons",
+    "next_step"
+  ],
   "properties": {
-    "verdict": {"enum": ["fits", "fits_per_occurrence", "operations_engine"]},
+    "verdict": {
+      "enum": [
+        "fits",
+        "fits_per_occurrence",
+        "not_recommended"
+      ]
+    },
+    "assessed_work": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The work scored: developing a process, executing it, or other work"
+    },
     "reasons": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["row", "leans", "reason"],
+        "required": [
+          "row",
+          "leans",
+          "basis",
+          "reason"
+        ],
+        "additionalProperties": false,
         "properties": {
-          "row": {"enum": ["occurrences", "judgment", "duration", "audit_trail"]},
-          "leans": {"enum": ["baton", "operations_engine"]},
-          "reason": {"type": "string"}
-        },
-        "additionalProperties": false
+          "row": {
+            "enum": [
+              "coordination",
+              "dependent_reasoning",
+              "recurrence",
+              "duration",
+              "record"
+            ]
+          },
+          "leans": {
+            "enum": [
+              "baton",
+              "against_baton"
+            ]
+          },
+          "basis": {
+            "enum": [
+              "stated",
+              "assumed"
+            ],
+            "description": "A fact the owner or context gave, or a listed assumption"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       }
     },
-    "next_step": {"type": "string"},
+    "next_step": {
+      "type": "string"
+    },
+    "alternative": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For not_recommended: a simpler approach that suits the work"
+    },
+    "development_offer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For not_recommended on work to be executed: developing a suitable process or system, offered as a separate project the owner has not chosen"
+    },
     "recipe": {
-      "type": ["object", "null"],
-      "description": "For a `fits` verdict: the existing recipe that covers the idea; null when none does",
-      "required": ["id", "version"],
-      "properties": {"id": {"type": "string"}, "version": {"type": "integer"}},
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "For fits or fits_per_occurrence: the existing recipe that covers all of the assessed work; null when none does",
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "not_recommended"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "required": [
+          "alternative"
+        ],
+        "not": {
+          "required": [
+            "recipe"
+          ]
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "alternative"
+              ]
+            },
+            {
+              "required": [
+                "development_offer"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }

@@ -127,7 +127,7 @@ def test_run_writes_result_last_with_structured_output(assess_packet, tmp_path):
     call = fake.calls[0]
     assert call["temperature"] == 0 and call["model"] == "m"
     schema = call["response_format"]["json_schema"]["schema"]
-    assert schema["properties"]["output"]["required"] == ["verdict", "reasons", "next_step"]
+    assert schema["properties"]["output"]["required"] == ["verdict", "assessed_work", "reasons", "next_step"]
     assert "$schema" not in schema["properties"]["output"]
 
 
@@ -334,7 +334,7 @@ def test_doctor_quiet_when_healthy_and_reports_problems(tmp_path):
     assert res["profiles"]["api"]["failure_class"] == "configuration"
     assert res["profiles"]["cli"]["failure_class"] == "platform" and res["profiles"]["cli"]["searched"]
     assert any("not available in this runtime" in p for p in res["profiles"]["odd"]["problems"])
-    assert any("can do fit-check@4/assess" in w for w in res["warnings"])
+    assert any("can do fit-check@5/assess" in w for w in res["warnings"])
 
 
 # ---------------------------------------------------------------------------

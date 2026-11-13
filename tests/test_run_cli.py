@@ -28,13 +28,13 @@ def _describe_with_retry(cli: Cli, project: Path, run: str) -> None:
     write_result(packet_dir(project, run, "describe", 1), BAD_PROFILE)
     out = cli.run("submit", run, "describe", expect=1)
     assert out["outcome"] == "retry"
-    assert any("occurrence" in r for r in out["reasons"])
+    assert any("scope" in r or "work" in r for r in out["reasons"])
 
     r = cli.run("retry", run, "describe", "--guidance", "Fill in every occurrence field.")
     assert r["attempt"] == 2 and r["worker"] == "owner"
     manifest = json.loads((packet_dir(project, run, "describe", 2) / "manifest.json").read_text())
     assert manifest["prior_feedback"]["guidance"] == "Fill in every occurrence field."
-    assert any("occurrence" in x for x in manifest["prior_feedback"]["reasons"])
+    assert any("scope" in x or "work" in x for x in manifest["prior_feedback"]["reasons"])
 
     write_result(packet_dir(project, run, "describe", 2), GOOD_PROFILE)
     out = cli.run("submit", run, "describe")

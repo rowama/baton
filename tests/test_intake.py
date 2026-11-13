@@ -100,10 +100,10 @@ def test_hash_mismatch_rejected_and_fed_back(store):
 @pytest.mark.not_slow("measured under 1 s")
 def test_schema_failure_rejected_with_reasons(store):
     ctx = start(store, FIT_CHECK)
-    bad = {"summary": "x", "occurrence": {**PROFILE_OUT["occurrence"], "judgment": "extreme"}, "surprise": 1}
+    bad = {"summary": "x", "scope": PROFILE_OUT["scope"], "work": {**PROFILE_OUT["work"], "judgment": "extreme"}, "surprise": 1}
     _, out = attempt(ctx, "describe", bad)
     assert out.outcome == "retry"
-    assert any("occurrence/judgment" in r and "extreme" in r for r in out.reasons)
+    assert any("work/judgment" in r and "extreme" in r for r in out.reasons)
     assert any("surprise" in r for r in out.reasons)
     assert ctx.record().registered("describe") is None  # nothing downstream can consume
 

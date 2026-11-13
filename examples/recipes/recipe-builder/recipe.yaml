@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 1
+version: 2
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch).

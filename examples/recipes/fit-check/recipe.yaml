@@ -1,8 +1,8 @@
 id: fit-check
-version: 4
+version: 5
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
-description: Decide in minutes whether an idea suits Baton, before investing in it.
+description: Decide in minutes whether the work an owner asks for suits Baton, before investing in it.
 
 run_inputs:
   schema: schemas/run_inputs.json      # title, idea, context (optional)

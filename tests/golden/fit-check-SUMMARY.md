@@ -3,7 +3,7 @@
 - Work item: Contract review
 - Slug: `contract-review`
 - Branch: `–`
-- Recipe: `fit-check@4` (`5c2936797a44a99c2dc0c831c562cb51c21ef81edbb36321648f227b91ffb83a`)
+- Recipe: `fit-check@5` (`5f38ccc215888883e642e798c2c5ba2515e6ee8b9047155c7e6f47c05e52dd6c`)
 - Formats: events `baton-events/1`, packet `baton-packet/1`, recipe `baton-recipe/1`
 - Max attempts per step: 3
 - State: **completed**
@@ -18,7 +18,7 @@
 ## Timeline
 
 - 2026-11-01T12:00:01.000000Z: run started by director:alice@host1
-- 2026-11-01T12:00:16.000000Z `describe` attempt 1: result rejected: output (root): 'occurrence' is a required property
+- 2026-11-01T12:00:16.000000Z `describe` attempt 1: result rejected: output (root): 'scope' is a required property; output (root): 'work' is a required property
 - 2026-11-01T12:00:29.000000Z `describe` attempt 2: passed
 - 2026-11-01T12:00:44.000000Z `assess` attempt 1: owner decided **approve** — "Agreed; author the recipe."
 - 2026-11-01T12:00:46.000000Z `assess` attempt 1: passed

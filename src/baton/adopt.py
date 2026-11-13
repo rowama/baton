@@ -45,7 +45,7 @@ RECIPE_NEEDED_STEPS = (
     "Start a fit-check run with the owner's idea and that summary as `context`.",
     "A `fits` verdict naming a recipe: run `adopt <that recipe>`.",
     "A `fits` verdict with no recipe: start recipe-builder with the same summary, vendor what it produces once the owner accepts it, then run `adopt <that recipe>`.",
-    "Any other verdict, or the owner disagrees: stop; nothing has been written.",
+    "Any other verdict (`not_recommended` included), or the owner disagrees: stop; nothing has been written. A separate development project the verdict offers is the owner's to choose; it is not started by accepting the verdict.",
 )
 RECIPE_NEEDED_NEXT = "Adoption needs a recipe: find one with fit-check (give it the project summary as context) or have one built, then run `adopt <recipe>`."
 

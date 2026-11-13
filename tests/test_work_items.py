@@ -155,7 +155,7 @@ def test_two_runs_of_different_recipes_progress_independently(tmp_path):
     board = p.cli("board", expect=4).payload  # one run owes an owner decision
     runs = {r["run_id"]: r for r in board["runs"]}
     assert set(runs) == {fit, toy}
-    assert runs[toy]["recipe"] == "toy@1" and runs[fit]["recipe"] == "fit-check@4"
+    assert runs[toy]["recipe"] == "toy@1" and runs[fit]["recipe"] == "fit-check@5"
     assert runs[toy]["position"] == {"done": 3, "total": 4, "current": ["docs"]}
     assert runs[toy]["ready"] == ["docs"] and not runs[toy]["needs_owner"]
     assert runs[fit]["needs_owner"] and runs[fit]["pending_decisions"][0]["ref"] == "assess"

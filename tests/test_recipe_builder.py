@@ -25,7 +25,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@1" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@2" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 

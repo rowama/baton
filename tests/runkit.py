@@ -65,21 +65,25 @@ def write_result(
 
 
 PROFILE_OUT = {
-    "summary": "Weekly vendor contract review",
-    "occurrence": {
+    "summary": "Vendor contract review",
+    "scope": {"kind": "executing_a_process", "statement": "Review each vendor contract before signing."},
+    "work": {
         "frequency": "a few per month",
         "judgment": "high",
+        "dependent_reasoning": "high",
+        "handoffs": True,
         "duration": "two days",
         "participants": ["legal agent", "owner"],
         "human_signoffs": True,
-        "audit_trail": "benefit",
+        "record_value": "benefit",
         "latency_sensitive": False,
         "live_integration": False,
+        "bulk_processing": False,
     },
 }
 VERDICT_OUT = {
-    "verdict": "fits",
-    "reasons": [{"row": "occurrences", "leans": "baton", "reason": "a few per month"}],
+    "verdict": "fits", "assessed_work": "Reviewing vendor contracts",
+    "reasons": [{"row": "recurrence", "leans": "baton", "basis": "stated", "reason": "a few per month"}],
     "next_step": "Author a contract-review recipe.",
 }
 FIT_INPUTS = {"title": "Contract review", "idea": "Review each vendor contract before signing."}

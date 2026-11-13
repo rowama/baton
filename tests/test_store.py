@@ -40,7 +40,7 @@ def advance(log, path: str, events: list[str]) -> None:
 
 
 def sample_run(store: Store, max_attempts: int | None = 3):
-    log = store.start_run({"title": "Add login", "recipe": "fit-check@4", "max_attempts": max_attempts}, run_id="r_20261101_ab12")
+    log = store.start_run({"title": "Add login", "recipe": "fit-check@5", "max_attempts": max_attempts}, run_id="r_20261101_ab12")
     advance(log, "describe", HAPPY)
     advance(log, "assess", ["step_ready", "dispatched", "step_running", "result_submitted", "verification_started",
                             "gate_failed", "step_ready", "dispatched"])

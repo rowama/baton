@@ -7,25 +7,39 @@ Do this step's work only, as described below, and report through the result file
 
 # Score against the fit rubric
 
-Score the `profile` input against the `rubric` input, row by row.
+Score the `profile` input against the `rubric` input, row by row. You are judging the work the
+profile's `scope` names, using that work's own facts.
 
-- Give one reason per rubric row, saying which way the row leans and why, using the
-  profile's own facts.
-- Choose the verdict the rubric's balance supports: `fits`, `fits_per_occurrence`
-  or `operations_engine`.
-- Give the next step the rubric names for that verdict, made concrete for this idea.
+- Say in `assessed_work` which work you scored, in a sentence: developing a process, executing it,
+  or other work, as `scope` states it. A `scope.target` is not scored.
+- Give one reason per rubric row, saying which way the row leans and why, using the profile's own
+  facts. Set `basis` to `stated` for a fact the owner or the project context gave, or `assumed`
+  for one the profile lists under `assumptions`.
+- Choose the verdict the rubric's balance supports: `fits`, `fits_per_occurrence` or
+  `not_recommended`.
+- Give the next step the rubric names for that verdict, made concrete for this work.
 
-Do not add rows, weights or criteria the rubric does not contain.
+Do not add rows, weights or criteria the rubric does not contain. Frequency and duration are
+signals, not cutoffs. Do not reject development work because of how the finished process will
+run.
+
+For `not_recommended`, name a simpler `alternative` that suits the work (a script, asking an
+assistant directly, an existing tool, a manual procedure, or an operations engine). If the work
+asked for was executing a process, you may offer, in `development_offer`, developing a suitable
+process or system as a **separate** project; the owner has not asked for it, so say so, and do not
+word the next step as if it had been chosen.
 
 If a `recipes` input is given, it lists the recipes this project can already run, each with a
-`scope` (what it covers and what it is not for) where the recipe has one. For a `fits` verdict,
-set `recipe` to the one recipe whose scope or description covers the whole idea, as `{id, version}`,
-and say so in the next step; set it to `null` when none does, and the next step is then to
-author one. Never name a recipe that is not in the list. Leave `recipe` out for any other verdict.
+`scope` (what it covers and what it is not for) where the recipe has one. For `fits` or
+`fits_per_occurrence`, set `recipe` to the one recipe whose scope or description covers the whole
+of the assessed work, as `{id, version}`, and say so in the next step; set it to `null` when none
+does, and the next step is then to author one. A recipe that covers only part of the work, or is
+for a different kind of deliverable, does not cover it. Never name a recipe that is not in the
+list. Leave `recipe` out for `not_recommended`.
 
-If a `context` input is given, it summarizes an existing project the idea is about. Use it to
-choose the recipe: prefer the recipe whose steps produce what the project already has. Do not
-add rubric rows for it, and do not claim to know which files exist beyond what it says.
+If a `context` input is given, it summarizes an existing project the request is about. Use it to
+choose the recipe: prefer the recipe whose steps produce what the project already has. Do not add
+rubric rows for it, and do not claim to know which files exist beyond what it says.
 
 ## Inputs
 
@@ -35,10 +49,17 @@ File: `inputs/profile.json` (application/json)
 
 ```json
 {
-  "occurrence": {
-    "audit_trail": "benefit",
+  "scope": {
+    "kind": "executing_a_process",
+    "statement": "Review each vendor contract before signing."
+  },
+  "summary": "Vendor contract review",
+  "work": {
+    "bulk_processing": false,
+    "dependent_reasoning": "high",
     "duration": "two days",
     "frequency": "a few per month",
+    "handoffs": true,
     "human_signoffs": true,
     "judgment": "high",
     "latency_sensitive": false,
@@ -46,9 +67,9 @@ File: `inputs/profile.json` (application/json)
     "participants": [
       "legal agent",
       "owner"
-    ]
-  },
-  "summary": "Weekly vendor contract review"
+    ],
+    "record_value": "benefit"
+  }
 }
 ```
 
@@ -123,6 +144,7 @@ Also in `output_schema.json`.
   "type": "object",
   "required": [
     "verdict",
+    "assessed_work",
     "reasons",
     "next_step"
   ],
@@ -131,8 +153,13 @@ Also in `output_schema.json`.
       "enum": [
         "fits",
         "fits_per_occurrence",
-        "operations_engine"
+        "not_recommended"
       ]
+    },
+    "assessed_work": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The work scored: developing a process, executing it, or other work"
     },
     "reasons": {
       "type": "array",
@@ -142,39 +169,58 @@ Also in `output_schema.json`.
         "required": [
           "row",
           "leans",
+          "basis",
           "reason"
         ],
+        "additionalProperties": false,
         "properties": {
           "row": {
             "enum": [
-              "occurrences",
-              "judgment",
+              "coordination",
+              "dependent_reasoning",
+              "recurrence",
               "duration",
-              "audit_trail"
+              "record"
             ]
           },
           "leans": {
             "enum": [
               "baton",
-              "operations_engine"
+              "against_baton"
             ]
+          },
+          "basis": {
+            "enum": [
+              "stated",
+              "assumed"
+            ],
+            "description": "A fact the owner or context gave, or a listed assumption"
           },
           "reason": {
             "type": "string"
           }
-        },
-        "additionalProperties": false
+        }
       }
     },
     "next_step": {
       "type": "string"
+    },
+    "alternative": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For not_recommended: a simpler approach that suits the work"
+    },
+    "development_offer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For not_recommended on work to be executed: developing a suitable process or system, offered as a separate project the owner has not chosen"
     },
     "recipe": {
       "type": [
         "object",
         "null"
       ],
-      "description": "For a `fits` verdict: the existing recipe that covers the idea; null when none does",
+      "description": "For fits or fits_per_occurrence: the existing recipe that covers all of the assessed work; null when none does",
       "required": [
         "id",
         "version"
@@ -190,6 +236,46 @@ Also in `output_schema.json`.
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "not_recommended"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "required": [
+          "alternative"
+        ],
+        "not": {
+          "required": [
+            "recipe"
+          ]
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "alternative"
+              ]
+            },
+            {
+              "required": [
+                "development_offer"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
 ```

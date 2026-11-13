@@ -57,9 +57,13 @@ that stitches them together, or separate ones, and if separate, which to build n
 Read any file in `recipes/plans/` first: it may already hold a plan for this idea, in which case say
 which parts are still unbuilt and offer one. If the owner chose separate processes, write the plan to the
 `process_plan` artifact (markdown: the parts, what each hands on, which is built now, the owner's
-words), so a later run does not need the business described again. Baton does not run day-to-day
-operations: a part such as "run the business" becomes a process that builds the operations material
-(procedures, templates, communication plans).
+words), so a later run does not need the business described again. A part such as "run the business" is not
+turned into building something else on your own: this process builds a process, so if the owner
+wants the work run rather than a process for it made, say so and ask. When the owner does want a
+process for it, it produces the operating material (procedures, templates, communication plans,
+and software where needed) and may be meant to run elsewhere (a workflow tool, a diagram, a
+checklist); that target is a fact about what is delivered, not a reason to refuse. A `profile`
+input, when given, says in `scope` whether the owner asked for a process to be developed or run.
 
 ## 7. Rate the size
 

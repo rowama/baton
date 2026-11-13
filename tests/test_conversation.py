@@ -29,7 +29,7 @@ QUESTIONS = [
     {"id": "permits", "ask": "Will you handle the permits yourself?", "why": "Decides who is involved in opening a site"},
     {"id": "hours", "ask": "Should machines run around the clock?", "why": "Affects how often someone visits", "priority": "helpful"},
 ]
-ASSUMPTIONS = [{"field": "occurrence.frequency", "value": "a few site openings a year", "basis": "you said a few machines around town"}]
+ASSUMPTIONS = [{"field": "work.frequency", "value": "a few site openings a year", "basis": "you said a few machines around town"}]
 
 
 def fresh(tmp_path: Path, *, bare: bool = False) -> tuple[Cli, Path]:
@@ -207,7 +207,7 @@ def test_every_pending_decision_lists_labelled_options(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
     manual(cli, project, run, "describe", GOOD_PROFILE)
-    out = manual(cli, project, run, "assess", {"verdict": "fits", "reasons": [{"row": "occurrences", "leans": "baton", "reason": "few"}],
+    out = manual(cli, project, run, "assess", {"verdict": "fits", "assessed_work": "Reviewing vendor contracts", "reasons": [{"row": "recurrence", "leans": "baton", "basis": "stated", "reason": "few"}],
                                                "next_step": "Author a recipe."})
     assert out["needs_owner"]
     pd = status(cli, run)["pending_decisions"]
@@ -311,7 +311,7 @@ def test_water_vending_framing_selects_two_parts_and_reports_a_gap(tmp_path):
     note = "Let's do the business setup, the first site and the signs. Yes, those three."
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk,signage", "--note", note)
     assert sel["selected"] == ["setup", "kiosk", "signage"]
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@4"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@5"), ("kiosk", "backyard-project@1")]
     assert [g["part"] for g in sel["gaps"]] == ["signage"] and "description" in sel["gaps"][0]["reason"]
     assert sel["vendored"] == ["backyard-project@1"] and sel["state"] == "completed"
 
@@ -354,7 +354,7 @@ def test_every_frame_option_says_what_choosing_it_triggers(tmp_path):
         assert nxt["signage"]["next"].startswith("can't start yet: ") and "description" in nxt["signage"]["next"]
     # Reading next changes nothing: the selection still starts exactly the proposals.
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "Those two. Yes.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@4"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@5"), ("kiosk", "backyard-project@1")]
 
 
 PLAN = "docs/pure-water-vending-business-self-serve-process-plan.md"
@@ -366,7 +366,7 @@ def test_selection_publishes_the_process_plan_with_every_part(tmp_path):
     fr = _frame(cli, project)
     manual(cli, project, fr, "frame", frame_output())
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk", "--note", "The setup and the first site. Yes.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@4"), ("kiosk", "backyard-project@1")]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("setup", "fit-check@5"), ("kiosk", "backyard-project@1")]
     assert sel["plan"] == PLAN and sel["state"] == "completed"
     text = (project / PLAN).read_text(encoding="utf-8")
     sections = text.split("\n## ")[1:]
@@ -538,7 +538,7 @@ def test_a_bare_project_vendors_fit_check_on_selection(tmp_path):
     fr = _frame(cli, project)
     manual(cli, project, fr, "frame", frame_output())
     sel = cli.run("decide", fr, "frame", "select", "--items", "running", "--note", "Just the day-to-day question. Yes.")
-    assert sel["vendored"] == ["fit-check@4"] and sel["runs"][0]["recipe"] == "fit-check@4"
+    assert sel["vendored"] == ["fit-check@5"] and sel["runs"][0]["recipe"] == "fit-check@5"
 
 
 @pytest.mark.slow

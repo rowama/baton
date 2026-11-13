@@ -1,7 +1,7 @@
 ---
 id: 2026-11-fit-check-work-scope
 title: "Fit-check distinguishes developing a process from executing it and can recommend against Baton"
-status: proposed
+status: in-progress
 level: standard
 decisions: ["0140", "0029", "0134", "0135", "0136", "0097"]
 touches: [design/recipes.md, design/adoption-and-framing.md, design/director-interface.md]
@@ -108,3 +108,11 @@ No relevant proposed decision remains open. The separate discovery discussion is
 - **Summary:** Recorded the owner's accepted policy as decision 0140, this proposed change, its register row and the future rule in §5.7. No recipe or runtime behavior changed. Implementation-option discovery remains a separate discussion.
 - **Review:** Checked against shipped fit-check v4, framing and recipe-builder prompts, adoption decision 0134, and versioning rules. Documentation validation uses the repository quick gate; the exact commit's full-suite result is recorded in the test ledger.
 - **Accepted:** Policy yes, 2026-11-12: "Concur with your recommendations." The owner requested a proposal; implementation remains proposed.
+
+### Slice 1: Scope-aware fit-check and aligned entry paths
+
+- **Commit:** 2026-11-fit-check-work-scope: Slice 1, fit-check v5 and aligned guidance
+- **Summary:** `fit-check` is now version 5: the profile has `scope` (`developing_a_process`, `executing_a_process`, `other_work`, with a described-never-scored `target`) and `work`; the verdict is `fits`, `fits_per_occurrence` or `not_recommended` and names `assessed_work`, each reason's `basis` (`stated` or `assumed`), and, for a negative, an `alternative` and an optional separate `development_offer`; a recipe may be named for either positive verdict. The rubric has five rows (coordination, dependent reasoning, recurrence, duration, record) with no standalone frequency or duration cutoffs. `recipe-builder` is version 2 (profile prompt and patterns no longer convert operations into development; the target is a deliverable fact). The built-in `baton-frame@1` prompt and rubric description are reworded in place: built-ins ship with the runtime and are never vendored or pinned, so they have no separate published versions. Adoption guidance (`adopt` steps, Director skill, §13.3) stops on `not_recommended` and makes the development offer the owner's separate choice. The pre-change v4 package is kept at `tests/fixtures/recipes/fit-check-v4` to prove pinned v4 stays loadable and its `operations_engine` records stay valid under their own schema. Tests moved from `fit-check@4` to `@5`; goldens regenerated.
+- **Tests:** `tests/test_fit_check_scope.py` covers the schemas (exactly three verdicts, negative needs an alternative and no recipe, positive forbids both, v4 records still valid under v4), the scope kinds, the packet inputs and human gate, and the prompts/rubric wording across fit-check, framing and recipe-builder. Existing suites cover framing selection, packet handoff and adoption's stop steps.
+- **Manual:** `recipes/fit-check.md`, `recipes/baton-frame.md`, `recipes/recipe-builder.md` (via their sources) and `user/bring-an-existing-project.md`, regenerated; no anchors added or removed.
+- **Not done:** slice 2. The acceptance criteria that depend on a worker's actual judgment (paired development/execution cases, mixed goals, a trivial task, suitable recurring work) have no recorded evidence yet, and scripted outputs cannot stand in for it. Status stays `in-progress`.

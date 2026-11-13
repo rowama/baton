@@ -3,69 +3,108 @@
   "type": "object",
   "required": [
     "summary",
-    "occurrence"
+    "scope",
+    "work"
   ],
   "properties": {
     "summary": {
       "type": "string",
-      "description": "One paragraph: what one occurrence of the idea is"
+      "description": "One paragraph: the work being asked for"
     },
-    "occurrence": {
+    "scope": {
       "type": "object",
+      "required": [
+        "kind",
+        "statement"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "developing_a_process",
+            "executing_a_process",
+            "other_work"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The work being assessed, in a sentence"
+        },
+        "target": {
+          "type": "string",
+          "description": "Where a developed process will run or be used; described, never scored"
+        }
+      }
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
         "frequency",
         "judgment",
+        "dependent_reasoning",
+        "handoffs",
         "duration",
         "participants",
-        "audit_trail",
+        "record_value",
         "latency_sensitive",
-        "live_integration"
+        "live_integration",
+        "bulk_processing"
       ],
       "properties": {
         "frequency": {
           "type": "string",
-          "description": "How often an occurrence happens, e.g. 'a few per month', 'per order'"
+          "description": "How often the assessed work happens or starts"
         },
         "judgment": {
           "enum": [
             "low",
             "medium",
             "high"
-          ],
-          "description": "How much judgment one occurrence needs"
+          ]
+        },
+        "dependent_reasoning": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "handoffs": {
+          "type": "boolean",
+          "description": "Work passes between several workers or people"
         },
         "duration": {
           "type": "string",
-          "description": "How long one occurrence takes end to end"
+          "description": "How long the work takes end to end"
         },
         "participants": {
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "description": "Agents and people involved"
+          }
         },
         "human_signoffs": {
           "type": "boolean"
         },
-        "audit_trail": {
+        "record_value": {
           "enum": [
             "benefit",
             "neutral",
             "burden"
-          ],
-          "description": "Whether a repo audit trail helps"
+          ]
         },
         "latency_sensitive": {
-          "type": "boolean",
-          "description": "Seconds matter"
+          "type": "boolean"
         },
         "live_integration": {
-          "type": "boolean",
-          "description": "Needs live-system integration, uptime or scale"
+          "type": "boolean"
+        },
+        "bulk_processing": {
+          "type": "boolean"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "unknowns": {
       "type": "array",

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "summary",
+    "occurrence"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One paragraph: what one occurrence of the idea is"
+    },
+    "occurrence": {
+      "type": "object",
+      "required": [
+        "frequency",
+        "judgment",
+        "duration",
+        "participants",
+        "audit_trail",
+        "latency_sensitive",
+        "live_integration"
+      ],
+      "properties": {
+        "frequency": {
+          "type": "string",
+          "description": "How often an occurrence happens, e.g. 'a few per month', 'per order'"
+        },
+        "judgment": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "How much judgment one occurrence needs"
+        },
+        "duration": {
+          "type": "string",
+          "description": "How long one occurrence takes end to end"
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Agents and people involved"
+        },
+        "human_signoffs": {
+          "type": "boolean"
+        },
+        "audit_trail": {
+          "enum": [
+            "benefit",
+            "neutral",
+            "burden"
+          ],
+          "description": "Whether a repo audit trail helps"
+        },
+        "latency_sensitive": {
+          "type": "boolean",
+          "description": "Seconds matter"
+        },
+        "live_integration": {
+          "type": "boolean",
+          "description": "Needs live-system integration, uptime or scale"
+        }
+      },
+      "additionalProperties": false
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "description": "What was inferred rather than told, for the Director to confirm with the owner",
+      "items": {
+        "type": "object",
+        "required": [
+          "field",
+          "value",
+          "basis"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The profile field inferred, e.g. occurrence.frequency"
+          },
+          "value": {
+            "description": "The inferred value"
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why, in the owner's terms"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

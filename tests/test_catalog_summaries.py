@@ -82,7 +82,7 @@ def test_fit_check_verdict_can_name_an_existing_recipe():
     from jsonschema import Draft202012Validator
 
     schema = json.loads((FIT_CHECK / "schemas" / "verdict.json").read_text(encoding="utf-8"))
-    base = {"verdict": "fits", "reasons": [{"row": "judgment", "leans": "baton", "reason": "r"}], "next_step": "n"}
+    base = {"verdict": "fits", "assessed_work": "Reviewing vendor contracts", "reasons": [{"row": "coordination", "leans": "baton", "basis": "stated", "reason": "r"}], "next_step": "n"}
     ok = Draft202012Validator(schema)
     assert ok.is_valid(base)  # optional
     assert ok.is_valid({**base, "recipe": {"id": "backyard-project", "version": 1}})

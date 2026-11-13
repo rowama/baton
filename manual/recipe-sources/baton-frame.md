@@ -18,7 +18,7 @@ Once: which pieces to include (**Include these**), or **That's not quite it** if
 
 ## What it produces {#what-it-produces}
 
-A plan of the goal's pieces, kept in your project as a document, and the pieces you chose, each started with the process that fits, or with a [fit check](recipes.fit-check#here-now) when it is not clear one does.
+A plan of the goal's pieces, kept in your project as a document, and the pieces you chose, each started with the process that fits, or with a [fit check](recipes.fit-check#here-now) when it is not clear one does. A piece you want run is not quietly turned into building a system: making a process is its own piece, and you choose it.
 
 ## What it needs {#what-it-needs}
 

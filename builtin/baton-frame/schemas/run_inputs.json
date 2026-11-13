@@ -20,7 +20,7 @@
         "additionalProperties": false
       }
     },
-    "rubric": {"type": "string", "description": "fit-check's rubric: what suits this process and what suits an operations engine"}
+    "rubric": {"type": "string", "description": "fit-check's rubric: how the work a part describes is judged for fit"}
   },
   "additionalProperties": false
 }

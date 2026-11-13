@@ -28,9 +28,11 @@ inputs it needs (`run_inputs`, a JSON Schema).
   inputs that match its `run_inputs` schema exactly, written from the owner's words.
 - For any other part, propose a quick fit check: `{"fit_check": {"idea": "<the part, in the
   owner's terms>", "title": "<short>"}}`.
-- Running something day to day (operations) is not work this process does itself. Propose a fit
-  check for it; the fit check can recommend building a system that runs it. The `rubric` input,
-  when present, shows what suits this process and what suits an operations engine.
+- Running something day to day (operations) is not automatically work for this process. Propose a
+  fit check for it; the fit check can recommend for or against using this process for it. Building
+  or improving a process, however it will later run, is a piece of work like any other: give it
+  its own part, and never turn a part the owner wants run into one that builds a system without
+  saying so. The `rubric` input, when present, shows how the work is judged.
 
 Prefer a few meaningful parts over many small ones. If the goal is a single piece of work,
 return one part.

@@ -208,14 +208,15 @@ def test_software_feature_major(tmp_path):
 @pytest.mark.parametrize("verdict, next_step", [
     ("fits", "Author a contract-review recipe."),
     ("fits_per_occurrence", "A recipe plus a scheduler that calls baton start per contract."),
-    ("operations_engine", "Start a software-feature run whose deliverable is that system."),
+    ("not_recommended", "Ask an assistant directly; a script would do."),
 ])
 @pytest.mark.slow
 def test_fit_check_each_verdict(tmp_path, verdict, next_step):
     cli, project = setup_fit_check(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
     for step, output in (("describe", GOOD_PROFILE),
-                         ("assess", {"verdict": verdict, "reasons": [{"row": "occurrences", "leans": "baton", "reason": "x"}], "next_step": next_step})):
+                         ("assess", {"verdict": verdict, "assessed_work": "Reviewing vendor contracts", "reasons": [{"row": "recurrence", "leans": "baton", "basis": "stated", "reason": "x"}], "next_step": next_step,
+                                    **({"alternative": "Ask an assistant directly."} if verdict == "not_recommended" else {})})):
         a = cli.run("dispatch", run, step, "--worker", "owner")["attempt"]
         write_result(packet_dir(project, run, step, a), output)
         cli("submit", run, step, expect=None)

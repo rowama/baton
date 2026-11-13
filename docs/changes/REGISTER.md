@@ -4,10 +4,10 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-fit-check-work-scope](2026-11-fit-check-work-scope.md) | Fit-check distinguishes developing a process from executing it and can recommend against Baton | in-progress | standard | Slice 1 of 2 done; slice 2 needs recorded worker scenarios |
 | [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | in-progress | major | Slice 7 of 7: awaiting the owner's acceptance |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | Awaiting owner decisions before Design |
-| [2026-11-fit-check-work-scope](2026-11-fit-check-work-scope.md) | Fit-check distinguishes developing a process from executing it and can recommend against Baton | proposed | standard | Policy accepted; implementation proposed |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | proposed | standard | Timing policy accepted; implementation proposed |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |

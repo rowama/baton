@@ -48,4 +48,6 @@ when a job starts, never written into the process itself.
 When an idea holds independent parts with different end states, people or schedules, build one
 process per part and let each hand its result to the next as a document the next one reads. A part
 that is ongoing operations becomes a process that produces the operating material (procedures,
-templates, communication plans, and software where needed).
+templates, communication plans, and software where needed) when the owner asked for a process to
+be made; do not change what the owner asked for from running the work to making a process for it.
+The material may be meant to run elsewhere (a workflow tool, a diagram, a checklist).

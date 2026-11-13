@@ -212,10 +212,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@1")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@1"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@2")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@2"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@1"
+    assert started["recipe"] == "recipe-builder@2"
 
 
 @pytest.mark.slow

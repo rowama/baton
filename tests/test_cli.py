@@ -23,7 +23,7 @@ def test_plan_json():
     result = runner.invoke(app, ["plan", str(FIT_CHECK), "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["ok"] and payload["plan"]["recipe"] == "fit-check@4"
+    assert payload["ok"] and payload["plan"]["recipe"] == "fit-check@5"
 
 
 def test_plan_invalid_recipe_exit_1(make_recipe):

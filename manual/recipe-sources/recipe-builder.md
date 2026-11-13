@@ -12,7 +12,7 @@ step_labels: {}
 
 Use **recipe builder** when you do something repeatedly, or a process you care about, and want Baton to follow it: onboarding a client, launching a product, planting a garden, closing the books. You describe the work in your own words; Baton asks what it needs, looks up how the work is usually done, designs the process, has it independently checked, and shows you a plain-language walkthrough. You decide whether to use it.
 
-You never need to know how Baton describes processes. Talk about your work.
+You never need to know how Baton describes processes. Talk about your work. The process it makes can be for work that will be done elsewhere, such as a workflow in another tool, a diagram, or a set of procedures and templates; where it will run is not a reason to refuse it. It builds a Baton process for making that work, not an export for another tool. If you want work run rather than a process made for it, it says so and asks, instead of changing the request.
 
 ## What you will be asked {#what-you-are-asked}
 

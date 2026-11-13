@@ -19,7 +19,7 @@ Reading changes none of your files. Baton records what it found under `.baton`, 
 
 ## Which process to follow {#which-process}
 
-Adoption needs a process (a recipe) to read your project against. If you do not know which one, ask your assistant to bring the project in anyway. It checks the project, then either picks a process Baton already has, has a new one made for you with your agreement, or stops, with no work adopted, if Baton is not a good fit. None of your own files are changed until you accept the baseline.
+Adoption needs a process (a recipe) to read your project against. If you do not know which one, ask your assistant to bring the project in anyway. It checks the project, then either picks a process Baton already has, has a new one made for you with your agreement, or stops, with no work adopted, if Baton is not a good fit (the fit check says so with **not recommended**). A project that makes a process which will run elsewhere is still eligible; only a poor fit for the work itself stops it. If the verdict offers making something as a separate project, nothing starts until you choose it. None of your own files are changed until you accept the baseline.
 
 ## From the command line {#command-line}
 
