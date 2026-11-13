@@ -1,7 +1,7 @@
 ---
 id: 2026-11-recipe-implementation-discovery
 title: "Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe"
-status: in-progress
+status: done
 level: standard
 decisions: ["0141", "0140", "0099", "0104", "0108", "0097"]
 touches: [design/recipes.md, design/experts.md]
@@ -147,3 +147,22 @@ No relevant proposed decision remains open. Bring additional policy questions di
 - **Tests:** a scripted builder run (profile `simple`, because the choice is deferred) produces a draft whose ledger file, research, decision and using steps pass `baton plan` and `baton recipe check --require-discovery`; the draft is vendored and run: findings reach the decision packet, nothing downstream is ready until the owner's gate approves, a rejection returns the choice with the same findings and the owner's note, and the approved second choice, not the first, reaches the dependent packet; a consumer that does not take the choice fails the generate gate; no `open` entry was needed for the deferral; a pinned `recipe-builder@2` (the fixture) still vendors, runs and produces a draft that passes the unchanged checks.
 - **Limits:** the research stage of a generated process is only as good as its prompt for that job; Slice 3 records real-worker behavior.
 - **Slice 1's full run:** red on `test_harness_tools.py::test_a_denied_tool_reroutes_without_spending_an_attempt` and `::test_absent_on_every_profile_escalates_at_once`, both time-sensitive and unrelated to the builder; they pass in isolation (7 passed) and the full run overlapped a second quick gate. No code change; the exact-SHA full suite is re-run on this slice's commit with the machine otherwise idle.
+
+### Slice 3: recorded worker scenarios and finish
+
+- **Commit:** 2026-11-recipe-implementation-discovery: done
+- **Slice 2's full run:** green on `18382fb58ce2`.
+- **Method:** recipe-builder@3 vendored in a scratch project (`baton init`); real headless dispatches, nothing scripted: `profile`, `research` and `design` by the `claude-code-claude-opus-5-5` profile, `audit` by `codex` (a different vendor). The profile gates and the one decision were answered by me as a fixture owner, so nothing here is an owner review. No prompt changes came out of the scenarios.
+- **Scenario 1, owner unaware of candidates, structural choice (client onboarding; "I do not know what tools exist"):** profile rated `complex` and recorded two `before_design` choices (how clients sign; how progress is tracked), each with the signals and what would differ in the stages. Research (about 4 minutes) compared four signing options (online services, an all-in-one client tool, signing built into office software, email and file by hand) and three tracking options, each with sources dated 2026-11-13, exclusions, uncertainty and a recommendation, and returned `blocked` with two plain questions whose `best_guess` was its recommendation. After the fixture answers (a signing service; a checklist and spreadsheet) the retried research recorded two `decided` records pointing at two `confirmed` `decision` entries carrying exactly those words. Design (5 minutes) took them. Codex's audit then returned eight high findings, mostly about the design reading the work as building a kit once rather than onboarding each client, and one on discovery (R7: the comparisons exceed their evidence). Those were not iterated further in this run; they show the independent audit judging, which the mechanical checks cannot.
+- **Scenarios 2 to 5 (profile only):**
+
+| Scenario | Profile result |
+|---|---|
+| Firm constraint: "must work in n8n, non-negotiable" | `target_status: firm_constraint`, target n8n, `settled` (not compared away); one further `before_design` question, how requests arrive and are approved, with `blocked` questions |
+| Examples, per-project tool ("n8n or Temporal might be what we end up using ... each project picks its own tool") | `target_status: example`, both named; `in_generated_recipe` for the tool, with the reason that fixing one would break the owner's reuse |
+| Simple, settled ("just a printed one-page checklist") | `simple`; one `not_needed` record with a reason; no comparison |
+| Monthly compliance report, "no idea what software" | `before_design`; a procedure-and-templates package, a product and an automatic pull would need different work; `blocked` for the regulator, the systems and where it ends |
+
+- **Missing access:** `baton eligible <run> research` excludes a profile that lacks `web_access` (`claude-code-sub: missing capabilities: web_access`), so research is not offered to a worker that cannot reach current sources. A worker that cannot reach them is told to return `blocked`; that path is covered by the prompt, not by a live failure here.
+- **Limitations:** research sources were read as search-result summaries and said so in the comparison's uncertainty, the audit's R7 is that gap; one scenario's second `before_design` question (how requests arrive) is arguably an ordinary requirement, so the triggers can over-ask; the fixture owner's answers are not an owner's judgment; five profiles and one run to design are not a measure of quality. Judgment is shown by these recorded runs; only the form, owner authority, dated sources, deferred wiring and reachability are mechanical guarantees.
+- **Acceptance:** each criterion maps to Slice 1 to 3 tests or recorded scenarios: identification and timing (profile schema, scenarios 1 to 5); firm/preference/example (scenarios 2, 3); early research and decision before design (run test, scenario 1); deferred stages and handoff (Slice 2 tests); proportionate shortlist and sources (schemas, scenario 1); research-capable worker and blocked paths (eligibility, `blocked` tests); owner decision carried, rejection/resume (Slices 1, 2); generality preserved (profile prompt, scenario 3, checker); audit and mechanical checks (rubric 16 to 20, `recipe check`); existing-recipe matching (profile prompt test); every level loads and plans, pinned v2 still runs, no-open-ledger and instance-leak checks kept (Slices 1, 2).
