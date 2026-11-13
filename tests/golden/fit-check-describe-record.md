@@ -11,7 +11,7 @@
 - Packet: `cd093e67ac02ed8c47844ef0712adbb7814a4bf5ec31f1df49c746d981548b3f` (worker profile `f318571584e4549a2c69d16523bef672ed295bce25dd2b7e42c18d086f690bf2`)
 - Inputs:
   - input `idea` from `run.inputs.idea`: `867870c0b097c1d3983c49f69d1563b76116655255e7d973e766688bfdfdae5d`
-- Result: completed at 2026-11-01T12:00:14.000000Z (`result.json` `ac16c1d12cca1304ba87f9df744b306c5d1804c3215acc4d98feebc8d6f1a33e`)
+- Result: completed at 2026-11-01T12:00:14.000000Z (`result.json` `8745b39e080fa533a4870d269be447db0ef1c76b64dedee6f17a583966a773d6`)
 - Rejected:
   - output (root): 'scope' is a required property
   - output (root): 'work' is a required property
