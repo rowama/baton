@@ -1,7 +1,7 @@
 ---
 id: 2026-11-fit-check-work-scope
 title: "Fit-check distinguishes developing a process from executing it and can recommend against Baton"
-status: in-progress
+status: done
 level: standard
 decisions: ["0140", "0029", "0134", "0135", "0136", "0097"]
 touches: [design/recipes.md, design/adoption-and-framing.md, design/director-interface.md]
@@ -136,4 +136,4 @@ No relevant proposed decision remains open. The separate discovery discussion is
 
 - **Assessment against the criteria:** the paired development/execution refund cases reached opposite verdicts for the stated reasons: the development case's volume was not held against it, and the execution case was rejected on its own frequency and latency. The package and BPMN cases did not force `software-feature`. The trivial task and the high-volume execution both got `not_recommended` with a non-software alternative. The mixed goal was blocked with a question rather than narrowed. A recurring, substantive task got `fits_per_occurrence`.
 - **Limitations:** one run per scenario, one worker pair, no repeats, so variance is unmeasured. The two `software-feature` choices (n8n, LangGraph) are judgment calls the owner may disagree with, since both are workflows rather than ordinary application features. No scenario was ambiguous between developing and executing within a single request, and none was a substantive one-off execution, so those boundaries are untested. No owner review of the verdicts has taken place. No prompt change was needed, so no regression was added.
-- **Status:** in-progress, awaiting the owner's review of these results and acceptance; then `status: done` and a green full suite on the finish SHA.
+- **Accepted:** results yes, 2026-11-12: "Accepted, mark done", including the two `software-feature` choices (n8n, LangGraph). Status `done`; the full suite on the finish SHA is recorded in the test ledger.

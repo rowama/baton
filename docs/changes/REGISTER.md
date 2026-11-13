@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-fit-check-work-scope](2026-11-fit-check-work-scope.md) | Fit-check distinguishes developing a process from executing it and can recommend against Baton | in-progress | standard | Both slices done: awaiting the owner's acceptance |
 | [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | in-progress | major | Slice 7 of 7: awaiting the owner's acceptance |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | Awaiting owner decisions before Design |
@@ -22,6 +21,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-director-question-check](2026-11-director-question-check.md) | The Director checks its questions before asking the owner, and the framing label tells the truth | done | minor | |
 | [2026-11-director-wake](2026-11-director-wake.md) | A detached Director notices when work finishes, or tells the owner first that it might not | done | standard | |
 | [2026-11-fast-tests](2026-11-fast-tests.md) | Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish | done | standard | |
+| [2026-11-fit-check-work-scope](2026-11-fit-check-work-scope.md) | Fit-check distinguishes developing a process from executing it and can recommend against Baton | done | standard |  |
 | [2026-11-framing-perspective](2026-11-framing-perspective.md) | The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents | done | standard | |
 | [2026-11-model-listings](2026-11-model-listings.md) | Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred | done | major | |
 | [2026-11-not-offered-reasons](2026-11-not-offered-reasons.md) | Worker status says which catalog it read and exactly why a generated profile is no longer offered | done | minor | |
