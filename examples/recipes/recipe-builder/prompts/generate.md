@@ -25,7 +25,9 @@ You work in the project; commit your work.
    recipe, never a fixed value.
 5. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
    stage, what they decide, what happens when something fails, and what it covers and does not.
-   No file names, no jargon.
+   Say plainly when and how the owner will choose how the work is done (decided now, in what they
+   approved, or at a stage of the process before the work that depends on it), and what the process
+   will do to find the options. No file names, no jargon.
 
 Run `baton plan recipes/drafts/<run slug>` yourself before you finish, and fix what it reports. The
 runtime runs it again, and `baton recipe check`, as gates. Return the commit, the package path, the

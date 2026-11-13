@@ -17,8 +17,8 @@ from baton import recipe_check
 from baton.recipe import load_recipe
 
 from conftest import ROOT
-from projectkit import Cli, OWNER_PROFILE, git, make_git_project, make_home
-from realkit import ALL_CAPS, WORKER, Director, cmdline, configure, run_events
+from projectkit import Cli, OWNER_PROFILE, git, make_git_project, make_home, packet_dir
+from realkit import ALL_CAPS, WORKER, Director, cmdline, configure, owner_does, run_events
 
 BUILDER = ROOT / "examples" / "recipes" / "recipe-builder"
 CLEAN = {"output": {"findings": [], "coverage": {"complete": True, "notes": ""}}}
@@ -349,3 +349,157 @@ def test_research_cannot_complete_with_an_unanswered_shaping_choice(project_with
     evs = run_events(project, run)
     kinds = [e["type"] for e in evs if e["step_path"] == "research" and e["type"] in ("result_rejected", "step_passed", "step_escalated")]
     assert kinds == ["result_rejected", "step_escalated", "step_passed"]  # the schema refused it; only the owner's answer let it pass
+
+
+# -- implementation discovery: a process that makes its own choice (Decision 0141) -------------------------
+
+DEFERRED = {"id": "D2", "question": "Which tool will each job's plan be made in?", "target_status": "none", "timing": "in_generated_recipe",
+            "timing_reason": "Every tool fits the same process: research, owner choice, then the work that uses it",
+            "graph_effect": "One shape serves every tool; the tool is a value each job supplies", "status": "deferred",
+            "generated": {"research_step": "research_options", "decision_step": "decide", "consumers": ["build_plan"]}}
+SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"}
+DEFERRED_PACKAGE = {
+    "recipe.yaml": (
+        "id: flower-bed\nversion: 1\nformat: baton-recipe/1\ncapabilities_vocab: baton-capabilities/1\n"
+        "description: Plan a flower bed in the tool the job calls for.\nscope:\n  covers: [flower bed plans]\n  not_for: []\n  varies_by: [the tool]\nparent: null\n"
+        "run_inputs:\n  schema: schemas/run_inputs.json\nsteps:\n"
+        "  - id: research_options\n    title: Compare the ways to make the plan\n    requires: { capabilities: [structured_output, web_access] }\n"
+        "    prompt: prompts/research_options.md\n    inputs:\n      - { name: goal, from: run.inputs.goal, required: true }\n"
+        "    output_schema: schemas/findings.json\n    gates: [ { type: schema } ]\n"
+        "  - id: decide\n    title: The owner chooses\n    depends_on: [research_options]\n    requires: { capabilities: [human_judgment] }\n"
+        "    prompt: prompts/decide.md\n    inputs:\n      - { name: findings, from: steps.research_options.output, required: true }\n"
+        "    output_schema: schemas/choice.json\n    gates:\n      - { type: schema }\n      - { type: human, prompt: \"Use this way of making the plan?\" }\n"
+        "  - id: build_plan\n    title: Make the plan\n    depends_on: [decide]\n    requires: { capabilities: [structured_output] }\n"
+        "    prompt: prompts/build_plan.md\n    inputs:\n      - { name: choice, from: steps.decide.output, required: true }\n"
+        "      - { name: findings, from: steps.research_options.output, required: true }\n    output_schema: schemas/plan.json\n    gates: [ { type: schema } ]\n"
+    ),
+    "prompts/research_options.md": "# Compare the ways\n\nFind the ways to make the plan for this job, with sources and what each needs.\n",
+    "prompts/decide.md": "# Choose\n\nRecord which way the owner chose, in their words.\n",
+    "prompts/build_plan.md": "# Make the plan\n\nMake the plan in the way the owner chose.\n",
+    "schemas/run_inputs.json": json.dumps({**SCHEMA, "required": ["goal"], "properties": {"goal": {"type": "string"}}}),
+    "schemas/findings.json": json.dumps({**SCHEMA, "required": ["options"]}),
+    "schemas/choice.json": json.dumps({**SCHEMA, "required": ["choice"]}),
+    "schemas/plan.json": json.dumps({**SCHEMA, "required": ["summary"]}),
+}
+FINDINGS = {"options": [{"name": "A spreadsheet", "source": "a vendor page, read 2026-11-13"}, {"name": "A printed guide", "source": "a handbook"}]}
+
+
+def deferred_script(ledger):
+    generate = generated(ledger, [DEFERRED])
+    generate["commit_files"] = {**{f"recipes/drafts/{SLUG}/{k}": v for k, v in DEFERRED_PACKAGE.items()},
+                                f"recipes/drafts/{SLUG}.ledger.json": json.dumps({"ledger": ledger, "discovery": [DEFERRED]})}
+    generate["artifacts"]["ledger"] = generate["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"]
+    stages = [*STAGES, {"id": "research_options", "title": "Compare the ways", "done_by": "ai", "needs": ["the goal"], "hands_on": ["options"], "on_failure": "retry"},
+              {"id": "decide", "title": "The owner chooses", "done_by": "person", "needs": ["options"], "hands_on": ["a choice"],
+               "owner_decision": "Use this way?", "on_failure": "revise"},
+              {"id": "build_plan", "title": "Make the plan", "done_by": "ai", "needs": ["a choice"], "hands_on": ["a plan"], "on_failure": "retry"}]
+    return {
+        "profile": {"output": {**profile("simple", ledger)["output"], "discovery": [NONE_NEEDED, DEFERRED]}},
+        "design": {"output": {**design(ledger)["output"], "stages": stages, "discovery": [DEFERRED]}, "artifacts": design(ledger)["artifacts"]},
+        "audit": CLEAN, "generate": generate,
+        # the generated process, run later
+        "research_options": {"output": FINDINGS},
+        "build_plan": [{"output": {"summary": "Plan made as chosen"}}],
+    }
+
+
+def build_deferred_draft(project_with):
+    cli, project, script_file = project_with(deferred_script([GOAL, BED]))
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route)
+    d.drive()
+    assert_package_is_ready(cli, project)
+    return cli, project, script_file
+
+
+@pytest.mark.slow
+def test_a_process_that_makes_its_own_choice_passes_the_builders_gates_even_at_simple(project_with):
+    cli, project, _ = build_deferred_draft(project_with)
+    data = json.loads((project / "recipes" / "drafts" / f"{SLUG}.ledger.json").read_text(encoding="utf-8"))
+    assert [r["timing"] for r in data["discovery"]] == ["in_generated_recipe"]  # deferred: no comparison in the builder, so `simple` stays
+    # It is a settled requirement of the process, not an open entry: nothing was weakened.
+    assert not [e for e in data["ledger"] if e["status"] == "open"]
+
+
+@pytest.mark.slow
+def test_findings_and_the_owners_choice_reach_the_dependent_work_and_nothing_advances_without_them(project_with):
+    cli, project, script_file = build_deferred_draft(project_with)
+    cli.run("vendor", str(project / "recipes" / "drafts" / SLUG))
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "Vendor the generated process")
+    run = cli.run("start", SLUG, "--inputs", json.dumps({"title": "Bed plan", "goal": "Plan the bed"}))["run_id"]
+
+    def gen_route(path):
+        return "owner" if path == "decide" else "builder"
+
+    # build_plan cannot start before the owner's choice: its required input has no producer yet.
+    st = cli("status", run, expect=None).payload
+    assert [s for s in st["ready"]] == ["research_options"]
+    d = Director(cli, project, run, route=gen_route, decisions={"decide": [("reject", "Not that one; the printed guide."), ("approve", "Yes, the printed guide.")]},
+                 acceptance={"choice": "A spreadsheet"})
+    # Drive the research and the first (rejected) decision.
+    cli("dispatch", run, "research_options", "--worker", "builder", "--wait", expect=None)
+    st = cli("status", run, expect=None).payload
+    assert [s for s in st["ready"]] == ["decide"] and st["steps"]["build_plan"]["state"] != "ready"
+    owner_does(cli, project, run, "decide", {"choice": "A spreadsheet"})
+    pending = cli("status", run, expect=None).payload["pending_decisions"]
+    assert pending and pending[0]["ref"].endswith("decide")  # the output alone does not advance: the owner must approve
+    assert cli("status", run, expect=None).payload["steps"]["build_plan"]["state"] != "ready"
+    cli("decide", run, pending[0]["ref"], "reject", "--note", "Not that one; the printed guide.")
+    st = cli("status", run, expect=None).payload
+    assert st["ready"] == ["decide"], st  # the owner's rejection sent the choice back
+    # The findings are still in the retried packet, with the owner's note.
+    d2 = cli.run("dispatch", run, "decide", "--worker", "owner")
+    pkt = packet_dir(project, run, "decide", d2["attempt"])
+    assert json.loads((pkt / "inputs" / "findings.json").read_text(encoding="utf-8")) == FINDINGS
+    assert "Not that one; the printed guide." in (pkt / "INSTRUCTIONS.md").read_text(encoding="utf-8") + (pkt / "manifest.json").read_text(encoding="utf-8")
+    from realkit import write_result
+
+    write_result(pkt, {"choice": "A printed guide"})
+    cli("submit", run, "decide", expect=None)
+    pending = cli("status", run, expect=None).payload["pending_decisions"]
+    cli("decide", run, pending[0]["ref"], "approve", "--note", "Yes, the printed guide.")
+    cli("dispatch", run, "build_plan", "--worker", "builder", "--wait", expect=None)
+    build = packet_dir(project, run, "build_plan", 1) / "inputs"
+    assert json.loads((build / "choice.json").read_text(encoding="utf-8")) == {"choice": "A printed guide"}  # the second, approved choice
+    assert json.loads((build / "findings.json").read_text(encoding="utf-8")) == FINDINGS
+    assert cli("status", run, expect=None).payload["state"] == "completed"
+
+
+@pytest.mark.slow
+def test_a_deferred_choice_nothing_consumes_is_refused_by_the_gate(project_with):
+    ledger = [GOAL, BED]
+    script = deferred_script(ledger)
+    broken = {**DEFERRED, "generated": {**DEFERRED["generated"], "consumers": ["build_plan"]}}
+    no_input = dict(DEFERRED_PACKAGE)
+    no_input["recipe.yaml"] = DEFERRED_PACKAGE["recipe.yaml"].replace("{ name: choice, from: steps.decide.output, required: true }", "{ name: choice, from: run.inputs.goal, required: true }")
+    bad = generated(ledger, [broken])
+    bad["commit_files"] = {**{f"recipes/drafts/{SLUG}/{k}": v for k, v in no_input.items()}, f"recipes/drafts/{SLUG}.ledger.json": json.dumps({"ledger": ledger, "discovery": [broken]})}
+    bad["artifacts"]["ledger"] = bad["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"]
+    script["generate"] = [bad, script["generate"]]
+    cli, project, _ = project_with(script)
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    Director(cli, project, run, route=route).drive()
+    failed = [e for e in run_events(project, run) if e["type"] == "gate_failed" and e["step_path"] == "generate"]
+    assert len(failed) == 1 and "step `build_plan` must take the output of `decide`" in json.dumps(failed[0]["data"])
+    assert_package_is_ready(cli, project)
+
+
+@pytest.mark.slow
+def test_a_pinned_builder_v2_still_runs_and_never_asks_for_discovery(project_with, monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setattr(_sys.modules[__name__], "BUILDER", ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v2")
+    ledger = [GOAL, BED]
+    p = profile("simple", ledger)["output"]
+    p.pop("discovery")
+    d = design(ledger)["output"]
+    d.pop("discovery")
+    gen = generated(ledger)
+    gen["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"] = json.dumps(ledger)  # v2 wrote the ledger as a list
+    gen["artifacts"]["ledger"] = json.dumps(ledger)
+    cli, project, _ = project_with({"profile": {"output": p}, "design": {"output": d, "artifacts": design(ledger)["artifacts"]}, "audit": CLEAN, "generate": gen})
+    run = cli.run("start", "recipe-builder@2", "--inputs", json.dumps(INPUTS))["run_id"]
+    st = Director(cli, project, run, route=route).drive()
+    assert st["recipe"] == "recipe-builder@2" and st["state"] == "completed"
+    assert recipe_check.check(project / "recipes" / "drafts" / SLUG, project / "recipes" / "drafts" / f"{SLUG}.ledger.json") == []

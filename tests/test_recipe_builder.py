@@ -251,3 +251,10 @@ def test_the_published_v2_still_loads_and_keeps_its_behavior():
 def test_v3_loads_and_plans_at_every_level(loaded):
     assert loaded.recipe.ref == "recipe-builder@3" and not loaded.warnings
     assert [lv.level for lv in build_plan(loaded).levels] == ["simple", "standard", "complex"]
+
+
+def test_existing_recipes_match_only_when_their_process_does_the_discovery_and_the_walkthrough_says_when_the_owner_chooses():
+    profile = " ".join((BUILDER / "prompts" / "profile.md").read_text(encoding="utf-8").split())
+    assert "its own steps would do any discovery this job needs (a matching subject is not enough)" in profile
+    gen = " ".join((BUILDER / "prompts" / "generate.md").read_text(encoding="utf-8").split())
+    assert "when and how the owner will choose how the work is done" in gen
