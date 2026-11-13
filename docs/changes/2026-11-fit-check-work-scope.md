@@ -116,3 +116,24 @@ No relevant proposed decision remains open. The separate discovery discussion is
 - **Tests:** `tests/test_fit_check_scope.py` covers the schemas (exactly three verdicts, negative needs an alternative and no recipe, positive forbids both, v4 records still valid under v4), the scope kinds, the packet inputs and human gate, and the prompts/rubric wording across fit-check, framing and recipe-builder. Existing suites cover framing selection, packet handoff and adoption's stop steps.
 - **Manual:** `recipes/fit-check.md`, `recipes/baton-frame.md`, `recipes/recipe-builder.md` (via their sources) and `user/bring-an-existing-project.md`, regenerated; no anchors added or removed.
 - **Not done:** slice 2. The acceptance criteria that depend on a worker's actual judgment (paired development/execution cases, mixed goals, a trivial task, suitable recurring work) have no recorded evidence yet, and scripted outputs cannot stand in for it. Status stays `in-progress`.
+
+### Slice 2: Recorded worker scenarios
+
+- **Commit:** 2026-11-fit-check-work-scope: Slice 2, recorded worker scenarios
+- **Method:** fit-check@5 vendored in a scratch project (`baton init`), one real run per scenario. `describe` by the `claude-code-claude-sonnet-5-5` profile and `assess` by the `codex` profile (a different vendor), each a headless dispatch with no scripted output. No `context` input; the catalog listed `software-feature@1`, `backyard-project@1`, `recipe-builder@2`. The human verdict gate was left pending (not an owner review); no assumptions were confirmed by a person, so most reasons carry `basis: assumed`.
+- **Results** (inputs abbreviated):
+
+| Scenario | Scope the profile chose | Verdict | Recipe / alternative |
+|---|---|---|---|
+| Build an n8n workflow for ~5,000 daily refunds | developing_a_process (target kept apart, not scored) | `fits` | `software-feature@1` |
+| Process each of ~5,000 daily refunds within seconds, no person | executing_a_process | `not_recommended` | existing tool or operations engine; separate development offer, stated as not chosen |
+| Design and test a LangGraph email classify-and-reply workflow | developing_a_process | `fits` | `software-feature@1` |
+| Model onboarding as a BPMN diagram, document handoffs | developing_a_process | `fits` | none: recipe-builder@2 |
+| SOPs, forms and a small tracking tool for clinic intake | developing_a_process | `fits` | none: recipe-builder@2; said `software-feature` does not cover the whole deliverable |
+| Set up a vending business and run it day to day | other_work, two parts | blocked, one multi-select question | not decided silently; the Director would suggest framing |
+| Rename one file | other_work | `not_recommended` | ask an assistant directly |
+| Monthly board report, independent review, CFO sign-off | executing_a_process | `fits_per_occurrence` | none: recipe-builder@2 |
+
+- **Assessment against the criteria:** the paired development/execution refund cases reached opposite verdicts for the stated reasons: the development case's volume was not held against it, and the execution case was rejected on its own frequency and latency. The package and BPMN cases did not force `software-feature`. The trivial task and the high-volume execution both got `not_recommended` with a non-software alternative. The mixed goal was blocked with a question rather than narrowed. A recurring, substantive task got `fits_per_occurrence`.
+- **Limitations:** one run per scenario, one worker pair, no repeats, so variance is unmeasured. The two `software-feature` choices (n8n, LangGraph) are judgment calls the owner may disagree with, since both are workflows rather than ordinary application features. No scenario was ambiguous between developing and executing within a single request, and none was a substantive one-off execution, so those boundaries are untested. No owner review of the verdicts has taken place. No prompt change was needed, so no regression was added.
+- **Status:** in-progress, awaiting the owner's review of these results and acceptance; then `status: done` and a green full suite on the finish SHA.
