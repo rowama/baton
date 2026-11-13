@@ -22,6 +22,11 @@ names.
 | 13 | The design follows `patterns.md`: its process shape, bounded loops and failure dispositions match the reusable shapes there, or a stated departure is justified | high |
 | 14 | Something left out on purpose has an `excluded` ledger entry and is listed in `excluded` | medium |
 | 15 | The document is in the owner's terms, with no jargon, and shows who does each stage, what the owner decides, what happens on failure, and what is out of scope | medium |
+| 16 | Every discovery record reaches the design, with its timing reason; none was dropped or left unexamined because the work was rated simple | high |
+| 17 | A choice that changes the stages, workers, artifacts or checks is decided by the owner (a confirmed `decision` entry with their words) before the stages it affects | high |
+| 18 | A comparison rests on sources actually read, with the date each was read, and says what each option needs from the process; an unsupported claim is not marked researched | high |
+| 19 | A deferred choice has a research stage, an owner decision stage and the stages that use it, in that order, with the decision handed on as an input; the claim that one shape serves every alternative is argued | high |
+| 20 | A recommendation, inference or a worker's claim of approval does not stand in for the owner's choice; a firm constraint the owner named is not compared away, and a fixed target appears only where the agreed scope is specific to it | high |
 
 Judge 9 and 10 against the rung recorded in the ledger, not against what you think the owner should
 have chosen. The owner decides how general a process is.

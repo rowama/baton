@@ -412,7 +412,7 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 
 ### baton recipe check {#baton-recipe-check}
 
-Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe.
+Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe, and discovery recorded and handed on.
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
@@ -420,6 +420,7 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 |---|---|
 | `package <path>` | The recipe folder to check. |
 | `--ledger <path>` | The requirements ledger (JSON). |
+| `--require-discovery` | The ledger file must carry `discovery` records. |
 | `--json` | Machine-readable output. |
 
 ## baton recipes {#baton-recipes}

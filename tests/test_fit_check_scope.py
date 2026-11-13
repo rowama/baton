@@ -114,7 +114,7 @@ def test_other_guidance_does_not_turn_execution_into_development():
     frame = (FIT_CHECK.parents[2] / "builtin" / "baton-frame" / "prompts" / "frame.md").read_text(encoding="utf-8")
     frame = " ".join(frame.split())
     assert "operations engine" not in frame and "without saying so" in frame
-    assert load_recipe(BUILDER).recipe.version == 2
+    assert load_recipe(BUILDER).recipe.version == 3
     prof = (BUILDER / "prompts" / "profile.md").read_text(encoding="utf-8")
     assert "turned into building something else" in " ".join(prof.split())
     assert "Baton does not run day-to-day" not in prof

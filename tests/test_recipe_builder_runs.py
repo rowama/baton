@@ -31,6 +31,8 @@ BED = {"id": "I1", "statement": "The bed is 3 m by 1 m, in full sun", "kind": "r
        "basis": "the owner's words", "owner_words": "it is about three by one metres", "value": "3 m by 1 m, full sun"}
 SOIL = {"id": "R1", "statement": "Every bed needs a soil check before planting", "kind": "requirement", "scope": "class",
         "status": "researched", "basis": "common gardening guidance", "source": "a gardening handbook"}
+NONE_NEEDED = {"id": "D1", "question": "Is there an implementation choice that matters?", "target_status": "none", "timing": "not_needed",
+               "timing_reason": "Planting a bed has one usual way of being done; nothing to choose between.", "status": "closed"}
 STAGES = [
     {"id": "survey", "title": "Survey the site", "done_by": "person", "needs": ["the bed's location"], "hands_on": ["site notes"],
      "owner_decision": None, "on_failure": "escalate", "failure_note": "Ask the owner where the bed goes."},
@@ -52,13 +54,14 @@ PACKAGE = {
 }
 
 
-def generated(ledger: list[dict]) -> dict:
+def generated(ledger: list[dict], discovery: list[dict] | None = None) -> dict:
     files = {f"recipes/drafts/{SLUG}/{k}": v for k, v in PACKAGE.items()}
-    files[f"recipes/drafts/{SLUG}.ledger.json"] = json.dumps(ledger)
+    ledger_file = json.dumps({"ledger": ledger, "discovery": discovery or [NONE_NEEDED]})
+    files[f"recipes/drafts/{SLUG}.ledger.json"] = ledger_file
     return {
         "commit_files": files,
         "output": {"package_path": f"recipes/drafts/{SLUG}", "ledger_path": f"recipes/drafts/{SLUG}.ledger.json", "summary": "A flower-bed process"},
-        "artifacts": {"walkthrough": "# Planting a flower bed\n\nYou survey the site, then plant it.\n", "ledger": json.dumps(ledger)},
+        "artifacts": {"walkthrough": "# Planting a flower bed\n\nYou survey the site, then plant it.\n", "ledger": ledger_file},
     }
 
 
@@ -68,11 +71,11 @@ def profile(level: str, ledger: list[dict]) -> dict:
         "goal": {"statement": "Plant a flower bed", "trigger": "The owner wants a bed", "end_state": "A planted bed", "success_measure": "Plants are in and watered"},
         "existing_recipe": None,
         "rung": {"label": "Just flower beds", "covers": ["a flower bed"], "next_rung": "any garden bed"},
-        "related_parts": [], "build_now": None, "ledger": ledger}}
+        "related_parts": [], "build_now": None, "discovery": [NONE_NEEDED], "ledger": ledger}}
 
 
 def design(ledger: list[dict], summary: str = "Survey then plant") -> dict:
-    return {"output": {"summary": summary, "stages": STAGES, "excluded": [], "ledger": ledger},
+    return {"output": {"summary": summary, "stages": STAGES, "excluded": [], "discovery": [NONE_NEEDED], "ledger": ledger},
             "artifacts": {"design_doc": "# Planting a flower bed\n\nSurvey the site, then plant.\n"}}
 
 
@@ -125,7 +128,7 @@ def assert_package_is_ready(cli: Cli, project: Path) -> None:
 
     loaded = load_recipe(pkg)
     assert loaded.recipe.provenance == "scratch" and loaded.warnings == []
-    assert recipe_check.check(pkg, project / "recipes" / "drafts" / f"{SLUG}.ledger.json") == []
+    assert recipe_check.check(pkg, project / "recipes" / "drafts" / f"{SLUG}.ledger.json", require_discovery=True) == []
     assert [lv.level for lv in build_plan(loaded).levels] == [None]  # the generated recipe has no scale: one plan, every step reachable
     assert not git(project, "status", "--porcelain").strip(), "the draft is committed"
 
@@ -162,7 +165,7 @@ def test_a_standard_run_researches_loops_on_the_owners_note_and_fails_a_bad_ledg
                   "basis": "nobody has said"}
     script = {
         "profile": profile("standard", [GOAL, BED]),
-        "research": {"output": {"ledger": ledger, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "R1"}]}},
+        "research": {"output": {"discovery": [NONE_NEEDED], "ledger": ledger, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "R1"}]}},
         "design": [design(ledger, "Survey then plant"), design(ledger, "Survey, test the soil, then plant")],
         "audit": CLEAN,
         # attempt 1 ships a ledger with an open entry: the deterministic gate refuses it, and attempt 2 is clean.
@@ -212,10 +215,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@2")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@2"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@3")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@3"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@2"
+    assert started["recipe"] == "recipe-builder@3"
 
 
 @pytest.mark.slow
@@ -236,3 +239,113 @@ def test_a_fit_check_profile_and_a_base_recipe_reach_the_first_step(project_with
     listing = json.loads((packet_dir(project, run, "profile", 1) / "inputs" / "recipes.json").read_text(encoding="utf-8"))
     assert {"backyard-project", "recipe-builder", "fit-check"} <= {r["id"] for r in listing}
     assert next(r for r in listing if r["id"] == "recipe-builder")["scope"]["covers"]
+
+
+# -- implementation discovery: a choice that shapes the process (Decision 0141) ----------------------------
+
+
+PRINTED = {"id": "E9", "statement": "The planting plan is delivered as a printed guide", "kind": "decision", "scope": "class",
+           "status": "confirmed", "basis": "the owner's answer to the comparison", "owner_words": "A printed guide, please. Yes, that is right."}
+BEFORE = {"id": "D1", "question": "Should the planting plan be a printed guide or an app?", "signals": ["the owner mentioned an app"],
+          "target_status": "example", "named_targets": ["a garden app"], "timing": "before_design",
+          "timing_reason": "A guide and an app need different deliverables and checks", "status": "to_research"}
+CHOSEN = {**BEFORE, "status": "decided", "decision": {"ledger_id": "E9"},
+          "comparison": {"criteria": ["the owner has no one to maintain software"], "uncertainty": "App pricing changes often",
+                         "recommendation": "A printed guide",
+                         "options": [{"name": "A printed guide", "kind": "manual_procedure", "requires_of_development": "layout and a proof check",
+                                      "tradeoffs": "no reminders", "sources": [{"title": "A gardening handbook", "read_on": "2026-11-13"}]},
+                                     {"name": "A mobile app", "kind": "existing_product", "requires_of_development": "build, test and a release stage",
+                                      "tradeoffs": "reminders, but upkeep", "sources": [{"title": "An app vendor's page", "url": "https://example.test/app", "read_on": "2026-11-13"}]}]}}
+QUESTION = {"id": "q1", "ask": "Should the plan be a printed guide or an app?", "why": "They need different things made", "best_guess": "A printed guide",
+            "options": [{"id": "guide", "label": "A printed guide"}, {"id": "app", "label": "An app"}], "priority": "needed"}
+ANSWER = [{"id": "q1", "answer": "A printed guide", "owner_words": "A printed guide, please. Yes, that is right."}]
+
+
+class DiscoveryDirector(Director):
+    """The scripted Director, plus the owner answering a `blocked` step's questions with confirmed answers."""
+
+    def __init__(self, *a, answers_file: Path, **kw):
+        super().__init__(*a, **kw)
+        self.answers_file = answers_file
+        self.answered: list[str] = []
+
+    def decide(self, p: dict) -> None:
+        if p.get("kind") == "escalation" and p.get("reason") == "blocked":
+            self.answered.append(p["ref"])
+            self.answers_file.write_text(json.dumps(ANSWER), encoding="utf-8")
+            self.cli("decide", self.run, p["ref"], "retry", "--answers", str(self.answers_file), "--note", "A printed guide, please. Yes, that is right.")
+            return
+        super().decide(p)
+
+
+def start_discovery_run(project_with, script):
+    cli, project, script_file = project_with(script)
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    return cli, project, run, DiscoveryDirector(cli, project, run, route=route, answers_file=script_file.parent / "answers.json")
+
+
+def discovery_script(ledger, **over):
+    full = [*ledger, PRINTED]
+    base = {
+        "profile": {"output": {**profile("standard", ledger)["output"], "discovery": [BEFORE]}},
+        "research": [{"status": "blocked", "output": {}, "questions_for_human": [QUESTION]},
+                     {"output": {"discovery": [CHOSEN], "ledger": full, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "D1"}]}}],
+        "design": {"output": {**design(full)["output"], "discovery": [CHOSEN]}, "artifacts": design(full)["artifacts"]},
+        "audit": CLEAN, "generate": generated(full, [CHOSEN]),
+    }
+    return {**base, **over}
+
+
+@pytest.mark.slow
+def test_a_choice_that_shapes_the_process_is_researched_and_the_owner_decides_before_design(project_with):
+    ledger = [GOAL, BED]
+    cli, project, run, d = start_discovery_run(project_with, discovery_script(ledger))
+    st = d.drive()
+    assert st["level"] == "standard" and st["steps"]["research"]["state"] == "passed"
+    assert d.answered == ["research"]  # the owner was asked once, about the one choice
+    order = [s.rsplit("/", 1)[-1] for s, _ in d.dispatches]
+    assert order.index("research") < order.index("design") and order.count("research") == 2
+    from projectkit import packet_dir
+
+    # The owner's confirmed words, recorded by the runtime, reach the retried research packet...
+    manifest = json.loads((packet_dir(project, run, "research", 2) / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["prior_feedback"]["answers"] == ANSWER
+    # ...and the decision they produced reaches the design packet, with the comparison behind it.
+    import re
+
+    inst = st["groups"]["shape"]["instances"][0]["id"]
+    seen = json.loads((packet_dir(project, run, f"shape/{inst}/i1/design", 1) / "inputs" / "research.json").read_text(encoding="utf-8"))
+    assert seen["discovery"][0]["decision"] == {"ledger_id": "E9"} and seen["discovery"][0]["comparison"]["recommendation"] == "A printed guide"
+    assert next(e for e in seen["ledger"] if e["id"] == "E9")["owner_words"] == ANSWER[0]["owner_words"]
+    assert_package_is_ready(cli, project)
+    data = json.loads((project / "recipes" / "drafts" / f"{SLUG}.ledger.json").read_text(encoding="utf-8"))
+    assert data["discovery"][0]["status"] == "decided"
+    refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
+    assert refs[:2] == ["profile", "profile"] and refs[-1] == "accept"
+
+
+@pytest.mark.slow
+def test_a_recommendation_cannot_stand_in_for_the_owners_choice(project_with):
+    """A worker that returns the comparison as `decided`, without the owner's confirmed decision entry, is stopped by the gates."""
+    ledger = [GOAL, BED]
+    unconfirmed = {**PRINTED, "status": "researched", "owner_words": None}
+    script = discovery_script(ledger)
+    script["generate"] = [generated([*ledger, unconfirmed], [CHOSEN]), generated([*ledger, PRINTED], [CHOSEN])]
+    cli, project, run, d = start_discovery_run(project_with, script)
+    d.drive()
+    evs = run_events(project, run)
+    failed = [e for e in evs if e["type"] == "gate_failed" and e["step_path"] == "generate"]
+    assert len(failed) == 1 and "must be a confirmed `decision` carrying the owner's words" in json.dumps(failed[0]["data"])
+    assert_package_is_ready(cli, project)
+
+
+@pytest.mark.slow
+def test_research_cannot_complete_with_an_unanswered_shaping_choice(project_with):
+    ledger = [GOAL, BED]
+    script = discovery_script(ledger)
+    script["research"] = [{"output": {"discovery": [BEFORE], "ledger": ledger, "sources": []}}, *script["research"]]
+    cli, project, run, d = start_discovery_run(project_with, script)
+    d.drive()
+    evs = run_events(project, run)
+    kinds = [e["type"] for e in evs if e["step_path"] == "research" and e["type"] in ("result_rejected", "step_passed", "step_escalated")]
+    assert kinds == ["result_rejected", "step_escalated", "step_passed"]  # the schema refused it; only the owner's answer let it pass

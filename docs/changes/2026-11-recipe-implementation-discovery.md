@@ -1,7 +1,7 @@
 ---
 id: 2026-11-recipe-implementation-discovery
 title: "Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe"
-status: proposed
+status: in-progress
 level: standard
 decisions: ["0141", "0140", "0099", "0104", "0108", "0097"]
 touches: [design/recipes.md, design/experts.md]
@@ -132,3 +132,10 @@ No relevant proposed decision remains open. Bring additional policy questions di
 - **Summary:** Recorded decision 0141, this separate proposal, its register row and future design rules. Inspected builder prompts, applicability, ledger/checker rules and SME isolation. No executable recipe or runtime behavior changed.
 - **Review:** Distinguishes required research from optional advice, structural choices from per-run choices, and unresolved requirements from an approved future decision stage. Documentation validation uses the quick gate; the exact commit's full-suite result is in the test ledger.
 - **Accepted:** Direction and timing policy yes, 2026-11-12: "I like the timing distinctions. I think we're on the same page, so please produce a change proposal for this also." Implementation remains proposed.
+
+### Slice 1: discover choices that shape the recipe
+
+- **Commit:** 2026-11-recipe-implementation-discovery: Slice 1, builder v3 discovers shaping choices
+- **Summary:** recipe-builder@3 (v2 kept as `tests/fixtures/recipes/recipe-builder-v2`, loaded and checked unchanged). New `discovery` records (`schemas/discovery.json`; carried by the profile, research and design outputs; the ledger file is now `{ledger, discovery}`, `schemas/ledger_file.json`). The profile records each material choice, how a named target was named (`firm_constraint`, `preference`, `example`, `none`) and its timing; the profile schema rejects `simple` beside a `before_design` choice, which keeps research reachable without dispatching a skipped step. Research compares options with dated sources, returns `blocked` for the owner, and returns the choice only as `decided` with a confirmed `decision` ledger entry (the schemas refuse an unanswered one). Design carries the records; audit rubric checks 16 to 20; patterns gained "Discovering implementation options"; generate and its package review also know the deferred form, and the generator's "name no tool" wording now separates worker models and vendors from legitimate delivery targets. `baton recipe check --require-discovery` checks form, owner authority (a confirmed `decision` with the owner's words), comparison form, and, for the deferred timing, that the recipe's research, decision and consuming steps exist and are wired. Manual: recipe-builder gained "Choosing how it will be done".
+- **Tests:** `test_recipe_check.py` (decided/unconfirmed/undated/deferred wiring), `test_recipe_builder.py` (schemas, level rule, v2 fixture, vocabulary agreement, prompts), `test_recipe_builder_runs.py` (a standard run: research blocks, the owner's confirmed answers reach the retried research packet, the decision and comparison reach the design packet, the draft passes the checks; a recommendation without the owner's decision fails the generate gate; an unanswered choice is refused by the research schema).
+- **Limits:** the owner's words in the `decision` entry are copied by the worker from `prior_feedback.answers`; the checker proves they are present and the entry is confirmed, and the runtime's `human_decision` event is the record of what was said; the audit judges that they match. A shaping choice found during design returns as `blocked` and a revision of research (Decision: 0141: the Director cannot add stages).

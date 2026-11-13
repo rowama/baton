@@ -25,7 +25,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@2" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@3" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -132,3 +132,122 @@ def test_the_triage_schema_may_carry_more_than_the_level():
 
 def test_no_prompt_names_a_vendor(loaded):
     assert not [w for w in loaded.warnings if w.code.startswith("neutrality")]
+
+
+# -- implementation discovery (change 2026-11-recipe-implementation-discovery; Decision 0141) ----------------
+
+V2 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v2"
+
+
+def schema_of(name):
+    return Draft202012Validator(json.loads((BUILDER / "schemas" / f"{name}.json").read_text(encoding="utf-8")))
+
+
+NOT_NEEDED = {"id": "D0", "question": "Is there an implementation choice that matters?", "target_status": "none", "timing": "not_needed",
+              "timing_reason": "One usual way of doing it", "status": "closed"}
+BEFORE = {"id": "D1", "question": "A printed guide or an app?", "target_status": "example", "named_targets": ["a garden app"],
+          "timing": "before_design", "timing_reason": "They need different deliverables", "graph_effect": "Layout and proofing vs build and test",
+          "status": "to_research"}
+COMPARISON = {"criteria": ["no software to maintain"], "uncertainty": "", "recommendation": "A printed guide",
+              "options": [{"name": "A printed guide", "kind": "manual_procedure", "requires_of_development": "layout, proof check",
+                           "tradeoffs": "no reminders", "sources": [{"title": "A handbook", "read_on": "2026-11-13"}]}]}
+DECIDED = {**BEFORE, "status": "decided", "comparison": COMPARISON, "decision": {"ledger_id": "E9"}}
+DEFERRED = {"id": "D2", "question": "Which tool does a job use?", "target_status": "none", "timing": "in_generated_recipe",
+            "timing_reason": "One shape serves every tool", "status": "deferred",
+            "generated": {"research_step": "research_options", "decision_step": "decide", "consumers": ["build"]}}
+GOAL = {"id": "G1", "statement": "s", "kind": "goal", "scope": "class", "status": "confirmed", "basis": "b", "owner_words": "w"}
+PROFILE = {"level": "standard", "reasons": ["r"], "goal": {"statement": "s", "trigger": "t", "end_state": "e", "success_measure": "m"},
+           "existing_recipe": None, "rung": {"label": "l", "covers": ["c"], "next_rung": None}, "ledger": [GOAL], "discovery": [NOT_NEEDED]}
+
+
+def test_the_profile_must_record_discovery_and_a_shaping_choice_makes_the_work_at_least_standard():
+    v = schema_of("profile_out")
+    assert v.is_valid(PROFILE)
+    assert not v.is_valid({k: x for k, x in PROFILE.items() if k != "discovery"})  # never silently dropped
+    assert not v.is_valid({**PROFILE, "discovery": []})
+    assert v.is_valid({**PROFILE, "discovery": [BEFORE]})
+    assert not v.is_valid({**PROFILE, "level": "simple", "discovery": [BEFORE]})  # an early choice cannot hide behind a simple rating
+    assert v.is_valid({**PROFILE, "level": "simple", "discovery": [NOT_NEEDED, DEFERRED]})  # a deferred one stays proportionate
+    assert not v.is_valid({**PROFILE, "discovery": [{**BEFORE, "status": "decided"}]})  # the profile cannot claim a decision
+    assert not v.is_valid({**PROFILE, "discovery": [{**NOT_NEEDED, "target_status": "keyword"}]})
+
+
+def test_research_returns_a_shaping_choice_only_once_the_owner_decided_it():
+    v = schema_of("research_out")
+    base = {"ledger": [GOAL], "sources": []}
+    assert v.is_valid({**base, "discovery": [NOT_NEEDED]})
+    assert v.is_valid({**base, "discovery": [DECIDED]})
+    assert not v.is_valid({**base, "discovery": [BEFORE]})  # an unanswered choice is `blocked`, not `completed`
+    assert not v.is_valid({**base, "discovery": [{**DECIDED, "decision": None}]})
+    assert not v.is_valid({**base, "discovery": [{k: x for k, x in DECIDED.items() if k != "comparison"}]})
+    undated = {**DECIDED, "comparison": {**COMPARISON, "options": [{**COMPARISON["options"][0], "sources": [{"title": "t"}]}]}}
+    assert not v.is_valid({**base, "discovery": [undated]})  # a source carries the date it was read
+
+
+def test_design_carries_decided_and_deferred_choices_with_their_handoff():
+    v = schema_of("design_out")
+    stage = {"id": "s", "title": "t", "done_by": "ai", "needs": [], "hands_on": [], "on_failure": "retry"}
+    base = {"summary": "s", "stages": [stage], "ledger": [GOAL]}
+    assert v.is_valid({**base, "discovery": [DECIDED, DEFERRED]})
+    assert not v.is_valid({**base, "discovery": [BEFORE]})
+    assert not v.is_valid({**base, "discovery": [{k: x for k, x in DEFERRED.items() if k != "generated"}]})
+    assert not v.is_valid({**base, "discovery": [{**DEFERRED, "generated": {"research_step": "a", "decision_step": "b", "consumers": []}}]})
+
+
+def test_the_ledger_file_schema_is_the_ledger_and_the_discovery_schemas():
+    f = json.loads((BUILDER / "schemas" / "ledger_file.json").read_text(encoding="utf-8"))
+    assert f["properties"]["ledger"] == json.loads((BUILDER / "schemas" / "ledger.json").read_text(encoding="utf-8"))
+    disc = json.loads((BUILDER / "schemas" / "discovery.json").read_text(encoding="utf-8"))
+    assert f["properties"]["discovery"] == disc
+    assert Draft202012Validator(f).is_valid({"ledger": [GOAL], "discovery": [DECIDED, DEFERRED]})
+    assert not Draft202012Validator(f).is_valid([GOAL])
+    design = json.loads((BUILDER / "schemas" / "design_out.json").read_text(encoding="utf-8"))
+    assert {k: x for k, x in disc.items() if k not in ("$schema", "title")} == design["properties"]["discovery"]
+
+
+def test_the_discovery_vocabulary_matches_the_checker():
+    from baton import recipe_check
+
+    item = json.loads((BUILDER / "schemas" / "discovery.json").read_text(encoding="utf-8"))["items"]["properties"]
+    assert tuple(item["timing"]["enum"]) == recipe_check.TIMINGS
+    assert tuple(item["target_status"]["enum"]) == recipe_check.TARGET_STATUSES
+
+
+def test_generate_requires_discovery_and_research_is_reachable_when_it_is_needed(loaded):
+    gen = next(s for s in loaded.recipe.steps if s.id == "generate")
+    assert [g.run for g in gen.gates if g.type == "script"][1].endswith("--require-discovery")
+    research = next(s for s in loaded.recipe.steps if s.id == "research")
+    assert "web_access" in research.requires.capabilities  # current external claims need a research-capable worker
+    assert research.applies_to == ["standard", "complex"]  # the profile schema keeps a shaping choice out of `simple`
+
+
+def test_the_prompts_patterns_and_rubric_carry_the_discovery_rules():
+    read = lambda *p: (BUILDER.joinpath(*p)).read_text(encoding="utf-8")  # noqa: E731
+    profile, research, design, audit = (read("prompts", f"{n}.md") for n in ("profile", "research", "design", "audit"))
+    assert "before_design" in profile and "in_generated_recipe" in profile and "firm_constraint" in profile
+    assert "never\npick an answer" in profile or "never pick an answer" in profile.replace("\n", " ")
+    assert "read_on" in research and "A recommendation is not a decision" in research and "blocked" in research
+    assert "decision.ledger_id" in design and "generated" in design
+    assert "checks 16 to 20" in audit
+    assert "Discovering implementation options" in read("static", "patterns.md")
+    rubric = read("static", "readiness.md")
+    for n in range(16, 21):
+        assert f"| {n} |" in rubric
+    assert "fixed implementation target" in read("prompts", "package_review_rubric.md")
+    gen = read("prompts", "generate.md")
+    assert "legitimate target" in gen and "never a fixed value" in gen
+
+
+def test_the_published_v2_still_loads_and_keeps_its_behavior():
+    """A project's pinned recipe-builder@2 is never edited (§5.8): v3 is a new version, the v2 package is untouched."""
+    old = load_recipe(V2)
+    assert old.recipe.ref == "recipe-builder@2" and not old.warnings
+    gen = next(s for s in old.recipe.steps if s.id == "generate")
+    assert not [g.run for g in gen.gates if g.type == "script" and "--require-discovery" in g.run]
+    assert "discovery" not in json.loads((V2 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
+    assert [lv.level for lv in build_plan(old).levels] == ["simple", "standard", "complex"]
+
+
+def test_v3_loads_and_plans_at_every_level(loaded):
+    assert loaded.recipe.ref == "recipe-builder@3" and not loaded.warnings
+    assert [lv.level for lv in build_plan(loaded).levels] == ["simple", "standard", "complex"]

@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "level",
+    "reasons",
+    "goal",
+    "rung",
+    "ledger"
+  ],
+  "properties": {
+    "level": {
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "goal": {
+      "type": "object",
+      "required": [
+        "statement",
+        "trigger",
+        "end_state",
+        "success_measure"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "end_state": {
+          "type": "string"
+        },
+        "success_measure": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "existing_recipe": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "An existing recipe that already covers the job",
+      "required": [
+        "id",
+        "version",
+        "why"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rung": {
+      "type": "object",
+      "required": [
+        "label",
+        "covers",
+        "next_rung"
+      ],
+      "description": "The generality the recipe will have, in the owner's terms",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_rung": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One clause naming the next wider rung, shown in the goal confirmation"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Words of the owner that set the rung"
+        }
+      },
+      "additionalProperties": false
+    },
+    "related_parts": {
+      "type": "array",
+      "description": "Independent but related processes the idea holds",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "hands_to"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "hands_to": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "build_now": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The part built in this run, when the owner chose separate processes"
+    },
+    "ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "kind",
+          "scope",
+          "status",
+          "basis"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "goal",
+              "requirement",
+              "constraint",
+              "assumption",
+              "decision",
+              "failure",
+              "limit"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "class",
+              "instance"
+            ],
+            "description": "class: true of every job the recipe will cover; instance: true of this job only"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "researched",
+              "inferred",
+              "open",
+              "excluded"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "description": "Why this is believed: the owner's words, a source, or the inference made"
+          },
+          "owner_words": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for a confirmed entry"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For an instance entry: the job's own value, kept for the example run input"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

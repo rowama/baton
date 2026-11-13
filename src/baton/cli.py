@@ -1134,12 +1134,13 @@ app.add_typer(recipe_app, name="recipe")
 def recipe_check(
     package: Annotated[Path, typer.Argument(help="The recipe folder to check.")],
     ledger: Annotated[Path, typer.Option("--ledger", help="The requirements ledger (JSON).")],
+    require_discovery: Annotated[bool, typer.Option("--require-discovery", help="The ledger file must carry `discovery` records (Decision 0141).")] = False,
     as_json: JsonOpt = False,
 ) -> None:
-    """Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe."""
+    """Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe, and discovery recorded and handed on."""
     from . import recipe_check as rc
 
-    problems = rc.check(package, ledger)
+    problems = rc.check(package, ledger, require_discovery)
     _emit({"ok": not problems, "problems": problems}, as_json, "".join(f"ERROR {p}\n" for p in problems))
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 

@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 2
+version: 3
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch).
@@ -8,7 +8,7 @@ scope:
   not_for:
     - { job: "changing a recipe during a live run" }
     - { job: "publishing a recipe to a public catalog" }
-  varies_by: ["how many kinds of worker the process needs", "whether it touches money, law or things that cannot be undone"]
+  varies_by: ["whether it has a choice of implementation to settle first", "how many kinds of worker the process needs", "whether it touches money, law or things that cannot be undone"]
 parent: null
 
 run_inputs:
@@ -42,9 +42,9 @@ steps:
           labels: { approve: "Yes, that's it", reject: "Not quite" } }
 
   - id: research
-    title: Learn how this work is usually done
+    title: Learn how this work is usually done and the ways to do it
     depends_on: [profile]
-    applies_to: [standard, complex]
+    applies_to: [standard, complex]   # a choice that shapes the process makes the work at least standard (the profile schema enforces it)
     requires: { capabilities: [structured_output, long_form_writing, web_access], tier: strong }
     prompt: prompts/research.md
     inputs:
@@ -105,7 +105,7 @@ steps:
     gates:
       - { type: schema }
       - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }
-      - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json", timeout_s: 60 }
+      - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json --require-discovery", timeout_s: 60 }
       - type: review
         applies_to: [complex]
         block_on: [critical, high]

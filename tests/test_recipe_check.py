@@ -108,3 +108,127 @@ def test_the_command_has_no_mcp_tool():
 
     names = {t for t in dir(mcp_server) if "recipe_check" in t}
     assert not names
+
+
+# -- discovery records (Decision 0141) ----------------------------------------------------------
+
+
+def decided(**kw):
+    return {"id": "D1", "question": "Printed guide or app?", "target_status": "example", "timing": "before_design",
+            "timing_reason": "Different deliverables", "status": "decided",
+            "comparison": {"criteria": ["no software to maintain"], "uncertainty": "",
+                           "options": [{"name": "A printed guide", "kind": "manual_procedure", "requires_of_development": "layout and a proof check",
+                                        "tradeoffs": "no reminders", "sources": [{"title": "A gardening handbook", "read_on": "2026-11-13"}]}],
+                           "recommendation": "A printed guide"},
+            "decision": {"ledger_id": "E9"}, **kw}
+
+
+def owner_choice(**kw):
+    return entry("E9", **{"kind": "decision", "statement": "The plan is a printed guide", "owner_words": "A printed guide, yes", **kw})
+
+
+def with_discovery(tmp_path, *records, ledger=None):
+    return write(tmp_path, {"ledger": ledger if ledger is not None else [owner_choice()], "discovery": list(records)})
+
+
+def test_a_decided_choice_with_the_owners_confirmed_decision_passes(tmp_path):
+    assert recipe_check.check(package(tmp_path), with_discovery(tmp_path, decided()), require_discovery=True) == []
+
+
+def test_discovery_cannot_be_dropped_when_required(tmp_path):
+    pkg = package(tmp_path)
+    for f in (write(tmp_path, [entry()]), write(tmp_path, {"ledger": [entry()]})):
+        assert recipe_check.check(pkg, f, require_discovery=True)[0].startswith("discovery: the ledger file must be an object")
+        assert recipe_check.check(pkg, f) == []  # an older builder's ledger is still valid
+    assert "at least one record" in recipe_check.check(pkg, with_discovery(tmp_path, ledger=[entry()]), require_discovery=True)[0]
+
+
+def test_a_not_needed_or_settled_record_needs_only_its_reason(tmp_path):
+    rec = {"id": "D0", "question": "Any choice?", "target_status": "none", "timing": "not_needed", "timing_reason": "One usual way", "status": "closed"}
+    assert recipe_check.check(package(tmp_path), with_discovery(tmp_path, rec, ledger=[entry()]), require_discovery=True) == []
+    bad = recipe_check.check(package(tmp_path), with_discovery(tmp_path, {**rec, "timing_reason": " ", "target_status": "maybe"}, ledger=[entry()]))
+    assert any("`timing_reason`" in p for p in bad) and any("`target_status`" in p for p in bad)
+
+
+def test_a_recommendation_alone_is_not_the_owners_choice(tmp_path):
+    pkg = package(tmp_path)
+    for rec, ledger, text in (
+        (decided(status="researched"), [owner_choice()], "is still `researched`"),
+        (decided(), [owner_choice(status="researched", owner_words=None)], "must be a confirmed `decision`"),
+        (decided(), [entry("E9", kind="requirement", owner_words="yes")], "must be a confirmed `decision`"),
+        (decided(decision={"ledger_id": "E404"}), [owner_choice()], "names no ledger entry"),
+        (decided(decision=None), [owner_choice()], "names no ledger entry"),
+    ):
+        problems = recipe_check.check(pkg, with_discovery(tmp_path, rec, ledger=ledger))
+        assert any(text in p for p in problems), (text, problems)
+
+
+def test_a_comparison_needs_options_dated_sources_or_stated_uncertainty_and_a_recommendation(tmp_path):
+    pkg = package(tmp_path)
+    ok = decided()
+    no_source = decided()
+    no_source["comparison"]["options"][0]["sources"] = []
+    assert any("cites no source" in p for p in recipe_check.check(pkg, with_discovery(tmp_path, no_source)))
+    no_source["comparison"]["uncertainty"] = "No current source could be reached"
+    assert recipe_check.check(pkg, with_discovery(tmp_path, no_source)) == []
+    undated = decided()
+    undated["comparison"]["options"][0]["sources"] = [{"title": "A handbook"}]
+    assert any("the date it was read" in p for p in recipe_check.check(pkg, with_discovery(tmp_path, undated)))
+    bare = decided()
+    bare["comparison"].update(options=[], recommendation="")
+    problems = recipe_check.check(pkg, with_discovery(tmp_path, bare))
+    assert any("no option" in p for p in problems) and any("no recommendation" in p for p in problems)
+    assert recipe_check.check(pkg, with_discovery(tmp_path, ok)) == []
+
+
+RECIPE = """id: x
+version: 1
+steps:
+  - id: research_options
+    requires: {{ capabilities: [structured_output, {cap}] }}
+  - id: decide
+    gates: [ {{ type: {gate} }} ]
+    inputs: [ {{ name: findings, from: steps.research_options.output, required: {req} }} ]
+  - id: build
+    depends_on: [decide]
+    inputs: [ {{ name: choice, from: steps.decide.output.choice, required: true }} ]
+"""
+
+
+def deferred(**kw):
+    g = {"research_step": "research_options", "decision_step": "decide", "consumers": ["build"]}
+    return {"id": "D2", "question": "Which tool does this job use?", "target_status": "none", "timing": "in_generated_recipe",
+            "timing_reason": "One shape serves every tool", "status": "deferred", "generated": {**g, **kw}}
+
+
+def recipe_package(tmp_path, cap="web_access", gate="human", req="true", extra=""):
+    pkg = package(tmp_path)
+    (pkg / "recipe.yaml").write_text(RECIPE.format(cap=cap, gate=gate, req=req) + extra, encoding="utf-8")
+    return pkg
+
+
+def test_a_deferred_choice_must_be_carried_by_research_decision_and_using_steps(tmp_path):
+    f = with_discovery(tmp_path, deferred(), ledger=[entry()])
+    assert recipe_check.check(recipe_package(tmp_path), f, require_discovery=True) == []
+    for kw, text in (({"cap": "file_write"}, "must require `web_access`"), ({"gate": "schema"}, "needs a human gate"),
+                     ({"req": "false"}, "must take the findings of `research_options`")):
+        assert any(text in p for p in recipe_check.check(recipe_package(tmp_path, **kw), f)), text
+    for kw, text in (({"consumers": []}, "no step is named"), ({"consumers": ["ghost"]}, "no consuming step `ghost`"),
+                     ({"decision_step": "ghost"}, "no decision step `ghost`"), ({"research_step": "ghost"}, "no research step `ghost`")):
+        g = with_discovery(tmp_path, deferred(**kw), ledger=[entry()])
+        assert any(text in p for p in recipe_check.check(recipe_package(tmp_path), g)), text
+
+
+def test_a_consumer_that_does_not_take_the_decision_never_gets_it(tmp_path):
+    pkg = recipe_package(tmp_path, extra="  - id: other\n    depends_on: [decide]\n")
+    f = with_discovery(tmp_path, deferred(consumers=["other"]), ledger=[entry()])
+    assert any("step `other` must take the output of `decide`" in p for p in recipe_check.check(pkg, f))
+    assert any("no `generated`" in p or "needs `generated`" in p for p in recipe_check.check(pkg, with_discovery(tmp_path, {**deferred(), "generated": None}, ledger=[entry()])))
+
+
+def test_the_command_takes_require_discovery(tmp_path):
+    pkg = package(tmp_path)
+    f = write(tmp_path, [entry()])
+    assert runner.invoke(app, ["recipe", "check", str(pkg), "--ledger", str(f)]).exit_code == 0
+    r = runner.invoke(app, ["recipe", "check", str(pkg), "--ledger", str(f), "--require-discovery"])
+    assert r.exit_code == 1 and "ERROR discovery:" in r.output

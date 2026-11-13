@@ -1,0 +1,397 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ledger file",
+  "description": "The file written beside a draft: the requirements ledger and the discovery records",
+  "type": "object",
+  "required": [
+    "ledger",
+    "discovery"
+  ],
+  "properties": {
+    "ledger": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Requirements ledger",
+      "description": "One entry per requirement, assumption or decision, carried from profile to generate",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "kind",
+          "scope",
+          "status",
+          "basis"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "goal",
+              "requirement",
+              "constraint",
+              "assumption",
+              "decision",
+              "failure",
+              "limit"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "class",
+              "instance"
+            ],
+            "description": "class: true of every job the recipe will cover; instance: true of this job only"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "researched",
+              "inferred",
+              "open",
+              "excluded"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "description": "Why this is believed: the owner's words, a source, or the inference made"
+          },
+          "owner_words": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for a confirmed entry"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For an instance entry: the job's own value, kept for the example run input"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "discovery": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Discovery records",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "target_status",
+          "timing",
+          "timing_reason",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "In the owner's terms"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What made this a question to investigate; never a technology choice"
+          },
+          "target_status": {
+            "enum": [
+              "none",
+              "firm_constraint",
+              "preference",
+              "example"
+            ],
+            "description": "How the owner named a target, if they did"
+          },
+          "named_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timing": {
+            "enum": [
+              "before_design",
+              "in_generated_recipe",
+              "settled",
+              "not_needed"
+            ]
+          },
+          "timing_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_effect": {
+            "type": "string",
+            "description": "before_design: which stages, workers, artifacts or checks would differ; in_generated_recipe: why one graph accommodates the alternatives"
+          },
+          "status": {
+            "enum": [
+              "to_research",
+              "researched",
+              "decided",
+              "deferred",
+              "closed"
+            ]
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "criteria",
+                  "options",
+                  "uncertainty",
+                  "recommendation"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "criteria": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Tied to the owner's requirements"
+                  },
+                  "options": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "kind",
+                        "requires_of_development",
+                        "tradeoffs",
+                        "sources"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "enum": [
+                            "existing_product",
+                            "framework",
+                            "standard",
+                            "manual_procedure",
+                            "custom",
+                            "other"
+                          ]
+                        },
+                        "requires_of_development": {
+                          "type": "string",
+                          "description": "What building the process would need to do differently for this option: stages, workers, artifacts, checks"
+                        },
+                        "tradeoffs": {
+                          "type": "string"
+                        },
+                        "sources": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "title",
+                              "read_on"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "title": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "url": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "read_on": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The date the source was read, and its version where that matters"
+                              },
+                              "supports": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "exclusions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "uncertainty": {
+                    "type": "string"
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A recommendation is never the owner's choice"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "ledger_id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The confirmed `decision` ledger entry carrying the owner's words"
+          },
+          "generated": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "research_step",
+                  "decision_step",
+                  "consumers"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "research_step": {
+                    "type": "string"
+                  },
+                  "decision_step": {
+                    "type": "string"
+                  },
+                  "consumers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For timing in_generated_recipe: the stages that research, decide and use the choice"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "timing": {
+                  "const": "before_design"
+                }
+              },
+              "required": [
+                "timing"
+              ]
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "decided"
+                },
+                "decision": {
+                  "type": "object"
+                },
+                "comparison": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "comparison",
+                "decision"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "timing": {
+                  "const": "in_generated_recipe"
+                }
+              },
+              "required": [
+                "timing"
+              ]
+            },
+            "then": {
+              "required": [
+                "generated"
+              ],
+              "properties": {
+                "generated": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "description": "Implementation choices that matter to the goal, their timing and, where discovered, the comparison and the owner's decision (Decision 0141)"
+    }
+  },
+  "additionalProperties": false
+}

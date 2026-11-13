@@ -186,6 +186,7 @@ published:
 - recipes.recipe-builder#example
 - recipes.recipe-builder#here-now
 - recipes.recipe-builder#if-it-goes-wrong
+- recipes.recipe-builder#implementation-choices
 - recipes.recipe-builder#parts
 - recipes.recipe-builder#what-it-needs
 - recipes.recipe-builder#what-it-produces
