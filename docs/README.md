@@ -277,3 +277,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0137 The manual's adopt example no longer uses fit-check as the recipe](decisions/0137-fix-the-adopt-manual-example.md) | accepted |
 | [0138 The eng-process recipe uses Baton machinery without duplicate process state](decisions/0138-eng-process-uses-baton-machinery.md) | accepted |
 | [0139 The eng-process recipe blocks on plan review and keeps code review advisory](decisions/0139-eng-process-review-policy.md) | accepted |
+| [0140 Fit-check assesses the requested work and can recommend against Baton for any unsuitable goal](decisions/0140-fit-check-assesses-requested-work.md) | accepted |
