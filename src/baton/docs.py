@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import diag
-from . import groups, locks
+from . import groups, locks, tailoring
 from .data import read_text
 from .models import Event, Group, recorded_questions
 from .packet import RunContext
@@ -115,7 +115,7 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
         lines += ["## Upstream waivers", ""]
         lines += [f"- `{e.step_path}` gate {e.data.get('gate')} ({e.data.get('scope')}, {e.data.get('decision_id')}): \"{e.data.get('reason')}\"" for e in upstream]
         lines.append("")
-    lines += _tailoring_lines(step_path, mine, events)
+    lines += _tailoring_lines(step_path, mine, events, list(tailoring.scales(ctx.recipe.recipe.complexity)))
     other = [e for e in mine if e.attempt is None and e.type in ("step_escalated", "step_abandoned", "human_decision")]
     if other:
         lines += ["## Other events", ""]
@@ -154,15 +154,50 @@ def _deliverable_lines(step_path: str, mine: list[Event], events: list[Event]) -
     return ["## Deliverables", "", *out, ""] if out else []
 
 
-def _tailoring_lines(step_path: str, mine: list[Event], events: list[Event]) -> list[str]:
+def _desc(r: dict, order: list[str]) -> str:
+    """Ratings in the recipe's axis order (``order``; events store keys sorted)."""
+    return tailoring.describe({a: r[a] for a in sorted(r, key=lambda a: order.index(a) if a in order else len(order))})
+
+
+def _at(d: dict, order: list[str]) -> str:
+    """``level **major**`` or ``ratings **discovery low, assurance high**`` from an event's data."""
+    if isinstance(d.get("ratings"), dict):
+        return f"ratings **{_desc(d['ratings'], order)}**"
+    return f"level **{d.get('level')}**"
+
+
+def _was(d: dict, order: list[str]) -> str:
+    """The earlier rating(s) a re-triage replaces, unbolded."""
+    if isinstance(d.get("previous_ratings"), dict):
+        return f"ratings {_desc(d['previous_ratings'], order)}"
+    return f"level {d.get('previous_level')}"
+
+
+def _complexity_line(ctx: RunContext) -> list[str]:
+    """The run summary's tailoring line (§10.6): the level, or each axis's rating and reason."""
+    record = ctx.record()
+    if not tailoring.is_multi(ctx.recipe.recipe.complexity):
+        level = record.level()
+        return [f"- Complexity level: **{level}**" if level else "- Complexity level: not set yet"]
+    ratings = tailoring.ordered(ctx.recipe.recipe.complexity, record.ratings())
+    if not ratings:
+        return ["- Ratings: not set yet"]
+    why: dict = {}
+    for e in record.events:
+        if e.type in ("complexity_set", "retriage_applied") and isinstance(e.data.get("reasons"), dict):
+            why = e.data["reasons"]
+    return ["- Ratings:", *(f"  - {a}: **{v}**" + (f" ({why[a]})" if why.get(a) else "") for a, v in ratings.items())]
+
+
+def _tailoring_lines(step_path: str, mine: list[Event], events: list[Event], order: list[str]) -> list[str]:
     """Skips, imports and pre-retriage flags (§5.5, §11.4)."""
     out: list[str] = []
     for e in mine:
         d = e.data
         if e.type == "step_skipped":
-            out.append(f"- {e.ts} skipped at level **{d.get('level')}** ({d.get('cause')})")
+            out.append(f"- {e.ts} skipped at {_at(d, order)} ({d.get('cause')})")
         elif e.type == "step_unskipped":
-            out.append(f"- {e.ts} included again at level **{d.get('level')}** ({d.get('cause')})")
+            out.append(f"- {e.ts} included again at {_at(d, order)} ({d.get('cause')})")
         elif e.type == "step_imported":
             att = d.get("attested") or {}
             out.append(f"- {e.ts} **imported** from existing work, attested by the baseline of adoption `{att.get('adoption')}` ({att.get('decision_id')})")
@@ -172,7 +207,7 @@ def _tailoring_lines(step_path: str, mine: list[Event], events: list[Event]) -> 
                 out.append(f"  - gate {g.get('gate')} ({g.get('type')}): {g.get('status')}")
     for e in events:
         if e.type == "retriage_applied" and step_path in (e.data.get("pre_retriage") or []):
-            out.append(f"- **pre-retriage:** accepted at level {e.data.get('previous_level')}; level {e.data.get('level')} (re-triaged {e.ts}) would have skipped or gated it differently")
+            out.append(f"- **pre-retriage:** accepted at {_was(e.data, order)}; {_at(e.data, order).replace('**', '')} (re-triaged {e.ts}) would have skipped or gated it differently")
     return ["## Tailoring and adoption", "", *out, ""] if out else []
 
 
@@ -373,7 +408,7 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
         f"- Formats: {', '.join(f'{k} `{v}`' for k, v in sorted(formats.items()))}",
         f"- Max attempts per step: {started.get('max_attempts')}",
         f"- State: **{rs.state}**",
-        *([f"- Complexity level: **{level}**" if (level := ctx.record().level()) else "- Complexity level: not set yet"] if ctx.recipe.recipe.complexity else []),
+        *(_complexity_line(ctx) if ctx.recipe.recipe.complexity else []),
         *([f"- Adopted: from adoption run `{started['adoption']['run']}` (work item `{started['adoption']['work_item']}`)"] if started.get("adoption") else []),
         "",
         "## Steps",
@@ -400,7 +435,7 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
         if ev.type not in _TIMELINE or (ev.type == "gate_failed" and ev.data.get("advisory")):
             continue
         where = f" `{ev.step_path}`" + (f" attempt {ev.attempt}" if ev.attempt else "") if ev.step_path else ""
-        lines.append(f"- {ev.ts}{where}: {_timeline_text(ev)}")
+        lines.append(f"- {ev.ts}{where}: {_timeline_text(ev, list(tailoring.scales(ctx.recipe.recipe.complexity)))}")
     lines += ["", "## Escalations", ""]
     esc = [e for e in events if e.type == "step_escalated"]
     lines += [f"- {e.ts} `{e.step_path}` attempt {e.attempt}: {e.data.get('reason')}" for e in esc] or ["None."]
@@ -411,7 +446,7 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
     return "\n".join(lines)
 
 
-def _timeline_text(ev: Event) -> str:
+def _timeline_text(ev: Event, order: list[str] | None = None) -> str:
     d = ev.data
     t = ev.type
     if t == "run_started":
@@ -429,11 +464,15 @@ def _timeline_text(ev: Event) -> str:
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"
     if t == "complexity_set":
-        how = {"auto": "applied at once (lowest level)", "owner": "approved by the owner", "baseline": "set by the adoption baseline"}.get(d.get("approval"), "")
-        return f"level **{d.get('level')}**" + (f", {how}" if how else "")
+        lowest = "lowest ratings" if isinstance(d.get("ratings"), dict) else "lowest level"
+        how = {"auto": f"applied at once ({lowest})", "owner": "approved by the owner", "baseline": "set by the adoption baseline"}.get(d.get("approval"), "")
+        return _at(d, order or []) + (f", {how}" if how else "")
     if t == "retriage_requested":
-        return f"re-triage requested (level {d.get('previous_level')}): {d.get('reason')}"
+        return f"re-triage requested ({_was(d, order or [])}): {d.get('reason')}"
     if t == "retriage_applied":
+        order = order or []
+        if isinstance(d.get("ratings"), dict):
+            return f"re-triage applied: {_was(d, order)} → **{_desc(d['ratings'], order)}**"
         return f"re-triage applied: level {d.get('previous_level')} → **{d.get('level')}**"
     if t == "step_passed" and d.get("retriage_rejected"):
         return "re-triage rejected by the owner; the earlier level and result stand"

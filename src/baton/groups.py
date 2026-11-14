@@ -51,7 +51,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from . import refs
+from . import refs, tailoring
 from .models import Event, Group, Step
 from .recipe import LoadedRecipe
 from .state import SATISFIES_DEPS, RunState
@@ -232,7 +232,7 @@ class View:
         self.accepted: dict[str, Event] = {}  # step path -> last step_passed / step_imported
         self.waived: set[int] = set()  # seqs of judges' failed step_passed covered by a held waiver (§9.3)
         self.started = events[0].data if events and events[0].type == "run_started" else {}
-        self.level: str | None = None
+        self.ratings: dict[str, str] | None = None  # set by triage (§5.5); {"level": ...} for one axis
         for ev in events:
             t = ev.type
             if t == "group_expanded":
@@ -247,8 +247,8 @@ class View:
                 self.accepted[ev.step_path] = ev
             elif t == "gate_waived" and isinstance(ev.data.get("judged_seq"), int):
                 self.waived.add(ev.data["judged_seq"])
-            elif t in ("complexity_set", "retriage_applied") and "level" in ev.data:
-                self.level = ev.data["level"]
+            elif t in ("complexity_set", "retriage_applied"):
+                self.ratings = tailoring.ordered(recipe.recipe.complexity, tailoring.from_event(ev.data)) or self.ratings
         self._memo: dict[tuple[str, str], str] = {}
 
     # -- small queries ------------------------------------------------------

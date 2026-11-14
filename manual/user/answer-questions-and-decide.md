@@ -37,6 +37,12 @@ Nothing from the conversation is recorded until you confirm what was understood.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
+## Sizing the work {#sizing}
+
+Early on, the work is sized, so that it gets as much care as it needs and no more. Some processes give one size (small, standard, large). Others rate the work on a few separate things, such as how much is still unknown and how carefully the result must be checked, each with the reason for the rating. You are shown all of them together and asked once whether they are right. If one is off, say which and why; the sizing is redone with your words.
+
+A small piece of work goes ahead without asking you, unless the process always asks about one of the ratings, for example how carefully the work must be checked.
+
 ## Confirming a document {#documents}
 
 Some work builds on a document your project already has. Before that work starts, your assistant tells you which document it proposes and asks you to confirm. If the document was changed after it was approved, the assistant says so: confirming then means the work uses it as it is now. If nothing fits, say so; you can point to a file you consider settled, and for a document that is only nice to have, the work can go on without one.

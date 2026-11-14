@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import groups, refs, reviews, versions
+from . import groups, refs, reviews, tailoring, versions
 from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .recipe import FINDINGS_SCHEMA_REF, LoadedRecipe
@@ -114,12 +114,16 @@ class RunRecord:
         return self.events[0].data if self.events and self.events[0].type == "run_started" else {}
 
     def level(self) -> str | None:
-        """The complexity level, once set (§5.5)."""
-        level = None
+        """The complexity level of a one-axis recipe, once set (§5.5)."""
+        return (self.ratings() or {}).get(tailoring.LEVEL_AXIS)
+
+    def ratings(self) -> dict[str, str] | None:
+        """The run's ratings, once set: ``{"level": ...}`` for a one-axis recipe (§5.5)."""
+        ratings = None
         for ev in self.events:
-            if ev.type in ("complexity_set", "retriage_applied") and "level" in ev.data:
-                level = ev.data["level"]
-        return level
+            if ev.type in ("complexity_set", "retriage_applied"):
+                ratings = tailoring.from_event(ev.data) or ratings
+        return ratings
 
     def last(self, etype: str, step_path: str | None = None, attempt: int | None = None) -> Event | None:
         for ev in reversed(self.events):
@@ -180,9 +184,9 @@ def revision_of(record: RunRecord, step_path: str) -> tuple[Event, Event] | None
     return None
 
 
-def gate_included(gate: Any, level: str | None) -> bool:
-    """A gate with ``applies_to`` runs only at those levels; before triage sets a level, it runs."""
-    return gate.applies_to is None or level is None or level in gate.applies_to
+def gate_included(gate: Any, ratings: dict[str, str] | None) -> bool:
+    """A gate with ``applies_to`` runs only at those ratings (any listed axis matching); before triage sets them, it runs."""
+    return tailoring.applies(gate.applies_to, ratings)
 
 
 def profile_sha256(profile: WorkerProfile) -> str:
@@ -423,7 +427,7 @@ def resolve_inputs(
 # ---------------------------------------------------------------------------
 
 
-def exit_criteria(step: Step, level: str | None) -> list[str]:
+def exit_criteria(step: Step, level: dict[str, str] | None) -> list[str]:
     """What "done" means for this step, rendered from its output contract and gates."""
     out = ["Write result/result.json (status, output, artifacts), echoing packet_sha256 from manifest.json."]
     if step.output_schema:
@@ -459,9 +463,12 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
         "",
         prompt.rstrip("\n"),
         "",
-        "## Inputs",
-        "",
     ]
+    if manifest.get("ratings"):
+        lines += ["## Ratings", "",
+                  "This work was rated " + tailoring.describe(manifest["ratings"]) + " (the recipe's complexity axes, in manifest.json "
+                  "`ratings`). Size your work to them.", ""]
+    lines += ["## Inputs", ""]
     if not inputs and not manifest["not_applicable"]:
         lines += ["This step has no inputs.", ""]
     for r in inputs:
@@ -846,7 +853,7 @@ def build_packet(
     if target is not None:
         inputs += _reviewed_result(ctx, record, step_path)
     attempt = current.attempt + 1
-    level = record.level()
+    level = tailoring.ordered(loaded.recipe.complexity, record.ratings())
     schema = output_schema_for(loaded, node)
     prompt = read_text(loaded.root / node.prompt)
 
@@ -899,6 +906,7 @@ def build_packet(
         "deadline": deadline,
         "workspace": node.workspace,
         "exit_criteria": exit_criteria(node, level),
+        **({"ratings": level} if tailoring.is_multi(loaded.recipe.complexity) else {}),  # one axis: unchanged packets
         "protected_paths": node.protect_paths(),
         "worker_profile": profile_name,
         "worker_profile_sha256": profile_sha256(profile),

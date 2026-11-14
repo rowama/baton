@@ -24,6 +24,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from . import tailoring
 from .data import YamlError, load_yaml, read_text
 from .models import FindingsGate, Group, HumanGate, Issue, ReviewGate, SchemaGate, ScriptGate, Step
 from .packet import EngineError, RunContext, gate_included, output_schema_for
@@ -433,8 +434,15 @@ def _locate(loaded: LoadedRecipe, step: str) -> tuple[Group | None, Step | Group
     return top, next((n for n in top.steps if n.id == parts[1]), None)
 
 
-def _included(node: Any, level: str | None) -> bool:
-    return node.applies_to is None or level is None or level in node.applies_to
+def _ratings(level: str | dict[str, str] | None) -> dict[str, str] | None:
+    """A work item's level (one axis) or ratings (axes) as ratings (§5.5)."""
+    if level is None or isinstance(level, dict):
+        return level
+    return {tailoring.LEVEL_AXIS: level}
+
+
+def _included(node: Any, level: str | dict[str, str] | None) -> bool:
+    return tailoring.applies(node.applies_to, _ratings(level))
 
 
 def _project_file(root: Path, rel: str) -> Path | None:
@@ -599,7 +607,7 @@ def check_seeds(
         given = {g["gate"]: g["evidence"] for g in s.raw.get("gates") or []}
         gates = []
         for i, g in enumerate(node.gates):
-            if not gate_included(g, level):
+            if not gate_included(g, _ratings(level)):
                 continue
             entry: dict[str, Any] = {"gate": i, "type": g.type}
             evid = []

@@ -37,7 +37,7 @@
 | **Model-neutral, shareable recipes** | Recipes declare required *capabilities*, never models or vendors; a lint enforces it. |
 | **Dynamic, enforced routing** | The Director picks a worker from the runtime-computed eligible set; the runtime enforces eligibility and records the choice. |
 | **Per-step isolation** | Each worker runs as a child process with its own constructed environment and auth (API key or CLI subscription login). |
-| **Tailored formality** | A triage step rates complexity on the recipe's own scale; the runtime includes or skips steps and gates accordingly. |
+| **Tailored formality** | A triage step rates complexity on the recipe's own scale, or gives a rating on each of the recipe's own axes; the runtime includes or skips steps and gates accordingly (Decision: [0144](decisions/0144-tailoring-axes.md)). |
 | **Cross-worker iteration** | Sub-processes repeat a group of steps per item (e.g. per slice) or until a review is clean, bounded and enforced. |
 | **Concurrent work items** | A project holds many runs (features, fixes) at different positions; the project never "steps back". |
 | **Long-running work** | Dispatch is asynchronous; the runtime supervises, times out, classifies failures and wakes the Director. |
@@ -118,6 +118,6 @@ The runtime is built as a small **core** plus **layers**. A recipe or project th
 | **L3 Sub-processes** | `foreach`, `repeat_until`, instances, iterations | Slice loops, review-fix loops |
 | **L4 Reviews** | Findings gates, dispositions, waivers, protected files, reviewer independence | Independent review |
 | **L5 Work items** | Concurrent runs, board, workspace lock, `revise` | Real projects |
-| **L6 Tailoring and adoption** | Complexity levels, triage, detect, research, crosswalks, seeding, baseline, framing (§11.6) | Existing projects; varied formality; goals that hold several work items |
+| **L6 Tailoring and adoption** | Complexity levels and ratings, triage, detect, research, crosswalks, seeding, baseline, framing (§11.6) | Existing projects; varied formality; goals that hold several work items |
 | **L7 Experts** | SME consultation (project, platform, process), platform facts and incidents, process feedback | Questions, platform issues, improvement |
 | **L8 Deliverables** | Publishing to project paths, drift detection | Documents, drawings, photos, etc. returned as artifacts |

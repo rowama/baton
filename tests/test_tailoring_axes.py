@@ -261,3 +261,196 @@ def test_baton_plan_takes_ratings(tmp_path):
     assert plan["levels"][0]["ratings"] == {"discovery": "high", "assurance": "low"}
     res = CliRunner().invoke(app, ["plan", str(root), "--rating", "discovery"])
     assert res.exit_code != 0 and "axis=value" in res.output
+
+
+# -- a rated run: triage, approval, skipping, packets, surfaces (Slice 2) ---
+
+from baton import docs, engine  # noqa: E402
+from baton.packet import view_of  # noqa: E402
+from baton.store import Store  # noqa: E402
+
+from runkit import WRITER, Clock, write_result  # noqa: E402
+
+
+def rate(**values: str) -> dict:
+    return {"ratings": {a: {"value": v, "reason": f"{a} is {v} here"} for a, v in values.items()}}
+
+
+@pytest.fixture
+def store(tmp_path: Path):
+    with Store(tmp_path / "project", clock=Clock()) as s:
+        yield s
+
+
+def start_run(store, root: Path, run_id: str = "r_20261114_axes"):
+    return engine.start(store, load_recipe(root), {"title": "Tenant fix"}, run_id=run_id)
+
+
+@pytest.fixture
+def ctx(store, tmp_path):
+    return start_run(store, write_recipe(tmp_path / "recipe"))
+
+
+@pytest.fixture
+def plain_ctx(store, tmp_path):
+    """The same recipe with no axis guarding its lowest rating."""
+    plain = {"discovery": ["low", "medium", "high"], "assurance": ["low", "medium", "high"]}
+    return start_run(store, write_recipe(tmp_path / "plain", complexity={"axes": plain, "triage_step": "triage"}), "r_20261114_plai")
+
+
+def run_step(ctx, path: str, output: Any, **result: Any):
+    p = engine.begin_attempt(ctx, path, "owner", WRITER)
+    write_result(p, output, **result)
+    return p, engine.submit(ctx, path)
+
+
+def events(ctx, etype: str) -> list[Any]:
+    return [e for e in ctx.log.events() if e.type == etype]
+
+
+def state(ctx, path: str) -> str:
+    return view_of(ctx).state(path)
+
+
+def ready(ctx) -> list[str]:
+    return sorted(p for p, s in ctx.log.state().steps.items() if s.state == "ready")
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        {"ratings": {"discovery": {"value": "low", "reason": "known fix"}}},  # an axis missing
+        {"ratings": {"discovery": {"value": "low", "reason": "known fix"}, "assurance": {"value": "high"}}},  # a reason missing
+        {"ratings": {"discovery": {"value": "low", "reason": ""}, "assurance": {"value": "high", "reason": "auth"}}},  # an empty reason
+    ],
+    ids=["axis", "reason", "empty-reason"],
+)
+def test_a_missing_axis_or_reason_fails_the_schema_gate(ctx, output):
+    _, out = run_step(ctx, "triage", output)
+    assert out.outcome != "passed"
+    assert events(ctx, "complexity_set") == []
+    (rejected,) = events(ctx, "result_rejected")
+    assert rejected.data["output_schema"] == "failed" and out.outcome == "retry"
+
+
+def test_all_lowest_applies_at_once_when_no_axis_guards_it(plain_ctx):
+    ctx = plain_ctx
+    _, out = run_step(ctx, "triage", rate(discovery="low", assurance="low"))
+    assert out.outcome == "passed"
+    (cs,) = events(ctx, "complexity_set")
+    assert cs.data == {"ratings": {"discovery": "low", "assurance": "low"}, "approval": "auto",
+                       "reasons": {"discovery": "discovery is low here", "assurance": "assurance is low here"}}
+    skipped = {e.step_path: e.data for e in events(ctx, "step_skipped")}
+    assert set(skipped) == {"explore", "verify", "checks"}
+    assert skipped["verify"] == {"ratings": {"discovery": "low", "assurance": "low"}, "cause": "complexity"}
+    assert ctx.record().ratings() == {"discovery": "low", "assurance": "low"} and ctx.record().level() is None
+    assert ready(ctx) == ["build"]
+    _, out = run_step(ctx, "build", {})
+    assert out.outcome == "passed"  # its human gate applies only at assurance high
+    assert ctx.log.state().state == "completed"
+
+
+def test_confirm_lowest_asks_the_owner_even_at_all_lowest(ctx):
+    _, out = run_step(ctx, "triage", rate(discovery="low", assurance="low"))
+    assert out.outcome == "needs_human"
+    assert events(ctx, "complexity_set") == []
+    (pending,) = engine.pending_decisions(ctx)
+    assert pending["ref"] == "triage" and pending["kind"] == "gate"
+    assert "discovery low (discovery is low here); assurance low (assurance is low here)" in pending["prompt"]
+
+
+def test_one_owner_gate_approves_the_whole_set(ctx):
+    _, out = run_step(ctx, "triage", rate(discovery="low", assurance="high"))
+    assert out.outcome == "needs_human"
+    (opened,) = [e for e in events(ctx, "human_gate_opened") if e.data.get("gate") == "triage"]
+    assert opened.data["ratings"] == {"discovery": "low", "assurance": "high"} and "level" not in opened.data
+    out = engine.decide(ctx, "triage", "approve", "Yes, it touches tenant access")
+    assert out.outcome == "passed"
+    (cs,) = events(ctx, "complexity_set")
+    assert cs.data["ratings"] == {"discovery": "low", "assurance": "high"} and cs.data["approval"] == "owner"
+    assert cs.data["reasons"]["assurance"] == "assurance is high here" and isinstance(cs.data["decision_seq"], int)
+    assert {e.step_path for e in events(ctx, "step_skipped")} == {"explore"}  # OR: assurance high adds verify and checks
+    assert ready(ctx) == ["build"]
+    _, out = run_step(ctx, "build", {})
+    assert out.outcome == "needs_human"  # the human gate at assurance high
+
+
+def test_rejecting_the_ratings_retries_triage_with_the_note(ctx):
+    run_step(ctx, "triage", rate(discovery="high", assurance="high"))
+    out = engine.decide(ctx, "triage", "reject", "It is a one-line change; discovery is low")
+    assert events(ctx, "complexity_set") == []
+    (failed,) = [e for e in events(ctx, "gate_failed") if e.data.get("gate") == "triage"]
+    assert failed.data["reasons"] == ["the owner did not approve the ratings: It is a one-line change; discovery is low"]
+    p = engine.begin_attempt(ctx, "triage", "owner", WRITER)
+    assert "discovery is low" in json.dumps(p.manifest["prior_feedback"])
+
+
+def test_a_gate_applies_when_any_listed_axis_matches(store, tmp_path):
+    steps = axes_steps()
+    steps[2]["gates"][1]["applies_to"] = {"assurance": ["high"], "discovery": ["high"]}
+    ctx = start_run(store, write_recipe(tmp_path / "r", steps))
+    run_step(ctx, "triage", rate(discovery="high", assurance="medium"))
+    engine.decide(ctx, "triage", "approve", "")
+    run_step(ctx, "explore", {})
+    _, out = run_step(ctx, "build", {})
+    assert out.outcome == "needs_human"  # discovery high matched, though assurance is medium
+
+
+def test_packets_and_instructions_carry_the_ratings(ctx):
+    p, _ = run_step(ctx, "triage", rate(discovery="medium", assurance="high"))
+    assert "ratings" in p.manifest and p.manifest["ratings"] is None  # before triage, none are set
+    engine.decide(ctx, "triage", "approve", "")
+    p = engine.begin_attempt(ctx, "explore", "owner", WRITER)
+    assert p.manifest["ratings"] == {"discovery": "medium", "assurance": "high"}
+    text = (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "This work was rated discovery medium, assurance high" in text
+
+
+def test_a_one_axis_packet_has_no_ratings_field(tmp_path, store):
+    import test_tailoring
+
+    ctx1 = engine.start(store, load_recipe(test_tailoring.tailor_recipe(tmp_path / "one")), {"title": "Garden"}, run_id="r_20261114_one1")
+    p = engine.begin_attempt(ctx1, "triage", "owner", WRITER)
+    assert "ratings" not in p.manifest
+    assert "## Ratings" not in (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+
+
+def test_records_and_the_summary_show_the_ratings(ctx):
+    run_step(ctx, "triage", rate(discovery="low", assurance="high"))
+    engine.decide(ctx, "triage", "approve", "")
+    assert "skipped at ratings **discovery low, assurance high** (complexity)" in docs.step_record(ctx, "explore")
+    summ = docs.summary(ctx)
+    assert "- Ratings:\n  - discovery: **low** (discovery is low here)\n  - assurance: **high** (assurance is high here)" in summ
+    assert "ratings **discovery low, assurance high**, approved by the owner" in summ
+
+
+@pytest.mark.slow
+def test_status_board_and_explain_show_the_ratings(tmp_path):
+    from projectkit import Cli, git, make_git_project, make_home, packet_dir
+    from projectkit import write_result as play
+
+    project = make_git_project(tmp_path / "proj")
+    cli = Cli(project, make_home(tmp_path / "home"))
+    cli.run("init", str(project))
+    cli.run("vendor", str(write_recipe(tmp_path / "axes")))
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "Adopt Baton")
+    run = cli.run("start", "axes", "--title", "Tenant fix", "--inputs", json.dumps({"title": "Tenant fix"}))["run_id"]
+    out = cli.run("explain", run)
+    assert out["ratings"] is None and "The ratings are not set yet; what remains depends on triage." in out["text"]
+    cli.run("dispatch", run, "triage", "--worker", "owner")
+    play(packet_dir(project, run, "triage", 1), rate(discovery="low", assurance="medium"))
+    cli.run("submit", run, "triage", expect=4)  # waits on the owner
+    cli.run("decide", run, "triage", "approve", "--note", "fine")
+    st = cli.run("status", run)
+    assert st["ratings"] == {"discovery": "low", "assurance": "medium"} and st["level"] is None
+    (row,) = cli.run("board")["runs"]
+    assert row["ratings"] == {"discovery": "low", "assurance": "medium"}
+    out = cli.run("explain", run)
+    assert out["ratings"] == {"discovery": "low", "assurance": "medium"}
+    assert out["axes"] == {"discovery": ["low", "medium", "high"], "assurance": ["low", "medium", "high"]}
+    assert out["text"].startswith(f"{run} (Tenant fix), recipe axes@1 rated discovery low, assurance medium: active.")
+    assert "Skipped at these ratings: " in out["text"] and {d["step"] for d in out["done"]["skipped"]} == {"explore", "checks"}
+    assert out["other_levels"]["assurance high"]["adds"] == ["checks"]
+    assert out["other_levels"]["discovery medium"]["adds"] == ["explore"]
+    assert "At assurance low: drops verify." in out["text"]

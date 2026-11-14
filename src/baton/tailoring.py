@@ -109,6 +109,14 @@ def from_output(cx: Any, out: Mapping[str, Any]) -> tuple[dict[str, str], Any]:
     return ratings, reasons
 
 
+def ordered(cx: Any, ratings: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Ratings in the recipe's axis order (events store keys sorted)."""
+    if ratings is None:
+        return None
+    order = list(scales(cx))
+    return {a: ratings[a] for a in sorted(ratings, key=lambda a: order.index(a) if a in order else len(order))}
+
+
 def describe(ratings: Mapping[str, str] | None) -> str:
     """``discovery low, assurance high`` (or the bare level for one axis)."""
     if not ratings:

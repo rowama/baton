@@ -26,7 +26,7 @@ baton status <run>
 baton summary <run>
 ```
 
-`status` shows where one piece of work is, what is ready, what is running and what is waiting for you. `summary` shows the finished work in order. Both need the piece of work named (your assistant knows it; `baton board` lists them).
+`status` shows where one piece of work is, what is ready, what is running and what is waiting for you. `summary` shows the finished work in order, and how the work was sized: its size, or each of its ratings with the reason for it. Both need the piece of work named (your assistant knows it; `baton board` lists them).
 
 ## What "waiting on you" means {#waiting-on-you}
 

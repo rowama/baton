@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
 
-from . import __version__, classify, diag, groups, labels, refs, reviews, versions
+from . import __version__, classify, diag, groups, labels, refs, reviews, tailoring, versions
 from .intake import read_result, run_script_gate
 from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .packet import (
@@ -242,11 +242,12 @@ def _advance(
     for node in nodes:
         path = groups.child_path(frame, node.id)
         if node.applies_to is not None:
-            if view.level is None:
+            if view.ratings is None:
                 continue  # waits for triage (§5.5)
-            if view.level not in node.applies_to:
+            if not tailoring.applies(node.applies_to, view.ratings):
                 if view.rs.step(path).state == "blocked_on_deps" and (isinstance(node, Step) or view.expansion(path) is None):
-                    ctx.log.append("step_skipped", step_path=path, data={"level": view.level, "cause": "complexity"})
+                    data = {**tailoring.as_data(ctx.recipe.recipe.complexity, view.ratings), "cause": "complexity"}
+                    ctx.log.append("step_skipped", step_path=path, data=data)
                     return True
                 continue
         if not view.deps_met(node, frame):
@@ -359,6 +360,11 @@ def _reasons_of(out: dict[str, Any]) -> list[str]:
     return [str(r)] if isinstance(r, str) and r else []
 
 
+def _rated(cx: Any, ratings: dict[str, str], reasons: Any = None) -> str:
+    """``discovery low (one known fix); assurance high (touches authorization)``, for the owner's prompt."""
+    return "; ".join(f"{a} {v}" + (f" ({reasons[a]})" if isinstance(reasons, dict) and reasons.get(a) else "") for a, v in ratings.items())
+
+
 def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
     """The implicit approval of a triage result (§5.5, §18 #8); ``None`` when none is needed (or it passed)."""
     if not _is_triage(ctx, step_path):
@@ -373,19 +379,33 @@ def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
     cx = ctx.recipe.recipe.complexity
     assert cx is not None
     out = _triage_output(ctx, step_path, n)
-    level = out.get("level")
+    ratings, reasons = tailoring.from_output(cx, out)
     req = pending_retriage(events)
-    if req is None and (level == cx.levels[0] or record.level() is not None):
+    if req is None and (tailoring.auto_approves(cx, ratings) or record.ratings() is not None):
         return None
-    why = _reasons_of(out)
-    because = f" because: {'; '.join(why)}" if why else ""
-    if req is not None:
-        prev = req.data.get("previous_level")
-        prompt = (f"Re-triage ({req.data.get('reason')}): apply level {level!r} instead of {prev!r}{because}? "
-                  f"Approve applies it to steps not yet started; reject keeps {prev!r}.")
+    if not tailoring.is_multi(cx):
+        level = ratings[tailoring.LEVEL_AXIS]
+        why = _reasons_of(out)
+        because = f" because: {'; '.join(why)}" if why else ""
+        if req is not None:
+            prev = req.data.get("previous_level")
+            prompt = (f"Re-triage ({req.data.get('reason')}): apply level {level!r} instead of {prev!r}{because}? "
+                      f"Approve applies it to steps not yet started; reject keeps {prev!r}.")
+        else:
+            prompt = f"Triage rated this work {level!r} (levels: {', '.join(cx.levels)}){because}. Approve this level? (Reject: triage is tried again with your note.)"
+    elif req is not None:
+        prev = req.data.get("previous_ratings") or {}
+        changed = {a: v for a, v in ratings.items() if prev.get(a) != v}
+        kept = {a: v for a, v in ratings.items() if prev.get(a) == v}
+        change = "; ".join(f"{a} from {prev.get(a)} to {v}" + (f" ({reasons[a]})" if reasons.get(a) else "") for a, v in changed.items())
+        prompt = (f"Re-triage ({req.data.get('reason')}): " + (f"change {change}" if changed else "keep every rating")
+                  + (f"; keep {_rated(cx, kept)}" if changed and kept else "")
+                  + "? Approve applies the ratings to steps not yet started; reject keeps the current ratings.")
     else:
-        prompt = f"Triage rated this work {level!r} (levels: {', '.join(cx.levels)}){because}. Approve this level? (Reject: triage is tried again with your note.)"
-    data = {"gate": "triage", "type": "triage", "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path, "level": level}
+        prompt = (f"Triage rated this work: {_rated(cx, ratings, reasons)}. Approve these ratings? "
+                  "(Reject: triage is tried again with your note.)")
+    data = {"gate": "triage", "type": "triage", "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path,
+            **tailoring.as_data(cx, ratings)}
     if req is not None:
         data["retriage"] = True
     log.append("human_gate_opened", step_path=step_path, attempt=n, data=data)
@@ -393,25 +413,28 @@ def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
 
 
 def _apply_triage(ctx: RunContext, step_path: str, n: int) -> None:
-    """After the triage step passed: set the level, or apply a re-triage (§5.5)."""
+    """After the triage step passed: set the ratings, or apply a re-triage (§5.5)."""
     if not _is_triage(ctx, step_path):
         return
     events = ctx.log.events()
     if awaiting_baseline(events):
         return
+    cx = ctx.recipe.recipe.complexity
     out = _triage_output(ctx, step_path, n)
-    level = out.get("level")
+    ratings, reasons = tailoring.from_output(cx, out)
     approved = next((e for e in ctx.record().attempt_events(step_path, n) if e.type == "human_decision" and e.data.get("gate") == "triage"), None)
     req = pending_retriage(events)
     if req is not None:
-        _apply_retriage(ctx, level, req, approved.seq if approved else None)
+        _apply_retriage(ctx, ratings, req, approved.seq if approved else None, reasons if tailoring.is_multi(cx) else None)
         return
-    if ctx.record().level() is not None:
+    if ctx.record().ratings() is not None:
         return
-    data: dict[str, Any] = {"level": level, "approval": "owner" if approved else "auto"}
+    data: dict[str, Any] = {**tailoring.as_data(cx, ratings), "approval": "owner" if approved else "auto"}
     if approved is not None:
         data["decision_seq"] = approved.seq
-    if _reasons_of(out):
+    if tailoring.is_multi(cx):
+        data["reasons"] = reasons
+    elif _reasons_of(out):
         data["reasons"] = _reasons_of(out)
     ctx.log.append("complexity_set", step_path=step_path, data=data)
 
@@ -420,18 +443,19 @@ def _not_started(st: Any) -> bool:
     return st.state == "blocked_on_deps" or (st.state == "ready" and st.attempt == 0)
 
 
-def _apply_retriage(ctx: RunContext, level: str, req: Any, decision_seq: int | None) -> None:
-    """Re-evaluate every step that has not started at the new level; flag accepted steps it would treat differently."""
+def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_seq: int | None, reasons: Any = None) -> None:
+    """Re-evaluate every step that has not started at the new ratings; flag accepted steps they would treat differently."""
     log = ctx.log
-    old = ctx.record().level()
+    cx = ctx.recipe.recipe.complexity
+    old = ctx.record().ratings()
     view = view_of(ctx)
     rs = view.rs
     skip: list[str] = []
     unskip: list[str] = []
     pre: list[str] = []
 
-    def included(node: Any, lv: str | None) -> bool:
-        return node.applies_to is None or lv in node.applies_to
+    def included(node: Any, lv: dict[str, str] | None) -> bool:
+        return tailoring.applies(node.applies_to, lv)
 
     def walk(nodes: list[Any], frame: groups.Frame | None) -> None:
         for node in nodes:
@@ -464,15 +488,21 @@ def _apply_retriage(ctx: RunContext, level: str, req: Any, decision_seq: int | N
 
     seen: set[str] = set()
     walk(ctx.recipe.recipe.steps, None)
+    if tailoring.is_multi(cx):
+        rated: dict[str, Any] = {"ratings": level, "previous_ratings": old,
+                                 "axes": {a: {"previous": (old or {}).get(a), "rating": v} for a, v in level.items()},
+                                 "reasons": reasons}
+    else:
+        rated = {"level": level[tailoring.LEVEL_AXIS], "previous_level": (old or {}).get(tailoring.LEVEL_AXIS)}
     log.append(
         "retriage_applied", step_path=req.step_path,
-        data={"level": level, "previous_level": old, "reason": req.data.get("reason"), "decision_seq": decision_seq,
+        data={**rated, "reason": req.data.get("reason"), "decision_seq": decision_seq,
               "skipped": skip, "unskipped": unskip, "pre_retriage": pre},
     )
     for p in skip:
-        log.append("step_skipped", step_path=p, data={"level": level, "cause": "retriage"})
+        log.append("step_skipped", step_path=p, data={**tailoring.as_data(cx, level), "cause": "retriage"})
     for p in unskip:
-        log.append("step_unskipped", step_path=p, data={"level": level, "cause": "retriage"})
+        log.append("step_unskipped", step_path=p, data={**tailoring.as_data(cx, level), "cause": "retriage"})
 
 
 def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcome:
@@ -487,7 +517,7 @@ def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcom
     if awaiting_baseline(events):
         raise EngineError("retriage.awaiting_baseline", "this run's level is set by its adoption baseline; change it there")
     record = ctx.record()
-    level = record.level()
+    level = record.ratings()
     if level is None:
         raise EngineError("retriage.no_level", "triage has not set a level yet; finish triage first")
     if pending_retriage(events) is not None:
@@ -500,7 +530,8 @@ def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcom
     st = rs.step(tpath)
     if st.state not in ("passed", "imported"):
         raise EngineError("retriage.triage_not_accepted", f"{tpath} is {st.state}; re-triage needs an accepted triage result")
-    log.append("retriage_requested", actor=actor, step_path=tpath, data={"reason": reason, "previous_level": level})
+    prev = {"previous_ratings": level} if tailoring.is_multi(cx) else {"previous_level": level[tailoring.LEVEL_AXIS]}
+    log.append("retriage_requested", actor=actor, step_path=tpath, data={"reason": reason, **prev})
     log.append("step_revised", actor=actor, step_path=tpath, data={"reason": reason, "retriage": True})
     log.append("step_ready", step_path=tpath, data={"revision": True, "retriage": True})
     return Outcome(tpath, st.attempt, "retriage_requested", [reason], [tpath])
@@ -510,11 +541,13 @@ def _decide_triage(ctx: RunContext, step: Step, ref: str, n: int, decision: str,
     """The owner's answer at the implicit triage gate (§5.5)."""
     log = ctx.log
     opened = ctx.record().last("human_gate_opened", ref, n)
-    base: dict[str, Any] = {"gate": "triage", "type": "triage", "implicit": True, "level": opened.data.get("level") if opened else None}
+    rated = {k: opened.data[k] for k in ("level", "ratings") if opened and k in opened.data} or {"level": None}
+    base: dict[str, Any] = {"gate": "triage", "type": "triage", "implicit": True, **rated}
     if decision == "approve":
         log.append("gate_passed", step_path=ref, attempt=n, data={**base, "approved": True})
         return _run_gates(ctx, step, ref, n, len(step.gates))
-    reasons = [f"the owner did not approve the level: {note}" if note else "the owner did not approve the level"]
+    what = "ratings" if "ratings" in base else "level"
+    reasons = [f"the owner did not approve the {what}: {note}" if note else f"the owner did not approve the {what}"]
     log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
     req = pending_retriage(log.events())
     if req is None:
@@ -813,7 +846,7 @@ def _gate_result(ctx: RunContext, step_path: str, n: int, gate: int | str, passe
 
 def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) -> Outcome:
     log = ctx.log
-    level = ctx.record().level()
+    level = ctx.record().ratings()
     for i, gate in enumerate(step.gates):
         if i < start or not gate_included(gate, level):
             continue
@@ -1572,7 +1605,7 @@ def waive(ctx: RunContext, step_path: str, gate: str, reason: str, *, actor: str
             f = loc.frame
             lim = view_of(ctx).pending_limit(f.group, f.group_path, f.instance)
         if lim is not None and lim.data.get("judged") == step_path:
-            level = record.level()
+            level = record.ratings()
             later = [i for i, x in enumerate(step.gates) if isinstance(g, int) and i > g and gate_included(x, level) and not x.advisory and not isinstance(x, SchemaGate)]
             if later:
                 raise EngineError("waive.later_gates", f"gates {later} of {step_path} never ran after gate {g} failed; decide {f.instance_path} retry instead")
@@ -2318,6 +2351,7 @@ class Api:
                 continue
             runs.append({
                 "run_id": rid, "title": st["title"], "recipe": st["recipe"], "level": st["level"],
+                **({"ratings": st["ratings"]} if "ratings" in st else {}),
                 "position": _position(st), "groups": {g: i["summary"] for g, i in st["groups"].items()},
                 "ready": st["ready"], "stale": [s["step_path"] for s in st["stale"]],
                 "running": [{k: r.get(k) for k in ("step_path", "attempt", "profile", "dispatch_id", "deadline")}
@@ -2435,6 +2469,8 @@ class Api:
             "recipe": started.get("recipe"),
             "state": rs.state,
             "level": ctx.record().level(),
+            **({"ratings": tailoring.ordered(ctx.recipe.recipe.complexity, ctx.record().ratings())}
+               if tailoring.is_multi(ctx.recipe.recipe.complexity) else {}),
             "steps": steps,
             "groups": group_info,
             "findings": findings,
@@ -3774,11 +3810,27 @@ class Api:
         """
         st = self.status(run_id)
         ctx = self._ctx(run_id)
-        level = st["level"]
-        full = build_plan(ctx.recipe)
-        levels = [lv.level for lv in full.levels]
-        by_level = {lv.level: [s for s in lv.steps if s.depth == 0] for lv in full.levels}
-        titles = {s.path: s.title for lv in full.levels for s in lv.steps}
+        cx = ctx.recipe.recipe.complexity
+        multi = tailoring.is_multi(cx)
+        ratings = st.get("ratings")
+        if multi:
+            # One table per combination that matters: the run's, and each one rating away from it (§5.5).
+            full = build_plan(ctx.recipe, ratings=ratings) if ratings else build_plan(ctx.recipe)
+            level = "*" if ratings else None
+            by_level = {"*": [s for s in full.levels[0].steps if s.depth == 0]} if ratings else {}
+            for axis, scale in (tailoring.scales(cx).items() if ratings else ()):
+                for v in scale:
+                    if v != ratings.get(axis):
+                        alt = build_plan(ctx.recipe, ratings={**ratings, axis: v})
+                        by_level[f"{axis} {v}"] = [s for s in alt.levels[0].steps if s.depth == 0]
+            levels = list(by_level) or [None, None]  # unrated: what remains depends on triage
+            titles = {s.path: s.title for lv in full.levels for s in lv.steps}
+        else:
+            level = st["level"]
+            full = build_plan(ctx.recipe)
+            levels = [lv.level for lv in full.levels]
+            by_level = {lv.level: [s for s in lv.steps if s.depth == 0] for lv in full.levels}
+            titles = {s.path: s.title for lv in full.levels for s in lv.steps}
         done = {"passed": [], "imported": [], "skipped": []}
         for path, info in st["steps"].items():
             if info.get("review_of"):
@@ -3817,7 +3869,9 @@ class Api:
                 branches.append(f"{r['step']}: open blocking findings send the work back before it can pass")
             if r.get("group") and r["group"].get("max_iterations"):
                 branches.append(f"{r['step']}: repeats until its judges pass, at most {r['group']['max_iterations']} iterations, then the owner decides")
-        if level is None and len(levels) > 1 and levels[0] is not None:
+        if multi and not ratings:
+            branches.append(f"triage rates the work on its axes ({', '.join(tailoring.scales(cx))}); the ratings decide which steps and gates run")
+        elif level is None and len(levels) > 1 and levels[0] is not None:
             branches.append(f"triage sets the level ({', '.join(levels)}); the level decides which steps and gates run")
         position = {
             "running": [r["step_path"] for r in st["running"]], "queued": [q["step_path"] for q in st["queued"]],
@@ -3825,8 +3879,10 @@ class Api:
             "owner_decisions": [{"ref": p["ref"], "kind": p["kind"]} for p in st["pending_decisions"]],
             "groups": {g: i["summary"] for g, i in st["groups"].items()},
         }
-        lines = [f"{run_id} ({st['title'] or 'untitled'}), recipe {st['recipe']}" + (f" at level {level}" if level else "") + f": {st['state']}."]
-        for k, label in (("passed", "Done"), ("imported", "Imported from the prior process"), ("skipped", "Skipped at this level")):
+        at = f" rated {tailoring.describe(ratings)}" if multi and ratings else (f" at level {level}" if level and not multi else "")
+        here = "these ratings" if multi else "this level"
+        lines = [f"{run_id} ({st['title'] or 'untitled'}), recipe {st['recipe']}" + at + f": {st['state']}."]
+        for k, label in (("passed", "Done"), ("imported", "Imported from the prior process"), ("skipped", f"Skipped at {here}")):
             if done[k]:
                 lines.append(f"{label}: " + ", ".join(d["step"] for d in done[k]) + ".")
         for k, label in (("running", "Running"), ("queued", "Queued for the working tree"), ("ready", "Ready to dispatch"), ("stale", "Stale")):
@@ -3838,16 +3894,22 @@ class Api:
             lines.append("Waiting on the owner: " + ", ".join(d["ref"] for d in position["owner_decisions"]) + ".")
         if st["state"] == "active":
             todo = [r["step"] for r in remaining if r["step"] not in position["ready"] and r["step"] not in position["running"]]
-            if level is None and len(levels) > 1 and levels[0] is not None:
+            if multi and not ratings:
+                lines.append("The ratings are not set yet; what remains depends on triage.")
+            elif level is None and len(levels) > 1 and levels[0] is not None:
                 lines.append("The level is not set yet; what remains depends on triage.")
             elif todo:
-                lines.append("Still to come at this level: " + ", ".join(todo) + ".")
+                lines.append(f"Still to come at {here}: " + ", ".join(todo) + ".")
         for lv, diff in other_levels.items():
             bits = ([f"adds {', '.join(diff['adds'])}"] if diff["adds"] else []) + ([f"drops {', '.join(diff['drops'])}"] if diff["drops"] else [])
             if bits:
                 lines.append(f"At {lv}: " + "; ".join(bits) + ".")
         lines += [f"Possible: {b}." for b in branches]
-        return {"run_id": run_id, "title": st["title"], "recipe": st["recipe"], "state": st["state"], "level": level, "levels": levels,
+        if multi:
+            extra_rt: dict[str, Any] = {"level": None, "levels": [], "ratings": ratings, "axes": tailoring.scales(cx)}
+        else:
+            extra_rt = {"level": level, "levels": levels}
+        return {"run_id": run_id, "title": st["title"], "recipe": st["recipe"], "state": st["state"], **extra_rt,
                 "done": done, "position": position, "remaining": remaining, "other_levels": other_levels, "branches": branches,
                 "text": "\n".join(lines), "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"]}
 
