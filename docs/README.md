@@ -279,3 +279,7 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0139 The eng-process recipe blocks on plan review and keeps code review advisory](decisions/0139-eng-process-review-policy.md) | accepted |
 | [0140 Fit-check assesses the requested work and can recommend against Baton for any unsuitable goal](decisions/0140-fit-check-assesses-requested-work.md) | accepted |
 | [0141 Implementation options are discovered before recipe design when they change its structure, otherwise within the generated recipe](decisions/0141-implementation-discovery-timing.md) | accepted |
+| [0142 Runs bind accepted or attested project documents as inputs, by role](decisions/0142-project-documents-bound-by-role.md) | accepted |
+| [0143 A small project policy in project.yaml is enforced on every run](decisions/0143-project-policy.md) | accepted |
+| [0144 Complexity is rated on a few recipe-owned axes instead of one scale](decisions/0144-tailoring-axes.md) | accepted |
+| [0145 Recipe builder offers a quick guided run as an alternative to a full recipe](decisions/0145-quick-runs-through-recipe-builder.md) | accepted |
