@@ -1,7 +1,7 @@
 ---
 id: 2026-11-eng-process-recipe
 title: "An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow"
-status: proposed
+status: proposed            # ON HOLD: after 2026-11-project-documents, 2026-11-project-policy and 2026-11-tailoring-axes (docs/catchall/project-process-linkage.md)
 level: major
 decisions: ["0138", "0139"]
 touches: [design/recipes.md, design/gates-and-reviews.md]
@@ -128,3 +128,7 @@ Provisional slices; refine after Request and Design approval. Each implementatio
 - **Review:** Awaiting owner answers to the Request's open questions; Design and Plan remain provisional.
 - **Owner decision:** 2026-11-12, “Use Baton machinery (recommended)” (0138). “Blocking plan, advisory code (recommended)” (0139). Request as a whole is not yet accepted.
 - **Accepted:** No; proposal only.
+
+### On hold
+
+- **Summary:** Owner, 2026-11-13: eng-process is to be Baton's single software recipe, tailored on a few axes and linked to project documents and policy. It waits for three changes still to be proposed: `2026-11-project-documents`, `2026-11-project-policy` and `2026-11-tailoring-axes`. The direction and the amendments this change will need are in `docs/catchall/project-process-linkage.md` (§5 F). Open questions 1-4 remain open.
