@@ -22,6 +22,7 @@ The wording changes with the situation. These are the choices, and what each doe
 | **Looks right** | The result is accepted and the work carries on with the next part. |
 | **Not yet: here's what to change** | That part is redone, with what you said as guidance. |
 | **Yes, that's the right size** / **No, it's bigger or smaller than that** | The work goes ahead at that size, or the sizing is redone with what you said. |
+| **Yes, look at that again** / **Keep it as it is** | When the work suggests one of its ratings is wrong: that rating is redone (you approve the result), or it stays. |
 | **Include these** / **That's not quite it** | Each piece you choose is started, or the breakdown of your goal is redone. |
 | **That's an accurate picture** | The summary of your existing work is accepted as the starting point. |
 | **Try again** / **Try again with your answers** | A part that stopped is tried again, with what you said. |
@@ -42,6 +43,8 @@ You may answer only some of a set of questions. Your assistant will tell you wha
 Early on, the work is sized, so that it gets as much care as it needs and no more. Some processes give one size (small, standard, large). Others rate the work on a few separate things, such as how much is still unknown and how carefully the result must be checked, each with the reason for the rating. You are shown all of them together and asked once whether they are right. If one is off, say which and why; the sizing is redone with your words.
 
 A small piece of work goes ahead without asking you, unless the process always asks about one of the ratings, for example how carefully the work must be checked.
+
+The sizing can change later. If you see the work is bigger or smaller than it was rated, tell your assistant; the sizing is redone and you approve the new one. It changes only the parts not yet started. Sometimes the work itself finds that a rating looks wrong (for example, a change turns out to touch other people's data). Your assistant then tells you why and asks: **Yes, look at that again** redoes that rating, and you approve the result; **Keep it as it is** leaves it. Nothing waits on your answer in the meantime.
 
 ## Confirming a document {#documents}
 

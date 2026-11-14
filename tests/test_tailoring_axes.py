@@ -454,3 +454,166 @@ def test_status_board_and_explain_show_the_ratings(tmp_path):
     assert out["other_levels"]["assurance high"]["adds"] == ["checks"]
     assert out["other_levels"]["discovery medium"]["adds"] == ["explore"]
     assert "At assurance low: drops verify." in out["text"]
+    out = cli.run("retriage", run, "--reason", "it touches tenant isolation", "--axis", "assurance")
+    assert out["outcome"] == "retriage_requested"
+    cli.run("retriage", run, "--reason", "again", "--axis", "reach", expect=1)
+
+
+# -- re-triage per axis and rating signals (Slice 3) -----------------------
+
+
+def rated(ctx, **values: str) -> None:
+    run_step(ctx, "triage", rate(**values))
+    if ctx.record().ratings() is None:
+        engine.decide(ctx, "triage", "approve", "")
+
+
+def test_retriage_of_an_axis_skips_and_unskips_steps_not_started(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    run_step(ctx, "build", {})
+    out = engine.retriage(ctx, "it touches tenant isolation", axes=["assurance"])
+    assert out.outcome == "retriage_requested" and out.ready == ["triage"]
+    (req,) = events(ctx, "retriage_requested")
+    assert req.data == {"reason": "it touches tenant isolation", "axes": ["assurance"],
+                        "previous_ratings": {"discovery": "low", "assurance": "medium"}}
+    p = engine.begin_attempt(ctx, "triage", "owner", WRITER)
+    rev = p.manifest["prior_feedback"]["revision"]
+    assert rev["reason"] == "it touches tenant isolation" and rev["axes"] == ["assurance"]
+    previous = json.loads((p.dir / rev["output"]).read_text(encoding="utf-8"))
+    assert previous["ratings"]["assurance"]["value"] == "medium"  # the previous ratings are in the packet
+    write_result(p, rate(discovery="low", assurance="high"))
+    out = engine.submit(ctx, "triage")
+    assert out.outcome == "needs_human"  # a re-triage always waits on the owner
+    (pending,) = [d for d in engine.pending_decisions(ctx) if d["ref"] == "triage"]
+    assert pending["prompt"].startswith("Re-triage of assurance (it touches tenant isolation): change assurance from medium to high")
+    assert "keep discovery low" in pending["prompt"]
+    engine.decide(ctx, "triage", "approve", "yes")
+    (ra,) = events(ctx, "retriage_applied")
+    assert ra.data["axes"] == {"discovery": {"previous": "low", "rating": "low"}, "assurance": {"previous": "medium", "rating": "high"}}
+    assert ra.data["ratings"] == {"discovery": "low", "assurance": "high"}
+    assert ra.data["unskipped"] == ["checks"] and ra.data["skipped"] == []
+    assert ra.data["pre_retriage"] == ["build"]  # passed without the human gate assurance high adds
+    assert state(ctx, "checks") != "skipped"
+    assert "**pre-retriage:** accepted at ratings discovery low, assurance medium" in docs.step_record(ctx, "build")
+
+
+def test_retriage_down_an_axis_skips_unstarted_steps(ctx):
+    rated(ctx, discovery="high", assurance="low")
+    engine.retriage(ctx, "the fix is already known")
+    run_step(ctx, "triage", rate(discovery="low", assurance="low"))
+    engine.decide(ctx, "triage", "approve", "")
+    (ra,) = events(ctx, "retriage_applied")
+    assert ra.data["skipped"] == ["explore"]
+    assert state(ctx, "explore") == "skipped"
+
+
+def test_retriage_refuses_an_unknown_axis(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    with pytest.raises(engine.EngineError) as e:
+        engine.retriage(ctx, "why", axes=["reach"])
+    assert e.value.code == "retriage.unknown_axis"
+
+
+def signal(ctx, path: str, axis: str, suggested: str, why: str, output: Any = None):
+    p = engine.begin_attempt(ctx, path, "owner", WRITER)
+    write_result(p, output if output is not None else {}, rating_signal={"axis": axis, "suggested": suggested, "reason": why})
+    return engine.submit(ctx, path)
+
+
+def test_a_rating_signal_opens_a_pending_decision_that_blocks_nothing(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    out = signal(ctx, "build", "assurance", "high", "the change reaches the tenant boundary")
+    assert out.outcome == "passed"  # the step goes on
+    (sig,) = events(ctx, "rating_signal_recorded")
+    assert sig.step_path == "build" and sig.data == {"axis": "assurance", "suggested": "high", "rating": "medium",
+                                                     "reason": "the change reaches the tenant boundary"}
+    (pending,) = [d for d in engine.pending_decisions(ctx) if d["kind"] == "rating_signal"]
+    assert pending["ref"] == "rating:assurance" and pending["rating"] == "medium"
+    assert [o["decision"] for o in pending["options"]] == ["retriage", "dismiss"]
+    assert "build suggests high: the change reaches the tenant boundary" in pending["prompt"]
+    assert ready(ctx) == ["verify"]
+    run_step(ctx, "verify", {})
+    assert ctx.log.state().state == "completed"  # a pending signal does not hold completion
+    assert [d for d in engine.pending_decisions(ctx) if d["kind"] == "rating_signal"] == []
+
+
+def test_a_second_signal_on_the_axis_joins_the_pending_one(ctx):
+    rated(ctx, discovery="low", assurance="high")
+    run_step(ctx, "build", {})
+    engine.decide(ctx, "build", "approve", "")  # its human gate at assurance high
+    p = engine.begin_attempt(ctx, "verify", "owner", WRITER)
+    write_result(p, {}, status="failed", rating_signal={"axis": "assurance", "suggested": "medium", "reason": "no tenant data"})
+    assert engine.submit(ctx, "verify").outcome == "retry"  # a signal is recorded whatever the result
+    signal(ctx, "verify", "assurance", "medium", "only a log line changes")
+    (inst,) = [p for p, st in ctx.log.state().steps.items() if p.startswith("checks/") and p.endswith("/probe") and st.state == "ready"]
+    signal(ctx, inst, "discovery", "low", "same as now")  # the current rating: not shown
+    pend = [d for d in engine.pending_decisions(ctx) if d["kind"] == "rating_signal"]
+    assert [d["ref"] for d in pend] == ["rating:assurance"]
+    assert [(s["step_path"], s["attempt"]) for s in pend[0]["signals"]] == [("verify", 1), ("verify", 2)]
+    assert len(events(ctx, "rating_signal_recorded")) == 3
+
+
+def test_dismissing_a_signal_keeps_the_rating(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    signal(ctx, "build", "discovery", "high", "the cause is unclear")
+    out = engine.decide(ctx, "rating:discovery", "dismiss", "We know the cause")
+    assert out.outcome == "recorded"
+    (d,) = [e for e in events(ctx, "human_decision") if e.data.get("kind") == "rating_signal"]
+    assert d.data["decision"] == "dismiss" and d.data["axis"] == "discovery" and d.data["note"] == "We know the cause"
+    assert [p for p in engine.pending_decisions(ctx) if p["kind"] == "rating_signal"] == []
+    assert ctx.record().ratings() == {"discovery": "low", "assurance": "medium"}
+
+
+def test_choosing_retriage_starts_a_retriage_of_the_axis(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    signal(ctx, "build", "assurance", "high", "tenant boundary")
+    out = engine.decide(ctx, "rating:assurance", "retriage", "check it")
+    assert out.outcome == "retriage_requested"
+    (req,) = events(ctx, "retriage_requested")
+    assert req.data["axes"] == ["assurance"]
+    assert req.data["reason"] == "build suggests assurance high: tenant boundary (the owner: check it)"
+    assert [p for p in engine.pending_decisions(ctx) if p["kind"] == "rating_signal"] == []
+
+
+def test_retriage_from_a_signal_is_refused_while_work_is_in_flight_and_records_nothing(ctx):
+    rated(ctx, discovery="low", assurance="medium")
+    signal(ctx, "build", "assurance", "high", "tenant boundary")
+    engine.begin_attempt(ctx, "verify", "owner", WRITER)
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, "rating:assurance", "retriage", "")
+    assert e.value.code == "retriage.in_flight"
+    assert not [e for e in events(ctx, "human_decision") if e.data.get("kind") == "rating_signal"]
+    assert [p["ref"] for p in engine.pending_decisions(ctx) if p["kind"] == "rating_signal"] == ["rating:assurance"]
+
+
+@pytest.mark.parametrize(
+    "sig, message",
+    [
+        ({"axis": "reach", "suggested": "high", "reason": "x"}, "axis 'reach' is not declared"),
+        ({"axis": "assurance", "suggested": "extreme", "reason": "x"}, "not on axis 'assurance'"),
+        ({"axis": "assurance", "suggested": "high", "reason": ""}, "rating_signal.reason"),
+    ],
+    ids=["axis", "value", "reason"],
+)
+def test_a_malformed_signal_rejects_the_result(ctx, sig, message):
+    rated(ctx, discovery="low", assurance="medium")
+    p = engine.begin_attempt(ctx, "build", "owner", WRITER)
+    write_result(p, {}, rating_signal=sig)
+    out = engine.submit(ctx, "build")
+    assert out.outcome == "retry" and any(message in r for r in out.reasons)
+    assert events(ctx, "rating_signal_recorded") == []
+
+
+def test_a_signal_in_a_one_axis_run_names_the_level(tmp_path, store):
+    import test_tailoring
+
+    one = engine.start(store, load_recipe(test_tailoring.tailor_recipe(tmp_path / "one")), {"title": "Garden"}, run_id="r_20261114_one2")
+    run_step(one, "triage", {"level": "minor", "reasons": ["one bed"]})
+    p = engine.begin_attempt(one, "build", "owner", WRITER)
+    write_result(p, {}, rating_signal={"axis": "level", "suggested": "major", "reason": "it is a whole garden"})
+    assert engine.submit(one, "build").outcome == "passed"
+    (pending,) = [d for d in engine.pending_decisions(one) if d["kind"] == "rating_signal"]
+    assert pending["ref"] == "rating:level" and "the size changed from minor" in pending["prompt"]
+    out = engine.decide(one, "rating:level", "retriage", "")
+    (req,) = events(one, "retriage_requested")
+    assert req.data["previous_level"] == "minor" and req.data["axes"] == ["level"]

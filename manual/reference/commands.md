@@ -495,7 +495,7 @@ Explained in the manual: [Long-running work and coming back](user.long-running-w
 
 ## baton retriage {#baton-retriage}
 
-Rerun triage; the new level applies, once the owner approves it, only to work not yet started.
+Rerun triage; the new level or ratings apply, once the owner approves them, only to work not yet started.
 
 Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
 
@@ -503,6 +503,7 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 |---|---|
 | `run <str>` | Run id. |
 | `--reason <str>` | Why the work's complexity should be assessed again (recorded, given to the worker). |
+| `--axis <str>` | For a recipe with axes: an axis to reassess (repeatable); triage still rates every axis. |
 | `--json` | Machine-readable output. |
 
 ## baton retry {#baton-retry}

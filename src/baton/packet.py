@@ -467,7 +467,8 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
     if manifest.get("ratings"):
         lines += ["## Ratings", "",
                   "This work was rated " + tailoring.describe(manifest["ratings"]) + " (the recipe's complexity axes, in manifest.json "
-                  "`ratings`). Size your work to them.", ""]
+                  "`ratings`). Size your work to them. If a rating looks wrong for what you find, say so in the result's "
+                  "`rating_signal` (`{axis, suggested, reason}`); it does not stop your work.", ""]
     lines += ["## Inputs", ""]
     if not inputs and not manifest["not_applicable"]:
         lines += ["This step has no inputs.", ""]
@@ -887,7 +888,8 @@ def build_packet(
             rel = f"previous/artifacts/{aname}{PurePosixPath(a.get('filename', '')).suffix}"
             files[rel] = ctx.log.cas.read(a["sha256"])
             arts.append({"name": aname, "path": rel})
-        revision = {"reason": revised.data.get("reason", ""), "attempt": previous.attempt, "output": "previous/output.json", "artifacts": arts}
+        revision = {"reason": revised.data.get("reason", ""), "attempt": previous.attempt, "output": "previous/output.json", "artifacts": arts,
+                    **({"axes": revised.data["axes"]} if revised.data.get("axes") else {})}
         fed = view.fed_groups(loc)
         if len(fed) == 1 and fed[0][2]:
             revision["items"] = "output." + ".".join(fed[0][2])

@@ -33,6 +33,7 @@ import jinja2
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
+from . import tailoring
 from .data import read_text
 from .models import Result, ScriptGate, Step
 from .packet import PROTOCOL, RunContext, output_schema_for, verify_packet
@@ -60,6 +61,7 @@ class Submission:
     questions: list[dict[str, Any]] = field(default_factory=list)
     process_feedback: list[Any] = field(default_factory=list)
     dispositions: list[Any] = field(default_factory=list)
+    rating_signal: dict[str, str] | None = None
     problems: list[str] = field(default_factory=list)
     #: ``passed`` / ``failed`` when the step's output schema was checked; ``None`` when not (0087).
     output_schema: str | None = None
@@ -76,6 +78,19 @@ def _schema_errors(schema: dict[str, Any], value: Any) -> list[str]:
         loc = "/".join(str(p) for p in err.absolute_path) or "(root)"
         out.append(f"output {loc}: {err.message}")
     return out
+
+
+def rating_signal_problems(ctx: RunContext, signal: dict[str, str]) -> list[str]:
+    """A ``rating_signal`` names a declared axis (``level`` for one scale) and a value on it (§8.10)."""
+    sc = tailoring.scales(ctx.recipe.recipe.complexity)
+    if not sc:
+        return [f"rating_signal: {ctx.recipe.recipe.ref} rates no complexity"]
+    axis, value = signal["axis"], signal["suggested"]
+    if axis not in sc:
+        return [f"rating_signal axis {axis!r} is not declared; axes: {', '.join(sc)}"]
+    if value not in sc[axis]:
+        return [f"rating_signal suggested {value!r} is not on axis {axis!r} ({', '.join(sc[axis])})"]
+    return []
 
 
 def read_result(ctx: RunContext, step: Step, result_dir: Path, packet_dir: Path, expected_packet_sha256: str) -> Submission:
@@ -108,6 +123,9 @@ def read_result(ctx: RunContext, step: Step, result_dir: Path, packet_dir: Path,
     sub.questions = list(result.questions_for_human)
     sub.process_feedback = list(result.process_feedback)
     sub.dispositions = list(result.dispositions)
+    if result.rating_signal is not None:
+        sub.rating_signal = result.rating_signal.model_dump()
+        sub.problems += rating_signal_problems(ctx, sub.rating_signal)
     if result.protocol != PROTOCOL:
         sub.problems.append(f"protocol is {result.protocol!r}; expected {PROTOCOL!r}")
     if result.packet_sha256 != expected_packet_sha256:

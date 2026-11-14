@@ -250,9 +250,9 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.revise(run, step, reason))
 
     @tool
-    def retriage(run: str, reason: str) -> dict[str, Any]:
-        """Rerun triage; the new level waits on the owner and applies only to work not yet started."""
-        return t.call(lambda api: api.retriage(run, reason))
+    def retriage(run: str, reason: str, axes: list[str] | None = None) -> dict[str, Any]:
+        """Rerun triage (reassessing the named axes, if any); the new ratings wait on the owner and apply only to work not yet started."""
+        return t.call(lambda api: api.retriage(run, reason, axes))
 
     @tool
     def ingest_revision(run: str, step: str, artifact: str, note: str, feed: str = "revision_inputs") -> dict[str, Any]:

@@ -776,10 +776,11 @@ def revise(
 def retriage(
     run: Annotated[str, typer.Argument(help="Run id.")],
     reason: Annotated[str, typer.Option("--reason", help="Why the work's complexity should be assessed again (recorded, given to the worker).")],
+    axis: Annotated[Optional[list[str]], typer.Option("--axis", help="For a recipe with axes: an axis to reassess (repeatable); triage still rates every axis.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Rerun triage; the new level applies, once the owner approves it, only to work not yet started."""
-    out = _call(as_json, lambda: _api().retriage(run, reason))
+    """Rerun triage; the new level or ratings apply, once the owner approves them, only to work not yet started."""
+    out = _call(as_json, lambda: _api().retriage(run, reason, axis or None))
     _done(out, as_json, _outcome_text({**out, "run_id": run}))
 
 

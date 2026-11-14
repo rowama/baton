@@ -66,6 +66,8 @@ attempt-<n>/result/  result.json  artifacts/<name>.<ext>
 }
 ```
 
+`rating_signal` (optional; Decisions: [0144](../decisions/0144-tailoring-axes.md), [0147](../decisions/0147-tailoring-axes-details.md)): `{axis, suggested, reason}`, a worker's signal that one of the run's ratings looks wrong for what it found (in a one-axis recipe the axis is `level`). It changes nothing by itself: intake checks it (§8.10) and it becomes a pending owner decision (§5.5). A packet of a recipe with axes says so in its *Ratings* section.
+
 `dispositions` (optional): `[{step, finding, disposition, evidence}]`, a worker's `fixed` or `rejected` claims about findings it was shown (its own gates' findings, or the judges' findings of an enclosing loop; `step` is the recording step's id or path). Intake checks the evidence (§9.2); an invalid entry rejects the result. `accepted-risk` is not allowed here.
 
 `questions_for_human` (Decision: [0031](../decisions/0031-structured-questions.md)) is structured, so the Director can hold a conversation from it without knowing the step's subject:

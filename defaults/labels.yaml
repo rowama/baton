@@ -9,6 +9,9 @@ gate:                      # a recipe's human gate
 triage:                    # approving the size of a piece of work
   approve: { label: "Yes, that's the right size", effect: "The work goes ahead at this size; parts that size doesn't need are left out." }
   reject:  { label: "No, it's bigger or smaller than that", effect: "The sizing is redone with what you said." }
+rating_signal:             # a worker suggests one of the work's ratings is wrong
+  retriage: { label: "Yes, look at that again", effect: "The sizing is redone for that rating, with the reason given; you approve the result before anything changes." }
+  dismiss:  { label: "Keep it as it is", effect: "The rating stays; the work carries on unchanged." }
 protected:                 # a change to files the process protects
   approve: { label: "Keep that change", effect: "The change to the protected files stays and the work carries on." }
   reject:  { label: "Undo that change", effect: "The change is not accepted; it is reverted and the part is redone." }

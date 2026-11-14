@@ -425,6 +425,14 @@ def recorded_questions(raw: Any) -> list[dict[str, Any]]:
         return [{"id": f"q{n}", "ask": str(q), "why": ""} for n, q in enumerate(raw or [], start=1)]
 
 
+class RatingSignal(_Strict):
+    """A worker's structured signal that a rating looks wrong (§7.2; Decision 0147 #3)."""
+
+    axis: str = Field(min_length=1)
+    suggested: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
 class Result(_Strict):
     protocol: str
     packet_sha256: str
@@ -435,6 +443,7 @@ class Result(_Strict):
     questions_for_human: list[dict[str, Any]] = Field(default_factory=list)
     process_feedback: list[Any] = Field(default_factory=list)
     dispositions: list[ResultDisposition] = Field(default_factory=list)
+    rating_signal: RatingSignal | None = None
 
     @field_validator("questions_for_human", mode="before")
     @classmethod
@@ -669,7 +678,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
         "gate_failed", "human_gate_opened", "step_passed", "step_escalated", "step_abandoned",
         "step_timed_out", "attempt_orphaned", "failure_classified", "deadline_extended",
     ),
-    "tailoring": ("complexity_set", "step_skipped", "step_unskipped", "retriage_requested", "retriage_applied"),
+    "tailoring": ("complexity_set", "step_skipped", "step_unskipped", "retriage_requested", "retriage_applied", "rating_signal_recorded"),
     "groups": ("group_expanded", "iteration_started", "iteration_limit_reached"),
     "corrections": ("step_revised", "step_stale"),
     "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified"),

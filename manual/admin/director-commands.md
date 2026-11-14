@@ -43,7 +43,7 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | `waive` | Waive one failed check, as an owner decision |
 | `disposition` | Record how a review finding was handled |
 | `revise` | Correct an earlier part of a run, with approval: a new attempt, and what depended on it becomes stale |
-| `retriage` | Rerun the sizing; the new size applies, once approved, only to work not yet started |
+| `retriage` | Rerun the sizing; the new size applies, once approved, only to work not yet started (`--axis` names the ratings to look at again) |
 | `abandon` | Abandon a run |
 | `ingest-revision` | Accept an edited, published file as a human revision |
 | `lease` | Claim, release or take over a run's hold; taking over needs the owner's approval |

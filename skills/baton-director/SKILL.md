@@ -32,7 +32,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 5. A manual worker (a person) does the step: tell them where the packet is; they write the result; `submit` hands it in. Never write it for them.
 6. Gate failure: retry while attempts remain (another eligible worker if useful); review loops are handled by the recipe; otherwise escalate.
 7. Failure classified `platform` or `unknown`: consult the platform SME with the incident; `configuration`: tell the owner the exact fix.
-8. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage`.
+8. An earlier step was wrong: propose `revise` for this run with the reason. Scope changed: propose `retriage` (`--axis` for the ratings it affects). A pending `rating:<axis>` decision is a worker's suggestion that a rating is wrong: tell the owner which rating, the suggestion and why, in their terms; it blocks nothing, so carry on meanwhile, then `decide <run> rating:<axis> retriage|dismiss --note "<owner's words>"`.
 9. Run complete: `summary` → present to the owner; release the lease.
 
 ## Work that outlives your turn

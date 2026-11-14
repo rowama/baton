@@ -31,7 +31,7 @@ from typing import Any, Callable
 from jsonschema import Draft202012Validator
 
 from . import __version__, classify, diag, groups, labels, refs, reviews, tailoring, versions
-from .intake import read_result, run_script_gate
+from .intake import rating_signal_problems, read_result, run_script_gate
 from .models import FindingsGate, Group, HumanGate, Plan, Protect, ReviewGate, SchemaGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .packet import (
     PROTOCOL,
@@ -398,7 +398,8 @@ def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
         changed = {a: v for a, v in ratings.items() if prev.get(a) != v}
         kept = {a: v for a, v in ratings.items() if prev.get(a) == v}
         change = "; ".join(f"{a} from {prev.get(a)} to {v}" + (f" ({reasons[a]})" if reasons.get(a) else "") for a, v in changed.items())
-        prompt = (f"Re-triage ({req.data.get('reason')}): " + (f"change {change}" if changed else "keep every rating")
+        asked = f" of {', '.join(req.data['axes'])}" if req.data.get("axes") else ""
+        prompt = (f"Re-triage{asked} ({req.data.get('reason')}): " + (f"change {change}" if changed else "keep every rating")
                   + (f"; keep {_rated(cx, kept)}" if changed and kept else "")
                   + "? Approve applies the ratings to steps not yet started; reject keeps the current ratings.")
     else:
@@ -505,13 +506,35 @@ def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_s
         log.append("step_unskipped", step_path=p, data={**tailoring.as_data(cx, level), "cause": "retriage"})
 
 
-def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcome:
-    """Rerun triage behind the owner's approval (§5.5): the new level applies only to work not yet started."""
+def retriage(ctx: RunContext, reason: str, *, axes: list[str] | None = None, actor: str = "director") -> Outcome:
+    """Rerun triage behind the owner's approval (§5.5): the new ratings apply only to work not yet started.
+
+    ``axes`` names the axes to reassess (recorded and given to the worker); the
+    triage step still rates every axis, and any change waits on the owner.
+    """
+    tpath, st = _retriage_check(ctx, reason, axes)
+    cx = ctx.recipe.recipe.complexity
+    log = ctx.log
+    level = ctx.record().ratings()
+    assert level is not None
+    prev = {"previous_ratings": tailoring.ordered(cx, level)} if tailoring.is_multi(cx) else {"previous_level": level[tailoring.LEVEL_AXIS]}
+    which = {"axes": list(axes)} if axes else {}
+    log.append("retriage_requested", actor=actor, step_path=tpath, data={"reason": reason, **prev, **which})
+    log.append("step_revised", actor=actor, step_path=tpath, data={"reason": reason, "retriage": True, **which})
+    log.append("step_ready", step_path=tpath, data={"revision": True, "retriage": True})
+    return Outcome(tpath, st.attempt, "retriage_requested", [reason], [tpath])
+
+
+def _retriage_check(ctx: RunContext, reason: str, axes: list[str] | None) -> tuple[str, Any]:
+    """Refuse a re-triage that cannot start now; ``(triage step, its state)`` when it can."""
     if not reason.strip():
         raise EngineError("retriage.reason_required", "re-triage needs a reason")
     cx = ctx.recipe.recipe.complexity
     if cx is None:
         raise EngineError("retriage.no_levels", f"{ctx.recipe.recipe.ref} declares no complexity levels")
+    unknown = [a for a in axes or [] if a not in tailoring.scales(cx)]
+    if unknown:
+        raise EngineError("retriage.unknown_axis", f"unknown axis {', '.join(unknown)}; axes: {', '.join(tailoring.scales(cx))}")
     log = ctx.log
     events = log.events()
     if awaiting_baseline(events):
@@ -530,11 +553,7 @@ def retriage(ctx: RunContext, reason: str, *, actor: str = "director") -> Outcom
     st = rs.step(tpath)
     if st.state not in ("passed", "imported"):
         raise EngineError("retriage.triage_not_accepted", f"{tpath} is {st.state}; re-triage needs an accepted triage result")
-    prev = {"previous_ratings": level} if tailoring.is_multi(cx) else {"previous_level": level[tailoring.LEVEL_AXIS]}
-    log.append("retriage_requested", actor=actor, step_path=tpath, data={"reason": reason, **prev})
-    log.append("step_revised", actor=actor, step_path=tpath, data={"reason": reason, "retriage": True})
-    log.append("step_ready", step_path=tpath, data={"revision": True, "retriage": True})
-    return Outcome(tpath, st.attempt, "retriage_requested", [reason], [tpath])
+    return tpath, st
 
 
 def _decide_triage(ctx: RunContext, step: Step, ref: str, n: int, decision: str, note: str) -> Outcome:
@@ -673,6 +692,9 @@ def submit(
         data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **({"worker_exit": worker_exit} if worker_exit else {})},
     )
     _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
+    if sub.rating_signal is not None and not rating_signal_problems(ctx, sub.rating_signal):
+        rating = (ctx.record().ratings() or {}).get(sub.rating_signal["axis"])
+        log.append("rating_signal_recorded", actor=actor, step_path=step_path, attempt=n, data={**sub.rating_signal, "rating": rating})
     log.append("verification_started", step_path=step_path, attempt=n)
     if workspace_changes:
         return _workspace_modified(ctx, step_path, n, workspace_changes)
@@ -1309,6 +1331,7 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
             }
         )
     out += skip_notices(ctx)
+    out += rating_signals(ctx)
     if ctx.log.state().state == "active":
         from . import publish
 
@@ -1333,6 +1356,8 @@ def decide(
     extra = {"recorded_by": recorded_by} if recorded_by else {}
     if ref.startswith("skip:"):
         return _decide_skip_notice(ctx, ref, decision, note, actor, extra)
+    if ref.startswith("rating:"):
+        return _decide_rating_signal(ctx, ref, decision, note, actor, extra)
     if ref.startswith(("publish:", "drift:")):
         return _decide_deliverable(ctx, ref, decision, note, actor, extra, path)
     if path is not None:
@@ -1407,6 +1432,67 @@ def _decide_deliverable(ctx: RunContext, ref: str, decision: str, note: str, act
     sp = ref.split(":", 1)[1].rsplit(".", 1)[0]
     ready = refresh(ctx)
     return Outcome(sp, ctx.log.state().step(sp).attempt, "recorded", [f"{decision}: {res.get('path') or ''}".rstrip(": ")], ready, _completed(ctx))
+
+
+RATING_DECISIONS = ("retriage", "dismiss")
+
+
+def rating_signals(ctx: RunContext) -> list[dict[str, Any]]:
+    """Workers' signals that a rating looks wrong, one pending decision per axis (§5.5; Decision 0147 #3).
+
+    A signal counts until the owner decides ``rating:<axis>`` or the ratings
+    are set again; one that suggests the current rating is not shown. It blocks
+    no step and does not hold completion.
+    """
+    if ctx.log.state().state != "active":
+        return []
+    cx = ctx.recipe.recipe.complexity
+    ratings = ctx.record().ratings()
+    if cx is None or ratings is None:
+        return []
+    open_: dict[str, list[Any]] = {}
+    for e in ctx.log.events():
+        if e.type == "rating_signal_recorded":
+            open_.setdefault(e.data.get("axis"), []).append(e)
+        elif e.type in ("complexity_set", "retriage_applied"):
+            open_.clear()
+        elif e.type == "human_decision" and e.data.get("kind") == "rating_signal":
+            open_.pop(str(e.data.get("ref", "")).split(":", 1)[-1], None)
+    out = []
+    for axis in tailoring.scales(cx):
+        sigs = [e for e in open_.get(axis, []) if e.data.get("suggested") != ratings.get(axis)]
+        if not sigs:
+            continue
+        name = "the size" if axis == tailoring.LEVEL_AXIS else f"the {axis} rating"
+        why = "; ".join(f"{e.step_path} suggests {e.data.get('suggested')}: {e.data.get('reason')}" for e in sigs)
+        out.append({
+            "ref": f"rating:{axis}", "step_path": None, "kind": "rating_signal", "axis": axis, "rating": ratings.get(axis),
+            "signals": [{"step_path": e.step_path, "attempt": e.attempt, "suggested": e.data.get("suggested"), "reason": e.data.get("reason")}
+                        for e in sigs],
+            "prompt": f"The work may need {name} changed from {ratings.get(axis)} ({why}). Re-assess it, or keep it as it is?",
+            "options": labels.options("rating_signal", RATING_DECISIONS),
+        })
+    return out
+
+
+def _decide_rating_signal(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    """``retriage`` starts a re-triage of the axis with the workers' reasons; ``dismiss`` keeps the rating."""
+    if decision not in RATING_DECISIONS:
+        raise EngineError("decide.bad_decision", f"{ref} is a rating signal; decision must be one of {RATING_DECISIONS}, got {decision!r}")
+    pending = next((p for p in rating_signals(ctx) if p["ref"] == ref), None)
+    if pending is None:
+        raise EngineError("decide.nothing_pending", f"{ref} is not a pending rating signal of run {ctx.run_id}")
+    axis = pending["axis"]
+    reason = "; ".join(f"{s['step_path']} suggests {axis} {s['suggested']}: {s['reason']}" for s in pending["signals"])
+    if note:
+        reason += f" (the owner: {note})"
+    if decision == "retriage":
+        _retriage_check(ctx, reason, [axis])  # refuse before recording anything
+    ctx.log.append("human_decision", actor=actor, data={"ref": ref, "kind": "rating_signal", "decision": decision, "note": note,
+                                                        "axis": axis, "signals": len(pending["signals"]), **extra})
+    if decision == "retriage":
+        return retriage(ctx, reason, axes=[axis], actor=actor)
+    return Outcome(ref, 0, "recorded", [f"dismissed: {axis} stays {pending['rating']}"], refresh(ctx), _completed(ctx))
 
 
 FINDING_DECISIONS = ("accept-risk",)
@@ -3490,11 +3576,11 @@ class Api:
 
         return self._mutate(run_id, body)
 
-    def retriage(self, run_id: str, reason: str) -> dict[str, Any]:
-        """Rerun triage (§5.5); the new level waits on the owner's decision at the triage step."""
+    def retriage(self, run_id: str, reason: str, axes: list[str] | None = None) -> dict[str, Any]:
+        """Rerun triage (§5.5), reassessing ``axes`` if given; the new ratings wait on the owner's decision at the triage step."""
 
         def body(ctx: RunContext) -> dict[str, Any]:
-            outcome = retriage(ctx, reason, actor=self.director.actor)
+            outcome = retriage(ctx, reason, axes=axes or None, actor=self.director.actor)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
         return self._mutate(run_id, body)
