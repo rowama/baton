@@ -288,3 +288,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0148 Project documents: framing does not show roles yet, and a role is required unless it says otherwise](decisions/0148-project-documents-framing-deferred.md) | accepted |
 | [0149 Baton has one software recipe, eng-process, tailored deeply enough for every scale](decisions/0149-one-software-recipe.md) | accepted |
 | [0150 Project guidance is an opt-in review process run in short, repeatable runs](decisions/0150-project-review-opt-in.md) | accepted |
+| [0151 Project policy: permissions are the release authority, hand edits wait for confirmation, re-triage takes current policy](decisions/0151-project-policy-details.md) | accepted |
+| [0152 Project review: framing's selection generalized, a catalog recipe, metadata-only summary, bindings in proposals](decisions/0152-project-review-details.md) | accepted |

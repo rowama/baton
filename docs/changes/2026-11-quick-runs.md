@@ -117,3 +117,9 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** Change doc written from Decision 0145 and `docs/catchall/project-process-linkage.md` (§5 E), against what `2026-11-project-documents` and `2026-11-tailoring-axes` built. No code changed.
 - **Owner decision:** 2026-11-14, "Write the B, D, E and F change proposals". The Request is not yet accepted; the open questions above are unanswered.
 - **Accepted:** No; proposal only.
+
+### Open questions deferred
+
+- **Summary:** The owner deferred this change's open questions to discuss questions 1 (how recipe builder skips the full path) and 5 (starting a quick run from a catalog guide without recipe builder) first. All six remain open. No code changed.
+- **Owner decision:** 2026-11-14, "Defer for E and F until later. I have to discuss E1 and E5 first."
+- **Accepted:** No; proposal only.

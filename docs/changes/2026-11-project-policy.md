@@ -3,7 +3,7 @@ id: 2026-11-project-policy
 title: "A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work"
 status: proposed
 level: major
-decisions: ["0143", "0050", "0144", "0147"]
+decisions: ["0143", "0151", "0050", "0144", "0147"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md]
 manual: [admin/project-settings.md, admin/director-commands.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, reference/project-settings.md, reference/commands.md]
 ---
@@ -40,18 +40,18 @@ Tailoring axes (`2026-11-tailoring-axes`, done) supply the ratings that floors a
 
 ### Open questions
 
-New questions this change raises, each with a suggested answer, to be put to the owner in one batch before Design.
+None open. The six questions this change raised were answered by the owner on 2026-11-14 ("Accept all for B and D.") as suggested, and are recorded in Decision [0151](../decisions/0151-project-policy-details.md):
 
-1. **Is release authority a new policy block, or the existing permissions?** *Suggested:* the existing `permissions` (§13.7) *are* the release-authority policy. They move under the recorded-change rule but keep their key, values and enforcement. *Rationale:* Baton already enforces push, tag, merge and deploy authority (0050). A second block would duplicate it, and principle 2 prefers generalizing an existing mechanism.
-2. **How is a hand edit to `project.yaml` treated?** 0143 says policy changes only through a recorded decision, but the file is the owner's and can be edited directly. *Suggested:* detect it, never refuse the file. Runs keep the last recorded policy until the owner confirms the edit (`policy confirm`). *Rationale:* determinism (an unrecorded edit cannot loosen a floor behind the owner's back) without making the file read-only.
-3. **What does a floor "for all recipes" mean when axes belong to each recipe?** *Suggested:* `floors: {"*": {assurance: medium}}` applies to every recipe that declares an `assurance` axis whose scale includes `medium`, and to no other. `check` warns when it matches nothing. *Rationale:* recipes own their axes (0144). A cross-recipe floor can only be matched by name, and a silent mismatch should be visible.
-4. **Which policy does re-triage use?** 0143 pins policy at run start. *Suggested:* re-triage applies the current policy and records the new hash. *Rationale:* re-triage is when the owner reconsiders the run, and 0143 already names it as the way a run takes up newer policy.
-5. **Where does a governing recipe show up?** Framing's listing is frozen until the project review change (0148). *Suggested:* in `catalog.summaries`, `recipes()` and the Director skill now; in framing's and the project review's proposals with `2026-11-project-review`. *Rationale:* recipe builder and the Director already read the summaries, and changing framing's inputs would break open `baton-frame@1` runs.
-6. **Do workers see the policy?** *Suggested:* only through an explicitly declared `project.policy` input. *Rationale:* packets that don't ask for it stay unchanged and their hashes stable, and steps that need it can say so.
+1. Release authority is the existing action permissions (§13.7), brought under the recorded-change rule; no second block.
+2. A hand edit to the policy is detected, never refused; runs keep the last recorded policy until the owner confirms it.
+3. A `"*"` floor applies only to recipes that declare that axis with that value; `check` warns when it matches nothing.
+4. Re-triage applies the policy current at the time and records its hash.
+5. Governing recipes show in `catalog.summaries`, `recipes()` and the Director skill now; in proposals with `2026-11-project-review`.
+6. Workers see the policy only through a declared `project.policy` input.
 
 ## Design
 
-Provisional, for review with the Request; settled once the open questions are answered.
+For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
 
 ### Shape
 
@@ -88,11 +88,11 @@ Provisional, for review with the Request; settled once the open questions are an
 - [0143](../decisions/0143-project-policy.md) (accepted): the three policies, where they live, pinning, advisory governing recipe, the concept.
 - [0050](../decisions/0050-action-permissions.md) (accepted): action permissions, kept and brought under policy.
 - [0144](../decisions/0144-tailoring-axes.md), [0147](../decisions/0147-tailoring-axes-details.md) (accepted): the axes floors act on.
-- The open questions above become records when decided.
+- [0151](../decisions/0151-project-policy-details.md) (accepted): permissions as release authority, hand edits, `"*"` floors, re-triage's policy, where governing recipes show, `project.policy`.
 
 ## Plan
 
-Provisional slices, refined once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
+Slices as proposed; refined, if needed, once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
 
 ### Slice 1: recorded policy
 
@@ -119,3 +119,9 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** Change doc written from Decision 0143 and `docs/catchall/project-process-linkage.md` (§5 B), against what `2026-11-project-documents` and `2026-11-tailoring-axes` built. Found that release authority already exists as action permissions (§13.7), so the proposal brings them under policy instead of adding a second mechanism. No code changed.
 - **Owner decision:** 2026-11-14, "Write the B, D, E and F change proposals". The Request is not yet accepted; the open questions above are unanswered.
 - **Accepted:** No; proposal only.
+
+### Open questions answered
+
+- **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0151. The Request has no open questions; the Design is ready for approval. No code changed.
+- **Owner decision:** 2026-11-14, "Accept all for B and D." (0151).
+- **Accepted:** Request and Design await the owner's approval.

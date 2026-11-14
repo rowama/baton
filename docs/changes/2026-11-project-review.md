@@ -3,7 +3,7 @@ id: 2026-11-project-review
 title: "An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on"
 status: proposed
 level: major
-decisions: ["0150", "0069", "0044", "0062", "0066", "0068", "0142", "0148"]
+decisions: ["0150", "0152", "0069", "0044", "0062", "0066", "0068", "0142", "0148"]
 touches: [principles.md, design/recipes.md, design/adoption-and-framing.md, design/runtime.md, design/director-interface.md]
 manual: [recipes/project-review.md, recipes/baton-frame.md, user/start-with-a-goal.md, user/check-on-your-work.md, admin/director-commands.md, reference/commands.md]
 ---
@@ -33,18 +33,18 @@ Project documents (`2026-11-project-documents`) and tailoring axes (`2026-11-tai
 
 ### Open questions
 
-New questions this change raises, each with a suggested answer, to be put to the owner in one batch before Design.
+None open. The six questions this change raised were answered by the owner on 2026-11-14 ("Accept all for B and D.") as suggested, and are recorded in Decision [0152](../decisions/0152-project-review-details.md):
 
-1. **Where does the selection mechanism live?** *Suggested:* generalize framing's: a step may declare `proposes_runs: true`. Its output then follows the proposal schema, and the runtime supplies the selection gate, starts, gaps and plan rendering for it. Framing becomes its first user, unchanged. *Rationale:* principle 2 prefers generalizing to a parallel mechanism, and a deterministic start "exactly as recorded" (0066) is what makes recommendations safe to act on. The alternative, a recipe whose Director starts the chosen runs by hand, would lose that.
-2. **Is the review a catalog recipe or built in?** *Suggested:* a catalog recipe (`project-review@1`), vendored on first use like any catalog recipe, so a project can specialize it with recipe builder. *Rationale:* project-management practice varies by organization and owner. A built-in recipe changes only with the runtime and can't be tailored. "Not built in by default" (0150) is met either way, since it runs only when chosen.
-3. **What does `project.summary` include, and what not?** *Suggested:* metadata only, as listed above, never document contents. Contents reach the review only through its declared roles. *Rationale:* a bounded, deterministic input. Contents the owner has chosen to bind are what the review should reason from, not whatever happens to be in the repo.
-4. **Does framing gain bindings now, as `baton-frame@2`?** *Suggested:* yes, in this change, since 0148 deferred it here. Framing's proposals may then carry bindings for parts that build on documents the project already has. *Rationale:* one proposal schema for both users of the mechanism. A new version keeps open `@1` runs intact (§5.8).
-5. **Can a review recommend adopting existing work** (0044, framing for mature projects)? *Suggested:* not as a startable proposal in this change. The review may say in its reasons that existing work could be brought under a recipe, and the Director then follows the existing `adopt` flow (§11.1). *Rationale:* adoption is its own flow with a baseline decision. Making it a proposal kind is worth doing only once reviews are in use.
-6. **How is the suggested order expressed?** *Suggested:* each proposal may carry `position` (1, 2, …) and `waits_on` (other proposals or existing runs, each with a reason). These are shown, never enforced. *Rationale:* advice in a form the plan can render and the owner can read, with no scheduling semantics (§1.3).
+1. Framing's selection is generalized: a step declaring `proposes_runs: true` gets the selection gate, starts, gaps, plan rendering and `start --from-plan`; framing is its first user, unchanged.
+2. The review is a catalog recipe, `project-review@1`, specializable with recipe builder.
+3. `project.summary` is metadata only; contents reach a review only through its declared roles.
+4. Framing gains bindings now, as `baton-frame@2`; open `@1` runs keep `@1`.
+5. Adoption is not a startable proposal here; a review may mention it, and the Director follows `adopt`.
+6. Suggested order is `position` and `waits_on` with reasons, shown and never enforced.
 
 ## Design
 
-Provisional, for review with the Request; settled once the open questions are answered.
+For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
 
 ### Shape
 
@@ -77,11 +77,11 @@ Provisional, for review with the Request; settled once the open questions are an
 - [0069](../decisions/0069-process-plan-lists-not-schedules.md), [0062](../decisions/0062-framing-mechanism-kept-presentation-fixed.md), [0066](../decisions/0066-start-from-plan.md), [0068](../decisions/0068-breakdown-rendered-by-runtime.md) (accepted): framing's rules, kept and generalized.
 - [0044](../decisions/0044-framing-mature-projects-deferred.md) (accepted): mature-project framing, still deferred (open question 5).
 - [0142](../decisions/0142-project-documents-bound-by-role.md), [0148](../decisions/0148-project-documents-framing-deferred.md) (accepted): bindings, and their deferral to this change.
-- The open questions above become records when decided.
+- [0152](../decisions/0152-project-review-details.md) (accepted): generalized selection, a catalog recipe, metadata-only summary, `baton-frame@2`, no adoption proposals, `position` and `waits_on`.
 
 ## Plan
 
-Provisional slices, refined once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
+Slices as proposed; refined, if needed, once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
 
 ### Slice 1: framing's selection, generalized
 
@@ -114,3 +114,9 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** Change doc written from Decision 0150 (recorded from the owner's statements of 2026-11-13) and `docs/catchall/project-process-linkage.md` (§5 D), against what `2026-11-project-documents` built and 0148 deferred. No code changed.
 - **Owner decision:** 2026-11-14, "Write the B, D, E and F change proposals". The Request is not yet accepted; the open questions above are unanswered.
 - **Accepted:** No; proposal only.
+
+### Open questions answered
+
+- **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0152. The Request has no open questions; the Design is ready for approval. No code changed.
+- **Owner decision:** 2026-11-14, "Accept all for B and D." (0152).
+- **Accepted:** Request and Design await the owner's approval.
