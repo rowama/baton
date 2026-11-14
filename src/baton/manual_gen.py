@@ -17,7 +17,7 @@ import typing
 import yaml
 from pydantic import BaseModel
 
-from . import data, manual, recipe, vocab
+from . import data, manual, recipe, tailoring, vocab
 from . import known_workers as kw
 
 
@@ -111,7 +111,10 @@ def _human(text: str) -> str:
 
 def parts_table(root: Path, labels: dict[str, str]) -> str:
     """What the recipe does, step by step, and where the owner is asked: read from the recipe itself (§5.5)."""
-    plan = recipe.build_plan(recipe.load_recipe(root))
+    loaded = recipe.load_recipe(root)
+    if tailoring.is_multi(loaded.recipe.complexity):
+        return axes_table(loaded, labels) + documents_table(loaded.recipe)
+    plan = recipe.build_plan(loaded)
     levels = [lv.level for lv in plan.levels]
     order: list[str] = []
     for lv in plan.levels:
@@ -140,6 +143,51 @@ def parts_table(root: Path, labels: dict[str, str]) -> str:
     head = ["| Part | When | You are asked |", "|---|---|---|"]
     note = "" if levels == [None] else f"\n\nThe size of the work is {', '.join(f'**{lv}**' for lv in levels)}. The first part works out which one fits, and you confirm it above the smallest."
     return "\n".join(head + rows) + note + documents_table(recipe.load_recipe(root).recipe)
+
+
+def _when(applies_to: Any) -> str:
+    """``when discovery is medium or high, or assurance is high``."""
+    cond = tailoring.conditions(applies_to) or {}
+    return "when " + ", or ".join(f"{a} is {' or '.join(v)}" for a, v in cond.items())
+
+
+def axes_table(loaded: Any, labels: dict[str, str]) -> str:
+    """The parts table of a recipe that rates work on axes: when each part runs, by rating (§5.5)."""
+    cx = loaded.recipe.complexity
+    plan = recipe.build_plan(loaded)
+    nodes: dict[str, Any] = {}
+
+    def index(ns: list[Any], prefix: str, inherited: Any) -> None:
+        for n in ns:
+            path = f"{prefix}{n.id}"
+            nodes[path] = (n, n.applies_to if n.applies_to is not None else inherited)
+            if hasattr(n, "steps") and n.is_group:
+                index(n.steps, path + "/", nodes[path][1])
+
+    index(loaded.recipe.steps, "", None)
+    guarded = [a for a in tailoring.scales(cx) if tailoring.confirm_lowest(cx, a)]
+    rows = []
+    for st in plan.levels[0].steps:
+        node, applies = nodes[st.path]
+        title = labels.get(st.path) or (st.title[:1].upper() + st.title[1:])
+        when = "always" if applies is None else _when(applies)
+        asks = []
+        for g in st.gates:
+            if g.type != "human" or g.blocking is False:
+                continue
+            if g.implicit:
+                asks.append("Are the ratings right?")
+        for g in getattr(node, "gates", []):
+            if g.type == "human" and not g.advisory:
+                asks.append(g.prompt + (f" ({_when(g.applies_to)})" if g.applies_to is not None else ""))
+        indent = "↳ " if st.depth else ""
+        rows.append(f"| {indent}{_human(title)} | {_human(when)} | {_human('; '.join(asks)) if asks else 'nothing'} |")
+    head = ["| Part | When | You are asked |", "|---|---|---|"]
+    axes = ", ".join(f"**{a}** ({', '.join(s)})" for a, s in tailoring.scales(cx).items())
+    also = f" (for {', '.join(guarded)}, its lowest too)" if guarded else ""
+    note = (f"\n\nThe work is rated on {axes}. The first part rates each, with its reason, and you confirm the ratings "
+            f"unless every one is at its lowest{also}.")
+    return "\n".join(head + rows) + note
 
 
 def documents_table(r: Any) -> str:

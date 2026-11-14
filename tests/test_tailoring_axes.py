@@ -617,3 +617,88 @@ def test_a_signal_in_a_one_axis_run_names_the_level(tmp_path, store):
     out = engine.decide(one, "rating:level", "retriage", "")
     (req,) = events(one, "retriage_requested")
     assert req.data["previous_level"] == "minor" and req.data["axes"] == ["level"]
+
+
+# -- summaries, adoption and the manual (Slice 4) --------------------------
+
+
+def test_the_manual_table_shows_when_each_part_runs_by_rating(tmp_path):
+    from baton import manual_gen
+
+    table = manual_gen.parts_table(write_recipe(tmp_path / "r"), {})
+    assert "| Triage | always | Are the ratings right? |" in table
+    assert "| Explore | when discovery is medium or high | nothing |" in table
+    assert "| Build | always | Accept the build? (when assurance is high) |" in table
+    assert "| ↳ Recover | when assurance is high | nothing |" in table
+    assert "| ↳ Probe | when assurance is high | nothing |" in table  # with its group
+    assert ("The work is rated on **discovery** (low, medium, high), **assurance** (low, medium, high). The first part rates "
+            "each, with its reason, and you confirm the ratings unless every one is at its lowest (for assurance, its lowest too).") in table
+
+
+def test_summaries_show_a_recipes_axes(tmp_path):
+    from baton.adopt import recipe_summary
+    from baton.frame import _summary
+
+    loaded = load_recipe(write_recipe(tmp_path / "r"))
+    axes = {"discovery": {"scale": ["low", "medium", "high"]}, "assurance": {"scale": ["low", "medium", "high"], "confirm_lowest": True}}
+    s = _summary(loaded, vendored=True, with_scope=True)
+    assert s["axes"] == axes and s["levels"] == []
+    r = recipe_summary(loaded)
+    assert r["axes"] == axes and "levels" not in r and r["triage_step"] == "triage"
+    explore = next(n for n in r["steps"] if n["path"] == "explore")
+    assert explore["applies_to"] == {"discovery": ["medium", "high"]}
+    build = next(n for n in r["steps"] if n["path"] == "build")
+    assert build["gates"][1]["applies_to"] == {"assurance": ["high"]}
+
+
+@pytest.mark.slow
+def test_an_adoption_baseline_carries_editable_ratings(tmp_path):
+    from projectkit import Cli, git, make_git_project, make_home, packet_dir
+
+    from test_adoption import PERSON
+
+    project = make_git_project(tmp_path / "proj")
+    cli = Cli(project, make_home(tmp_path / "home", PERSON))
+    git(project, "commit", "-q", "--allow-empty", "-m", "Prior work")
+    out = cli.run("adopt", str(write_recipe(tmp_path / "axes")))
+    adoption = out["adoption"]
+
+    def play(run: str, step: str, output: Any, expect: int = 0) -> dict:
+        d = cli.run("dispatch", run, step, "--worker", "owner")
+        pdir = packet_dir(project, run, step, d["attempt"])
+        manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
+        (pdir.parent / "result" / "result.json").write_text(json.dumps({
+            "protocol": "baton-packet/1", "packet_sha256": manifest["packet_sha256"], "status": "completed", "output": output}), encoding="utf-8")
+        return cli.run("submit", run, step, expect=expect)
+
+    play(adoption, "research", {
+        "evidence": [], "proposed_seeds": [], "agent_config": [], "path_candidates": {}, "command_candidates": {}, "gaps": [],
+        "work_items": [{"key": "fix", "title": "Tenant fix", "status": "in_flight", "position": "not started", "inputs": {"title": "Tenant fix"}}],
+    })
+    (run,) = [v["run_id"] for v in cli.run("adopt", "axes")["runs"].values()]
+    out = play(run, "triage", rate(discovery="low", assurance="medium"))
+    assert out["outcome"] == "passed" and not out["needs_owner"]  # the baseline approves the ratings
+    bpath = project / ".baton" / "adoption" / adoption / "baseline.yaml"
+    cli.run("adopt", "axes", expect=4)
+    text = bpath.read_text(encoding="utf-8")
+    doc = yaml.safe_load(text)
+    (item,) = doc["work_items"]
+    assert item["ratings"] == {"discovery": "low", "assurance": "medium"} and "level" not in item
+    assert item["rating_reasons"] == {"discovery": "discovery is low here", "assurance": "assurance is medium here"}
+    assert item["plan"]["skip"] == ["explore", "checks"]
+
+    header = text[: text.index("format:")] if "format:" in text else ""
+    item["ratings"]["assurance"] = "extreme"
+    bpath.write_text(header + yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    bad = cli.run("establish-baseline", adoption, "--note", "go", expect=None)
+    assert "assurance 'extreme' is not one of ['low', 'medium', 'high']" in json.dumps(bad)
+
+    item["ratings"]["assurance"] = "high"  # the owner edits a rating like a level
+    bpath.write_text(header + yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    cli.run("establish-baseline", adoption, "--note", "it touches tenant access")
+    events = [json.loads(line) for line in (project / ".baton" / "runs" / run / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    (cs,) = [e for e in events if e["type"] == "complexity_set"]
+    assert cs["data"]["ratings"] == {"discovery": "low", "assurance": "high"} and cs["data"]["approval"] == "baseline"
+    st = cli.run("status", run)
+    assert st["ratings"] == {"discovery": "low", "assurance": "high"}
+    assert st["steps"]["checks"]["state"] != "skipped" and st["steps"]["explore"]["state"] == "skipped"

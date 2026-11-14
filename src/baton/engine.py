@@ -1958,13 +1958,22 @@ def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, deci
         if wv:
             data["waivers"] = wv
         seeds.append({"step": e["step"], **({"item": e["item"]} if e.get("item") is not None else {}), "data": data})
+    cx = ctx.recipe.recipe.complexity
+    if tailoring.is_multi(cx):  # the baseline's ratings (§11.5)
+        ratings = tailoring.ordered(cx, item.get("ratings")) if isinstance(item.get("ratings"), dict) else None
+        log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "ratings": ratings, "seeds": seeds})
+        if ratings is not None:
+            cs: dict[str, Any] = {"ratings": ratings, "approval": "baseline", "decision_id": decision_id}
+            if isinstance(item.get("rating_reasons"), dict):
+                cs["reasons"] = dict(item["rating_reasons"])
+            log.append("complexity_set", step_path=cx.triage_step, data=cs)
+        return Outcome("", 0, "baseline_established", [], refresh(ctx), _completed(ctx))
     level = item.get("level")
     log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "level": level, "seeds": seeds})
     if level is not None:
-        cs: dict[str, Any] = {"level": level, "approval": "baseline", "decision_id": decision_id}
+        cs = {"level": level, "approval": "baseline", "decision_id": decision_id}
         if item.get("level_reasons"):
             cs["reasons"] = list(item["level_reasons"])
-        cx = ctx.recipe.recipe.complexity
         log.append("complexity_set", step_path=cx.triage_step if cx else None, data=cs)
     ready = refresh(ctx)
     return Outcome("", 0, "baseline_established", [], ready, _completed(ctx))

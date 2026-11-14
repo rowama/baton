@@ -17,7 +17,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from . import diag
+from . import diag, tailoring
 from .packet import EngineError
 
 FRAME_RECIPE = "baton-frame@1"
@@ -46,8 +46,12 @@ def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str,
     schema = loaded.schemas[r.run_inputs.schema_] if r.run_inputs is not None else None
     out = {
         "id": r.id, "version": r.version, "description": r.description or "",
-        "levels": list(r.complexity.levels) if r.complexity else [], "run_inputs": schema, "vendored": vendored,
+        "levels": list(r.complexity.levels) if r.complexity and r.complexity.levels else [], "run_inputs": schema, "vendored": vendored,
     }
+    if tailoring.is_multi(r.complexity):  # a recipe that rates work on axes (§5.5)
+        from .adopt import axes_summary
+
+        out["axes"] = axes_summary(r.complexity)
     if with_scope:  # the `catalog.summaries` input (§5.2) also carries what the recipe covers (§5.1)
         out["scope"] = r.scope.model_dump(mode="json") if r.scope is not None else None
         if r.project_inputs:  # and the project documents it can build on, by role (Decisions 0142, 0148)

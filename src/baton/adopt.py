@@ -15,6 +15,7 @@ re-checks it (``check_baseline``) and applies it as the owner's one decision.
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import os
 import re
@@ -354,7 +355,7 @@ def recipe_summary(loaded: LoadedRecipe) -> dict[str, Any]:
         path = f"{prefix}{n.id}"
         d: dict[str, Any] = {"path": path, "title": n.title or n.id, "depends_on": list(n.depends_on)}
         if n.applies_to is not None:
-            d["applies_to"] = list(n.applies_to)
+            d["applies_to"] = copy.deepcopy(n.applies_to)
         if isinstance(n, Group):
             d["kind"] = "group"
             if n.foreach:
@@ -364,12 +365,15 @@ def recipe_summary(loaded: LoadedRecipe) -> dict[str, Any]:
         d["kind"] = "step"
         d["output_schema"] = output_schema_for(loaded, n) if n.output_schema else None
         d["artifacts"] = [{"name": a.name, "required": a.required, **({"media_type": a.media_type} if a.media_type else {})} for a in n.artifacts]
-        d["gates"] = [{"index": i, "type": g.type, **({"applies_to": list(g.applies_to)} if g.applies_to else {})} for i, g in enumerate(n.gates)]
+        d["gates"] = [{"index": i, "type": g.type, **({"applies_to": copy.deepcopy(g.applies_to)} if g.applies_to else {})} for i, g in enumerate(n.gates)]
         return d
 
     out: dict[str, Any] = {"recipe": r.ref, "description": r.description, "steps": [node(n) for n in r.steps]}
     if r.complexity is not None:
-        out["levels"] = list(r.complexity.levels)
+        if tailoring.is_multi(r.complexity):
+            out["axes"] = axes_summary(r.complexity)
+        else:
+            out["levels"] = list(r.complexity.levels)
         out["triage_step"] = r.complexity.triage_step
     if r.run_inputs is not None:
         out["run_inputs_schema"] = loaded.schemas[r.run_inputs.schema_]
@@ -504,7 +508,8 @@ def check_seeds(
             continue
         for n in ([group] if group is not None else []) + [node]:
             if not _included(n, level):
-                s.reasons.append(f"{n.id} is not included at level {level!r}")
+                at = f"ratings {tailoring.describe(level)}" if isinstance(level, dict) else f"level {level!r}"
+                s.reasons.append(f"{n.id} is not included at {at}")
         if s.reasons:
             continue
         output = s.raw.get("output")
@@ -729,11 +734,13 @@ def propose(
     files: dict[str, str] = {}
     for key, ctx in runs.items():
         loaded = ctx.recipe
-        level, reasons = triage_level(ctx)
+        multi = tailoring.is_multi(loaded.recipe.complexity)
+        level, reasons = triage_ratings(ctx) if multi else triage_level(ctx)
         entries, waivers, attested, read = check_seeds(ctx, seeds_by_item.get(key, []), level, project_vars=project_yaml["project"])
         files.update(read)
+        rated = {"ratings": level, "rating_reasons": reasons} if multi else {"level": level, "level_reasons": reasons}
         items.append({
-            "key": key, "run": ctx.run_id, "title": ctx.record().started.get("title"), "level": level, "level_reasons": reasons, "create": True,
+            "key": key, "run": ctx.run_id, "title": ctx.record().started.get("title"), **rated, "create": True,
             "seeds": entries, "waivers": waivers, "attested": attested, "plan": plan_for(loaded, level, entries),
         })
     return {
@@ -748,6 +755,36 @@ def propose(
         "gaps": gaps,
         "files": dict(sorted(files.items())),
     }
+
+
+def axes_summary(cx: Any) -> dict[str, Any]:
+    """A recipe's axes for summaries: each scale, and whether its lowest also asks the owner (§5.5)."""
+    return {a: {"scale": s, **({"confirm_lowest": True} if tailoring.confirm_lowest(cx, a) else {})} for a, s in tailoring.scales(cx).items()}
+
+
+def triage_ratings(ctx: RunContext) -> tuple[dict[str, str] | None, dict[str, str]]:
+    """A work item's ratings and reasons from its triage result (a recipe with axes, §11.5)."""
+    cx = ctx.recipe.recipe.complexity
+    reg = ctx.record().registered(cx.triage_step)
+    if reg is None or not reg.get("output_sha256"):
+        return None, {}
+    out = json.loads(ctx.log.cas.read(reg["output_sha256"]))
+    if not isinstance(out, dict):
+        return None, {}
+    ratings, reasons = tailoring.from_output(cx, out)
+    return ratings, {a: r for a, r in reasons.items() if r}
+
+
+def ratings_problems(cx: Any, ratings: Any) -> list[str]:
+    """Why a baseline's ``ratings`` are not one value on every axis; ``[]`` when they are."""
+    sc = tailoring.scales(cx)
+    if not isinstance(ratings, dict):
+        return [f"ratings must give a value for every axis ({', '.join(sc)})"]
+    out = [f"axis {a!r} is not declared" for a in ratings if a not in sc]
+    for a, scale in sc.items():
+        if ratings.get(a) not in scale:
+            out.append(f"{a} {ratings.get(a)!r} is not one of {scale}")
+    return out
 
 
 def triage_level(ctx: RunContext) -> tuple[str | None, list[str]]:
@@ -819,10 +856,17 @@ def check_baseline(project: Any, adoption: RunContext, doc: dict[str, Any], runs
         if not w.get("create", True):
             continue
         cx = ctx.recipe.recipe.complexity
-        level = w.get("level")
-        if cx is not None and level not in cx.levels:
-            problems.append(f"work item {key!r}: level {level!r} is not one of {cx.levels}")
-            continue
+        if tailoring.is_multi(cx):
+            level = w.get("ratings")
+            bad = ratings_problems(cx, level)
+            if bad:
+                problems += [f"work item {key!r}: {b}" for b in bad]
+                continue
+        else:
+            level = w.get("level")
+            if cx is not None and level not in cx.levels:
+                problems.append(f"work item {key!r}: level {level!r} is not one of {cx.levels}")
+                continue
         chosen = [s for s in w.get("seeds") or [] if isinstance(s, dict) and s.get("import")]
         raw = [_raw_seed(s) for s in chosen]
         entries, _w, _a, _f = check_seeds(ctx, raw, level, run_gates=False)
