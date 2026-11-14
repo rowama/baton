@@ -1,7 +1,7 @@
 ---
 id: 2026-11-project-documents
 title: "Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled"
-status: in-progress
+status: done
 level: major
 decisions: ["0142", "0146", "0148"]
 touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/persistence.md, design/director-interface.md, design/layouts.md]
@@ -53,7 +53,7 @@ Approved by the owner with the Request on 2026-11-13 ("Implement project-documen
 
 - **Identity and versions.** A project document is its path (0146). Its versions are, in order, each `artifact_published` at that path in any run (once its step passed) and each attestation of it; its current state is the living file's hash, compared with the latest version (`unchanged`, `edited` or `deleted`).
 - **Project log and CAS.** Attestations are `document_attested {path, sha256, note, decision_id}` (after `human_decision {kind: attest}`) in the project log, with the blob in `.baton/project/cas/`. Deliverables need no new event: `documents()` reads `artifact_published` from every run (§10.4) and the project log's attestations, then hashes the living files.
-- **Recipe format.** A top-level `project_inputs:` list; a role is required unless it says `required: false` (0148). `project.<role>` joins the closed grammar of §5.2. The loader and the neutrality lint check it (§5.3). `many: true` makes the input a list in the packet (`inputs/<role>/<n>.<ext>`, in binding order). Recipe hashes change only for recipes that use it.
+- **Recipe format.** A top-level `project_inputs:` list; a role is required unless it says `required: false` (0148). `project.<role>` joins the closed grammar of §5.2. The loader and the neutrality lint check it (§5.3). `many: true` makes the input a list in the packet (`inputs/<input name>/<n>.<ext>`, in binding order). Recipe hashes change only for recipes that use it.
 - **Binding.** `bind` and `start --bind` are owner-approved actions (the runtime requires the words; the Director skill requires the actual approval, as for `waive`). The bound content is the living file at binding time (0146), copied into the run's CAS, so the run stays self-contained and resumable on another machine (§10.3). The event records `edited_since_accepted` when that file differs from the document's latest version, and the Director's confirm-back says so in plain words.
 - **Packet.** The packet builder (§8.6) resolves `project.<role>` from the latest `project_input_bound` for that role. Manifest inputs gain a `source` field for project inputs (`{kind, path, run?, step?, artifact?, decision_id?}`), so a worker knows it holds, say, the owner-attested business plan.
 - **Rebinding** reuses the stale machinery of `revise` (§8.9): the consuming steps are found from the run's `packet_built` records (each records its inputs' hashes), and they and their accepted dependents become `stale`, group instances included, as `revise` does. A consumer that is the triage step cannot be made stale (§5.5): rebinding its role is refused with a pointer to `retriage`, which reruns triage with the new binding.
@@ -172,4 +172,9 @@ Each slice carries its tests, design and manual edits and Log entry, and follows
 - **Commit:** `2026-11-project-documents: Slice 5, the Director's binding conversation and the manual`
 - **Summary:** The Director skill gains *Documents the work builds on* (propose from `documents` by role description and path, never by reading content; confirm back, saying when a document was edited after approval; `start --bind` or `bind` with the owner's words; never bind or attest on its own judgment; report `upstream_changes` and say what a rebinding redoes), copied into §13.3. Step records list a project input's path, version, provenance and edit flag; the run summary gains *Project documents* (each role and every binding with the owner's words) and timeline lines for bindings and rebound staleness. Manual: `user/start-with-a-goal.md` (later pieces build on earlier ones), `user/check-on-your-work.md` (the documents the work uses, newer versions), `user/answer-questions-and-decide.md` (confirming a document, vouching for a file, switching), anchors refreshed. Design: §10.6, §13.3. Tests: the skill names `documents`, `attest` and `bind` and holds the new rules; an end-to-end scenario: a setup run publishes a plan, a marketing run binds it, its step record names the document, the plan is edited and reported, the owner rebinds (the consumer goes stale and re-runs with the edit), the run completes and its summary lists both bindings with the owner's words.
 - **Review:** clean.
+- **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".
+
+### Finished
+
+- **Summary:** Every acceptance criterion is demonstrated by `tests/test_project_documents.py` (36 tests) and the skill assertions in `tests/test_director_surface.py`; goldens are unchanged. Status `done`; register row updated. The full suite is required green on this commit's SHA.
 - **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".

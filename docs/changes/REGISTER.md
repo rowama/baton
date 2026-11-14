@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-project-documents](2026-11-project-documents.md) | Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled | in-progress | major | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-documents, 2026-11-project-policy and 2026-11-tailoring-axes |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
@@ -25,6 +24,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-framing-perspective](2026-11-framing-perspective.md) | The Director bridges the process and owner perspectives; framing's breakdown and the owner's notes are kept as project documents | done | standard | |
 | [2026-11-model-listings](2026-11-model-listings.md) | Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred | done | major | |
 | [2026-11-not-offered-reasons](2026-11-not-offered-reasons.md) | Worker status says which catalog it read and exactly why a generated profile is no longer offered | done | minor | |
+| [2026-11-project-documents](2026-11-project-documents.md) | Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled | done | major | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | done | major | |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | done | standard |  |
 | [2026-11-setup-ui](2026-11-setup-ui.md) | A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file | done | major | |
