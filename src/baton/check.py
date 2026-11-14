@@ -44,6 +44,10 @@ def referenced_blobs(events: Iterable[Event]) -> set[str]:
         for key in ("inputs_sha256", "result_sha256", "output_sha256", "research_sha256", "baseline_sha256", "answer_sha256"):
             if isinstance(d.get(key), str):
                 out.add(d[key])
+        if ev.type == "document_attested" and isinstance(d.get("sha256"), str):
+            out.add(d["sha256"])
+        if ev.type == "project_input_bound":
+            out.update(x["sha256"] for x in d.get("documents") or [] if isinstance(x, dict) and isinstance(x.get("sha256"), str))
         arts = d.get("artifacts")
         if isinstance(arts, dict):
             out.update(a["sha256"] for a in arts.values() if isinstance(a, dict) and isinstance(a.get("sha256"), str))

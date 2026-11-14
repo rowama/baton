@@ -3409,6 +3409,26 @@ class Api:
                 out["checkpoint"] = cp.as_dict()
         return out
 
+    # -- project documents (§10.4; Decisions 0142, 0146) -------------------------------
+
+    def documents(self) -> dict[str, Any]:
+        """Every project document: published deliverables of accepted steps in any run, and attested files,
+        each with its accepted version, the living file's hash and state (unchanged | edited | deleted)."""
+        from . import documents
+
+        return {"documents": documents.list_documents(self.project.store)}
+
+    def attest(self, path: str, note: str) -> dict[str, Any]:
+        """The owner's attestation of a project file (their words in ``note``): recorded with its hash, kept
+        in the project CAS, and listed by ``documents`` as ``attested``. Again on the same path: a newer version."""
+        from . import documents
+
+        out = documents.attest(self.project.store, path, note, recorded_by=self.director.actor)
+        cp = self._project_checkpoint(f"attested {out['document']['path']}")
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
     def _project_checkpoint(self, phrase: str, extra: list[Path] | None = None) -> Any:
         """Commit project-level records after a call that touches no run (§10.1)."""
         from . import gitops

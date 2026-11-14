@@ -1038,6 +1038,33 @@ def note(
     _done(out, as_json, msg + (f" Noted at {out['at']}." if out.get("recorded") else ""))
 
 
+def _document_line(d: dict) -> str:
+    src = d["source"]
+    where = (f"from {src['run']} ({src['step']}.{src['artifact']})" if src["kind"] == "deliverable"
+             else f"attested ({src.get('decision_id')})")
+    state = {"unchanged": "", "edited": "; edited since accepted", "deleted": "; deleted"}[d["state"]]
+    return f"{d['path']}: {d['kind']} v{d['version']}, {where}, accepted {d['accepted_at']}{state}"
+
+
+@app.command()
+def documents(as_json: JsonOpt = False) -> None:
+    """The project's documents: deliverables accepted steps published, and files the owner attested."""
+    out = _call(as_json, lambda: _api().documents())
+    lines = [_document_line(d) for d in out["documents"]] or ["No project documents yet."]
+    _done(out, as_json, "\n".join(lines))
+
+
+@app.command()
+def attest(
+    path: Annotated[str, typer.Argument(help="A file in the project, relative to its root.")],
+    note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Record the owner's attestation of a project file, so processes can build on it (owner-approved)."""
+    out = _call(as_json, lambda: _api().attest(path, note))
+    _done(out, as_json, f"Attested {_document_line(out['document'])}")
+
+
 @app.command()
 def feedback(
     kind: Annotated[str, typer.Argument(help="friction | skipped_step | waste | confusing")],

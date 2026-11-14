@@ -89,6 +89,7 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Event log** | Append-only, hash-chained JSONL per run and per project; the source of truth. |
 | **CAS** | Content-addressed artifact store inside each run. |
 | **Lease** | Which Director may change a run right now. |
+| **Project document** | A file in the repo that the project accepted: a deliverable an accepted step published, or a file the owner attested. A recipe declares the documents it would like by **role**; a run binds a role to a document, with the owner's confirmation, and its steps receive the bound version like any other input (Decision: [0142](decisions/0142-project-documents-bound-by-role.md)). |
 | **Owner** | The human who makes the decisions. |
 
 Experts (§12) add none either: a *consultation* is a series of SME dispatches (turns); an *incident* is a platform record; a person is reached through a proxy SME, never directly.

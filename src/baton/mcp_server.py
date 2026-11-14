@@ -343,6 +343,17 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.note(text, keep_file=keep_file, note=note))
 
     @tool
+    def documents() -> dict[str, Any]:
+        """The project's documents (deliverables accepted steps published, and files the owner attested), each
+        with its accepted version and whether the file was edited or deleted since."""
+        return t.call(lambda api: api.documents())
+
+    @tool
+    def attest(path: str, note: str) -> dict[str, Any]:
+        """Record the owner's attestation of a project file (note = their words) so processes can build on it."""
+        return t.call(lambda api: api.attest(path, note))
+
+    @tool
     def feedback(kind: str, text: str, run: str | None = None, step: str | None = None, gate: str | None = None,
                  informed_owner: bool = False) -> dict[str, Any]:
         """Record process feedback (friction | skipped_step | waste | confusing)."""

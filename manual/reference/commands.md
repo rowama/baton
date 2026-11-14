@@ -55,6 +55,18 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `--timeout <float>` | With --wait: seconds to wait at most. |
 | `--json` | Machine-readable output. |
 
+## baton attest {#baton-attest}
+
+Record the owner's attestation of a project file, so processes can build on it (owner-approved).
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `path <str>` | A file in the project, relative to its root. |
+| `--note <str>` | The owner's words, recorded verbatim. |
+| `--json` | Machine-readable output. |
+
 ## baton board {#baton-board}
 
 Every non-terminal run: position, running and queued work, owner decisions owed, lease holder.
@@ -171,6 +183,16 @@ Explained in the manual: [When something is wrong](user.when-something-is-wrong#
 |---|---|
 | `--profile <str>` | Check only this worker profile. |
 | `--no-run` | Skip the no-op round trips (no model calls). |
+| `--json` | Machine-readable output. |
+
+## baton documents {#baton-documents}
+
+The project's documents: deliverables accepted steps published, and files the owner attested.
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
 | `--json` | Machine-readable output. |
 
 ## baton eligible {#baton-eligible}

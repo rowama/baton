@@ -637,7 +637,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     ),
     "project_log": (
         "platform_fact_recorded", "platform_incident_opened", "platform_incident_resolved",
-        "process_feedback", "step_skip_recorded", "note_recorded", "capability_observed",
+        "process_feedback", "step_skip_recorded", "note_recorded", "capability_observed", "document_attested",
     ),
 }
 EVENT_TYPES: frozenset[str] = frozenset(t for ts in EVENT_TYPES_BY_AREA.values() for t in ts)

@@ -84,7 +84,7 @@ baton/
 │   ├── preferences.yaml              # optional routing preferences (non-secret)
 │   ├── recipes/<id>@<version>/       # vendored, pinned recipes
 │   ├── project/events.jsonl          # project-level events (platform incidents, facts, process feedback)
-│   ├── project/sme/<c_id>/  project/cas/   # consultations without a run (§12.1), and their blobs
+│   ├── project/sme/<c_id>/  project/cas/   # consultations without a run (§12.1), and their blobs; attested files (§10.4)
 │   ├── adoption/<run_id>/baseline.yaml  # baseline proposal of an adoption (§11.5)
 │   ├── platform/facts.md             # platform facts
 │   ├── process/lessons.md            # project-level process lessons

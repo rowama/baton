@@ -48,6 +48,13 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | `ingest-revision` | Accept an edited, published file as a human revision |
 | `lease` | Claim, release or take over a run's hold; taking over needs the owner's approval |
 
+## Project documents {#documents}
+
+| Command | What it does |
+|---|---|
+| `documents` | The project's documents: files a finished part published, and files the owner vouched for, each with when it was accepted and whether it was edited or deleted since |
+| `attest <path> --note "<words>"` | Record that the owner vouches for a file in the project, with their words, so later work can build on it; again on the same file records a newer version |
+
 ## Experts {#experts}
 
 | Command | What it does |

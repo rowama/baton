@@ -137,3 +137,10 @@ Each slice carries its tests, design and manual edits and Log entry, and follows
 - **Summary:** The owner approved the Request and Design and asked for the change to be built; status `in-progress`. No code changed.
 - **Owner decision:** 2026-11-13, "Implement project-documents".
 - **Accepted:** Request and Design, yes.
+
+### Slice 1: the project's documents and attestation
+
+- **Commit:** `2026-11-project-documents: Slice 1, the project's documents and attestation`
+- **Summary:** New `documents.py` derives every project document from the run logs (`artifact_published` not kept, and owner-ingested drift revisions, which the owner accepted) and the project log (`document_attested`), orders each path's versions by time, and hashes the living file (`unchanged`, `edited`, `deleted`). `attest` records `human_decision {kind: attest}` and `document_attested` in the project log, stores the bytes in the project CAS (`Store.project_cas`) and commits them as a project checkpoint; `check` verifies those blobs. API, CLI (`baton documents`, `baton attest`) and MCP tools. Design: §2 (the concept), §8.2, §10.4, §13.1, §4.3. Manual: `admin/director-commands.md` (new section), `context.yaml`, regenerated `reference/commands.md`. Tests (`tests/test_project_documents.py`): listing across runs with edited, deleted and re-published files; a deliverable listed once its step is accepted, before the run completes; attestation recorded with words, hash, CAS blob and commit, and a second attestation as version 2; refusals (outside, `.git`, `.baton`, missing, a directory, no note); CLI, MCP and API return the same list.
+- **Review:** clean.
+- **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".

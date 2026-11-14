@@ -9,6 +9,7 @@ published:
 - admin.accounts-and-costs#price-and-quota
 - admin.director-commands
 - admin.director-commands#decisions
+- admin.director-commands#documents
 - admin.director-commands#doing
 - admin.director-commands#experts
 - admin.director-commands#here-now
@@ -203,6 +204,7 @@ published:
 - reference.commands#baton-abandon
 - reference.commands#baton-adopt
 - reference.commands#baton-ask-sme
+- reference.commands#baton-attest
 - reference.commands#baton-board
 - reference.commands#baton-cancel
 - reference.commands#baton-check
@@ -212,6 +214,7 @@ published:
 - reference.commands#baton-dispatch
 - reference.commands#baton-disposition
 - reference.commands#baton-doctor
+- reference.commands#baton-documents
 - reference.commands#baton-eligible
 - reference.commands#baton-establish-baseline
 - reference.commands#baton-explain

@@ -5,6 +5,7 @@ Layout under ``<project>/.baton/``::
     runs/<run_id>/events.jsonl     run log (hash-chained, append-only)
     runs/<run_id>/cas/<aa>/<sha>   content-addressed blobs
     project/events.jsonl           project log
+    project/cas/<aa>/<sha>         blobs the project log refers to (attested files)
     cache/state.db                 derived cache; delete it at any time
 
 **The logs are the source of truth.** Every append is checked by the state
@@ -614,6 +615,11 @@ class Store:
 
     def project_log(self) -> EventLog:
         return EventLog(self.baton / "project" / EVENTS_FILE, None, PROJECT_EVENT_TYPES, self.clock)
+
+    @property
+    def project_cas(self) -> CAS:
+        """Blobs the project log refers to: the files the owner attested (§10.4)."""
+        return CAS(self.baton / "project" / "cas")
 
     def new_run_id(self) -> str:
         day = self.clock().astimezone(timezone.utc).strftime("%Y%m%d")

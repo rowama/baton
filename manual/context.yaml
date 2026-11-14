@@ -38,6 +38,8 @@ commands:
   ingest-revision: admin.director-commands
   lease: admin.director-commands
   note: admin.director-commands
+  documents: admin.director-commands
+  attest: admin.director-commands
   platform-fact: admin.director-commands
   platform-incident: admin.director-commands
   promote-sme: admin.director-commands
