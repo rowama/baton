@@ -1,7 +1,7 @@
 ---
 id: 2026-11-project-documents
 title: "Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled"
-status: proposed
+status: in-progress
 level: major
 decisions: ["0142", "0146"]
 touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/persistence.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md]
@@ -47,7 +47,7 @@ None open. The six questions this change raised were answered by the owner on 20
 
 ## Design
 
-For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
+Approved by the owner with the Request on 2026-11-13 ("Implement project-documents").
 
 ### Shape
 
@@ -86,7 +86,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 
 ## Plan
 
-Slices as proposed; refined, if needed, once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
+Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
 
 ### Slice 1: the project's documents and attestation
 
@@ -131,3 +131,9 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0146. The Request has no open questions; the Design section now incorporates the answers and adds two details found against the code: rebinding stales the consumers' dependents as `revise` does, and a triage input is rebound through `retriage`. No code changed.
 - **Owner decision:** 2026-11-13, "Accept all." (0146).
 - **Accepted:** Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** The owner approved the Request and Design and asked for the change to be built; status `in-progress`. No code changed.
+- **Owner decision:** 2026-11-13, "Implement project-documents".
+- **Accepted:** Request and Design, yes.
