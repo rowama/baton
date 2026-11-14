@@ -24,6 +24,12 @@ A piece that cannot start yet, because its details do not fit the process or it 
 
 The breakdown is kept in the project as a plan you can read, in the folder your project's settings name for plans. It is a document like any other: edit it, commit it, share it.
 
+## Later pieces build on earlier ones {#build-on}
+
+What one piece of work settles, later pieces can use. Once your business plan is done and approved, for example, the marketing work can start from it instead of asking you everything again. When a piece of work could use a document your project already has, your assistant proposes it and asks you to confirm before the work starts: "For the marketing work I'll use your business plan, the version you approved last week. Right?" The work uses exactly the version you confirmed, and the record says which one.
+
+A document can also be one you wrote yourself, such as a plan or a set of policies. Tell your assistant it is settled and it records that you vouch for it, with your words, so later work can use it. See [confirming a document](user.answer-questions-and-decide#documents).
+
 ## From the command line {#command-line}
 
 Your assistant does this for you. If you want to do it yourself:

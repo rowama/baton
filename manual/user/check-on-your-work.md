@@ -35,3 +35,13 @@ A piece of work waits on you when it reached a point that is yours to decide or 
 ## The record of what happened {#the-record}
 
 For each piece of work, Baton keeps a readable record in the project: what each part did, what was checked and by what, and who decided what. Ask your assistant to explain how something came about; it reads the record to answer.
+
+## Documents the work uses {#documents}
+
+When a piece of work builds on a document your project already has, such as a business plan an earlier piece produced or a policy you vouched for, its record says which document and which version it used. To see every such document in your project, with when it was approved and whether it was changed since:
+
+```baton
+baton documents
+```
+
+If a document changes after a piece of work started using it, for example you edit the plan or a later piece produces a new version, nothing changes for the work under way. It keeps using the version you confirmed, and `baton status` and `baton board` tell you a newer one exists. Whether to switch to it is your choice; see [changing your mind about a document](user.answer-questions-and-decide#documents).

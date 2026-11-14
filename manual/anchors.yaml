@@ -281,6 +281,7 @@ published:
 - user.answer-questions-and-decide
 - user.answer-questions-and-decide#confirm-back
 - user.answer-questions-and-decide#confusing
+- user.answer-questions-and-decide#documents
 - user.answer-questions-and-decide#here-now
 - user.answer-questions-and-decide#the-choices
 - user.bring-an-existing-project
@@ -289,6 +290,7 @@ published:
 - user.bring-an-existing-project#what-you-decide
 - user.bring-an-existing-project#which-process
 - user.check-on-your-work
+- user.check-on-your-work#documents
 - user.check-on-your-work#here-now
 - user.check-on-your-work#one-piece
 - user.check-on-your-work#the-record
@@ -326,6 +328,7 @@ published:
 - user.long-running-work#here-now
 - user.long-running-work#one-at-a-time
 - user.start-with-a-goal
+- user.start-with-a-goal#build-on
 - user.start-with-a-goal#command-line
 - user.start-with-a-goal#here-now
 - user.start-with-a-goal#what-happens

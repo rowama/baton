@@ -62,7 +62,7 @@ Decision: [0039](../decisions/0039-drift.md).
 
 ### 10.6 Records and explain
 
-- **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes, output, artifacts (CAS hash and published path), deliverables (publishes, kept files, drift, ingested revisions, possibly-stale flags), gates and findings, waivers, decisions.
-- **Run summary** (`docs/SUMMARY.md`): work item, recipe and versions, timeline, per-step table, escalations, leases.
+- **Step record** (`docs/<step_path>.md`): worker profile (name and non-secret hash), attempts, inputs with hashes (a project document's with its path, version, provenance and whether it was edited since accepted, §8.6), output, artifacts (CAS hash and published path), deliverables (publishes, kept files, drift, ingested revisions, possibly-stale flags), gates and findings, waivers, decisions.
+- **Run summary** (`docs/SUMMARY.md`): work item, recipe and versions, timeline, per-step table, project documents (for a recipe that declares roles: each role and every binding of it, with its document, version, hash, provenance and the owner's words), escalations, leases.
 - Both are derived, regenerable and committed.
 - `explain(run)` returns **process facts only** (completed, imported and skipped steps; current position; pending decisions; remaining steps at this level and what other levels would add or drop; possible branches: owner gates, findings that send work back, iteration limits, a level not yet set). It never includes step outputs, artifacts or run inputs, so the Director can describe progress without loading subject matter. Structured data plus a `text` rendering (golden-tested).

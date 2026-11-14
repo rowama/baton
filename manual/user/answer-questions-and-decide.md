@@ -37,6 +37,14 @@ Nothing from the conversation is recorded until you confirm what was understood.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
+## Confirming a document {#documents}
+
+Some work builds on a document your project already has. Before that work starts, your assistant tells you which document it proposes and asks you to confirm. If the document was changed after it was approved, the assistant says so: confirming then means the work uses it as it is now. If nothing fits, say so; you can point to a file you consider settled, and for a document that is only nice to have, the work can go on without one.
+
+To make a file of your own available this way, tell your assistant it is settled. It records that you vouch for the file, with your words. If you change the file later, tell your assistant again, and the new version is recorded too.
+
+If a document changes after work started using it, you decide whether to switch. Switching means the parts that already used the old version are done again with the new one; your assistant tells you that before you decide. Other pieces of work that use the same document are not affected.
+
 ## If a question confuses you {#confusing}
 
 Say so. A question you do not understand is a problem with the question, not with you. Ask what it means, or say what you think it is getting at, and your assistant will put it differently.

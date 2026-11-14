@@ -675,3 +675,39 @@ def test_a_role_triage_used_is_rebound_after_retriage(tmp_path):
     r.dispatch(run, "triage")
     (plan,) = _entry(r.manifest(), "plan")
     assert (r.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan v2\n"
+
+
+# ---------------------------------------------------------------------------
+# Slice 5: end to end, and the records
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_one_process_builds_on_what_another_settled_end_to_end(tmp_path):
+    """A setup run publishes a plan; a marketing run binds it; the plan is edited; the run reports it; the owner rebinds."""
+    r = R(tmp_path)
+    setup = r.start("toy", "Plan")
+    r.by_hand(setup, "draft", "# Business plan\n\nTarget: offices.\n")
+    assert r.cli.run("status", setup, expect=None)["state"] == "completed"
+    (doc,) = r.cli.run("documents")["documents"]
+    assert doc["path"] == "docs/out/plan-doc.md" and doc["kind"] == "deliverable"
+
+    run = _bound_market(r, doc["path"])
+    r.do(run, "brief")
+    text = r.cli.run("record", run, "brief")["record"]
+    assert "project document `docs/out/plan-doc.md` version 1, published by `draft.doc` of run `" + setup + "`" in text
+
+    r.file("docs/out/plan-doc.md").write_text("# Business plan\n\nTarget: offices and gyms.\n", encoding="utf-8")
+    (u,) = r.cli.run("status", run, expect=None)["upstream_changes"]
+    assert u["change"] == "edited" and u["role"] == "business_plan"
+    out = r.cli.run("bind", run, "business_plan", doc["path"], "--note", "Use the plan as I edited it.")
+    assert out["rebound"] and out["stale"] == ["brief"] and out["documents"][0]["edited_since_accepted"] is True
+    assert r.cli.run("status", run, expect=None)["upstream_changes"] == []
+    r.do(run, "brief")
+    (plan,) = _entry(r.manifest(), "plan")
+    assert "gyms" in (r.last_packet / plan["path"]).read_text(encoding="utf-8")
+    assert r.do(run, "launch")["run_completed"] is True
+
+    stext = r.cli.run("summary", run)["summary"]
+    assert "## Project documents" in stext and "bound 2 times" in stext and "edited since accepted" in stext
+    assert "Use the plan as I edited it." in stext and "owner bound `business_plan`" in stext and "`business_plan` was rebound" in stext

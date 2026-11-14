@@ -304,7 +304,8 @@ def test_adopt_leaves_agents_md_to_the_baseline(tmp_path):
 def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
-                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame", "note", "start"):
+                 "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame", "note", "start",
+                 "documents", "attest", "bind"):
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
     assert "## Before you ask the owner anything" in text   # change 2026-11-director-question-check
@@ -338,6 +339,11 @@ def test_director_skill_names_every_call_it_relies_on():
         assert f"`{call}" in workers, call
     assert "`workers_declare --nothing-more`" in workers and "`workers_setup --verify <profile>`" in workers
     assert "once per machine, never per project" in workers and "Never take a key in conversation" in workers
+    # Documents the work builds on (change 2026-11-project-documents; decision 0142).
+    docs = text[text.index("## Documents the work builds on"):]
+    assert "`waiting_on_binding`" in docs and "don't read the documents' content to choose" in docs
+    assert "Never bind silently or on your own judgment" in docs and "never `attest` a file the owner has not vouched for" in docs
+    assert "`start <recipe> --bind <role>=<path> --note" in docs and "`upstream_changes`" in docs and "`stale` in the result" in docs
 
 
 @pytest.mark.not_slow("measured under 1 s")

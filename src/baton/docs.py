@@ -295,10 +295,42 @@ def _inputs(ctx: RunContext, step_path: str, n: int) -> list[str]:
         return []
     out = []
     for i in manifest.get("inputs") or []:
-        out.append(f"  - input `{i['name']}` from `{i.get('from')}`: `{i['sha256']}`")
+        src = i.get("source")
+        doc = f" ({_document_text(src)})" if src else ""
+        out.append(f"  - input `{i['name']}`" + (f" #{i['index']}" if i.get("index") else "") + f" from `{i.get('from')}`: `{i['sha256']}`{doc}")
     for na in manifest.get("not_applicable") or []:
         out.append(f"  - input `{na['name']}`: not applicable ({na.get('reason')})")
     return (["- Inputs:"] + out) if out else []
+
+
+def _document_text(src: dict[str, Any]) -> str:
+    """A bound project document's provenance, in a record (§10.6)."""
+    if src.get("kind") == "attested":
+        how = f"attested by the owner ({src.get('decision_id')})"
+    else:
+        how = f"published by `{src.get('step')}.{src.get('artifact')}` of run `{src.get('run')}`" + (f", revision {src['revision']}" if src.get("revision") else "")
+    edited = ", edited since accepted" if src.get("edited_since_accepted") else ""
+    return f"project document `{src.get('path')}` version {src.get('version')}, {how}{edited}"
+
+
+def _project_document_lines(ctx: RunContext, events: list[Event]) -> list[str]:
+    """Each role of the recipe and every binding of it, oldest first (§10.6)."""
+    roles = ctx.recipe.recipe.project_inputs
+    if not roles:
+        return []
+    lines = ["", "## Project documents", ""]
+    decisions = {e.data.get("decision_id"): e for e in events if e.type == "human_decision" and e.data.get("kind") == "bind"}
+    for r in roles:
+        binds = [e for e in events if e.type == "project_input_bound" and e.data.get("role") == r.role]
+        lines.append(f"- `{r.role}` ({r.description}): " + ("not bound" if not binds else f"bound {len(binds)} time{'s' if len(binds) != 1 else ''}"))
+        for e in binds:
+            dec = decisions.get(e.data.get("decision_id"))
+            note = f' — "{dec.data.get("note")}"' if dec is not None and dec.data.get("note") else ""
+            for d in e.data.get("documents") or []:
+                src = {"kind": d.get("kind"), "path": d.get("path"), "version": d.get("version"), **(d.get("source") or {}),
+                       **({"edited_since_accepted": True} if d.get("edited_since_accepted") else {})}
+                lines.append(f"  - {e.ts}: {_document_text(src)}, `{d.get('sha256')}` ({e.data.get('decision_id')}){note}")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +394,7 @@ def summary(ctx: RunContext, events: list[Event] | None = None) -> str:
         lines.append(f"| `{node.id}` | {node.title or ''} | {st.state} | {st.attempt} | {worker or '–'} |")
     if group_lines:
         lines += ["", "## Groups", ""] + group_lines
+    lines += _project_document_lines(ctx, events)
     lines += ["", "## Timeline", ""]
     for ev in events:
         if ev.type not in _TIMELINE or (ev.type == "gate_failed" and ev.data.get("advisory")):
@@ -387,6 +420,11 @@ def _timeline_text(ev: Event) -> str:
         return "result rejected: " + "; ".join(r.splitlines()[0] for r in d.get("reasons") or [])
     if t == "gate_failed":
         return f"gate {d.get('gate')} ({d.get('type')}) failed"
+    if t == "human_decision" and d.get("kind") == "bind":
+        note = f' — "{d.get("note")}"' if d.get("note") else ""
+        return f"owner bound `{d.get('role')}` to {', '.join(f'`{p}`' for p in d.get('paths') or [])}{note}"
+    if t == "step_stale" and d.get("cause") == "rebound":
+        return f"stale (`{d.get('role')}` was rebound)"
     if t == "human_decision" and d.get("kind") != "sme":
         note = f' — "{d.get("note")}"' if d.get("note") else ""
         return f"owner decided **{d.get('decision')}**{note}"

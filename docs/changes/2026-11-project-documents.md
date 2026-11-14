@@ -5,7 +5,7 @@ status: in-progress
 level: major
 decisions: ["0142", "0146", "0148"]
 touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/persistence.md, design/director-interface.md, design/layouts.md]
-manual: [user/start-with-a-goal.md, user/check-on-your-work.md, user/answer-questions-and-decide.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md]
+manual: [user/start-with-a-goal.md, user/check-on-your-work.md, user/answer-questions-and-decide.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md, context.yaml, anchors.yaml]
 ---
 
 # Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled
@@ -77,6 +77,7 @@ Approved by the owner with the Request on 2026-11-13 ("Implement project-documen
 - `manual/user/answer-questions-and-decide.md`: confirming a binding, attesting a document, rebinding.
 - `manual/admin/recipes-and-vendoring.md`: declaring `project_inputs` in a recipe, and why roles never name other recipes.
 - `manual/admin/director-commands.md` and the generated `manual/reference/commands.md`: `documents`, `attest`, `bind`, `start --bind`.
+- `manual/context.yaml` maps the new commands to their topic; `manual/anchors.yaml` records the new anchors.
 
 ### Decisions
 
@@ -163,5 +164,12 @@ Each slice carries its tests, design and manual edits and Log entry, and follows
 
 - **Commit:** `2026-11-project-documents: Slice 4, upstream change and rebinding`
 - **Summary:** `documents.upstream_changes` compares each binding of an active run with the document now (`newer_version`, else `edited` or `deleted` against the bound bytes); `status` lists `upstream_changes` (for recipes with roles), `board` carries them, `check` warns (`document.upstream_changed`, a warning under `--strict` too), and the CLI's status text says the run keeps its version. Nothing is recorded, staled or held. `bind` on a bound role now rebinds: `_rebind_stale` finds the accepted steps using the role (group instances included) and their accepted dependents (top-level `depends_on` transitively, and within the same instance), refuses while any is in flight (`bind.in_flight`) or when the accepted triage step used the role (`bind.triage`, pointing to `retriage`), and records `step_stale {cause: rebound, role, decision_id}` after the new binding; the result says `rebound` and lists `stale`. A consumer that is not accepted yet (ready again after a retriage or revise) reads the new binding when it runs and seeds no staleness. Design: §8.1 diagram, §8.9, §10.5, §13.1, §13.5. Tests: an edit then a newer attestation reported in `status`, `board` and `check` while the run uses its bound version and completes, with nothing stale and nothing reported once completed; a newer publication (a conflict the owner overwrote) and a deletion reported; rebinding stales exactly the two consumers' lines (both group instances' `write` and `check`, `brief` and `launch`) and not `seed` or `side`, leaves another run bound to the same document untouched, needs the owner's words, re-runs a stale consumer with the new binding, and is refused while a consumer is in flight; a role triage used is refused with a pointer to `retriage`, and rebound after it.
+- **Review:** clean.
+- **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".
+
+### Slice 5: the Director's binding conversation and the manual
+
+- **Commit:** `2026-11-project-documents: Slice 5, the Director's binding conversation and the manual`
+- **Summary:** The Director skill gains *Documents the work builds on* (propose from `documents` by role description and path, never by reading content; confirm back, saying when a document was edited after approval; `start --bind` or `bind` with the owner's words; never bind or attest on its own judgment; report `upstream_changes` and say what a rebinding redoes), copied into §13.3. Step records list a project input's path, version, provenance and edit flag; the run summary gains *Project documents* (each role and every binding with the owner's words) and timeline lines for bindings and rebound staleness. Manual: `user/start-with-a-goal.md` (later pieces build on earlier ones), `user/check-on-your-work.md` (the documents the work uses, newer versions), `user/answer-questions-and-decide.md` (confirming a document, vouching for a file, switching), anchors refreshed. Design: §10.6, §13.3. Tests: the skill names `documents`, `attest` and `bind` and holds the new rules; an end-to-end scenario: a setup run publishes a plan, a marketing run binds it, its step record names the document, the plan is edited and reported, the owner rebinds (the consumer goes stale and re-runs with the edit), the run completes and its summary lists both bindings with the owner's words.
 - **Review:** clean.
 - **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".
