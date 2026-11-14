@@ -1,7 +1,7 @@
 ---
 id: 2026-11-tailoring-axes
 title: "A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects"
-status: in-progress
+status: done
 level: major
 decisions: ["0144", "0147", "0008", "0027", "0028"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md, design/packets.md, design/adoption-and-framing.md, design/director-interface.md]
@@ -158,3 +158,8 @@ Slices as proposed; the Request and Design were approved on 2026-11-14 (see the 
 - **Design docs:** `recipes.md` §5.2 (`catalog.summaries`), §5.7 (recipe builder still one axis, 0147); `adoption-and-framing.md` §11.1 (summary), §11.5 (baseline `ratings`), §11.6 (framing's listing); `director-interface.md` §13.10 (generated tables).
 - **Manual:** `recipes/software-feature.md` regenerated, unchanged in content; no shipped recipe has axes yet, so no other recipe topic changes.
 - **Tests:** `tests/test_tailoring_axes.py`: the generated table for a recipe with axes; framing's and adoption's summaries; an adoption baseline carrying ratings and reasons, refusing an off-scale rating, applying an edited one (slow).
+
+### Done
+
+- **Summary:** Every acceptance criterion is demonstrated by `tests/test_tailoring_axes.py` (52 tests): the format and every refusal, the plan, triage ratings and approval, OR skipping, packets, surfaces, per-axis re-triage, rating signals, summaries, the adoption baseline and the generated table. One-axis recipes are unchanged: their events, packets, hashes, plans, manual tables and goldens, checked by the existing suite. Packets carry `ratings` only for a recipe with axes, since adding the field to a one-axis packet would change its hash (the first criterion). Status `done`.
+- **Follow-ups (not in this change):** eng-process (`2026-11-eng-process-recipe`) is the first recipe with axes; recipe builder generating axes and project policy floors (0143) are their own changes (0147).
