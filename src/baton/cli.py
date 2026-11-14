@@ -380,11 +380,14 @@ def recipes(as_json: JsonOpt = False) -> None:
 def plan(
     recipe: Annotated[str, typer.Argument(help="Recipe directory, or a vendored recipe (id or id@version).")],
     level: Annotated[Optional[str], typer.Option(help="Show only this complexity level.")] = None,
+    rating: Annotated[Optional[list[str]], typer.Option("--rating", help="For a recipe with axes: one axis=value per axis; prints the table for that combination.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Validate a recipe and print its per-level step and gate table."""
+    """Validate a recipe and print its step and gate table: per level, or for a recipe with axes, what each rating adds."""
+    ratings = _parse_ratings(rating or [], as_json)
     try:
-        result = engine.plan(recipe, level=level) if Path(recipe).is_dir() else _api().plan(recipe, level=level)
+        result = (engine.plan(recipe, level=level, ratings=ratings) if Path(recipe).is_dir()
+                  else _api().plan(recipe, level=level, ratings=ratings))
     except RecipeError as e:
         errors = [i for i in e.issues if i.severity == "error"]
         _emit({"ok": False, "issues": [i.model_dump() for i in e.issues]}, as_json, "".join(f"{i}\n" for i in errors))
@@ -403,6 +406,16 @@ def plan(
 # ---------------------------------------------------------------------------
 # Runs
 # ---------------------------------------------------------------------------
+
+
+def _parse_ratings(raw: list[str], as_json: bool) -> dict[str, str] | None:
+    out: dict[str, str] = {}
+    for r in raw:
+        axis, sep, value = r.partition("=")
+        if not sep or not axis.strip() or not value.strip():
+            _fail(as_json, EXIT_USAGE, "usage.rating", f"--rating takes axis=value, got {r!r}")
+        out[axis.strip()] = value.strip()
+    return out or None
 
 
 def _parse_inputs(raw: str, as_json: bool) -> dict:

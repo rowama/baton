@@ -13,7 +13,7 @@
 | `workspace` | Implicit on `read` and `none` steps done by a worker that can touch files (§6.3) | The working tree is unchanged; otherwise the step escalates (`workspace_modified`) |
 | `protected` | Implicit on steps with `protect` (§9.4) | No change; in `warn` mode, the owner approves the change |
 
-Common options: `advisory: true` (records, never blocks); `applies_to: [levels]`; any blocking `script`, `review`, `findings`, `independence` or `protected` occurrence can be waived (§9.3). Gate reasons and open findings become `prior_feedback` on retry or `group.previous_iteration.findings` in a loop.
+Common options: `advisory: true` (records, never blocks); `applies_to: [levels]`, or in a recipe with axes `applies_to: {axis: [values]}` (it applies when any listed axis's rating matches; gates that differ by axis are separate entries, §5.5; Decision: [0144](../decisions/0144-tailoring-axes.md)); any blocking `script`, `review`, `findings`, `independence` or `protected` occurrence can be waived (§9.3). Gate reasons and open findings become `prior_feedback` on retry or `group.previous_iteration.findings` in a loop.
 
 ### 9.2 Findings and dispositions
 

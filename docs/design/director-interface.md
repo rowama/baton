@@ -18,7 +18,7 @@ Every call is available as a CLI command (`--json` output; exit codes below) and
 |---|---|
 | `detect()` | Project and run situations; machine readiness; one line when healthy |
 | `board(needs_me?)` | All non-terminal runs, positions (with group progress), running and queued work, pending decisions, lease holders; `needs_me` keeps runs with pending owner decisions |
-| `recipes()` / `plan(recipe)` | Vendored recipes; per-level step and gate table |
+| `recipes()` / `plan(recipe)` | Vendored recipes; per-level step and gate table, or for a recipe with axes what always runs and what each rating adds; `plan(recipe, ratings)` (`--rating axis=value`, every axis) the table for one combination (§5.5) |
 | `start(recipe, inputs)` / `start(from_plan)` | New run (work item); claims its lease. `from_plan` (`--from-plan <part>`): a part of a process plan, started as its framing run recorded it (§11.6) |
 | `status(run)` / `explain(run)` | State, pending items, findings, drift / process-facts narrative |
 | `eligible(run, step_path)` | Ordered eligible profiles with reasons, and `wake {configured, hook?, expected?, notice?}`: whether a hook would wake the Director when the step ends waiting on the owner, and, if none would, how long it may take and the notice the Director gives the owner before dispatching (§8.7; Decision: [0059](../decisions/0059-warn-owner-before-unwoken-dispatch.md)) |

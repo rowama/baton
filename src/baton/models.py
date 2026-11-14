@@ -17,6 +17,8 @@ RECIPE_ID = r"^[a-z][a-z0-9-]*$"
 
 Tier = str  # checked against the vocabulary's tiers, not a fixed enum
 Level = str  # checked against the recipe's declared complexity levels
+# A list of levels (one-axis form) or a map from axis to values (axes form); OR across and within (§5.5).
+AppliesTo = list[Level] | dict[str, list[Level]]
 Severity = Literal["critical", "high", "medium", "low"]
 SEVERITIES: tuple[str, ...] = ("critical", "high", "medium", "low")
 
@@ -84,7 +86,7 @@ class Protect(_Strict):
 
 class _GateBase(_Strict):
     advisory: bool = False
-    applies_to: list[Level] | None = None
+    applies_to: AppliesTo | None = None
 
 
 class SchemaGate(_GateBase):
@@ -138,7 +140,7 @@ class Step(_Strict):
     id: str = Field(pattern=STEP_ID)
     title: str | None = None
     depends_on: list[str] = Field(default_factory=list)
-    applies_to: list[Level] | None = None
+    applies_to: AppliesTo | None = None
     requires: Requires
     prompt: str
     inputs: list[Input] = Field(default_factory=list)
@@ -168,7 +170,7 @@ class Group(_Strict):
     id: str = Field(pattern=STEP_ID)
     title: str | None = None
     depends_on: list[str] = Field(default_factory=list)
-    applies_to: list[Level] | None = None
+    applies_to: AppliesTo | None = None
     foreach: str | None = None
     foreach_if_source_skipped: Literal["once", "skip"] | None = None
     concurrency: int = Field(default=1, ge=1)
@@ -207,8 +209,21 @@ class Defaults(_Strict):
     max_attempts: int = Field(default=3, ge=1)
 
 
+class Axis(_Strict):
+    """One rating axis in its map form: an ordered scale, optionally guarding its lowest value (Decision 0147)."""
+
+    scale: list[Level] = Field(min_length=1)
+    confirm_lowest: bool = False
+
+
 class Complexity(_Strict):
-    levels: list[str] = Field(min_length=1)
+    """One scale (``levels``) or several axes (``axes``), never both (§5.5; Decision 0147).
+
+    The loader reports a block that has neither or both, with its own codes.
+    """
+
+    levels: list[Level] | None = Field(default=None, min_length=1)
+    axes: dict[str, list[Level] | Axis] | None = Field(default=None, min_length=1)
     triage_step: str
 
 
@@ -610,8 +625,21 @@ class PlanStep(BaseModel):
 
 
 class PlanLevel(BaseModel):
-    level: str | None  # None when the recipe declares no complexity scale
+    level: str | None  # None when the recipe declares no complexity scale, or declares axes
     steps: list[PlanStep]
+    ratings: dict[str, str] | None = None  # the combination shown, for a recipe with axes
+
+
+class PlanAxisValue(BaseModel):
+    value: str
+    adds: list[str] = Field(default_factory=list)  # steps and gates this rating adds
+
+
+class PlanAxis(BaseModel):
+    name: str
+    scale: list[str]
+    confirm_lowest: bool = False
+    values: list[PlanAxisValue] = Field(default_factory=list)
 
 
 class Plan(BaseModel):
@@ -621,6 +649,7 @@ class Plan(BaseModel):
     recipe_sha256: str
     description: str | None = None
     levels: list[PlanLevel]
+    axes: list[PlanAxis] | None = None  # a recipe with axes, shown per axis (no combination given)
     warnings: list[Issue] = Field(default_factory=list)
 
 

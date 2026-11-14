@@ -61,9 +61,9 @@ __all__ = [
 ]
 
 
-def plan(recipe: str | Path, level: str | None = None) -> Plan:
-    """Per-level step and gate table for a recipe directory. Raises ``RecipeError``."""
-    return build_plan(load_recipe(recipe), level=level)
+def plan(recipe: str | Path, level: str | None = None, ratings: dict[str, str] | None = None) -> Plan:
+    """The step and gate table for a recipe directory: per level, or per axis and for given ratings. Raises ``RecipeError``."""
+    return build_plan(load_recipe(recipe), level=level, ratings=ratings)
 
 
 @dataclass
@@ -2202,11 +2202,11 @@ class Api:
             out.append(entry)
         return {"recipes": out}
 
-    def plan(self, recipe: str, level: str | None = None) -> Plan:
+    def plan(self, recipe: str, level: str | None = None, ratings: dict[str, str] | None = None) -> Plan:
         """Plan for a vendored recipe ref, or a recipe directory."""
         if Path(recipe).is_dir():
-            return plan(recipe, level)
-        return build_plan(self.project.recipe(recipe), level=level)
+            return plan(recipe, level, ratings)
+        return build_plan(self.project.recipe(recipe), level=level, ratings=ratings)
 
     # -- runs ---------------------------------------------------------------
 

@@ -4,12 +4,12 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-tailoring-axes](2026-11-tailoring-axes.md) | A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects | in-progress | major | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-documents, 2026-11-project-policy and 2026-11-tailoring-axes |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |
 | [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | proposed | major | On hold: after 2026-11-capability-confidence and 2026-11-cli-model-routes |
-| [2026-11-tailoring-axes](2026-11-tailoring-axes.md) | A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects | proposed | major | Awaiting the owner's approval of Request and Design |
 | [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) | Become a Baton director: setup with as little owner effort as possible | proposed | major | On hold (owner, 2026-11-05): not to be designed further or implemented until the owner accepts it |
 | [2026-11-adopt-recipe-selection](2026-11-adopt-recipe-selection.md) | Adopting an existing project finds or builds its recipe first, using fit-check with project context | done | standard | |
 | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |

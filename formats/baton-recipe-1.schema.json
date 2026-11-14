@@ -43,16 +43,75 @@
       "title": "Artifact",
       "type": "object"
     },
-    "Complexity": {
+    "Axis": {
       "additionalProperties": false,
+      "description": "One rating axis in its map form: an ordered scale, optionally guarding its lowest value (Decision 0147).",
       "properties": {
-        "levels": {
+        "confirm_lowest": {
+          "default": false,
+          "title": "Confirm Lowest",
+          "type": "boolean"
+        },
+        "scale": {
           "items": {
             "type": "string"
           },
           "minItems": 1,
-          "title": "Levels",
+          "title": "Scale",
           "type": "array"
+        }
+      },
+      "required": [
+        "scale"
+      ],
+      "title": "Axis",
+      "type": "object"
+    },
+    "Complexity": {
+      "additionalProperties": false,
+      "description": "One scale (``levels``) or several axes (``axes``), never both (\u00a75.5; Decision 0147).\n\nThe loader reports a block that has neither or both, with its own codes.",
+      "properties": {
+        "axes": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "$ref": "#/$defs/Axis"
+                  }
+                ]
+              },
+              "minProperties": 1,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Levels"
         },
         "triage_step": {
           "title": "Triage Step",
@@ -60,7 +119,6 @@
         }
       },
       "required": [
-        "levels",
         "triage_step"
       ],
       "title": "Complexity",
@@ -94,6 +152,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"
@@ -146,6 +213,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"
@@ -286,6 +362,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"
@@ -569,6 +654,15 @@
               "type": "array"
             },
             {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
               "type": "null"
             }
           ],
@@ -657,6 +751,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"
@@ -754,6 +857,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"
@@ -856,6 +968,15 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
             },
             {
               "type": "null"

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-tailoring-axes
 title: "A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects"
-status: proposed
+status: in-progress
 level: major
 decisions: ["0144", "0147", "0008", "0027", "0028"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md, design/packets.md, design/adoption-and-framing.md, design/director-interface.md]
@@ -81,7 +81,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 
 ## Plan
 
-Slices as proposed; refined, if needed, once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
+Slices as proposed; the Request and Design were approved on 2026-11-14 (see the Log). Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
 
 ### Slice 1: axes in the recipe format and `baton plan`
 
@@ -120,3 +120,17 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0147. The Request has no open questions; the acceptance criteria and Design now carry `confirm_lowest`, signals as pending decisions, and the format's mutual exclusion. No code changed.
 - **Owner decision:** 2026-11-13, "Accept all." (0147).
 - **Accepted:** Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** The owner asked for the change to be implemented, approving the Request and Design as written. Status `in-progress`.
+- **Owner decision:** 2026-11-14, "implement tailoring-axes".
+- **Accepted:** Yes.
+
+### Slice 1: axes in the recipe format and `baton plan`
+
+- **Summary:** `complexity.axes` (an axis is a scale list, or `{scale, confirm_lowest}`) alongside `complexity.levels`, mutually exclusive; `applies_to` on steps, groups and gates may be a map from axis to values. A new module, `tailoring.py`, treats a one-axis recipe as the single axis `level`, so the loader and the plan share one path; OR applies across and within axes. The loader refuses both or neither scale, an unknown axis or value, a list `applies_to` with axes and a map one with levels, the reserved axis name `level`, a triage schema that does not require `ratings` with every axis's `value` (its exact scale) and a non-empty `reason`, and a nested step that applies at a combination where its group does not (checked over every combination); an axis nothing applies by is a warning. A foreach source skippable at some combination needs its policy, as with levels. `baton plan` for a recipe with axes prints what always runs and, per axis and value, what that rating adds; `--rating axis=value` (every axis) prints the table for one combination, including whether the owner is asked to approve it (`confirm_lowest`). The plan API and MCP tool take `ratings`.
+- **Modules:** `tailoring.py` (new), `models.py` (`Axis`, `Complexity.axes`, `AppliesTo`, `PlanAxis`, `PlanLevel.ratings`), `recipe.py`, `cli.py`, `engine.py`, `mcp_server.py`; `formats/baton-recipe-1.schema.json` regenerated.
+- **Design docs:** `recipes.md` §5.1 (axes example), §5.3 (validation), §5.5 (axes, OR); `gates-and-reviews.md` §9.1; `director-interface.md` §13.1 (`plan`).
+- **Manual:** `admin/recipes-and-vendoring.md` (*Rating work on several axes*); `reference/commands.md` regenerated (`plan --rating`); anchors updated.
+- **Tests:** `tests/test_tailoring_axes.py`: loading, every refusal, the triage schema's requirements, reachability across combinations, the foreach-source policy, the per-axis and per-combination plan, `confirm_lowest` in the plan, refusals of bad combinations, `baton plan --rating`. One-axis recipes: the existing plan, tailoring, recipe and manual-table tests pass unchanged.

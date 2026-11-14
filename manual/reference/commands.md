@@ -375,7 +375,7 @@ Explained in the manual: [What Baton may do to your repository](user.what-baton-
 
 ## baton plan {#baton-plan}
 
-Validate a recipe and print its per-level step and gate table.
+Validate a recipe and print its step and gate table: per level, or for a recipe with axes, what each rating adds.
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
@@ -383,6 +383,7 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 |---|---|
 | `recipe <str>` | Recipe directory, or a vendored recipe (id or id@version). |
 | `--level <str>` | Show only this complexity level. |
+| `--rating <str>` | For a recipe with axes: one axis=value per axis; prints the table for that combination. |
 | `--json` | Machine-readable output. |
 
 ## baton platform-fact {#baton-platform-fact}

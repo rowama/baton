@@ -64,6 +64,7 @@ published:
 - admin.project-settings#test-command
 - admin.recipes-and-vendoring
 - admin.recipes-and-vendoring#authors
+- admin.recipes-and-vendoring#axes
 - admin.recipes-and-vendoring#here-now
 - admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review

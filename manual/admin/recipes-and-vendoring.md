@@ -17,7 +17,7 @@ baton recipes
 baton plan path/to/recipe
 ```
 
-`vendor` copies and pins; `recipes` lists what the project has; `plan` validates a recipe and prints each level's parts and checks. `baton init` vendors the starter process (`fit-check`); framing vendors a shipped recipe when the owner chooses a piece of work that uses it. The shipped ones are described in [Recipes](recipes.fit-check#here-now).
+`vendor` copies and pins; `recipes` lists what the project has; `plan` validates a recipe and prints each level's parts and checks (for a recipe that rates work on several axes, see [below](#axes)). `baton init` vendors the starter process (`fit-check`); framing vendors a shipped recipe when the owner chooses a piece of work that uses it. The shipped ones are described in [Recipes](recipes.fit-check#here-now).
 
 ## Review before you vendor {#review}
 
@@ -51,3 +51,24 @@ project_inputs:
 ```
 
 When a run starts, or when a part first needs a document, the assistant proposes one from the project's documents (`baton documents`) and the owner confirms it. Each step receives the version the owner confirmed. A role describes the document it needs, never the recipe or step that made it: `baton vendor` refuses a role that names another recipe (`software_feature_design`, `fit-check@4`) or a step (`steps.setup`), so the recipe stays shareable. A recipe without `project_inputs` works as before.
+
+## Rating work on several axes {#axes}
+
+A recipe usually sizes work on one scale (`levels`, such as minor, standard and major). When concerns vary independently, for example how much is unknown and how much verification a change needs, a recipe can rate the work on a few **axes** instead, and each part or check applies by the axis it serves:
+
+```yaml
+complexity:
+  axes:
+    discovery: [low, medium, high]
+    assurance: { scale: [low, medium, high], confirm_lowest: true }
+  triage_step: triage
+steps:
+  - id: explore
+    applies_to: { discovery: [medium, high] }
+```
+
+A part applies when any axis it lists is rated at one of its values; a part with no `applies_to` always runs. A recipe declares `levels` or `axes`, never both. Its first part rates every axis with a reason, and the owner approves the ratings unless every axis is at its lowest; `confirm_lowest: true` makes the owner approve that axis's lowest rating too. `baton plan` shows what always runs and what each rating adds; to see one combination, give a rating for every axis:
+
+```baton
+baton plan path/to/recipe --rating discovery=low --rating assurance=high
+```

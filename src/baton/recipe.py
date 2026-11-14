@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
-from . import refs, versions
+from . import refs, tailoring, versions
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml, read_text
 from .models import (
@@ -32,6 +32,8 @@ from .models import (
     HumanGate,
     Issue,
     Plan,
+    PlanAxis,
+    PlanAxisValue,
     PlanGate,
     PlanLevel,
     PlanStep,
@@ -51,6 +53,7 @@ MAX_GROUP_DEPTH = 2  # a group may contain a group, but no deeper (§5.4)
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 _TEXT_DIRS = ("prompts", "templates", "schemas", "static")
 # Ids name roles, never positions (§5.8): "step1", "s2", "phase_3", "step01_design", "review_2".
+AXIS_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 POSITIONAL_ID = re.compile(r"^(?:step|stage|phase|part|task)_?\d+(?:_|$)|^[sp]_?\d+$|_\d+$")
 
 Node = Step | Group
@@ -856,11 +859,11 @@ class _Checker:
             )
 
     def _skippable(self, node: Node) -> bool:
-        if self.recipe.complexity is None:
+        cx = self.recipe.complexity
+        if cx is None or (cx.levels is None) == (cx.axes is None):
             return False
-        levels = set(self.recipe.complexity.levels)
         chain = self.places[node.id].chain
-        return any(n.applies_to is not None and not levels <= set(n.applies_to) for n in (*chain, node))
+        return any(not all(tailoring.applies(n.applies_to, r) for n in (*chain, node)) for r in tailoring.combinations(cx))
 
     # -- run inputs and sme ----------------------------------------------
 
@@ -910,57 +913,27 @@ class _Checker:
 
         if cx is None:
             for where, _ in uses:
-                self.error("complexity.applies_to_without_levels", where, "applies_to needs a complexity: block with levels")
+                self.error("complexity.applies_to_without_levels", where, "applies_to needs a complexity: block with levels or axes")
             return
-
-        levels = cx.levels
-        if len(set(levels)) != len(levels):
-            self.error("complexity.duplicate_level", "complexity.levels", f"levels must be unique: {levels}")
-        for where, applies in uses:
-            unknown = [lv for lv in applies if lv not in levels]
-            if unknown:
-                self.error("complexity.unknown_level", f"{where}.applies_to", f"unknown level(s) {unknown}; declared: {levels}")
-
-        triage = self.top.nodes.get(cx.triage_step)
-        if not isinstance(triage, Step):
-            self.error(
-                "complexity.missing_triage_step",
-                "complexity.triage_step",
-                f"triage_step {cx.triage_step!r} must name a top-level (non-group) step",
-            )
+        if cx.levels is not None and cx.axes is not None:
+            self.error("complexity.levels_and_axes", "complexity", "declare complexity.levels or complexity.axes, not both")
+            return
+        if cx.levels is None and cx.axes is None:
+            self.error("complexity.no_scale", "complexity", "complexity needs levels (one scale) or axes (several)")
+            return
+        if cx.axes is None:
+            self._check_levels(cx, uses)
         else:
-            if triage.applies_to is not None:
-                self.error("complexity.triage_has_applies_to", f"{triage.id}.applies_to", "the triage step must run at every level")
-            schema = self.schemas.get(triage.output_schema or "")
-            level_schema = (schema or {}).get("properties", {}).get("level") if schema else None
-            enum = level_schema.get("enum") if isinstance(level_schema, dict) else None
-            required = (schema or {}).get("required") or []
-            if enum is None or set(enum) != set(levels) or "level" not in required:
-                self.error(
-                    "complexity.level_enum_mismatch",
-                    f"{triage.id}.output_schema",
-                    f"the triage output schema must require 'level' with enum exactly {levels} (found enum {enum})",
-                )
-
-        # Reachability: a nested step cannot run at a level its enclosing group skips.
-        for node, place in self._walk():
-            if node.applies_to is None:
-                continue
-            for g in place.chain:
-                if g.applies_to is None:
-                    continue
-                dead = [lv for lv in node.applies_to if lv not in g.applies_to]
-                if dead:
-                    self.error(
-                        "complexity.unreachable",
-                        f"{self.where(node)}.applies_to",
-                        f"{self.where(node)!r} applies to {dead}, but its group {g.id!r} does not run at those levels",
-                    )
-
-        if not self.has_errors():
+            self._check_axes(cx, uses)
+        if self.has_errors():
+            return
+        self._check_reachable(cx)
+        if self.has_errors():
+            return
+        if cx.axes is None:
             signatures: dict[str, str] = {}
-            for lv in levels:
-                sig = json.dumps(_level_signature(self.recipe, lv), sort_keys=True)
+            for lv in cx.levels:
+                sig = json.dumps(_level_signature(self.recipe, {tailoring.LEVEL_AXIS: lv}), sort_keys=True)
                 for other, other_sig in signatures.items():
                     if other_sig == sig:
                         self.warn(
@@ -969,6 +942,121 @@ class _Checker:
                             f"levels {other!r} and {lv!r} run the same steps and gates; keep levels visibly different",
                         )
                 signatures[lv] = sig
+        else:
+            used = {a for _, applies in uses for a in (tailoring.conditions(applies) or {})}
+            for axis in cx.axes:
+                if axis not in used:
+                    self.warn(
+                        "complexity.axis_unused",
+                        f"complexity.axes.{axis}",
+                        f"no step or gate applies by axis {axis!r}; its rating changes nothing",
+                    )
+
+    def _check_levels(self, cx: Any, uses: list[tuple[str, Any]]) -> None:
+        levels = cx.levels
+        if len(set(levels)) != len(levels):
+            self.error("complexity.duplicate_level", "complexity.levels", f"levels must be unique: {levels}")
+        for where, applies in uses:
+            if isinstance(applies, dict):
+                self.error(
+                    "complexity.applies_to_by_axis",
+                    f"{where}.applies_to",
+                    "this recipe declares levels, so applies_to is a list of levels; a map by axis needs complexity.axes",
+                )
+                continue
+            unknown = [lv for lv in applies if lv not in levels]
+            if unknown:
+                self.error("complexity.unknown_level", f"{where}.applies_to", f"unknown level(s) {unknown}; declared: {levels}")
+        triage = self._triage_step(cx)
+        if triage is None:
+            return
+        schema = self.schemas.get(triage.output_schema or "")
+        level_schema = (schema or {}).get("properties", {}).get("level") if schema else None
+        enum = level_schema.get("enum") if isinstance(level_schema, dict) else None
+        required = (schema or {}).get("required") or []
+        if enum is None or set(enum) != set(levels) or "level" not in required:
+            self.error(
+                "complexity.level_enum_mismatch",
+                f"{triage.id}.output_schema",
+                f"the triage output schema must require 'level' with enum exactly {levels} (found enum {enum})",
+            )
+
+    def _check_axes(self, cx: Any, uses: list[tuple[str, Any]]) -> None:
+        sc = tailoring.scales(cx)
+        for axis, scale in sc.items():
+            where = f"complexity.axes.{axis}"
+            if not AXIS_NAME.match(axis):
+                self.error("complexity.bad_axis_name", where, f"axis name {axis!r} must match {AXIS_NAME.pattern}")
+            elif axis == tailoring.LEVEL_AXIS:
+                self.error("complexity.reserved_axis", where, "'level' names the single axis of a recipe with levels; choose another name")
+            if len(set(scale)) != len(scale):
+                self.error("complexity.duplicate_level", where, f"values on an axis must be unique: {scale}")
+        for where, applies in uses:
+            if not isinstance(applies, dict):
+                self.error(
+                    "complexity.applies_to_list",
+                    f"{where}.applies_to",
+                    f"this recipe declares axes, so applies_to maps an axis to its values (e.g. {{{next(iter(sc))}: [...]}})",
+                )
+                continue
+            if not applies:
+                self.error("complexity.applies_to_empty", f"{where}.applies_to", "applies_to names no axis; leave it out to always apply")
+            for axis, values in applies.items():
+                if axis not in sc:
+                    self.error("complexity.unknown_axis", f"{where}.applies_to", f"unknown axis {axis!r}; declared: {list(sc)}")
+                    continue
+                unknown = [v for v in values if v not in sc[axis]]
+                if unknown or not values:
+                    self.error(
+                        "complexity.unknown_level",
+                        f"{where}.applies_to.{axis}",
+                        f"undeclared value(s) {unknown} on axis {axis!r}; declared: {sc[axis]}" if unknown else f"axis {axis!r} lists no values",
+                    )
+        triage = self._triage_step(cx)
+        if triage is None:
+            return
+        problem = _ratings_schema_problem(self.schemas.get(triage.output_schema or ""), sc)
+        if problem:
+            self.error(
+                "complexity.ratings_schema_mismatch",
+                f"{triage.id}.output_schema",
+                "the triage output schema must require 'ratings', an object that requires every axis, each an object "
+                f"requiring 'value' (enum exactly its scale) and a non-empty string 'reason': {problem}",
+            )
+
+    def _triage_step(self, cx: Any) -> Step | None:
+        triage = self.top.nodes.get(cx.triage_step)
+        if not isinstance(triage, Step):
+            self.error(
+                "complexity.missing_triage_step",
+                "complexity.triage_step",
+                f"triage_step {cx.triage_step!r} must name a top-level (non-group) step",
+            )
+            return None
+        if triage.applies_to is not None:
+            self.error("complexity.triage_has_applies_to", f"{triage.id}.applies_to", "the triage step must run at every level")
+        return triage
+
+    def _check_reachable(self, cx: Any) -> None:
+        """A nested step cannot apply at ratings where an enclosing group is skipped (every combination)."""
+        combos = list(tailoring.combinations(cx))
+        for node, place in self._walk():
+            if node.applies_to is None:
+                continue
+            for g in place.chain:
+                if g.applies_to is None:
+                    continue
+                dead = [r for r in combos if tailoring.applies(node.applies_to, r) and not tailoring.applies(g.applies_to, r)]
+                if not dead:
+                    continue
+                if cx.axes is None:
+                    lvls = [r[tailoring.LEVEL_AXIS] for r in dead]
+                    msg = f"{self.where(node)!r} applies to {lvls}, but its group {g.id!r} does not run at those levels"
+                else:
+                    msg = (f"{self.where(node)!r} applies at {tailoring.describe(dead[0])}"
+                           + (f" (and {len(dead) - 1} other combination(s))" if len(dead) > 1 else "")
+                           + f", but its group {g.id!r} does not run there")
+                self.error("complexity.unreachable", f"{self.where(node)}.applies_to", msg)
 
 
 # ---------------------------------------------------------------------------
@@ -1090,25 +1178,58 @@ def _is_array(schema: Any) -> bool:
     return t == "array" or (isinstance(t, list) and t == ["array"])
 
 
-def _included(node: Node, level: str | None, enclosing: bool = True) -> bool:
-    return enclosing and (level is None or node.applies_to is None or level in node.applies_to)
+def _included(node: Node, ratings: dict[str, str] | None, enclosing: bool = True) -> bool:
+    return enclosing and tailoring.applies(node.applies_to, ratings)
 
 
-def _level_signature(recipe: Recipe, level: str) -> list:
+def _level_signature(recipe: Recipe, ratings: dict[str, str]) -> list:
     sig: list = []
 
     def visit(nodes: list[Node], enclosing: bool) -> None:
         for n in nodes:
-            inc = _included(n, level, enclosing)
+            inc = _included(n, ratings, enclosing)
             gates = []
             if isinstance(n, Step):
-                gates = [i for i, g in enumerate(n.gates) if inc and (g.applies_to is None or level in g.applies_to)]
+                gates = [i for i, g in enumerate(n.gates) if inc and tailoring.applies(g.applies_to, ratings)]
             sig.append((n.id, inc, gates))
             if isinstance(n, Group):
                 visit(n.steps, inc)
 
     visit(recipe.steps, True)
     return sig
+
+
+def _ratings_schema_problem(schema: dict | None, sc: dict[str, list[str]]) -> str:
+    """Why a triage output schema does not constrain every axis and require a reason for each; ``""`` when it does."""
+    if not isinstance(schema, dict):
+        return "no output schema"
+    if "ratings" not in (schema.get("required") or []):
+        return "'ratings' is not required"
+    rs = (schema.get("properties") or {}).get("ratings")
+    if not isinstance(rs, dict) or not isinstance(rs.get("properties"), dict):
+        return "'ratings' declares no properties"
+    missing = [a for a in sc if a not in (rs.get("required") or [])]
+    if missing:
+        return f"'ratings' does not require {missing}"
+    extra = [a for a in rs["properties"] if a not in sc]
+    if extra:
+        return f"'ratings' declares undeclared axes {extra}"
+    if rs.get("additionalProperties", True) is not False:
+        return "'ratings' must set additionalProperties: false"
+    for axis, scale in sc.items():
+        ax = rs["properties"].get(axis)
+        if not isinstance(ax, dict) or not isinstance(ax.get("properties"), dict):
+            return f"axis {axis!r} declares no properties"
+        req = ax.get("required") or []
+        if "value" not in req or "reason" not in req:
+            return f"axis {axis!r} must require 'value' and 'reason'"
+        enum = (ax["properties"].get("value") or {}).get("enum")
+        if not isinstance(enum, list) or set(enum) != set(scale) or len(enum) != len(scale):
+            return f"axis {axis!r} value enum {enum} is not exactly {scale}"
+        reason = ax["properties"].get("reason") or {}
+        if reason.get("type") != "string" or not isinstance(reason.get("minLength"), int) or reason["minLength"] < 1:
+            return f"axis {axis!r} reason must be a string with minLength >= 1"
+    return ""
 
 
 def migrated_recipe_path(root: Path) -> Path:
@@ -1152,18 +1273,41 @@ def package_sha256(root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_plan(loaded: LoadedRecipe, level: str | None = None) -> Plan:
-    """The structured per-level step and gate table; renderers sit on top (§15.3)."""
+def build_plan(loaded: LoadedRecipe, level: str | None = None, ratings: dict[str, str] | None = None) -> Plan:
+    """The structured step and gate table; renderers sit on top (§15.3).
+
+    One scale: a table per level, or the one ``level`` given. Axes: with
+    ``ratings`` (every axis), the table for that combination; without, the
+    steps and gates that always run plus, per axis and value, what that
+    rating adds (§5.5).
+    """
     recipe = loaded.recipe
     cx = recipe.complexity
+    multi = tailoring.is_multi(cx)
     if cx is None:
-        if level is not None:
+        if level is not None or ratings:
             raise ValueError(f"{recipe.ref} declares no complexity levels")
-        levels: list[str | None] = [None]
-    else:
+        combos: list[tuple[str | None, dict[str, str] | None]] = [(None, None)]
+    elif not multi:
+        if ratings:
+            raise ValueError(f"{recipe.ref} declares levels, not axes: give a level instead of ratings")
         if level is not None and level not in cx.levels:
             raise ValueError(f"unknown level {level!r}; declared: {cx.levels}")
-        levels = [level] if level is not None else list(cx.levels)
+        combos = [(lv, {tailoring.LEVEL_AXIS: lv}) for lv in ([level] if level is not None else cx.levels)]
+    else:
+        if level is not None:
+            raise ValueError(f"{recipe.ref} declares axes, not levels: give a rating for each axis (axis=value)")
+        if ratings:
+            sc = tailoring.scales(cx)
+            bad = [f"{a}={v}" for a, v in ratings.items() if a not in sc or v not in sc[a]]
+            if bad:
+                raise ValueError(f"unknown rating(s) {bad}; axes: " + "; ".join(f"{a} ({', '.join(s)})" for a, s in sc.items()))
+            missing = [a for a in sc if a not in ratings]
+            if missing:
+                raise ValueError(f"give a rating for every axis; missing: {', '.join(missing)}")
+            combos = [(None, {a: ratings[a] for a in sc})]
+        else:
+            combos = [(None, None)]
 
     by_id: dict[str, Node] = {}
 
@@ -1174,17 +1318,20 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None) -> Plan:
                 index(n.steps)
 
     index(recipe.steps)
+    per_axis = multi and combos == [(None, None)]
 
     plan_levels = []
-    for lv in levels:
+    for lv, rt in combos:
         rows: list[PlanStep] = []
+        # The per-axis view marks as included only what always runs.
+        look = tailoring.NEVER if per_axis else rt
 
         def visit(nodes: list[Node], depth: int, prefix: str, enclosing: bool) -> None:
             for n in nodes:
-                inc = _included(n, lv, enclosing)
+                inc = _included(n, look, enclosing)
                 reason = ""
                 if not inc:
-                    reason = "group skipped" if not enclosing else f"applies to {', '.join(n.applies_to or [])}"
+                    reason = "group skipped" if not enclosing else f"applies to {tailoring.describe_conditions(n.applies_to)}"
                 path = f"{prefix}{n.id}"
                 if isinstance(n, Group):
                     rows.append(
@@ -1195,7 +1342,7 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None) -> Plan:
                             depth=depth,
                             included=inc,
                             reason=reason,
-                            group=_group_details(n, lv, by_id),
+                            group=_group_details(n, look, by_id),
                         )
                     )
                     visit(n.steps, depth + 1, path + "/", inc)
@@ -1210,12 +1357,12 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None) -> Plan:
                             reason=reason,
                             requires=n.requires,
                             workspace=n.workspace,
-                            gates=_plan_gates(n, lv, inc, recipe),
+                            gates=_plan_gates(n, look, inc, recipe, per_axis=per_axis),
                         )
                     )
 
         visit(recipe.steps, 0, "", True)
-        plan_levels.append(PlanLevel(level=lv, steps=rows))
+        plan_levels.append(PlanLevel(level=lv, steps=rows, ratings=rt if multi else None))
 
     return Plan(
         recipe=recipe.ref,
@@ -1224,14 +1371,42 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None) -> Plan:
         recipe_sha256=loaded.sha256,
         description=recipe.description,
         levels=plan_levels,
+        axes=_plan_axes(recipe) if per_axis else None,
         warnings=loaded.warnings,
     )
 
 
-def _plan_gates(step: Step, level: str | None, included: bool, recipe: Recipe) -> list[PlanGate]:
+def _plan_axes(recipe: Recipe) -> list[PlanAxis]:
+    """Per axis and value, the steps and gates whose own ``applies_to`` lists that rating (§5.5)."""
+    cx = recipe.complexity
+    out = []
+    for axis, scale in tailoring.scales(cx).items():
+        values = []
+        for v in scale:
+            adds: list[str] = []
+
+            def visit(nodes: list[Node], prefix: str) -> None:
+                for n in nodes:
+                    path = f"{prefix}{n.id}"
+                    if v in (tailoring.conditions(n.applies_to) or {}).get(axis, []):
+                        adds.append(f"{'group' if isinstance(n, Group) else 'step'} {path}")
+                    if isinstance(n, Step):
+                        for i, g in enumerate(n.gates):
+                            if v in (tailoring.conditions(g.applies_to) or {}).get(axis, []):
+                                adds.append(f"{g.type} gate on {path}")
+                    else:
+                        visit(n.steps, path + "/")
+
+            visit(recipe.steps, "")
+            values.append(PlanAxisValue(value=v, adds=adds))
+        out.append(PlanAxis(name=axis, scale=scale, confirm_lowest=tailoring.confirm_lowest(cx, axis), values=values))
+    return out
+
+
+def _plan_gates(step: Step, ratings: dict[str, str] | None, included: bool, recipe: Recipe, *, per_axis: bool = False) -> list[PlanGate]:
     out = []
     for g in step.gates:
-        inc = included and (level is None or g.applies_to is None or level in g.applies_to)
+        inc = included and tailoring.applies(g.applies_to, ratings)
         note = ""
         if isinstance(g, HumanGate):
             note = g.prompt
@@ -1246,6 +1421,8 @@ def _plan_gates(step: Step, level: str | None, included: bool, recipe: Recipe) -
             note = ", ".join(bits)
         elif isinstance(g, FindingsGate) and g.block_on:
             note = "blocks on " + "/".join(g.block_on)
+        if not inc and g.applies_to is not None and per_axis:
+            note = (note + "; " if note else "") + f"applies to {tailoring.describe_conditions(g.applies_to)}"
         out.append(PlanGate(type=g.type, blocking=not g.advisory, included=inc, note=note))
     if step.protect is not None:
         mode = step.protect.on_violation if not isinstance(step.protect, list) else "warn"
@@ -1259,21 +1436,34 @@ def _plan_gates(step: Step, level: str | None, included: bool, recipe: Recipe) -
             )
         )
     cx = recipe.complexity
-    # §18 #8 (decided): triage auto-accepts at the lowest level; above it the owner approves.
-    if cx is not None and step.id == cx.triage_step and level is not None and level != cx.levels[0]:
-        out.append(
-            PlanGate(
-                type="human",
-                blocking=True,
-                included=included,
-                implicit=True,
-                note=f"approve triage result (levels above {cx.levels[0]})",
+    if cx is None or step.id != cx.triage_step:
+        return out
+    if not tailoring.is_multi(cx):
+        level = (ratings or {}).get(tailoring.LEVEL_AXIS)
+        # §18 #8 (decided): triage auto-accepts at the lowest level; above it the owner approves.
+        if level is not None and level != cx.levels[0]:
+            out.append(
+                PlanGate(
+                    type="human",
+                    blocking=True,
+                    included=included,
+                    implicit=True,
+                    note=f"approve triage result (levels above {cx.levels[0]})",
+                )
             )
-        )
+        return out
+    guarded = [a for a in cx.axes if tailoring.confirm_lowest(cx, a)]
+    if per_axis:
+        note = "approve the ratings unless every axis is at its lowest"
+        if guarded:
+            note = f"approve the ratings unless every axis is at its lowest (the lowest {', '.join(guarded)} also asks)"
+        out.append(PlanGate(type="human", blocking=True, included=included, implicit=True, note=note))
+    elif ratings is not None and not tailoring.auto_approves(cx, ratings):
+        out.append(PlanGate(type="human", blocking=True, included=included, implicit=True, note="approve the ratings"))
     return out
 
 
-def _group_details(group: Group, level: str | None, by_id: dict[str, Node]) -> dict[str, Any]:
+def _group_details(group: Group, ratings: dict[str, str] | None, by_id: dict[str, Node]) -> dict[str, Any]:
     d: dict[str, Any] = {"concurrency": group.concurrency}
     if group.foreach:
         d["foreach"] = group.foreach
@@ -1281,7 +1471,7 @@ def _group_details(group: Group, level: str | None, by_id: dict[str, Node]) -> d
         if group.foreach.startswith("group.steps."):
             source_id = group.foreach.split(".")[2]
         source = by_id.get(source_id or "")
-        if source is not None and not _included(source, level):
+        if source is not None and not _included(source, ratings):
             d["source_skipped"] = group.foreach_if_source_skipped or "skip"
     if group.repeat_until:
         d["repeat_until"] = group.repeat_until
@@ -1296,25 +1486,37 @@ def render_plan(plan: Plan) -> str:
         lines.append(plan.description)
     for lv in plan.levels:
         lines.append("")
-        lines.append(f"Level: {lv.level}" if lv.level is not None else "Steps:")
+        if lv.ratings:
+            lines.append("Ratings: " + tailoring.describe(lv.ratings))
+        elif plan.axes is not None:
+            lines.append("Always runs (when: only at the ratings below that add it):")
+        else:
+            lines.append(f"Level: {lv.level}" if lv.level is not None else "Steps:")
         width = max(len("  " * r.depth + r.path.rsplit("/", 1)[-1]) for r in lv.steps) + 2
         for r in lv.steps:
             name = "  " * r.depth + r.path.rsplit("/", 1)[-1]
-            status = "run " if r.included else "skip"
+            per_axis = plan.axes is not None
+            status = "run " if r.included else ("when" if per_axis else "skip")
             if not r.included:
-                detail = f"({r.reason})"
+                detail = f"({'with its group' if per_axis and r.reason == 'group skipped' else r.reason})"
             elif r.kind == "group":
                 detail = _render_group(r.group or {})
             else:
-                detail = _render_gates(r.gates)
+                detail = _render_gates(r.gates, "only at some ratings" if per_axis else "not at these ratings" if lv.ratings else "not at this level")
             lines.append(f"  {name.ljust(width)}{status}  {detail}".rstrip())
+    for ax in plan.axes or []:
+        lines.append("")
+        guard = "; its lowest also asks the owner" if ax.confirm_lowest else ""
+        lines.append(f"Axis {ax.name} ({', '.join(ax.scale)}{guard}):")
+        for v in ax.values:
+            lines.append(f"  {v.value}: " + ("adds " + "; ".join(v.adds) if v.adds else "adds nothing"))
     if any(g.implicit for lv in plan.levels for r in lv.steps for g in r.gates):
         lines.append("")
         lines.append("* implicit gate, enforced by the runtime")
     return "\n".join(lines) + "\n"
 
 
-def _render_gates(gates: list[PlanGate]) -> str:
+def _render_gates(gates: list[PlanGate], off_label: str = "not at this level") -> str:
     on = []
     off = []
     for g in gates:
@@ -1328,7 +1530,7 @@ def _render_gates(gates: list[PlanGate]) -> str:
         (on if g.included else off).append(label)
     text = "gates: " + ("; ".join(on) if on else "none")
     if off:
-        text += "  | not at this level: " + "; ".join(g.split(":")[0] for g in off)
+        text += f"  | {off_label}: " + "; ".join(g.split(":")[0] for g in off)
     return text
 
 

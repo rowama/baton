@@ -162,9 +162,9 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.recipes())
 
     @tool
-    def plan(recipe: str, level: str | None = None) -> dict[str, Any]:
-        """A vendored recipe's per-level step and gate table."""
-        return t.call(lambda api: {"plan": api.plan(recipe, level=level).model_dump(mode="json")})
+    def plan(recipe: str, level: str | None = None, ratings: dict[str, str] | None = None) -> dict[str, Any]:
+        """A vendored recipe's step and gate table: per level, or for a recipe with axes, per axis or for given ratings (every axis)."""
+        return t.call(lambda api: {"plan": api.plan(recipe, level=level, ratings=ratings).model_dump(mode="json")})
 
     # -- runs ----------------------------------------------------------------
 
