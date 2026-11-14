@@ -1862,9 +1862,75 @@ def bind(ctx: RunContext, role: str, paths: list[str], note: str, *, actor: str 
     if not (note or "").strip():
         raise EngineError("bind.note_required", "binding a document is the owner's decision; give their words with --note")
     r, entries = documents.check_binding(ctx.store, ctx.recipe.recipe, role, paths)
-    if ctx.record().binding(role) is not None:
-        raise EngineError("bind.already_bound", f"role {role} is already bound in {ctx.run_id}")
-    return documents.record_binding(ctx, r, entries, note, actor=actor, recorded_by=recorded_by)
+    previous = ctx.record().binding(role)
+    stale = _rebind_stale(ctx, role) if previous is not None else []
+    out = documents.record_binding(ctx, r, entries, note, actor=actor, recorded_by=recorded_by)
+    for p in stale:
+        ctx.log.append("step_stale", step_path=p, data={"cause": "rebound", "role": role, "decision_id": out["decision_id"]})
+    return {**out, "rebound": previous is not None, "stale": stale}
+
+
+def _uses_role(node: Any, role: str) -> bool:
+    if not isinstance(node, Step):
+        return False
+    for inp in node.inputs:
+        ref = refs.parse(inp.from_)
+        if ref.kind == "project" and ref.name == role:
+            return True
+    return False
+
+
+def _rebind_stale(ctx: RunContext, role: str) -> list[str]:
+    """The accepted steps a rebinding makes stale (§8.9): those that consumed the role and their accepted dependents,
+    as ``revise`` stales its dependents, group instances included. Refused while any of them is in flight, and when
+    the accepted triage step consumed it (its level is changed with ``retriage``, after which the role can be rebound)."""
+    rs = ctx.log.state()
+    view = view_of(ctx)
+    top = ctx.recipe.recipe.steps
+    consumers: list[tuple[str, Any]] = []
+    for p in rs.steps:
+        loc = groups.locate(ctx.recipe, p)
+        if loc is not None and _uses_role(loc.node, role):
+            consumers.append((p, loc))
+    cx = ctx.recipe.recipe.complexity
+    if cx is not None and rs.step(cx.triage_step).state in ("passed", "imported") and any(p == cx.triage_step for p, _ in consumers):
+        raise EngineError("bind.triage", f"{cx.triage_step}, the triage step, used {role}; to rebind it, re-triage first "
+                                         "(`retriage`), then rebind while triage is ready to run again")
+    accepted = [(p, loc) for p, loc in consumers if rs.step(p).state in ("passed", "imported")]
+    seeds = {p.split("/", 1)[0] for p, _ in accepted}  # a consumer not accepted yet will read the new binding when it runs
+    dependents: set[str] = set()
+    frontier = set(seeds)
+    while frontier:
+        nxt = {n.id for n in top if n.id not in dependents and frontier & set(n.depends_on)}
+        dependents |= nxt
+        frontier = nxt
+    within: dict[str, set[str]] = {}  # instance path -> ids that depend, inside the group, on a consumer there
+    for p, loc in accepted:
+        f = loc.frame
+        if f is None:
+            continue
+        ids = {loc.node.id}
+        changed = True
+        while changed:
+            more = {n.id for n in f.group.steps if n.id not in ids and ids & set(n.depends_on)}
+            changed = bool(more)
+            ids |= more
+        within.setdefault(f.instance_path, set()).update(ids)
+
+    def affected(p: str) -> bool:
+        loc = groups.locate(ctx.recipe, p)
+        if loc is None:
+            return False
+        if _uses_role(loc.node, role) or p.split("/", 1)[0] in dependents:
+            return True
+        return loc.frame is not None and loc.node.id in within.get(loc.frame.instance_path, set())
+
+    hit = sorted(p for p in rs.steps if affected(p))
+    busy = [p for p in hit if rs.step(p).state in groups.IN_FLIGHT]
+    if busy:
+        raise EngineError("bind.in_flight", f"cannot rebind {role} while work that uses it is in flight: {', '.join(busy)}")
+    stale = [p for p in hit if rs.step(p).state in ("passed", "imported") and view.live_reason(p, dispatch=False) is None]
+    return stale
 
 
 def project_inputs_status(ctx: RunContext, ready: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -2260,6 +2326,7 @@ class Api:
                 "queued": st["queued"], "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"],
                 "lease": st["lease"],
                 **({"waiting_on_binding": st["waiting_on_binding"]} if st.get("waiting_on_binding") else {}),
+                **({"upstream_changes": st["upstream_changes"]} if st.get("upstream_changes") else {}),
             })
         holder = locks.workspace_holder(self.project.baton)
         ws = {"holder": {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id", "attempt") if k in holder} if holder else None,
@@ -2353,8 +2420,11 @@ class Api:
                                  "revisions": len(t.revisions), **({"drift": {"current_sha256": x["current_sha256"]}} if x else {})})
         project_inputs: dict[str, Any] = {}
         if ctx.recipe.recipe.project_inputs:  # only for a recipe that declares roles, so other status output is unchanged
+            from . import documents
+
             roles, waiting = project_inputs_status(ctx, ready)
-            project_inputs = {"project_inputs": roles, "waiting_on_binding": waiting}
+            project_inputs = {"project_inputs": roles, "waiting_on_binding": waiting,
+                              "upstream_changes": documents.upstream_changes(self.project.store, run_id, events)}
         return {
             "run_id": run_id,
             **project_inputs,

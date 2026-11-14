@@ -264,3 +264,34 @@ def bound(events: list[Any]) -> dict[str, Any]:
         if e.type == "project_input_bound":
             out[e.data["role"]] = e
     return out
+
+
+def upstream_changes(store: Store, run_id: str, events: list[Any], docs: dict[str, Document] | None = None) -> list[dict[str, Any]]:
+    """Bound documents of an active run that have moved on since they were bound (§10.5): a newer accepted
+    version, or a living file edited or deleted. Computed on demand, recorded nowhere, and nothing follows from it:
+    the run keeps the version it bound until the owner rebinds."""
+    if not events or any(e.type in ("run_completed", "run_abandoned") for e in events):
+        return []
+    bindings = bound(events)
+    if not bindings:
+        return []
+    docs = collect(store) if docs is None else docs
+    out = []
+    for role, ev in sorted(bindings.items()):
+        for d in ev.data.get("documents") or []:
+            doc = docs.get(d["path"])
+            living = file_sha(store.root / d["path"])
+            current_version = len(doc.versions) if doc else d.get("version")
+            if doc is not None and current_version > (d.get("version") or 0):
+                change = "newer_version"
+            elif living is None:
+                change = "deleted"
+            elif living != d["sha256"]:
+                change = "edited"
+            else:
+                continue
+            out.append({"run": run_id, "role": role, "path": d["path"], "change": change,
+                        "bound_version": d.get("version"), "bound_sha256": d["sha256"],
+                        "current_version": current_version, "current_accepted_sha256": doc.latest.sha256 if doc else None,
+                        "current_sha256": living})
+    return out

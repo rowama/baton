@@ -128,6 +128,7 @@ def check(root: Path, *, strict: bool = False) -> list[Issue]:
         pevents, _ = store.project_log().scan()
         issues += CAS(baton / "project" / "cas").verify(referenced_blobs(pevents))
         recipes = lock.get("recipes", {}) if lock else {}
+        all_docs = None  # the project's documents, collected once if any run bound one
         for rid in store.run_ids():
             issues += run_integrity(store, rid)
             events, _ = RunLog(store, rid).scan()
@@ -137,6 +138,15 @@ def check(root: Path, *, strict: bool = False) -> list[Issue]:
                 what = "was deleted" if x["current_sha256"] is None else "was edited"
                 issues.append(Issue(code="publish.drift", where=x["path"], severity="error" if strict else "warning",
                                     message=f"{x['artifact']} of {x['step_path']} in run {rid} {what} after publishing (leave it or ingest it: `baton status {rid}`)"))
+            from .documents import collect, upstream_changes
+
+            if any(e.type == "project_input_bound" for e in events):
+                all_docs = all_docs if all_docs is not None else collect(store)
+            for x in upstream_changes(store, rid, events, all_docs):
+                what = {"newer_version": f"has a newer version ({x['current_version']})", "edited": "was edited", "deleted": "was deleted"}[x["change"]]
+                issues.append(Issue(code="document.upstream_changed", where=x["path"], severity="warning",
+                                    message=f"run {rid} bound version {x['bound_version']} of it as {x['role']}; it {what} since "
+                                            f"(the run keeps its version; the owner may rebind: `baton status {rid}`)"))
             if events and events[0].type == "run_started":
                 ref, sha = events[0].data.get("recipe"), events[0].data.get("recipe_sha256")
                 entry = recipes.get(ref)

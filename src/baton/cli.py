@@ -436,6 +436,9 @@ def _status_text(s: dict) -> str:
     for st in s.get("stale") or []:
         how = "dispatch it to re-run, or the owner may `decide ... confirm`" if st["runnable"] else st.get("waiting", "")
         lines.append(f"  {st['step_path']}: stale ({st.get('cause')}{', revised ' + st['revised'] if st.get('revised') else ''}); {how}")
+    for u in s.get("upstream_changes") or []:
+        what = {"newer_version": f"has a newer version ({u['current_version']})", "edited": "was edited", "deleted": "was deleted"}[u["change"]]
+        lines.append(f"  {u['role']}: {u['path']} {what} since version {u['bound_version']} was bound; this run keeps that version unless the owner rebinds")
     for w in s.get("waiting_on_binding") or []:
         lines.append(f"  {w['step_path']}: waits for a project document for {w['role']} ({w['description']}); bind one with `bind`")
     if s.get("awaiting_baseline"):
@@ -519,8 +522,9 @@ def bind_cmd(
     """Bind a role of a run's recipe to project documents, as the owner confirmed (owner-approved)."""
     out = _call(as_json, lambda: _api().bind(run, role, paths, note))
     edited = [d["path"] for d in out["documents"] if d["edited_since_accepted"]]
-    _done(out, as_json, f"Bound {role} to {', '.join(d['path'] for d in out['documents'])}"
-          + (f" (edited since accepted: {', '.join(edited)})" if edited else ""))
+    _done(out, as_json, f"{'Rebound' if out.get('rebound') else 'Bound'} {role} to {', '.join(d['path'] for d in out['documents'])}"
+          + (f" (edited since accepted: {', '.join(edited)})" if edited else "")
+          + (f"\nStale: {', '.join(out['stale'])}" if out.get("stale") else ""))
 
 
 @app.command()

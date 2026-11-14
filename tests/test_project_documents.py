@@ -499,3 +499,179 @@ def test_a_fresh_clone_builds_the_packet_from_the_record(tmp_path):
     pdir = packet_dir(clone, run, "brief", d["attempt"])
     (plan,) = _entry(json.loads((pdir / "manifest.json").read_text(encoding="utf-8")), "plan")
     assert (pdir / plan["path"]).read_text(encoding="utf-8") == "# Plan v1\n"
+
+
+# ---------------------------------------------------------------------------
+# Slice 4: upstream change and rebinding
+# ---------------------------------------------------------------------------
+
+ADS = {"type": "object", "properties": {"ads": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"},
+                                                                                                         "text": {"type": "string"}}}}}}
+
+
+def _campaign(root: Path) -> Path:
+    """seed -> ads[foreach: write (plan) -> check];  brief (plan) -> launch;  side (independent)."""
+    plan = {"name": "plan", "from": "project.business_plan", "required": True}
+    steps = [
+        {"id": "seed", "output_schema": "schemas/ads.json"},
+        {"id": "ads", "depends_on": ["seed"], "foreach": "steps.seed.output.ads", "steps": [
+            {"id": "write", "output_schema": "schemas/out.json", "inputs": [{"name": "ad", "from": "item"}, plan]},
+            {"id": "check", "depends_on": ["write"], "output_schema": "schemas/out.json"},
+        ]},
+        {"id": "brief", "output_schema": "schemas/out.json", "inputs": [plan]},
+        {"id": "launch", "depends_on": ["brief"], "output_schema": "schemas/out.json"},
+        {"id": "side", "output_schema": "schemas/out.json"},
+    ]
+    make_recipe(root, steps, schemas={"out.json": OBJ, "ads.json": ADS}, id="campaign",
+                run_inputs={"type": "object", "properties": {"title": {"type": "string"}}}, project_inputs=[PLAN_ROLE])
+    doc = yaml.safe_load((root / "recipe.yaml").read_text(encoding="utf-8"))
+    group = doc["steps"][1]
+    group.pop("requires"), group.pop("prompt")
+    for s in group["steps"]:
+        s.update(requires={"capabilities": ["structured_output"]}, prompt=f"prompts/{s['id']}.md")
+        (root / s["prompt"]).write_text(f"Do the {s['id']} step.\n", encoding="utf-8")
+    (root / "recipe.yaml").write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    return root
+
+
+def _triaged(root: Path) -> Path:
+    triage = {"type": "object", "required": ["level"], "properties": {"level": {"enum": ["small", "large"]}}}
+    steps = [
+        {"id": "triage", "output_schema": "schemas/triage.json", "gates": [{"type": "schema"}],
+         "inputs": [{"name": "plan", "from": "project.business_plan", "required": True}]},
+        {"id": "after", "depends_on": ["triage"], "output_schema": "schemas/out.json"},
+    ]
+    return make_recipe(root, steps, schemas={"out.json": OBJ, "triage.json": triage}, id="sized", project_inputs=[PLAN_ROLE],
+                       run_inputs={"type": "object", "properties": {"title": {"type": "string"}}},
+                       complexity={"levels": ["small", "large"], "triage_step": "triage"})
+
+
+class R(M):
+    def __init__(self, tmp_path: Path):
+        P.__init__(self, tmp_path, [_publisher(tmp_path / "toy"), _market(tmp_path / "market"), _campaign(tmp_path / "campaign"),
+                                    _triaged(tmp_path / "sized")])
+
+    def do(self, run: str, step: str, output: dict | None = None, expect: int | None = None) -> dict:
+        self.dispatch(run, step)
+        write_result(self.last_packet, output or {})
+        return self.cli("submit", run, step, expect=expect).payload
+
+    def ready(self, run: str) -> list[str]:
+        return self.cli.run("status", run, expect=None)["ready"]
+
+    def states(self, run: str) -> dict[str, str]:
+        from baton.store import Store
+
+        s = Store(self.project)
+        try:
+            return {p: st.state for p, st in s.run(run).state().steps.items()}
+        finally:
+            s.close()
+
+
+def _bound_market(r: R, path: str = "business/plan.md") -> str:
+    return r.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", f"business_plan={path}",
+                     "--note", "Yes, that plan.")["run_id"]
+
+
+@pytest.mark.slow
+def test_an_edit_and_a_newer_attestation_are_reported_never_propagated(tmp_path):
+    r = R(tmp_path)
+    r.attest("business/plan.md", "# Plan v1\n")
+    run = _bound_market(r)
+    assert r.cli.run("status", run, expect=None)["upstream_changes"] == []
+    r.file("business/plan.md").write_text("# Plan, edited\n", encoding="utf-8")
+    (u,) = r.cli.run("status", run, expect=None)["upstream_changes"]
+    assert (u["role"], u["path"], u["change"], u["bound_version"], u["current_version"]) == ("business_plan", "business/plan.md", "edited", 1, 1)
+    assert u["current_sha256"] != u["bound_sha256"] and u["run"] == run
+    r.cli.run("attest", "business/plan.md", "--note", "The edited plan stands.")
+    (u,) = r.cli.run("status", run, expect=None)["upstream_changes"]
+    assert (u["change"], u["current_version"]) == ("newer_version", 2)
+    (b,) = r.cli.run("board", expect=None)["runs"]
+    assert b["upstream_changes"][0]["change"] == "newer_version"
+    issues = r.cli.run("check", "--strict", expect=None)
+    found = [i for i in issues["issues"] if i["code"] == "document.upstream_changed"]
+    assert len(found) == 1 and found[0]["severity"] == "warning" and found[0]["where"] == "business/plan.md"
+
+    r.do(run, "brief")  # nothing is stale or held: the run carries on with the version it bound, and completes
+    (plan,) = _entry(r.manifest(), "plan")
+    assert (r.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan v1\n"
+    out = r.do(run, "launch")
+    assert out["run_completed"] is True
+    assert not [e for e in r.events(run) if e["type"] == "step_stale"]
+    assert r.cli.run("status", run, expect=None)["upstream_changes"] == []  # a finished run reports nothing
+
+
+@pytest.mark.slow
+def test_a_newer_publication_and_a_deletion_are_reported(tmp_path):
+    r = R(tmp_path)
+    first = r.start("toy", "Plan")
+    r.by_hand(first, "draft", "# Plan v1\n")
+    run = _bound_market(r, "docs/out/plan-doc.md")
+    again = r.start("toy", "Plan")
+    r.by_hand(again, "draft", "# Plan v2\n", expect=None)  # another run's file: a conflict the owner settles
+    r.cli.run("decide", again, "publish:draft.doc", "overwrite", "--note", "Replace it.", expect=None)
+    (u,) = r.cli.run("status", run, expect=None)["upstream_changes"]
+    assert (u["change"], u["bound_version"], u["current_version"]) == ("newer_version", 1, 2)
+    other = _bound_market(r, "docs/out/plan-doc.md")
+    r.file("docs/out/plan-doc.md").unlink()
+    (u,) = r.cli.run("status", other, expect=None)["upstream_changes"]
+    assert u["change"] == "deleted" and u["current_sha256"] is None
+
+
+@pytest.mark.slow
+def test_rebinding_stales_exactly_the_consumers_and_their_dependents_in_that_run_only(tmp_path):
+    r = R(tmp_path)
+    r.attest("business/plan.md", "# Plan v1\n")
+    r.attest("business/plan-v2.md", "# Plan v2\n")
+    start = lambda: r.cli.run("start", "campaign", "--inputs", json.dumps({"title": "Fall"}), "--bind", "business_plan=business/plan.md",
+                              "--note", "Yes.")["run_id"]
+    run, bystander = start(), start()
+    r.do(run, "seed", {"ads": [{"text": "one"}, {"text": "two"}]})
+    for _ in range(10):
+        ready = [p for p in r.ready(run) if p not in ("side",)]
+        if not ready:
+            break
+        for p in ready:
+            r.do(run, p)
+    states = r.states(run)  # `side` stays ready, so the run is still active
+    assert states["side"] == "ready" and {s for p, s in states.items() if p != "side"} == {"passed"}
+    r.do(bystander, "brief")
+    before = r.states(bystander)
+
+    assert r.cli("bind", run, "business_plan", "business/plan-v2.md", "--note", "  ", expect=1).payload["error"] == "bind.note_required"
+    out = r.cli.run("bind", run, "business_plan", "business/plan-v2.md", "--note", "Use the new plan.")
+    assert out["rebound"] is True
+    paths = r.states(run)
+    instance_paths = sorted(p for p in paths if p.startswith("ads/"))
+    assert len(instance_paths) == 4  # two instances, write and check each
+    assert sorted(out["stale"]) == sorted(["brief", "launch", *instance_paths])
+    states = r.states(run)
+    assert all(states[p] == "stale" for p in out["stale"]) and states["seed"] == "passed" and states["side"] == "ready"
+    st = [e for e in r.events(run) if e["type"] == "step_stale"]
+    assert {e["data"]["cause"] for e in st} == {"rebound"} and {e["data"]["role"] for e in st} == {"business_plan"}
+    assert r.states(bystander) == before  # another run bound to the same document is untouched
+
+    r.dispatch(run, "brief")  # a stale consumer re-runs with the new binding
+    (plan,) = _entry(r.manifest(), "plan")
+    assert (r.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan v2\n"
+    res = r.cli("bind", run, "business_plan", "business/plan.md", "--note", "Back to v1.", expect=1)  # brief is in flight
+    assert res.payload["error"] == "bind.in_flight" and "brief" in res.payload["message"]
+
+
+@pytest.mark.slow
+def test_a_role_triage_used_is_rebound_after_retriage(tmp_path):
+    r = R(tmp_path)
+    r.attest("business/plan.md", "# Plan v1\n")
+    r.attest("business/plan-v2.md", "# Plan v2\n")
+    run = r.cli.run("start", "sized", "--inputs", json.dumps({"title": "Fall"}), "--bind", "business_plan=business/plan.md",
+                    "--note", "Yes.")["run_id"]
+    r.do(run, "triage", {"level": "small"})
+    res = r.cli("bind", run, "business_plan", "business/plan-v2.md", "--note", "Use v2.", expect=1)
+    assert res.payload["error"] == "bind.triage" and "retriage" in res.payload["message"]
+    r.cli.run("retriage", run, "--reason", "The plan changed.", expect=None)
+    out = r.cli.run("bind", run, "business_plan", "business/plan-v2.md", "--note", "Use v2.")
+    assert out["rebound"] is True and out["stale"] == []
+    r.dispatch(run, "triage")
+    (plan,) = _entry(r.manifest(), "plan")
+    assert (r.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan v2\n"
