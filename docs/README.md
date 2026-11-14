@@ -286,3 +286,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0146 Project documents: bind the living file, roles may take several, identity is the path](decisions/0146-project-document-details.md) | accepted |
 | [0147 Tailoring axes: additive format, guarded lowest ratings, rating signals wait on the owner](decisions/0147-tailoring-axes-details.md) | accepted |
 | [0148 Project documents: framing does not show roles yet, and a role is required unless it says otherwise](decisions/0148-project-documents-framing-deferred.md) | accepted |
+| [0149 Baton has one software recipe, eng-process, tailored deeply enough for every scale](decisions/0149-one-software-recipe.md) | accepted |
+| [0150 Project guidance is an opt-in review process run in short, repeatable runs](decisions/0150-project-review-opt-in.md) | accepted |
