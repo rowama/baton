@@ -150,6 +150,19 @@ scope:                                   # what the recipe covers, in the owner'
 parent: { id: backyard-project, version: 2 }   # built from this recipe; `parent: null` = built from nothing
 ```
 
+A recipe may also declare the **project documents** it would like, by role (Decisions: [0142](../decisions/0142-project-documents-bound-by-role.md), [0146](../decisions/0146-project-document-details.md), [0148](../decisions/0148-project-documents-framing-deferred.md)). Additive in `baton-recipe/1`: a recipe without `project_inputs` loads, runs and hashes its packets exactly as before.
+
+```yaml
+project_inputs:
+  - role: business_plan                  # lowercase id; steps reference it as project.business_plan
+    description: "The business's settled plan: its constraints and target customers"
+    media_type: text/markdown            # optional: the type a bound document must have
+    required: true                       # default true: an unbound role stops the first step that needs it
+    many: false                          # default false; true takes one or more documents, in binding order
+```
+
+A role says what document the recipe needs, never which recipe or step made it, so a recipe stays shareable (§5.3). A run binds each role to a project document (§10.4) with the owner's confirmation (§8.6, §13.3).
+
 An absent `parent` marks a recipe that predates the field; `null` and a named parent both record where it came from, and all three are roots as far as the runtime goes. The loader rejects any other key under `scope` or `parent` (`recipe.unknown_key`) a missing required key (`recipe.missing_key`) and a malformed value (`recipe.invalid_value`).
 
 ### 5.2 Input references (closed grammar)
@@ -168,7 +181,8 @@ An absent `parent` marks a recipe that predates the field; `null` and a named pa
 | `human_revision.<step>.<artifact>` | The latest human edit to a published artifact that was explicitly ingested (§10.5); `not_applicable` while none is |
 | `research.findings` | Adoption research result (§11.2) |
 | `platform.facts` | The project's platform facts (§12.3) |
-| `catalog.summaries` | A summary of each recipe the project can run (Decision: [0106](../decisions/0106-catalog-summaries-input.md)): every vendored recipe (its newest version), then every shipped recipe not vendored, as `{id, version, description, levels, run_inputs, vendored, scope}`, `scope` being the recipe's scope block (§5.1) or `null`. The same listing framing receives (§11.6), plus `scope`. Always resolvable: a project with no lockfile lists only the shipped recipes |
+| `catalog.summaries` | A summary of each recipe the project can run (Decision: [0106](../decisions/0106-catalog-summaries-input.md)): every vendored recipe (its newest version), then every shipped recipe not vendored, as `{id, version, description, levels, run_inputs, vendored, scope, project_inputs?}`, `scope` being the recipe's scope block (§5.1) or `null`, and `project_inputs` its roles when it declares any (§5.1). The same listing framing receives (§11.6), plus `scope` and `project_inputs`; framing's own listing does not carry roles yet (Decision: [0148](../decisions/0148-project-documents-framing-deferred.md)). Always resolvable: a project with no lockfile lists only the shipped recipes |
+| `project.<role>` | The project document the run bound to a role the recipe declares in `project_inputs` (§5.1), from the run's record, never the living file (§8.6) |
 
 "Required" applies only when the source step is included at the run's complexity level. Inputs from skipped steps are omitted and listed as `not_applicable` in the manifest. Expert answers are deliberately **not** referenceable; they enter a run only when promoted (§12.2).
 
@@ -182,6 +196,7 @@ The loader (`recipe.py`) rejects a recipe unless:
 - Ids: per §5.8 (unique, no positional ids; `foreach` items declare an optional `id`).
 - Groups: per §5.4; `item` and `group.*` appear only inside groups; `independence.from_step` names the step itself or an ancestor (in the same group if inside one); `protect` appears only on `workspace: write` steps. With `repeat_from`, every step named in `repeat_until` must be at or after it (`group.judge_not_repeated`), and a step listed before it may not depend on one at or after it (`group.depends_on_repeated`).
 - A recipe being built can be checked by `baton recipe check <package> --ledger <file>` (Decision: [0108](../decisions/0108-recipe-check-command.md)), which a script gate runs. It reads a requirements ledger (a list of `{id, statement, kind, scope, status, basis, owner_words?}`, `scope` being `class` or `instance`, `status` one of `confirmed`, `researched`, `inferred`, `open`, `excluded`) and reports, one `ERROR <path>: <message>` line each: a malformed ledger or entry; an `open` entry; a `confirmed` entry without `owner_words`; and any `instance` entry whose `statement`, `value` or `owner_words` (at least 8 characters after lower-casing and collapsing whitespace) appears in the package's `prompts/` or `static/` files. The ledger file may be an object `{ledger, discovery}`; with `--require-discovery` it must be, and its `discovery` records (recipe-builder@3, §5.7) are checked: each record's fields and vocabulary; a choice that shapes the process is `decided`, with a comparison that lists options, cites dated sources or states its uncertainty and recommends, and a `decision` naming a confirmed `decision` entry that carries the owner's words; and a choice deferred to the recipe names research, decision and consuming steps that exist in `recipe.yaml`, the research step requiring `web_access`, the decision step having a `human` gate and taking the research output as a required input, and each consuming step taking the decision step's output as a required input. Exit 0 when clean, 1 otherwise. It judges nothing else: whether a design meets its goals, or a comparison is relevant and adequate, is a reviewer's work.
+- Project documents: every `project.<role>` names a declared role (`ref.unknown_role`); roles are unique (`project_inputs.duplicate_role`); a malformed entry is `recipe.missing_key`, `recipe.unknown_key` or `recipe.invalid_value`. A role's name or description may not name another recipe or its steps (`neutrality.role_names_recipe`): a qualified reference (`<recipe>@<n>`, `<recipe>@<n>/<step>`), a step reference (`steps.<id>`, `group.steps.<id>`), or the id of a recipe shipped with or built into the runtime (with `_` read as `-`).
 - **Neutrality:** no keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth`; no values matching the vocabulary's vendor denylist. Prompts and templates are scanned too, with warnings only (prose may mention a vendor).
 
 ### 5.4 Groups (sub-processes)

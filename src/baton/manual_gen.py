@@ -139,7 +139,18 @@ def parts_table(root: Path, labels: dict[str, str]) -> str:
         rows.append(f"| {indent}{_human(title)} | {when} | {_human(asked) if asked else 'nothing'} |")
     head = ["| Part | When | You are asked |", "|---|---|---|"]
     note = "" if levels == [None] else f"\n\nThe size of the work is {', '.join(f'**{lv}**' for lv in levels)}. The first part works out which one fits, and you confirm it above the smallest."
-    return "\n".join(head + rows) + note
+    return "\n".join(head + rows) + note + documents_table(recipe.load_recipe(root).recipe)
+
+
+def documents_table(r: Any) -> str:
+    """The project documents a recipe can build on, from its ``project_inputs`` (§5.1): empty when it declares none."""
+    if not r.project_inputs:
+        return ""
+    rows = ["| Document | Needed | How many |", "|---|---|---|"]
+    for p in r.project_inputs:
+        rows.append(f"| {_human(p.description)} | {'yes' if p.required else 'if you have one'} | {'one or more' if p.many else 'one'} |")
+    return ("\n\nIt can build on documents your project already has. Before the work that needs one starts, "
+            "you are shown the document proposed and asked to confirm it.\n\n" + "\n".join(rows))
 
 
 def render_recipe(src: str, root: Path) -> str:

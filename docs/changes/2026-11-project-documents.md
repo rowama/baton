@@ -3,8 +3,8 @@ id: 2026-11-project-documents
 title: "Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled"
 status: in-progress
 level: major
-decisions: ["0142", "0146"]
-touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/persistence.md, design/director-interface.md, design/adoption-and-framing.md, design/layouts.md]
+decisions: ["0142", "0146", "0148"]
+touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/persistence.md, design/director-interface.md, design/layouts.md]
 manual: [user/start-with-a-goal.md, user/check-on-your-work.md, user/answer-questions-and-decide.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md]
 ---
 
@@ -25,7 +25,7 @@ The owner's direction (2026-11-13, `docs/catchall/project-process-linkage.md`): 
 - **Project documents are listed.** `documents()` (CLI `baton documents`, MCP, API) lists every project document, derived from run records and the project log, never from a hand-kept index: each with its path, current hash, kind (`deliverable` or `attested`), source (run, step and artifact, or attestation decision), when it was accepted, and whether the file has changed since (edited, deleted). A completed run's published deliverable appears without any extra action.
 - **The owner can attest a file.** `attest(path, note)` (`baton attest <path> --note "<owner's words>"`) records an owner decision in the project log with the file's hash, stores the file in the project CAS, and the file appears in `documents()` as `attested`. Paths outside the project, inside `.git` or `.baton`, missing files and a missing note are refused. Attesting a file again records a new version.
 - **Recipes declare roles.** A recipe may declare `project_inputs` (`role`, `description`, `media_type`, `required`, `many`). Steps reference them as `project.<role>`. The loader refuses an undeclared role, a duplicate role, a malformed entry, and a role whose name or description names another recipe or step (neutrality lint). A recipe with no `project_inputs` loads, runs and hashes its packets exactly as before (golden tests unchanged).
-- **Roles are visible to whoever proposes bindings.** `catalog.summaries`, framing's run inputs and the recipe topics in the manual show each recipe's roles.
+- **Roles are visible to whoever proposes bindings.** `catalog.summaries`, `recipes()` and the recipe topics in the manual show each recipe's roles. Framing's own inputs are unchanged for now (Decision [0148](../decisions/0148-project-documents-framing-deferred.md)).
 - **Binding is recorded and confirmed.** `bind(run, role, path, note)` (and `start --bind <role>=<path> … --note`) checks that the path is a project document and its media type fits (a `many` role takes a list of paths, a single role exactly one), stores the bound content in the run's CAS, and records `project_input_bound {role, path, sha256, source, edited_since_accepted, decision_id}` with the owner's words. Binding a role the recipe does not declare is refused. A role can be bound at start or later.
 - **Bound documents reach the packet like any input.** `project.<role>` resolves from the run's record only (never from the living file), appears in `manifest.json` with its hash and its source, and changes `packet_sha256` exactly as any input does. An optional unbound role is `not_applicable`. A required unbound role refuses the dispatch with `HandoffError` naming the role; `status` and `board` show the step as waiting on that binding.
 - **Upstream change is reported, not propagated.** When a bound document has a newer version (a later publication, a later attestation, or an edited or deleted file), `status`, `board` and `check` say so for active runs, naming the run, role, bound version and current version. Nothing becomes stale and no run is blocked or held from completing.
@@ -53,7 +53,7 @@ Approved by the owner with the Request on 2026-11-13 ("Implement project-documen
 
 - **Identity and versions.** A project document is its path (0146). Its versions are, in order, each `artifact_published` at that path in any run (once its step passed) and each attestation of it; its current state is the living file's hash, compared with the latest version (`unchanged`, `edited` or `deleted`).
 - **Project log and CAS.** Attestations are `document_attested {path, sha256, note, decision_id}` (after `human_decision {kind: attest}`) in the project log, with the blob in `.baton/project/cas/`. Deliverables need no new event: `documents()` reads `artifact_published` from every run (§10.4) and the project log's attestations, then hashes the living files.
-- **Recipe format.** A top-level `project_inputs:` list. `project.<role>` joins the closed grammar of §5.2. The loader and the neutrality lint check it (§5.3). `many: true` makes the input a list in the packet (`inputs/<role>/<n>.<ext>`, in binding order). Recipe hashes change only for recipes that use it.
+- **Recipe format.** A top-level `project_inputs:` list; a role is required unless it says `required: false` (0148). `project.<role>` joins the closed grammar of §5.2. The loader and the neutrality lint check it (§5.3). `many: true` makes the input a list in the packet (`inputs/<role>/<n>.<ext>`, in binding order). Recipe hashes change only for recipes that use it.
 - **Binding.** `bind` and `start --bind` are owner-approved actions (the runtime requires the words; the Director skill requires the actual approval, as for `waive`). The bound content is the living file at binding time (0146), copied into the run's CAS, so the run stays self-contained and resumable on another machine (§10.3). The event records `edited_since_accepted` when that file differs from the document's latest version, and the Director's confirm-back says so in plain words.
 - **Packet.** The packet builder (§8.6) resolves `project.<role>` from the latest `project_input_bound` for that role. Manifest inputs gain a `source` field for project inputs (`{kind, path, run?, step?, artifact?, decision_id?}`), so a worker knows it holds, say, the owner-attested business plan.
 - **Rebinding** reuses the stale machinery of `revise` (§8.9): the consuming steps are found from the run's `packet_built` records (each records its inputs' hashes), and they and their accepted dependents become `stale`, group instances included, as `revise` does. A consumer that is the triage step cannot be made stale (§5.5): rebinding its role is refused with a pointer to `retriage`, which reruns triage with the new binding.
@@ -67,7 +67,6 @@ Approved by the owner with the Request on 2026-11-13 ("Implement project-documen
 - `design/runtime.md` §8.2 (events `project_input_bound`, `document_attested`), §8.6 (resolution and `HandoffError`), §8.9 (rebind as a local correction).
 - `design/persistence.md` §10.4–§10.6: when a deliverable becomes a project document; upstream change beside drift; records.
 - `design/director-interface.md` §13.1–§13.3: `documents`, `attest`, `bind`, `start --bind`; the skill's binding conversation.
-- `design/adoption-and-framing.md` §11.6: framing's summaries show roles; a part's proposal may include bindings.
 - `design/layouts.md`: the project CAS and the attestation records.
 - `docs/README.md`: decision 0142 and any new stable section.
 
@@ -83,6 +82,7 @@ Approved by the owner with the Request on 2026-11-13 ("Implement project-documen
 
 - [0142](../decisions/0142-project-documents-bound-by-role.md) (accepted): project documents, roles, binding, reporting, listing, the concept.
 - [0146](../decisions/0146-project-document-details.md) (accepted): the living file is bound, `many` roles, identity by path, when a deliverable counts, no withdrawal, code by attestation only.
+- [0148](../decisions/0148-project-documents-framing-deferred.md) (accepted, during slice 2): framing's inputs and output are unchanged for now; a role is required by default.
 
 ## Plan
 
@@ -97,7 +97,7 @@ Each slice carries its tests, design and manual edits and Log entry, and follows
 ### Slice 2: recipes declare roles
 
 - **Outcome:** recipes can declare `project_inputs` and reference `project.<role>`; summaries and the manual's recipe topics show roles.
-- **Criteria:** loader refusals (undeclared, duplicate, malformed, naming another recipe or step); `many` roles; existing recipes' hashes and goldens unchanged; `catalog.summaries` and framing inputs carry roles.
+- **Criteria:** loader refusals (undeclared, duplicate, malformed, naming another recipe or step); `many` roles; existing recipes' hashes and goldens unchanged; `catalog.summaries`, `recipes()` and the manual carry roles (framing deferred, 0148).
 - **Effort:** S
 
 ### Slice 3: binding and the packet
@@ -144,3 +144,10 @@ Each slice carries its tests, design and manual edits and Log entry, and follows
 - **Summary:** New `documents.py` derives every project document from the run logs (`artifact_published` not kept, and owner-ingested drift revisions, which the owner accepted) and the project log (`document_attested`), orders each path's versions by time, and hashes the living file (`unchanged`, `edited`, `deleted`). `attest` records `human_decision {kind: attest}` and `document_attested` in the project log, stores the bytes in the project CAS (`Store.project_cas`) and commits them as a project checkpoint; `check` verifies those blobs. API, CLI (`baton documents`, `baton attest`) and MCP tools. Design: §2 (the concept), §8.2, §10.4, §13.1, §4.3. Manual: `admin/director-commands.md` (new section), `context.yaml`, regenerated `reference/commands.md`. Tests (`tests/test_project_documents.py`): listing across runs with edited, deleted and re-published files; a deliverable listed once its step is accepted, before the run completes; attestation recorded with words, hash, CAS blob and commit, and a second attestation as version 2; refusals (outside, `.git`, `.baton`, missing, a directory, no note); CLI, MCP and API return the same list.
 - **Review:** clean.
 - **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents".
+
+### Slice 2: recipes declare roles
+
+- **Commit:** `2026-11-project-documents: Slice 2, recipes declare roles`
+- **Summary:** `ProjectInput` and `Recipe.project_inputs` (additive in `baton-recipe/1`; `formats/baton-recipe-1.schema.json` regenerated); `project.<role>` joins the closed grammar (`refs.py`); the loader refuses an undeclared role, a duplicate, a malformed entry and a role naming another recipe or step (`neutrality.role_names_recipe`: a qualified reference, a step reference, or a shipped or built-in recipe id). `catalog.summaries` and `recipes()` carry roles when declared; the manual's recipe topics get a documents table from `manual_gen.documents_table` (empty for the shipped recipes, so their topics are unchanged). Asked the owner about framing (its schemas would have to change, breaking open `baton-frame@1` runs) and the role default: Decision 0148, framing deferred and roles required by default; the Request, Design and `touches:` updated to match. Design: §5.1, §5.2, §5.3. Tests: roles load (default required), the loader's refusals, a reference needs a declared role, shipped recipes declare none and their summaries are unchanged, summaries and the manual table show roles, `recipes` lists them.
+- **Review:** clean.
+- **Accepted:** yes, 2026-11-13, under the owner's "Implement project-documents"; 0148 from the owner's answers.

@@ -428,6 +428,50 @@
       "title": "Parent",
       "type": "object"
     },
+    "ProjectInput": {
+      "additionalProperties": false,
+      "description": "A project document the recipe would like, by role (\u00a75.1; Decisions 0142, 0146, 0148).\n\nSteps reference it as ``project.<role>``. A run binds the role to a project\ndocument with the owner's confirmation; ``many`` roles take one or more.",
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "many": {
+          "default": false,
+          "title": "Many",
+          "type": "boolean"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "description"
+      ],
+      "title": "ProjectInput",
+      "type": "object"
+    },
     "Protect": {
       "additionalProperties": false,
       "properties": {
@@ -1052,6 +1096,13 @@
         }
       ],
       "default": null
+    },
+    "project_inputs": {
+      "items": {
+        "$ref": "#/$defs/ProjectInput"
+      },
+      "title": "Project Inputs",
+      "type": "array"
     },
     "run_inputs": {
       "anyOf": [

@@ -36,3 +36,18 @@ baton vendor path/to/recipe --approved --note "the owner's words"
 ## Helpers for recipe authors {#authors}
 
 `baton recipe check <package> --ledger <file>` is a helper that a recipe's own checks run: it verifies that no requirement is open and that every confirmed one carries the owner's words. The recipe format is published as JSON Schema in the runtime's `formats/` data, so an assistant can pre-check what it writes. Writing recipes is covered by the design documents; a guided path is the [recipe builder](recipes.recipe-builder#here-now).
+
+## Documents a recipe builds on {#project-inputs}
+
+A recipe can ask for documents the project already settled, such as a business plan another process wrote or a policy the owner vouched for. It declares each one by role at the top level of `recipe.yaml`, and its steps use it as `project.<role>`:
+
+```yaml
+project_inputs:
+  - role: business_plan
+    description: "The business's settled plan: its constraints and target customers"
+    media_type: text/markdown
+    required: true      # the default; false makes it optional
+    many: false         # true takes one or more documents
+```
+
+When a run starts, or when a part first needs a document, the assistant proposes one from the project's documents (`baton documents`) and the owner confirms it. Each step receives the version the owner confirmed. A role describes the document it needs, never the recipe or step that made it: `baton vendor` refuses a role that names another recipe (`software_feature_design`, `fit-check@4`) or a step (`steps.setup`), so the recipe stays shareable. A recipe without `project_inputs` works as before.

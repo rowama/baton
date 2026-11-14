@@ -240,6 +240,20 @@ class Parent(_Strict):
     version: int = Field(ge=1)
 
 
+class ProjectInput(_Strict):
+    """A project document the recipe would like, by role (§5.1; Decisions 0142, 0146, 0148).
+
+    Steps reference it as ``project.<role>``. A run binds the role to a project
+    document with the owner's confirmation; ``many`` roles take one or more.
+    """
+
+    role: str = Field(pattern=STEP_ID)
+    description: str = Field(min_length=1)
+    media_type: str | None = None
+    required: bool = True
+    many: bool = False
+
+
 class Recipe(_Strict):
     id: str = Field(pattern=RECIPE_ID)
     version: int = Field(ge=1)
@@ -252,7 +266,11 @@ class Recipe(_Strict):
     defaults: Defaults = Field(default_factory=Defaults)
     complexity: Complexity | None = None
     sme: SmeRequirements | None = None
+    project_inputs: list[ProjectInput] = Field(default_factory=list)
     steps: list[AnyStep] = Field(min_length=1)
+
+    def role(self, name: str) -> ProjectInput | None:
+        return next((r for r in self.project_inputs if r.role == name), None)
 
     @property
     def ref(self) -> str:

@@ -285,3 +285,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0145 Recipe builder offers a quick guided run as an alternative to a full recipe](decisions/0145-quick-runs-through-recipe-builder.md) | accepted |
 | [0146 Project documents: bind the living file, roles may take several, identity is the path](decisions/0146-project-document-details.md) | accepted |
 | [0147 Tailoring axes: additive format, guarded lowest ratings, rating signals wait on the owner](decisions/0147-tailoring-axes-details.md) | accepted |
+| [0148 Project documents: framing does not show roles yet, and a role is required unless it says otherwise](decisions/0148-project-documents-framing-deferred.md) | accepted |

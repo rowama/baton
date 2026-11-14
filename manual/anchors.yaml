@@ -65,6 +65,7 @@ published:
 - admin.recipes-and-vendoring
 - admin.recipes-and-vendoring#authors
 - admin.recipes-and-vendoring#here-now
+- admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review
 - admin.recipes-and-vendoring#versions
 - admin.secrets

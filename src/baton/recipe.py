@@ -161,6 +161,7 @@ class _Checker:
             return None
         self._check_graph()
         self._check_run_inputs()
+        self._check_project_inputs()
         for node, place in self._walk():
             if isinstance(node, Group):
                 self._check_group(node, place)
@@ -558,6 +559,9 @@ class _Checker:
             self._check_run_input_ref(ref, where)
         elif ref.kind == "static":
             self._file(f"static/{ref.name}", where, "static file")
+        elif ref.kind == "project" and self.recipe.role(ref.name or "") is None:
+            declared = ", ".join(r.role for r in self.recipe.project_inputs) or "none"
+            self.error("ref.unknown_role", where, f"{raw!r}: the recipe declares no project_inputs role {ref.name!r} (declared: {declared})")
         return ref
 
     def _check_steps_ref(self, ref: refs.Ref, node: Node, place: _Place, where: str) -> None:
@@ -862,6 +866,24 @@ class _Checker:
         if self.recipe.run_inputs is not None:
             self._schema(self.recipe.run_inputs.schema_, "run_inputs.schema")
 
+    def _check_project_inputs(self) -> None:
+        """Roles are unique and never name another recipe or its steps, so a recipe stays shareable (Decision 0142)."""
+        roles = self.recipe.project_inputs
+        _dupes(self, [r.role for r in roles], "project_inputs.duplicate_role", "project_inputs", "role")
+        if not roles:
+            return
+        others = sorted(known_recipe_ids() - {self.recipe.id}, key=len, reverse=True)
+        for i, r in enumerate(roles):
+            where = f"project_inputs[{i}]"
+            for field_, text in (("role", r.role), ("description", r.description)):
+                hit = _names_recipe(text, others)
+                if hit:
+                    self.error(
+                        "neutrality.role_names_recipe",
+                        f"{where}.{field_}",
+                        f"{text!r} names {hit}; a role says what document it needs, never which recipe or step made it",
+                    )
+
     def _check_sme(self) -> None:
         if self.recipe.sme is None:
             return
@@ -952,6 +974,42 @@ class _Checker:
 # ---------------------------------------------------------------------------
 
 _jinja = jinja2.Environment(autoescape=False)
+
+
+_RECIPE_REF = re.compile(r"(?<![a-z0-9-])[a-z][a-z0-9-]*@[0-9]+(?:/[a-z][a-z0-9_]*)?")
+_STEP_REF = re.compile(r"(?<![A-Za-z0-9_.])(?:steps|group\.steps)\.[a-z][a-z0-9_]*")
+
+
+def known_recipe_ids() -> set[str]:
+    """The ids of the recipes shipped with the runtime and built into it: names a role must not use."""
+    from . import data
+
+    out: set[str] = set()
+    for base in (data.path("examples") / "recipes", data.path("builtin")):
+        if not base.is_dir():
+            continue
+        for d in base.iterdir():
+            f = d / RECIPE_FILE
+            if f.is_file():
+                try:
+                    raw = load_yaml(f)
+                except YamlError:  # expected: a broken package is reported when it is itself loaded
+                    continue
+                if isinstance(raw, dict) and isinstance(raw.get("id"), str):
+                    out.add(raw["id"])
+    return out
+
+
+def _names_recipe(text: str, recipe_ids: list[str]) -> str | None:
+    """What in ``text`` names a recipe or a step of one: a qualified reference, a step reference, or a known recipe id."""
+    m = _RECIPE_REF.search(text) or _STEP_REF.search(text)
+    if m:
+        return repr(m.group(0))
+    norm = text.lower().replace("_", "-")
+    for rid in recipe_ids:
+        if re.search(rf"(?<![a-z0-9]){re.escape(rid)}(?![a-z0-9])", norm):
+            return f"recipe {rid!r}"
+    return None
 
 
 def _dupes(checker: _Checker, names: list[str], code: str, where: str, what: str) -> None:

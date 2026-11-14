@@ -50,6 +50,8 @@ def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str,
     }
     if with_scope:  # the `catalog.summaries` input (§5.2) also carries what the recipe covers (§5.1)
         out["scope"] = r.scope.model_dump(mode="json") if r.scope is not None else None
+        if r.project_inputs:  # and the project documents it can build on, by role (Decisions 0142, 0148)
+            out["project_inputs"] = [p.model_dump(mode="json", exclude_none=True) for p in r.project_inputs]
     return out
 
 

@@ -2086,6 +2086,8 @@ class Api:
             try:
                 loaded = self.project.recipe(ref)
                 entry["description"] = loaded.recipe.description
+                if loaded.recipe.project_inputs:
+                    entry["project_inputs"] = [p.model_dump(mode="json", exclude_none=True) for p in loaded.recipe.project_inputs]
                 entry["ok"] = True
             except EngineError as e:
                 entry.update(ok=False, error=str(e), code=e.code)

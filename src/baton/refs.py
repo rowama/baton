@@ -29,6 +29,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("research", re.compile(r"^research\.findings$")),
     ("platform", re.compile(r"^platform\.facts$")),
     ("catalog", re.compile(r"^catalog\.summaries$")),
+    ("project", re.compile(rf"^project\.({_ID})$")),
 ]
 
 # Kinds that may only appear inside a group.
@@ -64,7 +65,7 @@ def parse(raw: str) -> Ref:
             return Ref(kind, raw, step=g[0])
         if kind == "item":
             return Ref(kind, raw, path=_split(g[0]))
-        if kind in ("static", "human"):
+        if kind in ("static", "human", "project"):
             return Ref(kind, raw, name=g[0])
         return Ref(kind, raw)
     raise RefSyntaxError(f"{raw!r} is not a valid reference (see §5.2 for the grammar)")

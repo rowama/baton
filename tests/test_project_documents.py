@@ -214,3 +214,92 @@ def test_cli_mcp_and_api_list_the_same_documents(tmp_path, monkeypatch):
     via_cli = p.cli.run("documents")
     assert len(via_cli["documents"]) == 2
     assert via_mcp["documents"] == via_cli["documents"] == via_api["documents"]
+
+
+# ---------------------------------------------------------------------------
+# Slice 2: recipes declare roles
+# ---------------------------------------------------------------------------
+
+PLAN_ROLE = {"role": "business_plan", "description": "The business's settled plan: its constraints and target customers",
+             "media_type": "text/markdown"}
+
+
+def _role_recipe(root: Path, roles: list[dict] | None = None, ref: str = "project.business_plan", **top) -> Path:
+    use = {"id": "market", "output_schema": "schemas/out.json", "inputs": [{"name": "plan", "from": ref, "required": True}]}
+    return make_recipe(root, [use], schemas={"out.json": OBJ}, project_inputs=[PLAN_ROLE] if roles is None else roles, **top)
+
+
+def _codes(root: Path) -> set[str]:
+    from baton.recipe import validate_recipe
+
+    _, issues = validate_recipe(root)
+    return {i.code for i in issues if i.severity == "error"}
+
+
+@pytest.mark.not_slow("loads a recipe in process")
+def test_a_recipe_declares_roles_and_steps_reference_them(tmp_path):
+    from baton.recipe import load_recipe
+
+    r = load_recipe(_role_recipe(tmp_path / "r", [PLAN_ROLE, {"role": "policies", "description": "Policies the project follows", "many": True,
+                                                                "required": False}])).recipe
+    plan, policies = r.project_inputs
+    assert (plan.role, plan.required, plan.many, plan.media_type) == ("business_plan", True, False, "text/markdown")  # required by default (0148)
+    assert (policies.required, policies.many) == (False, True)
+    assert r.role("policies") is policies and r.role("nope") is None
+
+
+@pytest.mark.parametrize("roles, ref, code", [
+    (None, "project.marketing_plan", "ref.unknown_role"),
+    ([PLAN_ROLE, PLAN_ROLE], "project.business_plan", "project_inputs.duplicate_role"),
+    ([{"role": "business_plan"}], "project.business_plan", "recipe.missing_key"),
+    ([{**PLAN_ROLE, "role": "Business Plan"}], "project.business_plan", "recipe.invalid_value"),
+    ([{**PLAN_ROLE, "kind": "plan"}], "project.business_plan", "recipe.unknown_key"),
+    ([{**PLAN_ROLE, "role": "software_feature_design"}], "project.software_feature_design", "neutrality.role_names_recipe"),
+    ([{**PLAN_ROLE, "description": "The plan that fit-check@4 wrote"}], "project.business_plan", "neutrality.role_names_recipe"),
+    ([{**PLAN_ROLE, "description": "What steps.setup.artifacts.plan produced"}], "project.business_plan", "neutrality.role_names_recipe"),
+    ([{**PLAN_ROLE, "description": "The design from the recipe-builder run"}], "project.business_plan", "neutrality.role_names_recipe"),
+])
+@pytest.mark.not_slow("loads a recipe in process")
+def test_the_loader_refuses_bad_roles(tmp_path, roles, ref, code):
+    assert code in _codes(_role_recipe(tmp_path / "r", roles, ref))
+
+
+@pytest.mark.not_slow("loads a recipe in process")
+def test_a_project_reference_needs_declared_roles(tmp_path):
+    assert "ref.unknown_role" in _codes(_role_recipe(tmp_path / "r", [], "project.business_plan"))
+    assert "ref.invalid" in _codes(_role_recipe(tmp_path / "s", None, "project.business-plan"))
+
+
+@pytest.mark.not_slow("loads recipes in process")
+def test_shipped_recipes_declare_no_roles_and_their_summaries_are_unchanged():
+    from baton.frame import _summary
+    from baton.project import builtin_recipe, catalog
+
+    for loaded in [*catalog().values(), builtin_recipe("baton-frame@1"), builtin_recipe("baton-adopt@1")]:
+        assert loaded.recipe.project_inputs == []
+        assert "project_inputs" not in _summary(loaded, False, with_scope=True)
+
+
+@pytest.mark.not_slow("loads a recipe in process")
+def test_catalog_summaries_and_the_manual_show_a_recipes_roles(tmp_path):
+    from baton.frame import _summary
+    from baton.manual_gen import parts_table
+    from baton.recipe import load_recipe
+
+    root = _role_recipe(tmp_path / "r", [PLAN_ROLE, {"role": "policies", "description": "Policies the project follows", "many": True, "required": False}])
+    s = _summary(load_recipe(root), True, with_scope=True)
+    assert s["project_inputs"] == [{**PLAN_ROLE, "required": True, "many": False},
+                                   {"role": "policies", "description": "Policies the project follows", "required": False, "many": True}]
+    assert "project_inputs" not in _summary(load_recipe(root), True)  # framing's own inputs are unchanged (0148)
+    table = parts_table(root, {})
+    assert "It can build on documents your project already has." in table
+    assert "| The business's settled plan: its constraints and target customers | yes | one |" in table
+    assert "| Policies the project follows | if you have one | one or more |" in table
+
+
+@pytest.mark.not_slow("in-process API over a bare project")
+def test_recipes_lists_a_vendored_recipes_roles(tmp_path):
+    p = _bare(tmp_path)
+    p.cli.run("vendor", str(_role_recipe(tmp_path / "r")))
+    (entry,) = p.cli.run("recipes")["recipes"]
+    assert entry["project_inputs"] == [{**PLAN_ROLE, "required": True, "many": False}]
