@@ -67,6 +67,20 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `--note <str>` | The owner's words, recorded verbatim. |
 | `--json` | Machine-readable output. |
 
+## baton bind {#baton-bind}
+
+Bind a role of a run's recipe to project documents, as the owner confirmed (owner-approved).
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `run <str>` | Run id. |
+| `role <str>` | A project document role the run's recipe declares. |
+| `paths <str>` | The project document(s) to bind, as `documents` lists them; several only for a role that takes several. |
+| `--note <str>` | The owner's confirmation, in their words (recorded verbatim). |
+| `--json` | Machine-readable output. |
+
 ## baton board {#baton-board}
 
 Every non-terminal run: position, running and queued work, owner decisions owed, lease holder.
@@ -583,6 +597,8 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `--inputs <str>` | Run inputs: a JSON object, or @file.json. |
 | `--title <str>` | Work item title (default: inputs.title). |
 | `--from-plan <str>` | A part of a process plan (`<part>` or `<framing run>`/`<part>`), started as proposed. |
+| `--bind <str>` | `<role>`=`<path>`: bind a project document to a role the recipe declares (repeat for each role, and for each document of a role that takes several). Needs --note. |
+| `--note <str>` | With --bind: the owner's confirmation, in their words (recorded verbatim). |
 | `--json` | Machine-readable output. |
 
 ## baton status {#baton-status}

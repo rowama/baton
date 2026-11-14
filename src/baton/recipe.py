@@ -685,7 +685,9 @@ class _Checker:
         if step.effort is not None and step.effort_from is not None:
             self.error("step.effort_conflict", w, "declare effort or effort_from, not both")
         if step.effort_from is not None:
-            self._check_ref(step.effort_from, step, place, f"{w}.effort_from")
+            ref = self._check_ref(step.effort_from, step, place, f"{w}.effort_from")
+            if ref is not None and ref.kind == "project":
+                self.error("step.effort_from_project", f"{w}.effort_from", "effort_from must name a value, not a project document")
         if step.independence is not None:
             self._check_independence(step, place, step.independence.from_step, f"{w}.independence")
 

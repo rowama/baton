@@ -645,6 +645,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "corrections": ("step_revised", "step_stale"),
     "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified"),
     "human": ("human_decision", "human_revision_ingested"),
+    "project_documents": ("project_input_bound",),
     "deliverables": ("artifact_published", "drift_detected"),
     "adoption": ("situation_detected", "research_recorded", "step_imported", "baseline_established"),
     "framing": ("framing_selected", "framing_started_later"),

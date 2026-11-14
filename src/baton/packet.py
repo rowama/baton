@@ -141,6 +141,10 @@ class RunRecord:
                 return None
         return None
 
+    def binding(self, role: str) -> Event | None:
+        """The latest ``project_input_bound`` for a role (§8.6)."""
+        return next((e for e in reversed(self.events) if e.type == "project_input_bound" and e.data.get("role") == role), None)
+
     def decision(self, decision_id: str) -> Event | None:
         for ev in reversed(self.events):
             if ev.type == "human_decision" and ev.data.get("decision_id") == decision_id:
@@ -211,6 +215,8 @@ class _Resolved:
     media_type: str | None = None
     inline: Any = None  # the JSON value, when kind == "json"
     revision: dict[str, Any] | None = None  # a human revision given in place of the recorded artifact (§10.5)
+    source: dict[str, Any] | None = None  # where a bound project document came from (§7.1, §8.6)
+    index: int | None = None  # its place in a ``many`` role's list, from 1
 
 
 class _Unresolvable(Exception):
@@ -344,6 +350,8 @@ def _resolve(
         if ev is None or not ev.data.get("research_sha256"):
             raise _NotApplicable("this run was not started by an adoption")
         value = json.loads(cas.read(ev.data["research_sha256"]))
+    elif ref.kind == "project":
+        return _project_input(ctx, record, name, raw, ref.name or "")
     elif ref.kind == "human_revision":
         from .publish import latest_revision
 
@@ -357,6 +365,28 @@ def _resolve(
     else:  # pragma: no cover - every reference kind is handled above
         raise _Unresolvable(f"{ref.kind} references are not supported by this runtime")
     return _Resolved(name, raw, "json", f"{name}.json", _json_bytes(value), "application/json", value)
+
+
+def _project_input(ctx: RunContext, record: RunRecord, name: str, raw: str, role_name: str) -> list[_Resolved]:
+    """A bound role's documents, from the run's record and CAS, never from the living file (§8.6)."""
+    role = ctx.recipe.recipe.role(role_name)
+    ev = record.binding(role_name)
+    if ev is None:
+        if role is not None and not role.required:
+            raise _NotApplicable(f"no project document is bound to role {role_name!r}")
+        raise _Unresolvable(f"role {role_name!r} is not bound to a project document (the owner confirms one with `bind`)")
+    out = []
+    docs = ev.data.get("documents") or []
+    many = bool(ev.data.get("many"))
+    for i, d in enumerate(docs, 1):
+        suffix = PurePosixPath(d["path"]).suffix
+        src = {"kind": d.get("kind"), "path": d["path"], "version": d.get("version"), **{k: v for k, v in (d.get("source") or {}).items() if k != "kind"},
+               "bound_by": ev.data.get("decision_id")}
+        if d.get("edited_since_accepted"):
+            src["edited_since_accepted"] = True
+        filename = f"{name}/{i}{suffix}" if many else f"{name}{suffix}"
+        out.append(_Resolved(name, raw, "file", filename, ctx.log.cas.read(d["sha256"]), d.get("media_type"), source=src, index=i if many else None))
+    return out
 
 
 def _revision(ctx: RunContext, name: str, raw: str, rev: Any, filename: str) -> _Resolved:
@@ -376,7 +406,8 @@ def resolve_inputs(
     loc = groups.locate(ctx.recipe, step_path)
     for inp in step.inputs:
         try:
-            resolved.append(_resolve(ctx, record, inp.name, inp.from_, loc, view))
+            got = _resolve(ctx, record, inp.name, inp.from_, loc, view)
+            resolved.extend(got if isinstance(got, list) else [got])
         except _NotApplicable as e:
             not_applicable.append({"name": inp.name, "from": inp.from_, "reason": str(e)})
         except (_Unresolvable, StoreError) as e:
@@ -441,6 +472,11 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
         if r.revision is not None:
             by = "an expert's answer the owner promoted" if r.revision.get("source") == "sme" else "the owner's edit of the published file"
             lines += [f"This is revision {r.revision['revision']} of `{r.revision['artifact']}` from `{r.revision['step_path']}`: {by}, ingested by the owner.", ""]
+        if r.source is not None:
+            how = "a file the owner attested" if r.source.get("kind") == "attested" else "a document an earlier process in this project published"
+            edited = " The owner confirmed it as it is now, edited since it was accepted." if r.source.get("edited_since_accepted") else ""
+            lines += [f"This is the project document `{r.source['path']}` (version {r.source.get('version')}): {how}, "
+                      f"confirmed by the owner for this work.{edited}", ""]
         if r.kind == "json" and len(r.content) <= INLINE_LIMIT:
             lines += ["```json", r.content.decode("utf-8").rstrip("\n"), "```", ""]
         elif r.kind == "json":
@@ -826,6 +862,10 @@ def build_packet(
             entry["media_type"] = r.media_type
         if r.revision is not None:
             entry["human_revision"] = r.revision
+        if r.source is not None:
+            entry["source"] = r.source
+        if r.index is not None:
+            entry["index"] = r.index
         entries.append(entry)
     files["output_schema.json"] = (json.dumps(schema, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     revision = None

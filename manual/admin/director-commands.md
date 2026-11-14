@@ -54,6 +54,7 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 |---|---|
 | `documents` | The project's documents: files a finished part published, and files the owner vouched for, each with when it was accepted and whether it was edited or deleted since |
 | `attest <path> --note "<words>"` | Record that the owner vouches for a file in the project, with their words, so later work can build on it; again on the same file records a newer version |
+| `bind <run> <role> <path>… --note "<words>"` | Give a run the project document the owner confirmed for one of its recipe's roles; at start, `start <recipe> --bind <role>=<path> --note "<words>"` does the same |
 
 ## Experts {#experts}
 

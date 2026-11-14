@@ -55,7 +55,7 @@ from .supervisor import ChildResult
 
 __all__ = [
     "Api", "EngineError", "HandoffError", "IntegrityError", "Outcome", "RunContext",
-    "abandon_run", "begin_attempt", "decide", "disposition", "escalate_no_worker", "waive", "finish_child", "open_run", "pending_decisions", "plan",
+    "abandon_run", "begin_attempt", "bind", "decide", "disposition", "escalate_no_worker", "waive", "finish_child", "open_run", "pending_decisions", "plan",
     "resolve_effort",
     "refresh", "retriage", "revise", "start", "submit",
 ]
@@ -1851,6 +1851,48 @@ def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, deci
     return Outcome("", 0, "baseline_established", [], ready, _completed(ctx))
 
 
+def bind(ctx: RunContext, role: str, paths: list[str], note: str, *, actor: str = "human", recorded_by: str | None = None) -> dict[str, Any]:
+    """Bind a role this run's recipe declares to project documents, with the owner's words (§8.6; Decision 0142).
+
+    The owner's approval is the Director skill's rule, as for ``waive``. The
+    living file is bound as it is now (0146). Other runs are never touched.
+    """
+    from . import documents
+
+    if not (note or "").strip():
+        raise EngineError("bind.note_required", "binding a document is the owner's decision; give their words with --note")
+    r, entries = documents.check_binding(ctx.store, ctx.recipe.recipe, role, paths)
+    if ctx.record().binding(role) is not None:
+        raise EngineError("bind.already_bound", f"role {role} is already bound in {ctx.run_id}")
+    return documents.record_binding(ctx, r, entries, note, actor=actor, recorded_by=recorded_by)
+
+
+def project_inputs_status(ctx: RunContext, ready: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(each declared role with its binding, ready steps waiting on an unbound required role), for ``status``."""
+    record = ctx.record()
+    roles = []
+    for r in ctx.recipe.recipe.project_inputs:
+        ev = record.binding(r.role)
+        roles.append({"role": r.role, "description": r.description, "required": r.required, "many": r.many,
+                      **({"media_type": r.media_type} if r.media_type else {}),
+                      "bound": ([{k: d.get(k) for k in ("path", "sha256", "version", "kind", "edited_since_accepted")} for d in ev.data.get("documents") or []]
+                                if ev else None),
+                      **({"decision_id": ev.data.get("decision_id")} if ev else {})})
+    waiting = []
+    for p in ready:
+        node = node_for(ctx.recipe, p)
+        if not isinstance(node, Step):
+            continue
+        for inp in node.inputs:
+            ref = refs.parse(inp.from_)
+            if ref.kind != "project" or not inp.required:
+                continue
+            role = ctx.recipe.recipe.role(ref.name or "")
+            if role is not None and role.required and record.binding(role.role) is None:
+                waiting.append({"step_path": p, "role": role.role, "description": role.description})
+    return roles, waiting
+
+
 def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> None:
     """End the run without completing it (§13.1 ``abandon``)."""
     if not reason.strip():
@@ -2103,8 +2145,10 @@ class Api:
     # -- runs ---------------------------------------------------------------
 
     def start(self, recipe: str | None, inputs: dict[str, Any] | None = None, *, title: str | None = None, run_id: str | None = None,
-              from_plan: str | None = None) -> dict[str, Any]:
+              from_plan: str | None = None, bind: dict[str, list[str]] | None = None, note: str | None = None) -> dict[str, Any]:
         if from_plan is not None:
+            if bind:
+                raise EngineError("start.from_plan_alone", "--from-plan starts the part's recorded proposal; bind its documents with `bind` once it has started")
             return self._start_from_plan(from_plan, recipe, inputs, title)
         if not recipe:
             raise EngineError("start.no_recipe", "start needs a recipe, or --from-plan <part>")
@@ -2120,6 +2164,14 @@ class Api:
         missing = publish.missing_path_keys(loaded.recipe, self.project.config.paths)
         if missing:
             raise EngineError("configuration.publish_path", f"{loaded.recipe.ref} publishes to paths.{', paths.'.join(missing)}, which project.yaml does not map; add them under paths:")
+        from . import documents
+
+        checked = []
+        if bind:  # checked before the run starts, so a refused binding starts nothing
+            if not (note or "").strip():
+                raise EngineError("bind.note_required", "binding a document is the owner's decision; give their words with --note")
+            for role, paths in bind.items():
+                checked.append(documents.check_binding(self.project.store, loaded.recipe, role, list(paths)))
         title = title if title is not None else (inputs.get("title") if isinstance(inputs, dict) else None)
         work_item = {
             "kind": inputs.get("kind") if isinstance(inputs, dict) else None,
@@ -2133,10 +2185,16 @@ class Api:
         leases = self._leases(ctx)
         leases.ensure()
         out: dict[str, Any] = {"run_id": ctx.run_id}
+        if checked:
+            out["bound"] = [documents.record_binding(ctx, r, entries, note or "", recorded_by=self.director.actor) for r, entries in checked]
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
         return out
+
+    def bind(self, run_id: str, role: str, paths: list[str], note: str) -> dict[str, Any]:
+        """Bind a role of the run's recipe to project documents (owner-approved, their words in ``note``)."""
+        return self._mutate(run_id, lambda ctx: bind(ctx, role, paths, note, recorded_by=self.director.actor))
 
     def _add_web_advice(self, out: dict[str, Any], recipe: Any) -> None:
         """A recipe the owner is about to run has web steps no worker here can do: say how to get one (§13.4)."""
@@ -2201,6 +2259,7 @@ class Api:
                             for r in st["running"]],
                 "queued": st["queued"], "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"],
                 "lease": st["lease"],
+                **({"waiting_on_binding": st["waiting_on_binding"]} if st.get("waiting_on_binding") else {}),
             })
         holder = locks.workspace_holder(self.project.baton)
         ws = {"holder": {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id", "attempt") if k in holder} if holder else None,
@@ -2292,8 +2351,13 @@ class Api:
             x = drifted.get((sp, art))
             deliverables.append({"step_path": sp, "artifact": art, "path": t.path, "sha256": t.expected,
                                  "revisions": len(t.revisions), **({"drift": {"current_sha256": x["current_sha256"]}} if x else {})})
+        project_inputs: dict[str, Any] = {}
+        if ctx.recipe.recipe.project_inputs:  # only for a recipe that declares roles, so other status output is unchanged
+            roles, waiting = project_inputs_status(ctx, ready)
+            project_inputs = {"project_inputs": roles, "waiting_on_binding": waiting}
         return {
             "run_id": run_id,
+            **project_inputs,
             "deliverables": deliverables,
             "drift": [x for x in drifted.values()],
             "possibly_stale": publish.possibly_stale_flags(events),
@@ -4628,6 +4692,8 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
             phrases.append(f"expert answer promoted ({e.data.get('consultation')}) as {e.data.get('decision_id')}")
         elif e.type == "human_decision" and e.data.get("kind") == "skip_notice":
             phrases.append(f"{e.data.get('ref')} acknowledged")
+        elif e.type == "human_decision" and e.data.get("kind") == "bind":
+            phrases.append(f"{e.data.get('role')} bound to {', '.join(e.data.get('paths') or [])}")
         elif e.type == "human_decision":
             phrases.append(f"{e.step_path} decision {e.data.get('decision')}" + (f" [attempt {e.attempt}]" if e.attempt else ""))
         elif e.type == "iteration_limit_reached":

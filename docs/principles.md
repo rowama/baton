@@ -32,7 +32,7 @@
 
 | Guarantee | Mechanism |
 |---|---|
-| **Reliable context handoff** | The runtime (not the Director) assembles each step's packet from the recipe's declared inputs; a missing required input stops the step. Packets are content-hashed. |
+| **Reliable context handoff** | The runtime (not the Director) assembles each step's packet from the recipe's declared inputs, including the project documents a run bound from earlier work (§8.6); a missing required input stops the step. Packets are content-hashed. |
 | **Standard communication** | One file-based protocol (packet in, result out) for every kind of worker. |
 | **Model-neutral, shareable recipes** | Recipes declare required *capabilities*, never models or vendors; a lint enforces it. |
 | **Dynamic, enforced routing** | The Director picks a worker from the runtime-computed eligible set; the runtime enforces eligibility and records the choice. |

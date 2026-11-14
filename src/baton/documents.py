@@ -175,3 +175,92 @@ def attest(store: Store, raw_path: str, note: str, *, actor: str = "human", reco
     })
     doc = collect(store)[rel]
     return {"document": describe(doc, root), "decision_id": decision_id, "previous_version": len(previous.versions) if previous else 0}
+
+
+# ---------------------------------------------------------------------------
+# Binding (§8.6; Decisions 0142, 0146)
+# ---------------------------------------------------------------------------
+
+
+def media_fits(want: str | None, have: str | None) -> bool:
+    """Whether a document of type ``have`` fits a role asking for ``want`` (``type/*`` matches any subtype)."""
+    if not want:
+        return True
+    if not have:
+        return False
+    if want.endswith("/*"):
+        return have.split("/", 1)[0] == want[:-2]
+    return have == want
+
+
+def check_binding(store: Store, recipe: Any, role_name: str, raw_paths: list[str]) -> tuple[Any, list[dict[str, Any]]]:
+    """The role and the documents to bind to it, with their living bytes, or ``EngineError``. Writes nothing.
+
+    Each path must be a project document whose file exists now (the binding takes
+    the living file, 0146) and whose type fits the role. A single role takes
+    exactly one path; a ``many`` role one or more, in the order given.
+    """
+    role = recipe.role(role_name)
+    if role is None:
+        declared = ", ".join(r.role for r in recipe.project_inputs) or "none"
+        raise EngineError("bind.unknown_role", f"{recipe.ref} declares no project document role {role_name!r} (declared: {declared})")
+    paths = [project_path(store.root, p) for p in raw_paths]
+    if not paths:
+        raise EngineError("bind.no_document", f"binding {role_name} needs a project document (see `documents`)")
+    if not role.many and len(paths) != 1:
+        raise EngineError("bind.one_document", f"role {role_name} takes exactly one document, got {len(paths)}")
+    if len(set(paths)) != len(paths):
+        raise EngineError("bind.duplicate", f"role {role_name}: a document is given more than once")
+    docs = collect(store)
+    out = []
+    for rel in paths:
+        doc = docs.get(rel)
+        if doc is None:
+            raise EngineError("bind.not_a_document", f"{rel} is not a project document: only a published deliverable or a file "
+                                                     "the owner attested can be bound (the owner may attest it first)")
+        info = describe(doc, store.root)
+        if info["state"] == "deleted":
+            raise EngineError("bind.deleted", f"{rel} was deleted; restore it, or bind another document")
+        if not media_fits(role.media_type, info["media_type"]):
+            raise EngineError("bind.media_type", f"role {role_name} takes {role.media_type}; {rel} is {info['media_type'] or 'of unknown type'}")
+        content = (store.root / rel).read_bytes()
+        out.append({"info": info, "content": content})
+    return role, out
+
+
+def record_binding(ctx: Any, role: Any, entries: list[dict[str, Any]], note: str, *, actor: str = "human",
+                   recorded_by: str | None = None) -> dict[str, Any]:
+    """Record the owner's binding of a role in this run: ``human_decision {kind: bind}`` then ``project_input_bound``.
+
+    The bound bytes go into the run's CAS, so the run stays self-contained and
+    resumable on another machine (§10.3).
+    """
+    import hashlib
+
+    if not (note or "").strip():
+        raise EngineError("bind.note_required", "binding a document is the owner's decision; give their words with --note")
+    docs = []
+    for e in entries:
+        info, content = e["info"], e["content"]
+        sha = ctx.log.cas.put(content)
+        assert sha == hashlib.sha256(content).hexdigest()
+        src = {k: v for k, v in info["source"].items() if k != "note"}
+        docs.append({"path": info["path"], "sha256": sha, "accepted_sha256": info["accepted_sha256"], "version": info["version"],
+                     "kind": info["kind"], "source": src, "edited_since_accepted": sha != info["accepted_sha256"],
+                     **({"media_type": info["media_type"]} if info["media_type"] else {})})
+    decision_id = f"d{ctx.log.state().last_seq + 1}"
+    ctx.log.append("human_decision", actor=actor, data={
+        "kind": "bind", "decision": "bind", "role": role.role, "paths": [d["path"] for d in docs], "note": note, "decision_id": decision_id,
+        **({"recorded_by": recorded_by} if recorded_by else {}),
+    })
+    ctx.log.append("project_input_bound", actor=actor, data={"role": role.role, "many": role.many, "documents": docs, "decision_id": decision_id})
+    return {"role": role.role, "documents": docs, "decision_id": decision_id}
+
+
+def bound(events: list[Any]) -> dict[str, Any]:
+    """The latest ``project_input_bound`` event of each role in a run."""
+    out: dict[str, Any] = {}
+    for e in events:
+        if e.type == "project_input_bound":
+            out[e.data["role"]] = e
+    return out

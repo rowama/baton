@@ -170,9 +170,10 @@ def build_server(project: str | Path | None = None, director: str | None = None)
 
     @tool
     def start(recipe: str | None = None, inputs: dict[str, Any] | None = None, title: str | None = None,
-              from_plan: str | None = None) -> dict[str, Any]:
-        """Start a run (a work item) of a vendored recipe with its run inputs, or a process plan's part as proposed (from_plan); claims its lease."""
-        return t.call(lambda api: api.start(recipe, inputs, title=title, from_plan=from_plan))
+              from_plan: str | None = None, bind: dict[str, list[str]] | None = None, note: str | None = None) -> dict[str, Any]:
+        """Start a run (a work item) of a vendored recipe with its run inputs, or a process plan's part as proposed (from_plan); claims its lease.
+        bind maps a role the recipe declares to its project document paths, as the owner confirmed (note: their words)."""
+        return t.call(lambda api: api.start(recipe, inputs, title=title, from_plan=from_plan, bind=bind or None, note=note))
 
     @tool
     def status(run: str) -> dict[str, Any]:
@@ -341,6 +342,12 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     def note(text: str | None = None, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
         """Keep a note the owner asked for, verbatim, in the project's notes file; keep_file (yes | no) with note records their answer to the one-time offer."""
         return t.call(lambda api: api.note(text, keep_file=keep_file, note=note))
+
+    @tool
+    def bind(run: str, role: str, paths: list[str], note: str) -> dict[str, Any]:
+        """Bind a role of the run's recipe to project documents (paths as `documents` lists them), as the owner
+        confirmed; note is the owner's words."""
+        return t.call(lambda api: api.bind(run, role, paths, note))
 
     @tool
     def documents() -> dict[str, Any]:

@@ -5,7 +5,7 @@
 ```
 .baton/runs/<run_id>/steps/<step_path>/attempt-<n>/packet/
 ├── manifest.json   INSTRUCTIONS.md   output_schema.json
-└── inputs/<name>.json | <name>.<ext>
+└── inputs/<name>.json | <name>.<ext> | <name>/<n>.<ext>   (the last: each document of a `many` role, §5.1)
 ```
 
 ```json
@@ -37,7 +37,8 @@
 - `worker_profile_sha256` covers non-secret profile fields only.
 - `packet_sha256`: SHA-256 of `"baton-packet/1\n"`, then the canonical manifest JSON (sorted keys, no whitespace, `packet_sha256: null`) and `"\n"`, then `"<path>\0<sha256>\n"` for every other packet file (inputs, `INSTRUCTIONS.md`, `output_schema.json`) sorted by POSIX path. Documented in `packet.py` and tested. The manifest holds no clock reading except `deadline`, which the caller supplies.
 - `workspace` is the step's mode (`none` | `read` | `write`); `optional_artifacts` lists declared artifacts that are not required.
-- Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event. Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
+- Inputs resolve only from the run's record: run inputs from the CAS blob named in `run_started`, step outputs and artifacts from the hashes in the source step's `step_passed` (or `step_imported`) event, project documents from the run's latest `project_input_bound` for the role (§8.6). Small JSON inputs (up to 16 KiB) are inlined in `INSTRUCTIONS.md`.
+- A project document's entry carries `source`: `{kind, path, version, run?, step?, artifact?, revision?, decision_id?, bound_by, edited_since_accepted?}`, `kind` being `deliverable` (with the run, step and artifact that published it) or `attested` (with the attestation's `decision_id`), and `bound_by` the owner's binding decision; `INSTRUCTIONS.md` says which document it is and, when it was edited since it was accepted, that the owner confirmed it as it is. Each document of a `many` role is its own entry with the input's `name`, an `index` from 1 in binding order, and the path `inputs/<name>/<index>.<ext>`.
 - `prior_feedback`: `{attempt, reasons, findings?, guidance?, answers?, revision?}`: gate reasons from the previous attempt and any retry guidance; `answers` lists the owner's confirmed answers to the previous attempt's questions (`[{id, answer, owner_words}]`, §13.8), so a `blocked` step resumes with exactly what the owner confirmed; `findings` lists the open findings of a failed findings or review gate, each with its `step`, so the worker can address and disposition them (§9.2). While a revision (§8.9) is not yet accepted, `revision` is `{reason, attempt, output, artifacts, items?}`: the previous accepted result is in the packet as `previous/output.json` and `previous/artifacts/<name>` (hashed like any packet file); for a `foreach` source, `items` names the array whose items carry their ids.
 
 - **Reviewer packets** (steps whose output is `baton:findings`, and review steps, §9.1) also carry `prior_findings`: `null` at the first review, else `{evaluated_at, attempt, findings}`, the previous evaluation of the same findings line with each finding's status and disposition. A review step's inputs are the reviewed step's declared inputs plus the result under review: `reviewed_output` (JSON) and `reviewed_<artifact>` for each registered artifact, from the reviewed attempt's `result_submitted`.

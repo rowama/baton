@@ -136,7 +136,7 @@ def _call(as_json: bool, fn: Callable[[], Any]) -> Any:
         _fail(as_json, EXIT_USAGE, "usage.owner_exit", str(e))
     try:
         return fn()
-    except (LeaseHeld, EngineError, RecipeError, StoreError) as e:
+    except (LeaseHeld, EngineError, HandoffError, RecipeError, StoreError) as e:
         mapped = error_payload(e)
         assert mapped is not None
         code, payload = mapped
@@ -436,6 +436,8 @@ def _status_text(s: dict) -> str:
     for st in s.get("stale") or []:
         how = "dispatch it to re-run, or the owner may `decide ... confirm`" if st["runnable"] else st.get("waiting", "")
         lines.append(f"  {st['step_path']}: stale ({st.get('cause')}{', revised ' + st['revised'] if st.get('revised') else ''}); {how}")
+    for w in s.get("waiting_on_binding") or []:
+        lines.append(f"  {w['step_path']}: waits for a project document for {w['role']} ({w['description']}); bind one with `bind`")
     if s.get("awaiting_baseline"):
         lines.append(f"  waiting for the baseline of adoption {s['adoption']['run']} (only triage runs until then)")
     lines += _pending_lines(s)
@@ -485,12 +487,40 @@ def start(
     inputs: Annotated[Optional[str], typer.Option("--inputs", help="Run inputs: a JSON object, or @file.json.")] = None,
     title: Annotated[Optional[str], typer.Option(help="Work item title (default: inputs.title).")] = None,
     from_plan: Annotated[Optional[str], typer.Option("--from-plan", help="A part of a process plan (<part> or <framing run>/<part>), started as proposed.")] = None,
+    bind_: Annotated[Optional[list[str]], typer.Option("--bind", help="<role>=<path>: bind a project document to a role the recipe declares (repeat for each role, and for each document of a role that takes several). Needs --note.")] = None,
+    note: Annotated[Optional[str], typer.Option("--note", help="With --bind: the owner's confirmation, in their words (recorded verbatim).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Start a run (a work item) and claim its lease."""
     values = _parse_inputs(inputs, as_json) if inputs is not None else None
-    out = _call(as_json, lambda: _api().start(recipe, values, title=title, from_plan=from_plan))
+    binds = _parse_binds(bind_ or [], as_json)
+    out = _call(as_json, lambda: _api().start(recipe, values, title=title, from_plan=from_plan, bind=binds or None, note=note))
     _done(out, as_json, f"Started {out['run_id']}\n" + _status_text(out))
+
+
+def _parse_binds(raw: list[str], as_json: bool) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for item in raw:
+        role, sep, path = item.partition("=")
+        if not sep or not role.strip() or not path.strip():
+            _fail(as_json, EXIT_USAGE, "usage.bind", f"--bind takes <role>=<path>, got {item!r}")
+        out.setdefault(role.strip(), []).append(path.strip())
+    return out
+
+
+@app.command("bind")
+def bind_cmd(
+    run: Annotated[str, typer.Argument(help="Run id.")],
+    role: Annotated[str, typer.Argument(help="A project document role the run's recipe declares.")],
+    paths: Annotated[list[str], typer.Argument(help="The project document(s) to bind, as `documents` lists them; several only for a role that takes several.")],
+    note: Annotated[str, typer.Option("--note", help="The owner's confirmation, in their words (recorded verbatim).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Bind a role of a run's recipe to project documents, as the owner confirmed (owner-approved)."""
+    out = _call(as_json, lambda: _api().bind(run, role, paths, note))
+    edited = [d["path"] for d in out["documents"] if d["edited_since_accepted"]]
+    _done(out, as_json, f"Bound {role} to {', '.join(d['path'] for d in out['documents'])}"
+          + (f" (edited since accepted: {', '.join(edited)})" if edited else ""))
 
 
 @app.command()

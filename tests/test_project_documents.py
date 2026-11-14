@@ -303,3 +303,199 @@ def test_recipes_lists_a_vendored_recipes_roles(tmp_path):
     p.cli.run("vendor", str(_role_recipe(tmp_path / "r")))
     (entry,) = p.cli.run("recipes")["recipes"]
     assert entry["project_inputs"] == [{**PLAN_ROLE, "required": True, "many": False}]
+
+
+# ---------------------------------------------------------------------------
+# Slice 3: binding and the packet
+# ---------------------------------------------------------------------------
+
+POLICIES_ROLE = {"role": "policies", "description": "Policies the project follows", "required": False, "many": True}
+
+
+def _market(root: Path) -> Path:
+    """brief (business plan, required; policies, optional, many) -> launch (business plan)."""
+    brief = {"id": "brief", "output_schema": "schemas/out.json",
+             "inputs": [{"name": "plan", "from": "project.business_plan", "required": True},
+                        {"name": "policies", "from": "project.policies", "required": False}]}
+    launch = {"id": "launch", "depends_on": ["brief"], "output_schema": "schemas/out.json",
+              "inputs": [{"name": "plan", "from": "project.business_plan", "required": True}]}
+    return make_recipe(root, [brief, launch], schemas={"out.json": OBJ}, id="market",
+                       run_inputs={"type": "object", "properties": {"title": {"type": "string"}}}, project_inputs=[PLAN_ROLE, POLICIES_ROLE])
+
+
+class M(P):
+    """A project with the publisher and the market recipe, and attested documents."""
+
+    def __init__(self, tmp_path: Path):
+        super().__init__(tmp_path, [_publisher(tmp_path / "toy"), _market(tmp_path / "market")])
+
+    def attest(self, rel: str, text: str, note: str = "Yes, that one.") -> dict:
+        f = self.file(rel)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+        return self.cli.run("attest", rel, "--note", note)["document"]
+
+    def manifest(self) -> dict:
+        return json.loads((self.last_packet / "manifest.json").read_text(encoding="utf-8"))
+
+    def dispatch(self, run: str, step: str, expect: int | None = None) -> dict:
+        res = self.cli("dispatch", run, step, "--worker", "owner", expect=expect)
+        if res.exit_code in (0, 4):
+            self.last_packet = packet_dir(self.project, run, step, res.payload["attempt"])
+        return res.payload
+
+    def events(self, run: str) -> list[dict]:
+        p = self.project / ".baton" / "runs" / run / "events.jsonl"
+        return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines()]
+
+
+def _entry(m: dict, name: str) -> list[dict]:
+    return [i for i in m["inputs"] if i["name"] == name]
+
+
+@pytest.mark.slow
+def test_start_binds_a_role_and_the_packet_holds_the_bound_version_with_its_source(tmp_path):
+    m = M(tmp_path)
+    doc = m.attest("business/plan.md", "# Plan v1\n", "That's our settled plan.")
+    out = m.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", "business_plan=business/plan.md",
+                    "--note", "Yes, use the business plan.")
+    run = out["run_id"]
+    (b,) = out["bound"]
+    assert b["role"] == "business_plan" and b["documents"][0]["path"] == "business/plan.md"
+    decision, bound = [e for e in m.events(run) if e["type"] in ("human_decision", "project_input_bound")]
+    assert decision["data"]["kind"] == "bind" and decision["data"]["note"] == "Yes, use the business plan."
+    d = bound["data"]
+    assert d["role"] == "business_plan" and d["decision_id"] == decision["data"]["decision_id"] and d["many"] is False
+    (bd,) = d["documents"]
+    assert bd["path"] == "business/plan.md" and bd["sha256"] == doc["accepted_sha256"] and bd["edited_since_accepted"] is False
+    assert bd["source"] == {"kind": "attested", "decision_id": doc["source"]["decision_id"]} and bd["version"] == 1
+    st = m.cli.run("status", run, expect=None)
+    assert st["project_inputs"][0]["bound"][0]["path"] == "business/plan.md" and st["waiting_on_binding"] == []
+    assert st["project_inputs"][1] == {"role": "policies", "description": "Policies the project follows", "required": False, "many": True, "bound": None}
+
+    m.file("business/plan.md").write_text("# Plan v2, not confirmed\n", encoding="utf-8")  # the living file moves on
+    m.dispatch(run, "brief")
+    man = m.manifest()
+    (plan,) = _entry(man, "plan")
+    assert (m.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan v1\n"  # from the record, not the living file
+    assert plan["path"] == "inputs/plan.md" and plan["sha256"] == doc["accepted_sha256"] and plan["from"] == "project.business_plan"
+    assert plan["source"] == {"kind": "attested", "path": "business/plan.md", "version": 1, "decision_id": doc["source"]["decision_id"],
+                              "bound_by": decision["data"]["decision_id"]}
+    assert man["not_applicable"] == [{"name": "policies", "from": "project.policies", "reason": "no project document is bound to role 'policies'"}]
+    text = (m.last_packet / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "This is the project document `business/plan.md` (version 1): a file the owner attested" in text
+
+
+@pytest.mark.slow
+def test_the_binding_changes_packet_sha256_as_any_input_does(tmp_path):
+    from baton.packet import packet_digest
+
+    m = M(tmp_path)
+    m.attest("business/plan.md", "# Plan A\n")
+    m.attest("business/other.md", "# Plan B\n")
+    hashes = []
+    for path in ("business/plan.md", "business/other.md"):
+        run = m.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", f"business_plan={path}", "--note", "Yes.")["run_id"]
+        m.dispatch(run, "brief")
+        man = m.manifest()
+        hashes.append({i["name"]: i["sha256"] for i in man["inputs"]})
+        files = {p.relative_to(m.last_packet).as_posix(): __import__("hashlib").sha256(p.read_bytes()).hexdigest()
+                 for p in m.last_packet.rglob("*") if p.is_file() and p.name != "manifest.json"}
+        assert packet_digest(man, files) == man["packet_sha256"]
+    assert hashes[0]["plan"] != hashes[1]["plan"]
+
+
+@pytest.mark.slow
+def test_a_role_is_bound_later_and_an_unbound_required_role_refuses_the_dispatch(tmp_path):
+    m = M(tmp_path)
+    run = m.start("market", "Spring")
+    st = m.cli.run("status", run, expect=None)
+    assert st["waiting_on_binding"] == [{"step_path": "brief", "role": "business_plan", "description": PLAN_ROLE["description"]}]
+    board = m.cli.run("board", expect=None)
+    assert board["runs"][0]["waiting_on_binding"][0]["role"] == "business_plan"
+    res = m.cli("dispatch", run, "brief", "--worker", "owner", expect=1)
+    assert res.payload["error"] == "handoff.missing_inputs"
+    assert res.payload["missing"] == [{"name": "plan", "from": "project.business_plan",
+                                      "reason": "role 'business_plan' is not bound to a project document (the owner confirms one with `bind`)"}]
+    assert not (m.project / ".baton" / "runs" / run / "steps" / "brief").exists() or not list((m.project / ".baton" / "runs" / run / "steps" / "brief").rglob("manifest.json"))
+
+    m.attest("business/plan.md", "# Plan\n")
+    out = m.cli.run("bind", run, "business_plan", "business/plan.md", "--note", "Use that plan.")
+    assert out["documents"][0]["path"] == "business/plan.md" and out["checkpoint"]["committed"]
+    assert m.cli.run("status", run, expect=None)["waiting_on_binding"] == []
+    m.dispatch(run, "brief", expect=0)
+
+
+@pytest.mark.slow
+def test_a_many_role_takes_a_list_in_binding_order(tmp_path):
+    m = M(tmp_path)
+    m.attest("business/plan.md", "# Plan\n")
+    m.attest("policy/refunds.md", "# Refunds\n")
+    m.attest("policy/privacy.md", "# Privacy\n")
+    run = m.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", "business_plan=business/plan.md",
+                    "--bind", "policies=policy/refunds.md", "--bind", "policies=policy/privacy.md", "--note", "Yes, those.")["run_id"]
+    m.dispatch(run, "brief")
+    pol = _entry(m.manifest(), "policies")
+    assert [(p["path"], p["index"], p["source"]["path"]) for p in pol] == [
+        ("inputs/policies/1.md", 1, "policy/refunds.md"), ("inputs/policies/2.md", 2, "policy/privacy.md")]
+    assert (m.last_packet / "inputs/policies/2.md").read_text(encoding="utf-8") == "# Privacy\n"
+
+
+@pytest.mark.slow
+def test_binding_refusals(tmp_path):
+    m = M(tmp_path)
+    m.attest("business/plan.md", "# Plan\n")
+    m.attest("business/notes.txt", "notes\n")
+    (m.project / "loose.md").write_text("not a document\n", encoding="utf-8")
+    run = m.start("market", "Spring")
+    for args, code in [
+        (["bind", run, "brand", "business/plan.md", "--note", "Yes."], "bind.unknown_role"),
+        (["bind", run, "business_plan", "loose.md", "--note", "Yes."], "bind.not_a_document"),
+        (["bind", run, "business_plan", "business/notes.txt", "--note", "Yes."], "bind.media_type"),
+        (["bind", run, "business_plan", "business/plan.md", "business/plan.md", "--note", "Yes."], "bind.one_document"),
+        (["bind", run, "business_plan", "business/plan.md", "--note", " "], "bind.note_required"),
+    ]:
+        assert m.cli(*args, expect=1).payload["error"] == code, args
+    m.file("business/plan.md").unlink()
+    assert m.cli("bind", run, "business_plan", "business/plan.md", "--note", "Yes.", expect=1).payload["error"] == "bind.deleted"
+    assert not [e for e in m.events(run) if e["type"] == "project_input_bound"]
+    before = set(p.name for p in (m.project / ".baton" / "runs").iterdir())
+    res = m.cli("start", "market", "--inputs", json.dumps({"title": "X"}), "--bind", "business_plan=loose.md", "--note", "Yes.", expect=1)
+    assert res.payload["error"] == "bind.not_a_document"
+    assert set(p.name for p in (m.project / ".baton" / "runs").iterdir()) == before  # a refused binding starts nothing
+    assert m.cli("start", "market", "--bind", "business_plan", "--note", "Yes.", expect=2).payload["error"] == "usage.bind"
+
+
+@pytest.mark.slow
+def test_binding_an_edited_deliverable_takes_the_living_file_and_says_so(tmp_path):
+    m = M(tmp_path)
+    setup = m.start("toy", "Plan")
+    m.by_hand(setup, "draft", "# Plan as accepted\n")
+    m.file("docs/out/plan-doc.md").write_text("# Plan as edited\n", encoding="utf-8")
+    run = m.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", "business_plan=docs/out/plan-doc.md",
+                    "--note", "Yes, as I edited it.")["run_id"]
+    (bd,) = [e for e in m.events(run) if e["type"] == "project_input_bound"][0]["data"]["documents"]
+    assert bd["edited_since_accepted"] is True and bd["kind"] == "deliverable"
+    assert bd["source"] == {"kind": "deliverable", "run": setup, "step": "draft", "artifact": "doc"}
+    m.dispatch(run, "brief")
+    (plan,) = _entry(m.manifest(), "plan")
+    assert (m.last_packet / plan["path"]).read_text(encoding="utf-8") == "# Plan as edited\n"
+    assert plan["source"]["edited_since_accepted"] is True and plan["media_type"] == "text/markdown"
+    assert "edited since it was accepted" in (m.last_packet / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.slow
+def test_a_fresh_clone_builds_the_packet_from_the_record(tmp_path):
+    m = M(tmp_path)
+    m.attest("business/plan.md", "# Plan v1\n")
+    run = m.cli.run("start", "market", "--inputs", json.dumps({"title": "Spring"}), "--bind", "business_plan=business/plan.md",
+                    "--note", "Yes.")["run_id"]
+    clone = tmp_path / "clone"
+    git(tmp_path, "clone", "-q", str(m.project), str(clone))
+    (clone / "business").mkdir(exist_ok=True)  # the attested file itself is the owner's, not committed by Baton
+    (clone / "business" / "plan.md").write_text("# Changed on the other machine\n", encoding="utf-8")
+    other = Cli(clone, m.home)
+    d = other.run("dispatch", run, "brief", "--worker", "owner", expect=None)
+    pdir = packet_dir(clone, run, "brief", d["attempt"])
+    (plan,) = _entry(json.loads((pdir / "manifest.json").read_text(encoding="utf-8")), "plan")
+    assert (pdir / plan["path"]).read_text(encoding="utf-8") == "# Plan v1\n"
