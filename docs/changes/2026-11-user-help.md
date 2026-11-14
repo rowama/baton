@@ -1,7 +1,7 @@
 ---
 id: 2026-11-user-help
 title: "One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change"
-status: in-progress
+status: done
 level: major
 manual: [recipes/fit-check.md, recipes/software-feature.md, recipes/backyard-project.md, recipes/recipe-builder.md, recipes/baton-adopt.md, recipes/baton-frame.md, user/what-is-baton.md, user/getting-started.md, user/using-the-manual.md, user/start-with-a-goal.md, user/bring-an-existing-project.md, user/answer-questions-and-decide.md, user/check-on-your-work.md, user/long-running-work.md, user/how-you-want-to-be-told.md, user/what-baton-may-do.md, user/when-something-is-wrong.md, providers/openrouter.md, provider-notes.yaml, user/connect-an-account.md, user/connect-a-subscription.md, user/choose-models.md, admin/secrets.md, context.yaml, anchors.yaml, terms.yaml, admin/accounts-and-costs.md, admin/director-commands.md, admin/directors.md, admin/files-and-paths.md, admin/install-and-versions.md, admin/machine-settings.md, admin/network-and-security.md, admin/platform-notes.md, admin/project-settings.md, admin/recipes-and-vendoring.md, admin/secrets.md, admin/troubleshooting.md, reference/commands.md, reference/diagnostics.md, reference/environment.md, reference/project-settings.md, reference-notes.yaml]
 decisions: ["0126", "0127", "0128", "0129", "0130", "0131", "0132", "0133"]
@@ -207,7 +207,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Commit:** `2026-11-user-help: Slice 1, the manual corpus, anchors, checks and baton help`
 - **Summary:** `src/baton/manual.py` (topics, the checked Markdown subset, anchors and aliases, search, the context map) and `manual_cli.py` (examples checked against the CLI); `baton help` (list, print a topic or a section, `--search`, `--json`); every command's `--help` ends with `Manual: baton help <topic>` for mapped commands; `manual/` ships as `baton/_data/manual`. Four seed topics, `context.yaml` (every other command is in `pending_commands`, to be emptied by slice 6), `anchors.yaml` (refreshed by `tools/manual_anchors.py`) and `terms.yaml`. The keep-current rule is in AGENTS.md, the template (`manual:` and `### Manual edits`), §0 rule 9, §19 and `tests/test_docs.py` (a change in progress or done must name its manual edits; the changes done before it are exempt). Design: new §13.10, §13.2, §4.1, §14.1, §2. Tests: `tests/test_manual.py` (the shipped manual is valid; each kind of break in format, link, anchor, example, vocabulary and context map is reported; a renamed anchor needs an alias; `baton help` and the `--help` footer).
 - **Review:** clean.
-- **Accepted:** pending the owner.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed".
 
 ### Slice 2: the manual reader and the design system in `baton ui`
 
@@ -215,7 +215,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** `baton ui` is now Setup and Manual under one header with a search box. Server: `GET /api/manual/tree`, `/api/manual/topic/<id>`, `/api/manual/search?q=` and the page shell at `/manual` and `/manual/<part>/<slug>`, behind the unchanged token, Host and Origin checks; query strings now reach routes as `?name` arguments. Front end: `render.js` (the Markdown subset to DOM nodes), `manual.js` (tree, topic, outline with scroll-spy, breadcrumbs, previous and next, deep links, search with keyboard use, narrow-screen contents drawer), a new `app.css` design system for both parts, light and dark. `manual.py` gains `tree`, `page` and the optional `order` front-matter field. Also fixed: the Setup cards printed the word "null" where a control was absent (`h()` now skips null kids). Seen running in headless Chrome at desktop, dark and phone widths.
 - **Tests:** `tests/test_ui.py` (the reader's routes, refusals without the token, a bad Host, a path in a topic id, no write method); `tests/test_ui_render.py` (the renderer under node: sections and anchors, topic and external links, nested inline text terminates, HTML in a topic stays text, tables, notes and code).
 - **Review:** one bug found and fixed while looking at it: `inline()` shared one global regex between its recursive calls, which corrupted `lastIndex` and looped on nested bold and code; it now builds one per call, and the renderer test covers it.
-- **Accepted:** pending the owner, who is to see the page running: `baton ui`, then Manual.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed". This closing also stands for decision 0128's check that the owner has seen the page running.
 
 ### Slice 3: context help and the OpenRouter walk-through
 
@@ -223,7 +223,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** Setup has a "?" beside its sections, each provider's card, the capabilities column and the preference row; each opens the manual's short answer in a side panel (`help.js`) with "Open the full guide" to the reader at the same anchor; panel links stay in the panel. `GET /api/manual/context` serves the map; `/api/manual/topic/<id>?anchor=` serves one section. A refusal the manual explains carries "What does this mean?" (`context.yaml` `errors:`), and `baton workers connect` prints the same pointer (`More: baton help ...`, and `help` in `--json`). `manual_gen.py` and `tools/build_manual.py` write 18 provider pages (`manual/providers/`) from the provider directory and `manual/provider-notes.yaml`; the directory gains `display_name` for the direct APIs and Groq, and OpenRouter gains `display_name` and `signup_url` (https://openrouter.ai/keys answered on 2026-11-11), so its card now shows "Get a key". The seed topics now use the page's own labels (Use, Capabilities, Checked, Prefer a model for...). Seen running: the OpenRouter card opens its page in the panel (desktop, dark, phone).
 - **Tests:** `tests/test_manual_gen.py` (pages match the directory; every provider has a page with its command; a new directory entry makes the manual stale; local runtimes say no key; the page's `data-help` ids equal the map's keys; every mapped error code is a real code), `tests/test_ui.py` (a section by anchor, the context map), `tests/test_ui_accounts.py` (the CLI's pointer in text and JSON).
 - **Review:** clean.
-- **Accepted:** pending the owner.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed".
 
 ### Slice 4: the user guide
 
@@ -231,7 +231,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** Eleven new owner-facing topics in `manual/user/`: what Baton is and who does what, getting started, using the manual, starting with a goal, bringing in an existing project, answering questions and deciding (every choice's label and effect, from `defaults/labels.yaml`), checking on your work, long-running work and coming back, how you want to be told, what Baton may do to your repository (the permission defaults from `init`), and when something is wrong (the `doctor` messages, the sandboxed Codex fix). Thirteen commands moved from `pending_commands` to mapped, so each one's `--help` now names its topic. `terms.yaml` also bars worker, gate, dispatch, escalation, attempt and work item from owner-facing prose. The generic provider's card and page are now titled "OpenAI-compatible service". Claims were checked against `baton init`, `doctor`, `board`, `defaults/labels.yaml`, the Director skill and the README, not written from memory.
 - **Tests:** `tests/test_manual.py` (the whole manual validates, including the stricter terms list, every example's commands and options, every link and anchor).
 - **Review:** clean.
-- **Accepted:** pending the owner.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed".
 
 ### Slice 5: the recipe topics
 
@@ -239,7 +239,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** One owner-facing topic for each of `fit-check`, `software-feature`, `backyard-project`, `recipe-builder`, `baton-adopt` and `baton-frame` (purpose, what you will be asked, what it produces, what it needs, an example, what to do when it goes wrong). The prose is in `manual/recipe-sources/`; `manual_gen.py` writes `manual/recipes/` with each topic's parts table generated from the recipe (`build_plan`): its parts, the sizes they apply at, and the human gates, so the questions listed are the recipe's own. A shipped recipe with no source, or a table that no longer matches its recipe, makes `tests/test_manual_gen.py` fail until `python tools/build_manual.py` is run. Facts were checked against each recipe's plan, run inputs, prompts and §5.7, not remembered.
 - **Tests:** `tests/test_manual_gen.py` (all six shipped recipes have a topic with a generated table; a new shipped recipe, and a changed recipe, each make the manual stale).
 - **Review:** clean.
-- **Accepted:** pending the owner.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed".
 
 ### Slice 6: the admin guide and the generated reference
 
@@ -247,7 +247,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** Eleven admin topics: install and versions (the launcher, extras, upgrade, `migrate`, trying a version on a branch), files and what to commit, network and security, platform notes, project settings, machine settings and profiles, accounts and who pays, setting up an assistant (reaching Baton, Codex over MCP, hooks, exit codes), troubleshooting and diagnostics, recipes and vendoring, and the commands an assistant uses; with the existing secrets topic. Four generated reference pages: every command and option (read from the CLI), every `project.yaml` key with its type and default (read from `ProjectConfig`), the environment variables, and the diagnostic codes (the last two from `manual/reference-notes.yaml`). `manual_gen.coverage()` fails when a project setting, a `BATON_*` variable in the source, or a `diag.note` code has no description, or when a command or option has no help text; it found two real gaps at once (`baton workers declare --base-url` and `--note`, now documented in the CLI). Every command is now mapped to a topic and `pending_commands` is empty; a test keeps it so. Tables accept `\|` in a cell (renderer and checker). Doctor findings are free text, not codes, so they are described by hand in the troubleshooting topic. Claims were taken from the design documents, the CLI's own help and the code, not remembered.
 - **Tests:** `tests/test_manual_gen.py` (the reference matches the code; coverage is empty; a new variable, setting, option or diagnostic code, and a stale entry, each fail it; escaped pipes), `tests/test_manual.py` (every command has a topic).
 - **Review:** clean.
-- **Accepted:** pending the owner.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed".
 
 ### Slice 7: the Director's `help` action, the site build and the README
 
@@ -255,7 +255,7 @@ Each slice is one commit with its code, tests, design-doc edits, Log entry and a
 - **Summary:** `help(topic?, search?)` is an API call, an MCP tool and the CLI's `baton help`, all through `manual.help_payload`, so the words are the same on every interface; the Director skill (and its copy in §13.3) says to answer "how do I..." about Baton from it, never from memory. `tools/build_site.py` writes the manual as a static site under a version prefix (every topic at `/<version>/manual/<part>/<slug>/` with its anchor, JSON beside the pages where the page script reads the local API, browser-side search with the server's scoring, `versions.json` and a forwarding `index.html`); the page scripts are prefix-aware and share one source with `baton ui`. The reader's contents list now folds by part. The README keeps the install, the project set-up, a pointer to the manual and the recipe-authoring guide (not yet in the manual, decision 0127), and drops what the manual now holds; `doctor` points at `baton help admin.directors#wake` instead of the README, and the wake-up test reads the manual. §19 and §13.10 carry the finished rules.
 - **Tests:** `tests/test_director_surface.py` (MCP lists `help`; its words equal the CLI's; a missing topic is `help.no_topic`), `tests/test_manual_site.py` (every topic has its page and data; the site is self-contained under its prefix; search data and the version index; a manual that does not validate is not published; the scripts are prefix-aware), `tests/test_real_use.py` (the wake-up test reads the manual).
 - **Review:** clean.
-- **Accepted:** pending the owner. The change stays `in-progress` until the owner has seen the look of the page (decision 0128: slice 2 is accepted only after they have) and read the manual's words; then `status: done`.
+- **Accepted:** owner, 2026-11-13, closing the change: "it should be closed". `status: done`.
 
 
 - 2026-11-12, follow-up (owner request): `baton ui` now listens on port 47474 by default (`--port` overrides, 0 = free), has no idle timeout by default (`--idle-timeout S` opts in; the Director's action always sets one, default 15 minutes), and running it again closes the running page first (`ui.replace_running`). The token is kept in `~/.baton/ui-token` (0600) and the cookie lasts a year, so a bookmark survives restarts. Manual: using-the-manual, network-and-security, files-and-paths, regenerated commands reference. Design §13.9 and tests in `test_ui.py`.
