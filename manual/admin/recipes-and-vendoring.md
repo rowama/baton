@@ -50,7 +50,7 @@ project_inputs:
     many: false         # true takes one or more documents
 ```
 
-When a run starts, or when a part first needs a document, the assistant proposes one from the project's documents (`baton documents`) and the owner confirms it. Each step receives the version the owner confirmed. A role describes the document it needs, never the recipe or step that made it: `baton vendor` refuses a role that names another recipe (`software_feature_design`, `fit-check@4`) or a step (`steps.setup`), so the recipe stays shareable. A recipe without `project_inputs` works as before.
+When a run starts, or when a part first needs a document, the assistant proposes one from the project's documents (`baton documents`) and the owner confirms it. Each step receives the version the owner confirmed. A role describes the document it needs, never the recipe or step that made it: `baton vendor` refuses a role that names another recipe (`software_feature_design`, `fit-check@4`) or a step (`steps.setup`), so the recipe stays shareable. A recipe without `project_inputs` works as before. The role name `policy` is reserved: a step that declares the input `project.policy` receives the [project policy](admin.project-settings#policy) its run started under (its floors, governing recipes and permissions, with its hash), for example a release step that must state its authority. Nothing else puts the policy in a packet.
 
 ## Rating work on several axes {#axes}
 

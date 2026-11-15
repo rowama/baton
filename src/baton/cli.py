@@ -372,7 +372,9 @@ def migrate(
 def recipes(as_json: JsonOpt = False) -> None:
     """List vendored recipes."""
     out = _call(as_json, lambda: _api().recipes())
-    lines = [f"{r['recipe']}  {r.get('description') or ''}" if r["ok"] else f"{r['recipe']}  ERROR: {r['error']}" for r in out["recipes"]]
+    lines = [(f"{r['recipe']}  {r.get('description') or ''}" if r["ok"] else f"{r['recipe']}  ERROR: {r['error']}")
+             + (f"  [project policy: for {', '.join(r['governs'])}]" if r.get("governs") else "") for r in out["recipes"]]
+    lines += [f"Project policy: {g['work']} goes through {g['recipe']} (not vendored yet)" for g in out.get("governing") or []]
     _done(out, as_json, "\n".join(lines) or "No recipes vendored.", EXIT_OK if all(r["ok"] for r in out["recipes"]) else EXIT_PROBLEM)
 
 

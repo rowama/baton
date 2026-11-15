@@ -95,7 +95,7 @@ def test_an_unreadable_recipe_leaves_the_optional_input_out_and_notes_it(store, 
     from baton import diag
     from baton.packet import EngineError
 
-    def broken(project, with_scope=False):
+    def broken(project, with_scope=False, governing=None):
         raise EngineError("recipe.invalid", "shipped recipe x is invalid")
 
     seen = []

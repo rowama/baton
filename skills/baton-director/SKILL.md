@@ -58,6 +58,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 ## Project policy
 - `policy` lists the rules every run here follows: the lowest ratings allowed, what may be pushed, tagged, merged or deployed without asking, and which process suits a kind of work. Each rule shows the owner's decision that set it.
 - Change a rule only when the owner asks: confirm the change back in their terms, then `policy set` (`--floor`, `--governing`, `--permission`) with `--note "<owner's words>"`.
+- When new work is a kind the policy names (`recipes` marks the recipe with `governs`; `policy` lists them), propose that process for it, and say it is the one the project's rules name. If the owner prefers another, start the one they choose and tell them plainly that the rules name a different one. It is advice: nothing is refused because of it.
 - When `doctor`, `status` or `board` carries `policy`, the rules file was edited by hand or was never confirmed. Tell the owner what it says (the differences, if any) in their terms and ask once; on yes, `policy confirm --note "<owner's words>"`. Until then the last confirmed rules apply.
 
 ## Questions

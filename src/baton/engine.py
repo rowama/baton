@@ -2375,9 +2375,20 @@ class Api:
         return out
 
     def recipes(self) -> dict[str, Any]:
+        """The vendored recipes; ``governs`` lists the kinds of work the project policy gives a recipe (§13.7), and
+        ``governing`` the policy's kinds of work whose recipe is not vendored (it is in the catalog)."""
+        governing = self.project.policy_state().in_force["governing"]
+        governs: dict[str, list[str]] = {}
+        for g in governing:
+            governs.setdefault(g["recipe"], []).append(g["work"])
         out = []
+        ids: set[str] = set()
         for ref in self.project.vendored():
             entry = {"recipe": ref, "sha256": self.project.lock()["recipes"][ref]["sha256"]}
+            rid = ref.split("@", 1)[0]
+            ids.add(rid)
+            if governs.get(rid):
+                entry["governs"] = governs[rid]
             try:
                 loaded = self.project.recipe(ref)
                 entry["description"] = loaded.recipe.description
@@ -2387,7 +2398,11 @@ class Api:
             except EngineError as e:
                 entry.update(ok=False, error=str(e), code=e.code)
             out.append(entry)
-        return {"recipes": out}
+        result: dict[str, Any] = {"recipes": out}
+        elsewhere = [g for g in governing if g["recipe"] not in ids]
+        if elsewhere:
+            result["governing"] = elsewhere
+        return result
 
     def plan(self, recipe: str, level: str | None = None, ratings: dict[str, str] | None = None) -> Plan:
         """Plan for a vendored recipe ref, or a recipe directory."""

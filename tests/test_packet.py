@@ -84,7 +84,7 @@ def test_instructions_golden(store, monkeypatch):
 
     The catalog is fixed, so the golden does not change whenever a recipe ships or changes.
     """
-    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False: CATALOG)
+    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False, governing=None: CATALOG)
     ctx = passed_describe(store)
     p = engine.begin_attempt(ctx, "assess", "owner", WRITER)
     text = (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")

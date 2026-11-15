@@ -875,6 +875,9 @@ class _Checker:
         """Roles are unique and never name another recipe or its steps, so a recipe stays shareable (Decision 0142)."""
         roles = self.recipe.project_inputs
         _dupes(self, [r.role for r in roles], "project_inputs.duplicate_role", "project_inputs", "role")
+        for i, r in enumerate(roles):
+            if r.role == "policy":  # `project.policy` is the project policy (§5.2, §13.7)
+                self.error("project_inputs.reserved_role", f"project_inputs[{i}].role", "the role name 'policy' is reserved: `project.policy` is the project policy")
         if not roles:
             return
         others = sorted(known_recipe_ids() - {self.recipe.id}, key=len, reverse=True)

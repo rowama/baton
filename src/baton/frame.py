@@ -59,10 +59,11 @@ def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str,
     return out
 
 
-def recipe_listing(project: Any, with_scope: bool = False) -> list[dict[str, Any]]:
+def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
     """Every recipe a part may propose: each vendored recipe (its newest version), then each shipped one not vendored.
 
-    Also the ``catalog.summaries`` input of an ordinary step (§5.2; Decision 0106), which adds each recipe's ``scope``.
+    Also the ``catalog.summaries`` input of an ordinary step (§5.2; Decision 0106), which adds each recipe's ``scope``,
+    and ``governs`` (the kinds of work the project policy's ``governing`` gives it, §13.7) for a recipe that has some.
     """
     from .project import catalog
 
@@ -83,6 +84,9 @@ def recipe_listing(project: Any, with_scope: bool = False) -> list[dict[str, Any
     for rid, loaded in catalog().items():
         if rid not in out:
             out[rid] = _summary(loaded, False, with_scope)
+    for g in governing or []:
+        if g["recipe"] in out:
+            out[g["recipe"]].setdefault("governs", []).append(g["work"])
     return [out[k] for k in sorted(out)]
 
 

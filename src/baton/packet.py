@@ -343,7 +343,7 @@ def _resolve(
         from .project import Project
 
         try:
-            value = recipe_listing(Project.over_store(ctx.store), with_scope=True)
+            value = recipe_listing(Project.over_store(ctx.store), with_scope=True, governing=_pinned_governing(ctx, record))
         except EngineError as e:  # a recipe that will not load must not stop an unrelated step; an optional input is left out
             from . import diag
 
@@ -356,6 +356,11 @@ def _resolve(
         value = json.loads(cas.read(ev.data["research_sha256"]))
     elif ref.kind == "project":
         return _project_input(ctx, record, name, raw, ref.name or "")
+    elif ref.kind == "policy":  # the project policy pinned at the run's start (§5.2, §13.7; Decision 0151)
+        sha = record.started.get("policy_sha256")
+        if not sha:
+            raise _Unresolvable("this run was started before the project policy was pinned")
+        value = {"sha256": sha, **json.loads(ctx.store.project_cas.read(sha))}
     elif ref.kind == "human_revision":
         from .publish import latest_revision
 
@@ -369,6 +374,12 @@ def _resolve(
     else:  # pragma: no cover - every reference kind is handled above
         raise _Unresolvable(f"{ref.kind} references are not supported by this runtime")
     return _Resolved(name, raw, "json", f"{name}.json", _json_bytes(value), "application/json", value)
+
+
+def _pinned_governing(ctx: RunContext, record: RunRecord) -> list[dict[str, str]]:
+    """``policy.governing`` of the policy pinned at the run's start (none for a run started before pinning)."""
+    sha = record.started.get("policy_sha256")
+    return list(json.loads(ctx.store.project_cas.read(sha)).get("governing") or []) if sha else []
 
 
 def _project_input(ctx: RunContext, record: RunRecord, name: str, raw: str, role_name: str) -> list[_Resolved]:

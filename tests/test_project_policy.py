@@ -481,3 +481,65 @@ def test_an_adoption_baseline_carries_ratings_raised_to_the_floors(tmp_path):
     [cs] = _run_events(project, run, "complexity_set")
     assert cs["data"]["ratings"] == {"discovery": "low", "assurance": "medium"} and cs["data"]["approval"] == "baseline"
     assert cs["data"]["floors_applied"] == [{"axis": "assurance", "rated": "low", "floor": "medium", "decision_id": did}]
+
+
+# -- governing recipes and project.policy (Slice 3) ---------------------------------------------
+
+from runkit import make_recipe  # noqa: E402
+
+OBJ = {"type": "object"}
+
+
+def _readers(tmp_path: Path) -> tuple[Path, Path]:
+    """``release`` reads the policy and the catalog; ``plain`` declares neither."""
+    release = make_recipe(tmp_path / "release", [{"id": "ship", "output_schema": "schemas/out.json", "inputs": [
+        {"name": "rules", "from": "project.policy", "required": True}, {"name": "recipes", "from": "catalog.summaries"}]}],
+        schemas={"out.json": OBJ}, id="release")
+    plain = make_recipe(tmp_path / "plain", [{"id": "work", "output_schema": "schemas/out.json"}], schemas={"out.json": OBJ}, id="plain")
+    return release, plain
+
+
+@pytest.mark.slow
+def test_governing_recipes_are_marked_in_recipes_and_catalog_summaries(tmp_path):
+    cli, project = _project(tmp_path)
+    release, plain = _readers(tmp_path)
+    cli.run("vendor", str(release))
+    cli.run("vendor", str(plain))
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Vendor")
+    cli.run("policy", "set", "--governing", "software development=axes", "--governing", "bug fixes=axes",
+            "--governing", "web features=software-feature", "--note", NOTE)
+    out = cli.run("recipes")
+    rows = {r["recipe"]: r for r in out["recipes"]}
+    assert rows["axes@1"]["governs"] == ["software development", "bug fixes"] and "governs" not in rows["plain@1"]
+    assert out["governing"] == [{"work": "web features", "recipe": "software-feature"}]  # in the catalog, not vendored
+    run = cli.run("start", "release", "--inputs", json.dumps({"title": "v1"}))["run_id"]
+    d = cli.run("dispatch", run, "ship", "--worker", "owner")
+    pdir = packet_dir(project, run, "ship", d["attempt"])
+    listing = {r["id"]: r for r in json.loads((pdir / "inputs" / "recipes.json").read_text(encoding="utf-8"))}
+    assert listing["axes"]["governs"] == ["software development", "bug fixes"]
+    assert listing["software-feature"]["governs"] == ["web features"] and "governs" not in listing["plain"]
+    rules = json.loads((pdir / "inputs" / "rules.json").read_text(encoding="utf-8"))
+    pinned = _run_events(project, run, "run_started")[0]["data"]["policy_sha256"]
+    assert rules["sha256"] == pinned and rules["permissions"]["deploy"] == "deny"
+    assert rules["governing"][0] == {"work": "software development", "recipe": "axes"}
+    # A step that does not declare project.policy gets no policy in its packet.
+    run2 = cli.run("start", "plain", "--inputs", json.dumps({"title": "x"}))["run_id"]
+    d = cli.run("dispatch", run2, "work", "--worker", "owner")
+    pdir2 = packet_dir(project, run2, "work", d["attempt"])
+    manifest = json.loads((pdir2 / "manifest.json").read_text(encoding="utf-8"))
+    assert not (pdir2 / "inputs").exists() or not list((pdir2 / "inputs").iterdir())
+    assert "policy" not in json.dumps(manifest.get("inputs") or {})
+
+
+@pytest.mark.not_slow("loads a recipe")
+def test_project_policy_is_its_own_reference_and_policy_is_not_a_role_name(tmp_path):
+    from baton import refs
+    from baton.recipe import RecipeError, load_recipe
+
+    assert refs.parse("project.policy").kind == "policy" and refs.parse("project.brief").kind == "project"
+    root = make_recipe(tmp_path / "r", [{"id": "s", "output_schema": "schemas/out.json"}], schemas={"out.json": OBJ},
+                       project_inputs=[{"role": "policy", "description": "the rules"}])
+    with pytest.raises(RecipeError) as e:
+        load_recipe(root)
+    assert "project_inputs.reserved_role" in str(e.value)

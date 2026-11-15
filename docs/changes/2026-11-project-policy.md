@@ -5,7 +5,7 @@ status: in-progress
 level: major
 decisions: ["0143", "0151", "0153", "0050", "0144", "0147"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md, design/adoption-and-framing.md]
-manual: [admin/project-settings.md, admin/director-commands.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, user/bring-an-existing-project.md, reference/project-settings.md, reference/commands.md]
+manual: [admin/project-settings.md, admin/director-commands.md, admin/recipes-and-vendoring.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, user/bring-an-existing-project.md, reference/project-settings.md, reference/commands.md]
 ---
 
 # A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work
@@ -76,7 +76,7 @@ Approved by the owner with the Request on 2026-11-14, with the answers in Decisi
 ### Doc edits
 
 - `principles.md` §2: **Project policy**.
-- `design/recipes.md` §5.2 (`project.policy`), §5.5 (floors at triage and re-triage), §5.7 (summaries mark governing recipes).
+- `design/recipes.md` §5.2 (`project.policy`; `catalog.summaries` marks governing recipes), §5.3 (`policy` is a reserved role), §5.5 (floors at triage and re-triage).
 - `design/runtime.md` §8.2: `policy_changed`, `run_started.policy_sha256`, `floors_applied`.
 - `design/director-interface.md` §13.1–§13.3 (`policy`, `policy set`, `policy confirm`; the skill's governing-recipe advice and confirm-back), §13.7 (permissions as release-authority policy, recorded changes).
 - `design/layouts.md`: the `policy:` block in `project.yaml`.
@@ -87,6 +87,7 @@ Approved by the owner with the Request on 2026-11-14, with the answers in Decisi
 
 - `manual/admin/project-settings.md` and the generated `manual/reference/project-settings.md`: the `policy:` block; permissions now recorded.
 - `manual/admin/director-commands.md` and the generated `manual/reference/commands.md`: `policy`, `policy set`, `policy confirm`.
+- `manual/admin/recipes-and-vendoring.md`: the `project.policy` input and the reserved role name.
 - `manual/user/what-baton-may-do.md`: release authority as project policy, and how to change it.
 - `manual/user/answer-questions-and-decide.md`: a rating raised by project policy; confirming a hand edit.
 - `manual/user/bring-an-existing-project.md`: a baseline size raised by the project's rules.
@@ -154,3 +155,10 @@ Request and Design approved 2026-11-14. Each slice carries its tests, design and
 - **Design docs:** `design/recipes.md` §5.5 (Floors); `design/runtime.md` §8.2 (`run_started.policy_sha256`, `complexity_set`/`retriage_applied`/triage gate `policy_sha256`, `floors_applied`), §8.9 (`run_started` fields); `design/adoption-and-framing.md` §11.5; `design/director-interface.md` §13.1 (`status`, `board`), §13.7 (Pinned per run).
 - **Manual:** `user/answer-questions-and-decide.md` (a rating raised by your rules), `user/bring-an-existing-project.md`, `admin/project-settings.md` (pinning, baselines).
 - **Tests:** `tests/test_project_policy.py`: a rating below a floor raised, recorded and named in the prompt; all-lowest with a floor waits; a run keeps its pinned policy, is reported under an earlier one, and a floor never lowers; re-triage applies the current policy and records its hash; a one-axis floor on `level`; a `"*"` floor only where the axis and value exist; a baseline proposal raised, an edit below the floor refused, and `complexity_set` recording it.
+
+### Slice 3: governing recipes, `project.policy` and the manual
+
+- **Summary:** `recipes()` marks each vendored recipe the policy names with `governs`, and lists under `governing` the kinds of work whose recipe is only in the catalog. The `catalog.summaries` input (`frame.recipe_listing(governing=…)`) marks `governs` from the policy pinned at the run's start. The Director skill (and its §13.3 copy) proposes the governing recipe, says the rules name it, and starts the owner's choice if they pick another; nothing is refused. `project.policy` is its own reference kind (`refs.py`, `policy`, matched before `project.<role>`), and resolves to the pinned policy (`{sha256, floors, governing, permissions}`); a run started before pinning cannot resolve it. A recipe may not name a role `policy` (`project_inputs.reserved_role`). Corrected during the slice: the Design named §5.7 for the summaries, but `catalog.summaries` is in §5.2; the reserved role name was added because `project.policy` shares its grammar with `project.<role>`.
+- **Design docs:** `design/recipes.md` §5.2 (`project.policy`; `governs` in `catalog.summaries`), §5.3 (reserved role); `design/director-interface.md` §13.1 (`recipes()`), §13.3 (skill), §13.7 (the governing recipe is advice).
+- **Manual:** `admin/project-settings.md` (governing is advice), `admin/recipes-and-vendoring.md` (`project.policy`, reserved role; added to `manual:`), `user/answer-questions-and-decide.md` (the three rules, and how to change one).
+- **Tests:** `tests/test_project_policy.py`: `recipes` marks `governs` and lists catalog-only governing recipes; `catalog.summaries` in a packet marks them; `project.policy` gives the pinned policy with its hash; a step without the declaration gets no policy; `project.policy` parses as its own kind and `policy` is refused as a role name. `test_catalog_summaries.py` and `test_packet.py` stub `recipe_listing` with its new `governing` argument.

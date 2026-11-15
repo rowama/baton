@@ -29,6 +29,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("research", re.compile(r"^research\.findings$")),
     ("platform", re.compile(r"^platform\.facts$")),
     ("catalog", re.compile(r"^catalog\.summaries$")),
+    ("policy", re.compile(r"^project\.policy$")),  # before project.<role>: `policy` is not a role name (§5.2)
     ("project", re.compile(rf"^project\.({_ID})$")),
 ]
 

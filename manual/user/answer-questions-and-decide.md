@@ -58,7 +58,7 @@ If a document changes after work started using it, you decide whether to switch.
 
 ## Confirming a change to the rules {#rules}
 
-Your project has a few rules every piece of work follows, such as what may be pushed without asking you (see [what Baton may do](user.what-baton-may-do#changing)). If someone edits them by hand, your assistant tells you what changed and asks whether to accept it. Until you say yes, the rules you last confirmed still apply. A project that had rules before they were recorded is asked about once, the same way.
+Your project has a few rules every piece of work follows: the lowest sizing work may get (see [sizing the work](#sizing)), what may be pushed or released without asking you (see [what Baton may do](user.what-baton-may-do#changing)), and which process suits a kind of work. When you ask for work of a kind the rules name, your assistant proposes that process and says the rules name it; you can still choose another. To change a rule, tell your assistant; it confirms the change with you and records it with your words. If someone edits the rules by hand, your assistant tells you what changed and asks whether to accept it. Until you say yes, the rules you last confirmed still apply. A project that had rules before they were recorded is asked about once, the same way.
 
 ## If a question confuses you {#confusing}
 
