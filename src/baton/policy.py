@@ -257,3 +257,97 @@ def write(path: Path, value: Mapping[str, Any]) -> None:
             head[0] = head[0].rstrip("\n") + comment.group(0) + "\n"
         lines[start:end] = head
     atomic_write(path, "".join(lines).encode("utf-8"))
+
+
+# -- pinning and floors (§5.5, §8.2; Decisions 0143, 0151, 0153) ------------------------
+
+
+def in_force_at(store: Any) -> dict[str, Any] | None:
+    """The policy in force for a store's project: the latest recorded, else project.yaml's; ``None`` without one."""
+    from .project import PROJECT_FILE, load_config
+
+    changes = [e for e in store.project_log().events() if e.type == "policy_changed"]
+    if changes:
+        return changes[-1].data["after"]
+    cfg, _ = load_config(store.baton / PROJECT_FILE)
+    return value_of(cfg) if cfg is not None else None
+
+
+def pin(store: Any) -> str | None:
+    """Keep the policy in force in the project CAS and return its hash (what ``run_started`` and re-triage record)."""
+    value = in_force_at(store)
+    if value is None:
+        return None
+    return store.project_cas.put(canonical_json(value).encode("utf-8"))
+
+
+def pinned(run_events: list[Any]) -> str | None:
+    """The policy a run is under: the latest re-triage's, else its start's."""
+    sha = None
+    for e in run_events:
+        if e.type == "run_started" or e.type == "retriage_applied":
+            sha = e.data.get("policy_sha256") or sha
+    return sha
+
+
+def floors_for(value: Mapping[str, Any], recipe_id: str, scales: Mapping[str, list[str]]) -> dict[str, dict[str, str]]:
+    """The floors that apply to one recipe, by axis: its own and the ``"*"`` ones it declares (axis and value,
+    0151); the higher wins. Each is ``{floor, key}``, ``key`` naming the rule (``floors.<recipe>.<axis>``)."""
+    out: dict[str, dict[str, str]] = {}
+    floors = value.get("floors") or {}
+    for source in ("*", recipe_id):
+        for axis, v in (floors.get(source) or {}).items():
+            sc = scales.get(axis)
+            if not sc or v not in sc:
+                continue
+            if axis not in out or sc.index(v) > sc.index(out[axis]["floor"]):
+                out[axis] = {"floor": v, "key": f"floors.{source}.{axis}"}
+    return out
+
+
+def decision_for(project_events: list[Any], sha: str, key: str) -> str | None:
+    """The owner's decision that set ``key`` in the recorded policy ``sha`` (``None``: init's, or never recorded)."""
+    upto: list[Any] = []
+    found = False
+    for e in project_events:
+        if e.type != "policy_changed":
+            continue
+        upto.append(e)
+        if e.data.get("sha256") == sha:
+            found = True
+            last = len(upto)
+    if not found:
+        return None
+    return (decided(upto[:last]).get(key) or {}).get("decision_id")
+
+
+def floored(store: Any, sha: str | None, recipe_id: str, cx: Any, ratings: Mapping[str, str] | None) -> tuple[dict[str, str] | None, list[dict[str, Any]]]:
+    """``ratings`` raised to the floors of the policy ``sha`` for this recipe, and ``floors_applied``
+    (``[{axis, rated, floor, decision_id}]``). Nothing is lowered; no policy, no change."""
+    import json
+
+    from . import tailoring
+
+    if not sha or ratings is None or cx is None:
+        return (dict(ratings) if ratings is not None else None), []
+    value = json.loads(store.project_cas.read(sha))
+    scales = tailoring.scales(cx)
+    out = dict(ratings)
+    applied: list[dict[str, Any]] = []
+    events: list[Any] | None = None
+    for axis, f in floors_for(value, recipe_id, scales).items():
+        sc, rated = scales[axis], ratings.get(axis)
+        if rated in sc and sc.index(f["floor"]) > sc.index(rated):
+            events = events if events is not None else store.project_log().events()
+            out[axis] = f["floor"]
+            applied.append({"axis": axis, "rated": rated, "floor": f["floor"], "decision_id": decision_for(events, sha, f["key"])})
+    return out, applied
+
+
+def floor_note(applied: list[dict[str, Any]]) -> str:
+    """``Project policy raised assurance from low to medium (decision d5).`` for the owner's prompt."""
+    if not applied:
+        return ""
+    return "Project policy raised " + "; ".join(
+        f"{a['axis']} from {a['rated']} to {a['floor']}" + (f" (decision {a['decision_id']})" if a.get("decision_id") else " (a project rule)")
+        for a in applied) + "."

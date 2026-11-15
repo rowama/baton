@@ -736,12 +736,14 @@ def propose(
         loaded = ctx.recipe
         multi = tailoring.is_multi(loaded.recipe.complexity)
         level, reasons = triage_ratings(ctx) if multi else triage_level(ctx)
+        level, floors_applied = baseline_floors(ctx, level)  # project policy's floors (Decision 0153)
         entries, waivers, attested, read = check_seeds(ctx, seeds_by_item.get(key, []), level, project_vars=project_yaml["project"])
         files.update(read)
         rated = {"ratings": level, "rating_reasons": reasons} if multi else {"level": level, "level_reasons": reasons}
         items.append({
             "key": key, "run": ctx.run_id, "title": ctx.record().started.get("title"), **rated, "create": True,
             "seeds": entries, "waivers": waivers, "attested": attested, "plan": plan_for(loaded, level, entries),
+            **({"floors_applied": floors_applied} if floors_applied else {}),
         })
     return {
         "format": BASELINE_FORMAT,
@@ -755,6 +757,25 @@ def propose(
         "gaps": gaps,
         "files": dict(sorted(files.items())),
     }
+
+
+def baseline_floors(ctx: RunContext, level: str | dict[str, str] | None) -> tuple[Any, list[dict[str, Any]]]:
+    """A work item's level or ratings raised to the floors of the policy its run is pinned to (§11.5; Decision 0153)."""
+    from . import policy
+
+    cx = ctx.recipe.recipe.complexity
+    if level is None or cx is None:
+        return level, []
+    ratings = level if isinstance(level, dict) else {tailoring.LEVEL_AXIS: level}
+    raised, applied = policy.floored(ctx.store, ctx.record().started.get("policy_sha256"), ctx.recipe.recipe.id, cx, ratings)
+    assert raised is not None
+    return (raised if isinstance(level, dict) else raised[tailoring.LEVEL_AXIS]), applied
+
+
+def below_floors(ctx: RunContext, level: str | dict[str, str]) -> list[str]:
+    """The ratings of an (owner-edited) baseline that are below the project's floors."""
+    _, applied = baseline_floors(ctx, level)
+    return [f"{a['axis']} {a['rated']} is below the project's floor {a['floor']} (change the project policy first)" for a in applied]
 
 
 def axes_summary(cx: Any) -> dict[str, Any]:
@@ -802,7 +823,8 @@ def triage_level(ctx: RunContext) -> tuple[str | None, list[str]]:
 BASELINE_HEADER = """\
 # Baton adoption baseline (baton-baseline/1, §11.5): ONE owner decision ends adoption.
 # Review it; edit anything you disagree with (a level, a seed's `import`, a waiver,
-# `create: false` for a work item, the proposed configuration). Then record the
+# `create: false` for a work item, the proposed configuration). A rating listed under
+# `floors_applied` was raised by the project's policy and cannot go lower. Then record the
 # decision in your own words:
 #   baton establish-baseline {run} --note "<your words>"
 """
@@ -866,6 +888,11 @@ def check_baseline(project: Any, adoption: RunContext, doc: dict[str, Any], runs
             level = w.get("level")
             if cx is not None and level not in cx.levels:
                 problems.append(f"work item {key!r}: level {level!r} is not one of {cx.levels}")
+                continue
+        if level is not None:
+            low = below_floors(ctx, level)
+            if low:
+                problems += [f"work item {key!r}: {b}" for b in low]
                 continue
         chosen = [s for s in w.get("seeds") or [] if isinstance(s, dict) and s.get("import")]
         raw = [_raw_seed(s) for s in chosen]

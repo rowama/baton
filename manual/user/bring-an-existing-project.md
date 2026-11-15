@@ -13,7 +13,7 @@ If your project already has work in it, ask your assistant to bring it into Bato
 
 ## What you decide {#what-you-decide}
 
-You are shown a baseline: how the project is set up, the size of each piece of work in progress, the work counted as already done, and anything proposed to be set aside. If it is accurate, choose **That's an accurate picture**. If something is wrong, say what, and it is redone.
+You are shown a baseline: how the project is set up, the size of each piece of work in progress, the work counted as already done, and anything proposed to be set aside. A size that your project's rules raised is marked as raised, and cannot be set lower than the rule. If it is accurate, choose **That's an accurate picture**. If something is wrong, say what, and it is redone.
 
 Reading changes none of your files. Baton records what it found under `.baton`, and the baseline takes effect only when you say it is accurate.
 

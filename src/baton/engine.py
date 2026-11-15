@@ -119,6 +119,11 @@ def start(
         "inputs_sha256": hashlib.sha256(blob).hexdigest(),
         **(work_item or {}),
     }
+    from . import policy
+
+    policy_sha = policy.pin(store)  # the policy this run is under (§13.7; Decision 0143)
+    if policy_sha is not None:
+        data["policy_sha256"] = policy_sha
     log = store.start_run(data, actor=actor, run_id=run_id)
     log.cas.put(blob)  # the run directory exists only once the run has started
     ctx = RunContext(store, log.run_id, recipe, project or {})
@@ -365,6 +370,29 @@ def _rated(cx: Any, ratings: dict[str, str], reasons: Any = None) -> str:
     return "; ".join(f"{a} {v}" + (f" ({reasons[a]})" if isinstance(reasons, dict) and reasons.get(a) else "") for a, v in ratings.items())
 
 
+def _floor_sha(ctx: RunContext, step_path: str, n: int, req: Any) -> str | None:
+    """The policy whose floors apply to this triage result (§5.5; Decisions 0143, 0151): the one the owner's
+    gate was opened under, else the current one for a re-triage, else the one pinned at the run's start."""
+    from . import policy
+
+    gate = next((e for e in reversed(ctx.record().attempt_events(step_path, n))
+                 if e.type == "human_gate_opened" and e.data.get("gate") == "triage" and "policy_sha256" in e.data), None)
+    if gate is not None:
+        return gate.data["policy_sha256"]
+    if req is not None:
+        return policy.pin(ctx.store)
+    return ctx.record().started.get("policy_sha256")
+
+
+def _floored(ctx: RunContext, step_path: str, n: int, req: Any, ratings: dict[str, str]) -> tuple[dict[str, str], list[dict[str, Any]], str | None]:
+    """The worker's ratings raised to the project's floors, what was raised, and the policy's hash."""
+    from . import policy
+
+    sha = _floor_sha(ctx, step_path, n, req)
+    raised, applied = policy.floored(ctx.store, sha, ctx.recipe.recipe.id, ctx.recipe.recipe.complexity, ratings)
+    return raised or ratings, applied, sha
+
+
 def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
     """The implicit approval of a triage result (§5.5, §18 #8); ``None`` when none is needed (or it passed)."""
     if not _is_triage(ctx, step_path):
@@ -381,16 +409,25 @@ def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
     out = _triage_output(ctx, step_path, n)
     ratings, reasons = tailoring.from_output(cx, out)
     req = pending_retriage(events)
-    if req is None and (tailoring.auto_approves(cx, ratings) or record.ratings() is not None):
+    if req is None and record.ratings() is not None:
         return None
+    from . import policy
+
+    ratings, applied, policy_sha = _floored(ctx, step_path, n, req, ratings)
+    if req is None and tailoring.auto_approves(cx, ratings):
+        return None  # a raised rating is above the lowest, so it never gets here
+    raised = (" " + policy.floor_note(applied)) if applied else ""
     if not tailoring.is_multi(cx):
         level = ratings[tailoring.LEVEL_AXIS]
         why = _reasons_of(out)
         because = f" because: {'; '.join(why)}" if why else ""
         if req is not None:
             prev = req.data.get("previous_level")
-            prompt = (f"Re-triage ({req.data.get('reason')}): apply level {level!r} instead of {prev!r}{because}? "
+            prompt = (f"Re-triage ({req.data.get('reason')}): apply level {level!r} instead of {prev!r}{because}?{raised} "
                       f"Approve applies it to steps not yet started; reject keeps {prev!r}.")
+        elif applied:
+            prompt = (f"Triage rated this work {applied[0]['rated']!r} (levels: {', '.join(cx.levels)}){because}.{raised} "
+                      f"Approve level {level!r}? (Reject: triage is tried again with your note.)")
         else:
             prompt = f"Triage rated this work {level!r} (levels: {', '.join(cx.levels)}){because}. Approve this level? (Reject: triage is tried again with your note.)"
     elif req is not None:
@@ -401,12 +438,16 @@ def _triage_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
         asked = f" of {', '.join(req.data['axes'])}" if req.data.get("axes") else ""
         prompt = (f"Re-triage{asked} ({req.data.get('reason')}): " + (f"change {change}" if changed else "keep every rating")
                   + (f"; keep {_rated(cx, kept)}" if changed and kept else "")
-                  + "? Approve applies the ratings to steps not yet started; reject keeps the current ratings.")
+                  + f"?{raised} Approve applies the ratings to steps not yet started; reject keeps the current ratings.")
     else:
-        prompt = (f"Triage rated this work: {_rated(cx, ratings, reasons)}. Approve these ratings? "
+        prompt = (f"Triage rated this work: {_rated(cx, ratings, reasons)}.{raised} Approve these ratings? "
                   "(Reject: triage is tried again with your note.)")
     data = {"gate": "triage", "type": "triage", "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path,
             **tailoring.as_data(cx, ratings)}
+    if policy_sha is not None:
+        data["policy_sha256"] = policy_sha
+    if applied:
+        data["floors_applied"] = applied
     if req is not None:
         data["retriage"] = True
     log.append("human_gate_opened", step_path=step_path, attempt=n, data=data)
@@ -425,12 +466,14 @@ def _apply_triage(ctx: RunContext, step_path: str, n: int) -> None:
     ratings, reasons = tailoring.from_output(cx, out)
     approved = next((e for e in ctx.record().attempt_events(step_path, n) if e.type == "human_decision" and e.data.get("gate") == "triage"), None)
     req = pending_retriage(events)
+    if req is None and ctx.record().ratings() is not None:
+        return
+    ratings, applied, policy_sha = _floored(ctx, step_path, n, req, ratings)
+    floors = {**({"policy_sha256": policy_sha} if policy_sha is not None else {}), **({"floors_applied": applied} if applied else {})}
     if req is not None:
-        _apply_retriage(ctx, ratings, req, approved.seq if approved else None, reasons if tailoring.is_multi(cx) else None)
+        _apply_retriage(ctx, ratings, req, approved.seq if approved else None, reasons if tailoring.is_multi(cx) else None, floors)
         return
-    if ctx.record().ratings() is not None:
-        return
-    data: dict[str, Any] = {**tailoring.as_data(cx, ratings), "approval": "owner" if approved else "auto"}
+    data: dict[str, Any] = {**tailoring.as_data(cx, ratings), "approval": "owner" if approved else "auto", **floors}
     if approved is not None:
         data["decision_seq"] = approved.seq
     if tailoring.is_multi(cx):
@@ -444,7 +487,8 @@ def _not_started(st: Any) -> bool:
     return st.state == "blocked_on_deps" or (st.state == "ready" and st.attempt == 0)
 
 
-def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_seq: int | None, reasons: Any = None) -> None:
+def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_seq: int | None, reasons: Any = None,
+                    floors: dict[str, Any] | None = None) -> None:
     """Re-evaluate every step that has not started at the new ratings; flag accepted steps they would treat differently."""
     log = ctx.log
     cx = ctx.recipe.recipe.complexity
@@ -498,7 +542,7 @@ def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_s
     log.append(
         "retriage_applied", step_path=req.step_path,
         data={**rated, "reason": req.data.get("reason"), "decision_seq": decision_seq,
-              "skipped": skip, "unskipped": unskip, "pre_retriage": pre},
+              "skipped": skip, "unskipped": unskip, "pre_retriage": pre, **(floors or {})},
     )
     for p in skip:
         log.append("step_skipped", step_path=p, data={**tailoring.as_data(cx, level), "cause": "retriage"})
@@ -1911,6 +1955,21 @@ def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, acto
     return Outcome(ref, n, "abandoned", [note] if note else [])
 
 
+def _baseline_floors(ctx: RunContext, level: str | dict[str, str]) -> dict[str, Any]:
+    """``policy_sha256`` and ``floors_applied`` for a baseline's ``complexity_set`` (Decision 0153): the triage's
+    ratings that the policy raised and that the baseline keeps at the floor."""
+    from .adopt import baseline_floors, triage_level, triage_ratings
+
+    sha = ctx.record().started.get("policy_sha256")
+    if sha is None:
+        return {}
+    rated = (triage_ratings(ctx) if isinstance(level, dict) else triage_level(ctx))[0]
+    _, applied = baseline_floors(ctx, rated)
+    final = level if isinstance(level, dict) else {tailoring.LEVEL_AXIS: level}
+    applied = [a for a in applied if final.get(a["axis"]) == a["floor"]]
+    return {"policy_sha256": sha, **({"floors_applied": applied} if applied else {})}
+
+
 def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, decision_id: str) -> Outcome:
     """Apply one work item of an established baseline to its run (§11.5).
 
@@ -1963,7 +2022,7 @@ def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, deci
         ratings = tailoring.ordered(cx, item.get("ratings")) if isinstance(item.get("ratings"), dict) else None
         log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "ratings": ratings, "seeds": seeds})
         if ratings is not None:
-            cs: dict[str, Any] = {"ratings": ratings, "approval": "baseline", "decision_id": decision_id}
+            cs: dict[str, Any] = {"ratings": ratings, "approval": "baseline", "decision_id": decision_id, **_baseline_floors(ctx, ratings)}
             if isinstance(item.get("rating_reasons"), dict):
                 cs["reasons"] = dict(item["rating_reasons"])
             log.append("complexity_set", step_path=cx.triage_step, data=cs)
@@ -1971,7 +2030,7 @@ def apply_baseline(ctx: RunContext, item: dict[str, Any], *, adoption: str, deci
     level = item.get("level")
     log.append("baseline_established", actor="human", data={"adoption": adoption, "decision_id": decision_id, "level": level, "seeds": seeds})
     if level is not None:
-        cs = {"level": level, "approval": "baseline", "decision_id": decision_id}
+        cs = {"level": level, "approval": "baseline", "decision_id": decision_id, **_baseline_floors(ctx, level)}
         if item.get("level_reasons"):
             cs["reasons"] = list(item["level_reasons"])
         log.append("complexity_set", step_path=cx.triage_step if cx else None, data=cs)
@@ -2456,6 +2515,7 @@ class Api:
                 "lease": st["lease"],
                 **({"waiting_on_binding": st["waiting_on_binding"]} if st.get("waiting_on_binding") else {}),
                 **({"upstream_changes": st["upstream_changes"]} if st.get("upstream_changes") else {}),
+                **({"policy_outdated": True} if st.get("policy_outdated") else {}),
             })
         holder = locks.workspace_holder(self.project.baton)
         ws = {"holder": {k: holder.get(k) for k in ("run_id", "step_path", "dispatch_id", "attempt") if k in holder} if holder else None,
@@ -2581,7 +2641,21 @@ class Api:
             "last_checkpoint": gitops.last_checkpoint(self.project.root, run_id),
             "last_seq": rs.last_seq,
             **self._policy_notice(),
+            **self._policy_outdated(events),
         }
+
+    def _policy_outdated(self, events: list[Any]) -> dict[str, Any]:
+        """``policy_outdated`` when the run is under an earlier policy than the one in force (§13.7; Decision 0151)."""
+        from . import policy
+
+        pinned = policy.pinned(events)
+        if pinned is None:
+            return {}
+        current = self.project.policy_state().sha256
+        if pinned == current:
+            return {}
+        return {"policy_outdated": {"pinned": pinned, "current": current,
+                                    "message": "this work started under an earlier project policy; a re-triage applies the current one"}}
 
     def _policy_notice(self) -> dict[str, Any]:
         """``policy`` for ``status`` and ``board`` only while the owner has a policy to confirm (0151, 0153)."""

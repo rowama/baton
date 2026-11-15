@@ -5,7 +5,7 @@ status: in-progress
 level: major
 decisions: ["0143", "0151", "0153", "0050", "0144", "0147"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md, design/adoption-and-framing.md]
-manual: [admin/project-settings.md, admin/director-commands.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, reference/project-settings.md, reference/commands.md]
+manual: [admin/project-settings.md, admin/director-commands.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, user/bring-an-existing-project.md, reference/project-settings.md, reference/commands.md]
 ---
 
 # A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work
@@ -89,6 +89,7 @@ Approved by the owner with the Request on 2026-11-14, with the answers in Decisi
 - `manual/admin/director-commands.md` and the generated `manual/reference/commands.md`: `policy`, `policy set`, `policy confirm`.
 - `manual/user/what-baton-may-do.md`: release authority as project policy, and how to change it.
 - `manual/user/answer-questions-and-decide.md`: a rating raised by project policy; confirming a hand edit.
+- `manual/user/bring-an-existing-project.md`: a baseline size raised by the project's rules.
 
 ### Decisions
 
@@ -146,3 +147,10 @@ Request and Design approved 2026-11-14. Each slice carries its tests, design and
 - **Design docs:** `principles.md` §2 (Project policy); `design/director-interface.md` §13.1 (`policy` calls), §13.3 (skill), §13.5 (`check`), §13.7 (release authority is project policy; recorded policy in force); `design/runtime.md` §8.2 (`policy_changed`, `human_decision {kind: policy}`); `design/layouts.md`.
 - **Manual:** `admin/project-settings.md` (permissions, new *Project policy* section), `admin/director-commands.md` (new *Project policy* section), `user/what-baton-may-do.md` (changing the rules; hand edits), `user/answer-questions-and-decide.md` (new *Confirming a change to the rules*), `context.yaml` (`policy` command), `reference-notes.yaml` (`policy.floors`, `policy.governing`), regenerated `reference/commands.md` and `reference/project-settings.md`, `anchors.yaml`.
 - **Tests:** `tests/test_project_policy.py` (value and formatting, changes, floor problems, the rewrite; init's record; set with record, file, commit and enforcement; refusals; catalog, one-axis and `"*"` floors; a hand edit noticed by `check`/`--strict`/`status`/`board`, not enforced until confirmed; confirm checks floors; a project with no record keeps its file in force and is asked once; first change records; MCP). `test_director_surface.py` changes permissions with `policy set` instead of a hand edit, and lists the new calls; `test_versioning.py` counts the project log's lines (init now writes one event).
+
+### Slice 2: floors and pinning
+
+- **Summary:** `start_run` pins the policy in force (`run_started.policy_sha256`, its value in the project CAS; `policy.pin`). Floors are applied in `engine.py`'s triage path. `_triage_gate` and `_apply_triage` raise the worker's ratings to the floors (`policy.floored`; `floors_for` picks a recipe's own and matching `"*"` floors, the higher winning; `decision_for` names the decision that set each). This happens before the auto-approval rule, so a raised rating always waits on the owner. The gate's prompt says what policy raised (`policy.floor_note`). The gate, `complexity_set` and `retriage_applied` record `policy_sha256` and `floors_applied`. The first triage uses the pinned policy, a re-triage the current one; approval reuses the policy the gate was opened under. `status` carries `policy_outdated {pinned, current, message}` and `board` `policy_outdated: true` for a run under an earlier policy (`policy.pinned`: the latest re-triage's hash, else the start's). Adoption (0153): `adopt.propose` raises each work item's ratings (`baseline_floors`) and lists `floors_applied`. `check_baseline` refuses an owner edit below a floor. `apply_baseline`'s `complexity_set` records `policy_sha256` and the floors that raised the triage's ratings and that the baseline keeps. Added during the slice: refusing a baseline rating below a floor (the Design only said the proposal is raised), and `manual/user/bring-an-existing-project.md` (added to `manual:`).
+- **Design docs:** `design/recipes.md` §5.5 (Floors); `design/runtime.md` §8.2 (`run_started.policy_sha256`, `complexity_set`/`retriage_applied`/triage gate `policy_sha256`, `floors_applied`), §8.9 (`run_started` fields); `design/adoption-and-framing.md` §11.5; `design/director-interface.md` §13.1 (`status`, `board`), §13.7 (Pinned per run).
+- **Manual:** `user/answer-questions-and-decide.md` (a rating raised by your rules), `user/bring-an-existing-project.md`, `admin/project-settings.md` (pinning, baselines).
+- **Tests:** `tests/test_project_policy.py`: a rating below a floor raised, recorded and named in the prompt; all-lowest with a floor waits; a run keeps its pinned policy, is reported under an earlier one, and a floor never lowers; re-triage applies the current policy and records its hash; a one-axis floor on `level`; a `"*"` floor only where the axis and value exist; a baseline proposal raised, an edit below the floor refused, and `complexity_set` recording it.

@@ -44,6 +44,8 @@ Early on, the work is sized, so that it gets as much care as it needs and no mor
 
 A small piece of work goes ahead without asking you, unless the process always asks about one of the ratings, for example how carefully the work must be checked.
 
+Your project's rules can set a lowest rating, for example "software work here is always checked at least moderately carefully". When the sizing comes out lower, the rating is raised to that rule, and your assistant says which ratings your rules raised before you approve. A raised rating always waits for your approval. Work that started before a rule changed keeps the rules it started with, until it is sized again.
+
 The sizing can change later. If you see the work is bigger or smaller than it was rated, tell your assistant; the sizing is redone and you approve the new one. It changes only the parts not yet started. Sometimes the work itself finds that a rating looks wrong (for example, a change turns out to touch other people's data). Your assistant then tells you why and asks: **Yes, look at that again** redoes that rating, and you approve the result; **Keep it as it is** leaves it. Nothing waits on your answer in the meantime.
 
 ## Confirming a document {#documents}

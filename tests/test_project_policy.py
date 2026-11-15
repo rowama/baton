@@ -299,3 +299,185 @@ def test_mcp_policy_tools(tmp_path, monkeypatch):
     set_, listed = asyncio.run(main())
     assert {c["key"] for c in set_["changes"]} == {"floors.axes.discovery", "permissions.push.docs_only"}
     assert listed["policy"]["floors"] == {"axes": {"discovery": "medium"}} and listed["state"] == "recorded"
+
+
+# -- floors and pinning (Slice 2) -----------------------------------------------------------
+
+from projectkit import packet_dir, write_result  # noqa: E402
+from test_tailoring_axes import rate  # noqa: E402
+
+
+def _run_events(project: Path, run: str, etype: str | None = None) -> list[dict]:
+    f = project / ".baton" / "runs" / run / "events.jsonl"
+    evs = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines()]
+    return [e for e in evs if etype is None or e["type"] == etype]
+
+
+def _triage(cli: Cli, project: Path, run: str, output: dict, expect: int = 4) -> dict:
+    d = cli.run("dispatch", run, "triage", "--worker", "owner")
+    write_result(packet_dir(project, run, "triage", d["attempt"]), output)
+    return cli.run("submit", run, "triage", expect=expect)
+
+
+def _start(cli: Cli, recipe: str = "axes") -> str:
+    return cli.run("start", recipe, "--title", "Fix", "--inputs", json.dumps({"title": "Fix"}))["run_id"]
+
+
+def _prompt(cli: Cli, run: str) -> str:
+    return next(d for d in cli.run("status", run, expect=4)["pending_decisions"] if d["ref"] == "triage")["prompt"]
+
+
+@pytest.mark.slow
+def test_a_rating_below_a_floor_is_raised_recorded_and_named_to_the_owner(tmp_path):
+    cli, project = _project(tmp_path)
+    did = cli.run("policy", "set", "--floor", "axes.assurance=medium", "--note", NOTE)["decision_id"]
+    run = _start(cli)
+    started = _run_events(project, run, "run_started")[0]["data"]
+    assert started["policy_sha256"] == cli.run("policy")["sha256"]
+    _triage(cli, project, run, rate(discovery="medium", assurance="low"))
+    prompt = _prompt(cli, run)
+    assert "assurance medium (assurance is low here)" in prompt
+    assert f"Project policy raised assurance from low to medium (decision {did})." in prompt
+    cli.run("decide", run, "triage", "approve", "--note", "fine")
+    [cs] = _run_events(project, run, "complexity_set")
+    assert cs["data"]["ratings"] == {"discovery": "medium", "assurance": "medium"}
+    assert cs["data"]["floors_applied"] == [{"axis": "assurance", "rated": "low", "floor": "medium", "decision_id": did}]
+    assert cs["data"]["policy_sha256"] == started["policy_sha256"]
+    assert cli.run("status", run)["steps"]["verify"]["state"] != "skipped"  # verify runs at assurance medium
+
+
+@pytest.mark.slow
+def test_all_lowest_with_a_floor_waits_on_the_owner(tmp_path):
+    cli, project = _project(tmp_path)
+    cli.run("policy", "set", "--floor", "*.discovery=medium", "--note", NOTE)
+    run = _start(cli)
+    # assurance asks at its lowest anyway (confirm_lowest); the floor is on discovery.
+    out = _triage(cli, project, run, rate(discovery="low", assurance="low"))
+    assert out["needs_owner"]
+    assert "Project policy raised discovery from low to medium" in _prompt(cli, run)
+
+
+@pytest.mark.slow
+def test_floors_never_lower_and_a_run_keeps_the_policy_pinned_at_its_start(tmp_path):
+    cli, project = _project(tmp_path)
+    run = _start(cli)  # pinned before any floor
+    cli.run("policy", "set", "--floor", "axes.assurance=high", "--note", NOTE)
+    st = cli.run("status", run)
+    assert st["policy_outdated"]["pinned"] != st["policy_outdated"]["current"]
+    [row] = cli.run("board")["runs"]
+    assert row["policy_outdated"] is True
+    _triage(cli, project, run, rate(discovery="low", assurance="medium"))
+    assert "Project policy" not in _prompt(cli, run)  # the pinned policy has no floor
+    cli.run("decide", run, "triage", "approve", "--note", "fine")
+    [cs] = _run_events(project, run, "complexity_set")
+    assert cs["data"]["ratings"]["assurance"] == "medium" and "floors_applied" not in cs["data"]
+    # A run started now is under the current policy and is not reported.
+    run2 = _start(cli)
+    assert "policy_outdated" not in cli.run("status", run2)
+    _triage(cli, project, run2, rate(discovery="high", assurance="high"))
+    assert "Project policy" not in _prompt(cli, run2)  # already at the floor: nothing raised
+
+
+@pytest.mark.slow
+def test_retriage_applies_the_current_policy_and_records_its_hash(tmp_path):
+    cli, project = _project(tmp_path)
+    run = _start(cli)
+    _triage(cli, project, run, rate(discovery="low", assurance="medium"))
+    cli.run("decide", run, "triage", "approve", "--note", "fine")
+    did = cli.run("policy", "set", "--floor", "axes.discovery=high", "--note", NOTE)["decision_id"]
+    current = cli.run("policy")["sha256"]
+    cli.run("retriage", run, "--reason", "scope grew", "--axis", "assurance")
+    _triage(cli, project, run, rate(discovery="low", assurance="medium"))
+    prompt = _prompt(cli, run)
+    assert "change discovery from low to high" in prompt and f"Project policy raised discovery from low to high (decision {did})." in prompt
+    cli.run("decide", run, "triage", "approve", "--note", "yes")
+    [ra] = _run_events(project, run, "retriage_applied")
+    assert ra["data"]["ratings"] == {"discovery": "high", "assurance": "medium"}
+    assert ra["data"]["policy_sha256"] == current
+    assert ra["data"]["floors_applied"] == [{"axis": "discovery", "rated": "low", "floor": "high", "decision_id": did}]
+    assert "policy_outdated" not in cli.run("status", run)  # re-triage brought it under the current policy
+
+
+@pytest.mark.slow
+def test_a_floor_on_a_one_axis_recipe_uses_level(tmp_path):
+    from test_tailoring import tailor_recipe
+
+    cli, project = _project(tmp_path, axes=False)
+    cli.run("vendor", str(tailor_recipe(tmp_path / "toy")))
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Vendor toy")
+    assert cli("policy", "set", "--floor", "tailor.assurance=high", "--note", NOTE, expect=1).payload["error"] == "policy.invalid"
+    did = cli.run("policy", "set", "--floor", "tailor.level=standard", "--note", NOTE)["decision_id"]
+    run = cli.run("start", "tailor", "--title", "Garden", "--inputs", json.dumps({"title": "Garden"}))["run_id"]
+    _triage(cli, project, run, {"level": "minor", "reasons": ["small"]})
+    prompt = _prompt(cli, run)
+    assert prompt.startswith("Triage rated this work 'minor'") and "Approve level 'standard'?" in prompt
+    assert f"Project policy raised level from minor to standard (decision {did})." in prompt
+    cli.run("decide", run, "triage", "approve", "--note", "ok")
+    [cs] = _run_events(project, run, "complexity_set")
+    assert cs["data"]["level"] == "standard"
+    assert cs["data"]["floors_applied"] == [{"axis": "level", "rated": "minor", "floor": "standard", "decision_id": did}]
+
+
+@pytest.mark.slow
+def test_a_star_floor_applies_only_to_recipes_that_declare_the_axis_and_value(tmp_path):
+    from test_tailoring import tailor_recipe
+
+    cli, project = _project(tmp_path)
+    cli.run("vendor", str(tailor_recipe(tmp_path / "toy")))
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Vendor toy")
+    cli.run("policy", "set", "--floor", "*.assurance=medium", "--note", NOTE)
+    toy = cli.run("start", "tailor", "--title", "Garden", "--inputs", json.dumps({"title": "Garden"}))["run_id"]
+    out = _triage(cli, project, toy, {"level": "minor", "reasons": ["small"]}, expect=0)
+    assert out["outcome"] == "passed"  # toy has no assurance axis: auto-approved as before
+    [cs] = _run_events(project, toy, "complexity_set")
+    assert cs["data"]["level"] == "minor" and "floors_applied" not in cs["data"]
+    axes = _start(cli)
+    _triage(cli, project, axes, rate(discovery="low", assurance="low"))
+    assert "Project policy raised assurance from low to medium" in _prompt(cli, axes)
+
+
+@pytest.mark.slow
+def test_an_adoption_baseline_carries_ratings_raised_to_the_floors(tmp_path):
+    from projectkit import make_home as home
+
+    from test_adoption import PERSON
+
+    project = make_git_project(tmp_path / "proj")
+    cli = Cli(project, home(tmp_path / "home", PERSON))
+    git(project, "commit", "-q", "--allow-empty", "-m", "Prior work")
+    adoption = cli.run("adopt", str(write_recipe(tmp_path / "axes")))["adoption"]
+    did = cli.run("policy", "set", "--floor", "axes.assurance=medium", "--note", NOTE)["decision_id"]
+
+    def play(run: str, step: str, output: dict) -> dict:
+        d = cli.run("dispatch", run, step, "--worker", "owner")
+        write_result(packet_dir(project, run, step, d["attempt"]), output)
+        return cli.run("submit", run, step)
+
+    play(adoption, "research", {
+        "evidence": [], "proposed_seeds": [], "agent_config": [], "path_candidates": {}, "command_candidates": {}, "gaps": [],
+        "work_items": [{"key": "fix", "title": "Tenant fix", "status": "in_flight", "position": "not started", "inputs": {"title": "Tenant fix"}}],
+    })
+    (run,) = [v["run_id"] for v in cli.run("adopt", "axes")["runs"].values()]
+    play(run, "triage", rate(discovery="low", assurance="low"))
+    cli.run("adopt", "axes", expect=4)
+    bpath = project / ".baton" / "adoption" / adoption / "baseline.yaml"
+    text = bpath.read_text(encoding="utf-8")
+    assert "was raised by the project's policy" in text
+    doc = yaml.safe_load(text)
+    (item,) = doc["work_items"]
+    assert item["ratings"] == {"discovery": "low", "assurance": "medium"}
+    assert item["floors_applied"] == [{"axis": "assurance", "rated": "low", "floor": "medium", "decision_id": did}]
+    assert "verify" not in item["plan"]["skip"]
+    header = text[: text.index("format:")]
+    item["ratings"]["assurance"] = "low"  # the owner cannot edit below the floor
+    bpath.write_text(header + yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    bad = cli.run("establish-baseline", adoption, "--note", "go", expect=None)
+    assert "assurance low is below the project's floor medium" in json.dumps(bad)
+    item["ratings"]["assurance"] = "medium"
+    bpath.write_text(header + yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    cli.run("establish-baseline", adoption, "--note", "fine")
+    [cs] = _run_events(project, run, "complexity_set")
+    assert cs["data"]["ratings"] == {"discovery": "low", "assurance": "medium"} and cs["data"]["approval"] == "baseline"
+    assert cs["data"]["floors_applied"] == [{"axis": "assurance", "rated": "low", "floor": "medium", "decision_id": did}]

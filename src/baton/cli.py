@@ -454,6 +454,8 @@ def _status_text(s: dict) -> str:
         lines.append(f"  {u['role']}: {u['path']} {what} since version {u['bound_version']} was bound; this run keeps that version unless the owner rebinds")
     for w in s.get("waiting_on_binding") or []:
         lines.append(f"  {w['step_path']}: waits for a project document for {w['role']} ({w['description']}); bind one with `bind`")
+    if s.get("policy_outdated"):
+        lines.append(f"  {s['policy_outdated']['message']}")
     if s.get("awaiting_baseline"):
         lines.append(f"  waiting for the baseline of adoption {s['adoption']['run']} (only triage runs until then)")
     lines += _pending_lines(s)
@@ -490,6 +492,8 @@ def board(
         lease = r.get("lease")
         if lease:
             bits.append("lease: " + ("you" if lease["yours"] else lease["director_id"]) + (" (expired)" if lease["expired"] else ""))
+        if r.get("policy_outdated"):
+            bits.append("under an earlier policy")
         lines.append(" · ".join(bits))
         lines += [f"  {g}: {summary}" for g, summary in r["groups"].items()]
         lines += ["  " + line for line in _pending_lines(r)]

@@ -45,6 +45,8 @@ policy:
 
 Policy changes are recorded: `baton policy set ... --note "<the owner's words>"` records the owner's decision, rewrites these blocks and commits them. `baton policy` lists each rule with the decision that last changed it. A floor must name an axis and value its recipe declares (a one-axis recipe's axis is `level`); a floor for `"*"` applies only to recipes that declare that axis with that value, and `baton check` warns when none does.
 
+Each run records the policy in force when it starts: its first sizing (triage) raises any rating below a floor to it, a re-sizing (`retriage`) applies the policy current at that time, and `baton status` and `board` mark a run still under an earlier policy. An adoption baseline carries ratings already raised (`floors_applied`), and refuses an edit below a floor. The permissions are never pinned: the recorded ones in force always apply.
+
 A hand edit is noticed, not trusted: `baton check` warns (an error with `--strict`), `baton status`, `board` and `doctor` say so, and runs keep the last recorded policy until the owner confirms the edit (`baton policy confirm --note "<words>"`). `baton init` records the defaults it writes. A project from before the policy was recorded keeps `project.yaml` in force until its first record; `baton check` warns until then.
 
 ## Hooks {#hooks}
