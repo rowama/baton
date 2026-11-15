@@ -1,7 +1,7 @@
 ---
 id: 2026-11-project-policy
 title: "A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work"
-status: in-progress
+status: done
 level: major
 decisions: ["0143", "0151", "0153", "0050", "0144", "0147"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md, design/adoption-and-framing.md]
@@ -162,3 +162,9 @@ Request and Design approved 2026-11-14. Each slice carries its tests, design and
 - **Design docs:** `design/recipes.md` §5.2 (`project.policy`; `governs` in `catalog.summaries`), §5.3 (reserved role); `design/director-interface.md` §13.1 (`recipes()`), §13.3 (skill), §13.7 (the governing recipe is advice).
 - **Manual:** `admin/project-settings.md` (governing is advice), `admin/recipes-and-vendoring.md` (`project.policy`, reserved role; added to `manual:`), `user/answer-questions-and-decide.md` (the three rules, and how to change one).
 - **Tests:** `tests/test_project_policy.py`: `recipes` marks `governs` and lists catalog-only governing recipes; `catalog.summaries` in a packet marks them; `project.policy` gives the pinned policy with its hash; a step without the declaration gets no policy; `project.policy` parses as its own kind and `policy` is refused as a role name. `test_catalog_summaries.py` and `test_packet.py` stub `recipe_listing` with its new `governing` argument; the full suite on 9f71581 found a third stub (`test_continuity.py::test_records_golden`), fixed in the repair commit that follows.
+
+### Done
+
+- **Summary:** Every acceptance criterion is shown by `tests/test_project_policy.py`: policy listed and recorded (Slice 1); hand edits and projects with no record (Slice 1, 0153); floors at triage, re-triage and adoption, checked and pinned (Slice 2); release authority as recorded permissions (Slice 1); governing recipes as advice and `project.policy` (Slice 3); the manual and design docs (all slices). Left for `2026-11-project-review`: governing recipes in framing's and the project review's proposals (0151 #5).
+- **Owner decision:** 2026-11-14: Request and Design approved (0153).
+- **Accepted:** Yes; status done.
