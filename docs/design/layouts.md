@@ -79,12 +79,12 @@ baton/
 ├── .agents/skills/baton-director/  .agents/skills/baton-worker/   # vendored by baton init/upgrade (init also writes the AGENTS.md pointer; under adoption the baseline proposes it)
 ├── .baton/
 │   ├── baton.lock                    # runtime version, format versions, vocab version, recipe hashes, step-id signatures (§5.8)
-│   ├── project.yaml                  # paths, project vars, permissions, hooks (non-secret), limits, contacts, sme, effort bands
+│   ├── project.yaml                  # paths, project vars, policy and permissions (§13.7), hooks (non-secret), limits, contacts, sme, effort bands
 │   ├── communication.md              # owner communication contract (starts as the default)
 │   ├── preferences.yaml              # optional routing preferences (non-secret)
 │   ├── recipes/<id>@<version>/       # vendored, pinned recipes
 │   ├── project/events.jsonl          # project-level events (platform incidents, facts, process feedback)
-│   ├── project/sme/<c_id>/  project/cas/   # consultations without a run (§12.1), and their blobs; attested files (§10.4)
+│   ├── project/sme/<c_id>/  project/cas/   # consultations without a run (§12.1), and their blobs; attested files (§10.4); recorded policies (§13.7)
 │   ├── adoption/<run_id>/baseline.yaml  # baseline proposal of an adoption (§11.5)
 │   ├── platform/facts.md             # platform facts
 │   ├── process/lessons.md            # project-level process lessons

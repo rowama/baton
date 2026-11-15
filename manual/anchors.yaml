@@ -13,6 +13,7 @@ published:
 - admin.director-commands#doing
 - admin.director-commands#experts
 - admin.director-commands#here-now
+- admin.director-commands#policy
 - admin.director-commands#seeing
 - admin.director-commands#start
 - admin.directors
@@ -61,6 +62,7 @@ published:
 - admin.project-settings#limits
 - admin.project-settings#paths
 - admin.project-settings#permissions
+- admin.project-settings#policy
 - admin.project-settings#test-command
 - admin.recipes-and-vendoring
 - admin.recipes-and-vendoring#authors
@@ -234,6 +236,9 @@ published:
 - reference.commands#baton-plan
 - reference.commands#baton-platform-fact
 - reference.commands#baton-platform-incident
+- reference.commands#baton-policy
+- reference.commands#baton-policy-confirm
+- reference.commands#baton-policy-set
 - reference.commands#baton-promote-sme
 - reference.commands#baton-push
 - reference.commands#baton-recipe
@@ -284,6 +289,7 @@ published:
 - user.answer-questions-and-decide#confusing
 - user.answer-questions-and-decide#documents
 - user.answer-questions-and-decide#here-now
+- user.answer-questions-and-decide#rules
 - user.answer-questions-and-decide#sizing
 - user.answer-questions-and-decide#the-choices
 - user.bring-an-existing-project

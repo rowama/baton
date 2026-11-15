@@ -13,7 +13,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
 - Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - Retry guidance is additive; never restate or summarize inputs.
-- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
+- Choose workers only from `eligible`. Never edit profiles, preferences, the project policy (permissions included) or the lockfile without the owner's instruction; the policy changes only through `policy set`. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
 - Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
 - Act only within the project's action permissions. `ask` means request it; `deny` means never.
 
@@ -54,6 +54,11 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.
 - Before a tag, merge, deploy or force push, call `permission <action> --detail "<what you will do>"`.
 - `allow`: go ahead. `ask` (exit 4): ask the owner; if they approve, repeat the same call with `--approved --note "<owner's words>"`. `deny`: never attempt it, and say so.
+
+## Project policy
+- `policy` lists the rules every run here follows: the lowest ratings allowed, what may be pushed, tagged, merged or deployed without asking, and which process suits a kind of work. Each rule shows the owner's decision that set it.
+- Change a rule only when the owner asks: confirm the change back in their terms, then `policy set` (`--floor`, `--governing`, `--permission`) with `--note "<owner's words>"`.
+- When `doctor`, `status` or `board` carries `policy`, the rules file was edited by hand or was never confirmed. Tell the owner what it says (the differences, if any) in their terms and ask once; on yes, `policy confirm --note "<owner's words>"`. Until then the last confirmed rules apply.
 
 ## Questions
 - About the process (where things are, what's next): answer from `explain`/`status`/`board`, never from memory. If the record doesn't say, say so.

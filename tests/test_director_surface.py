@@ -39,6 +39,12 @@ def run_events(project: Path, run: str) -> list[dict]:
     return [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines()]
 
 
+def set_permissions(cli: Cli, *rules: str) -> None:
+    """Change permissions the way an owner does: a recorded policy change (§13.7; Decision 0151)."""
+    args = [a for r in rules for a in ("--permission", r)]
+    cli.run("policy", "set", *args, "--note", "Set for this test.")
+
+
 def set_config(project: Path, **changes: object) -> None:
     py = project / ".baton" / "project.yaml"
     cfg = yaml.safe_load(py.read_text(encoding="utf-8"))
@@ -116,7 +122,7 @@ def test_docs_only_push_is_allowed_and_recorded(tmp_path):
 @pytest.mark.slow
 def test_denied_push_is_refused_and_never_attempted(tmp_path):
     cli, project = setup_fit_check(tmp_path)
-    set_config(project, permissions={"push": {"other": "deny"}})
+    set_permissions(cli, "push.other=deny")
     bare = with_remote(tmp_path, project)
     before = remote_head(bare)
     commit_file(project, "src/app.py", "print('hi')\n")
@@ -172,7 +178,7 @@ def _verify_recipe(root: Path) -> Path:
 def test_after_verified_push_covers_passed_steps_commits_only(tmp_path):
     cli, project = setup_fit_check(tmp_path)
     cli.run("vendor", str(_verify_recipe(tmp_path / "change")))
-    set_config(project, permissions={"push": {"other": "deny"}})
+    set_permissions(cli, "push.other=deny")
     bare = with_remote(tmp_path, project)
     code = commit_file(project, "src/app.py", "print('hi')\n")
     run = cli.run("start", "change", "--inputs", json.dumps({"title": "Greeting"}))["run_id"]
@@ -191,7 +197,8 @@ def test_after_verified_push_covers_passed_steps_commits_only(tmp_path):
 @pytest.mark.slow
 def test_docs_only_globs_are_the_projects(tmp_path):
     cli, project = setup_fit_check(tmp_path)
-    set_config(project, docs_only_globs=["notes/**"], permissions={"push": {"other": "deny"}})
+    set_config(project, docs_only_globs=["notes/**"])
+    set_permissions(cli, "push.other=deny")
     with_remote(tmp_path, project)
     commit_file(project, "docs/guide.md", "# Guide\n")
     assert cli("push", expect=1).payload["error"] == "permission.denied"  # docs/ is not docs-only here
@@ -245,9 +252,10 @@ def test_director_actions_outside_the_runtime(tmp_path):
     assert cli("permission", "force-push", expect=1).payload["error"] == "permission.denied"
     assert cli("permission", "push", expect=1).payload["error"] == "permission.use_push"
     assert cli("permission", "launch", expect=1).payload["error"] == "permission.unknown_action"
-    set_config(project, permissions={"merge": "allow"})
+    set_permissions(cli, "merge=allow")
     assert cli.run("permission", "merge", "--detail", "merge feature into main")["permission"] == "allow"
-    evs = [e for e in project_events(project) if e["type"] in ("permission_requested", "permission_used", "human_decision")]
+    evs = [e for e in project_events(project) if e["type"] in ("permission_requested", "permission_used", "human_decision")
+           and e["data"].get("kind") != "policy"]
     assert [(e["type"], e["data"]["action"]) for e in evs] == [
         ("permission_requested", "tag"), ("human_decision", "tag"), ("permission_used", "tag"), ("permission_used", "merge")]
     assert evs[0]["data"]["detail"] == "tag v1.0 on main" and evs[1]["data"]["note"] == "Go ahead and tag it."
@@ -305,7 +313,7 @@ def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
                  "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame", "note", "start",
-                 "documents", "attest", "bind"):
+                 "documents", "attest", "bind", "policy"):
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
     assert "## Before you ask the owner anything" in text   # change 2026-11-director-question-check
@@ -407,7 +415,8 @@ API_CALLS = {
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
     "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame", "note",
-    "workers_status", "workers_setup", "workers_declare", "diag", "ui", "help", "documents", "attest", "bind",
+    "workers_status", "workers_setup", "workers_declare", "diag", "ui", "help", "documents", "attest", "bind", "policy", "policy_set",
+    "policy_confirm",
 }
 
 

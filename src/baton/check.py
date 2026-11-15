@@ -29,7 +29,7 @@ from .models import Event, Issue
 from .packet import PROTOCOL
 from .project import BUILTIN_RECIPES, builtin_recipe, COMM_FILE, GITATTRIBUTES_RULE, LOCAL_PROFILES, LOCK_FILE, PROJECT_FILE, load_config
 from .recipe import RecipeError, load_recipe
-from .store import BATON_DIR, RunLog, Store
+from .store import BATON_DIR, RunLog, Store, StoreError
 from .vocab import load as load_vocab
 
 #: Paths under .baton/ that are never committed and so are not scanned for secrets.
@@ -44,7 +44,7 @@ def referenced_blobs(events: Iterable[Event]) -> set[str]:
         for key in ("inputs_sha256", "result_sha256", "output_sha256", "research_sha256", "baseline_sha256", "answer_sha256"):
             if isinstance(d.get(key), str):
                 out.add(d[key])
-        if ev.type == "document_attested" and isinstance(d.get("sha256"), str):
+        if ev.type in ("document_attested", "policy_changed") and isinstance(d.get("sha256"), str):
             out.add(d["sha256"])
         if ev.type == "project_input_bound":
             out.update(x["sha256"] for x in d.get("documents") or [] if isinstance(x, dict) and isinstance(x.get("sha256"), str))
@@ -87,7 +87,7 @@ def check(root: Path, *, strict: bool = False) -> list[Issue]:
         return [Issue(code="project.missing", where=BATON_DIR, message="not a Baton project (run `baton init`)")]
 
     # project.yaml and communication.md
-    _, cfg_issues = load_config(baton / PROJECT_FILE)
+    cfg, cfg_issues = load_config(baton / PROJECT_FILE)
     issues += cfg_issues
     comm = baton / COMM_FILE
     if not comm.is_file():
@@ -159,9 +159,48 @@ def check(root: Path, *, strict: bool = False) -> list[Issue]:
     finally:
         store.close()
 
+    # project policy (§13.7; Decisions 0151, 0153)
+    if cfg is not None:
+        issues += _check_policy(root, cfg, strict)
+
     # secrets
     issues += _scan_secrets(baton)
     return _relabel(root, issues)
+
+
+def _check_policy(root: Path, cfg: Any, strict: bool) -> list[Issue]:
+    """An unconfirmed or unrecorded policy, and floors that match no vendored recipe or that it does not declare."""
+    from . import policy, tailoring
+    from .project import Project
+
+    where = f"{BATON_DIR}/{PROJECT_FILE}"
+    store = Store(root)
+    try:
+        try:
+            st = policy.current(store.project_log().events(), cfg)
+        except StoreError:  # expected: an unreadable project log is reported by the log checks above
+            return []
+        out: list[Issue] = []
+        sev = "error" if strict else "warning"
+        if st.state == "edited":
+            keys = ", ".join(d["key"] for d in policy.differences(st.recorded, st.file))
+            out.append(Issue(code="policy.unconfirmed", where=where, severity=sev,
+                             message=f"the policy was edited by hand ({keys}); runs keep the recorded policy until the owner confirms it (`baton policy`)"))
+        elif st.state == "unrecorded":
+            out.append(Issue(code="policy.unrecorded", where=where, severity=sev,
+                             message="the policy (permissions included) is not recorded yet; ask the owner once and record it (`baton policy confirm`)"))
+        proj = Project.over_store(store)
+        scales: dict[str, Any] = {}
+        try:
+            for ref in proj.vendored():
+                scales[ref.split("@", 1)[0]] = tailoring.scales(proj.recipe(ref).recipe.complexity)
+        except Exception:  # expected: a broken vendored recipe is reported by the lock check above
+            return out
+        refusals, warnings = policy.floor_problems(st.in_force, lambda rid: scales if rid is None else scales.get(rid), unknown_ok=True)
+        out += [Issue(code="policy.floor", where=where, severity="warning", message=m) for m in refusals + warnings]
+        return out
+    finally:
+        store.close()
 
 
 def _check_lock(baton: Path, lock_path: Path, lock: dict[str, Any]) -> list[Issue]:

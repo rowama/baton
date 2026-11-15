@@ -25,13 +25,19 @@ Your assistant tells you what it wants to do and why, and waits. If you approve,
 
 ## Changing it {#changing}
 
-The settings are in `.baton/project.yaml`, under `permissions`, in your project. Each is `allow`, `ask` or `deny`. Edit and commit it: the setting travels with the project.
+These settings are part of your project's rules, which every piece of work follows. Tell your assistant what you want changed, in your own words. It confirms the change with you, then records it with your words, so you can always see who decided what and when. The rules are kept in `.baton/project.yaml`, under `permissions`, and travel with the project.
+
+If someone edits that file by hand, nothing changes yet. Your assistant shows you what was edited and asks; the edit takes effect only when you confirm it. A project set up before these rules were recorded keeps working as it is: your assistant asks you once to confirm them.
 
 ## From the command line {#command-line}
 
 ```baton
 baton push
 baton permission tag --detail "tag v1.2"
+baton policy
+baton policy set --permission tag=allow --note "Tagging is fine without asking."
 ```
+
+`baton policy` lists every rule with the decision behind it.
 
 Pushing is always explicit: nothing pushes automatically.

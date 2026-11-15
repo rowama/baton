@@ -54,6 +54,10 @@ To make a file of your own available this way, tell your assistant it is settled
 
 If a document changes after work started using it, you decide whether to switch. Switching means the parts that already used the old version are done again with the new one; your assistant tells you that before you decide. Other pieces of work that use the same document are not affected.
 
+## Confirming a change to the rules {#rules}
+
+Your project has a few rules every piece of work follows, such as what may be pushed without asking you (see [what Baton may do](user.what-baton-may-do#changing)). If someone edits them by hand, your assistant tells you what changed and asks whether to accept it. Until you say yes, the rules you last confirmed still apply. A project that had rules before they were recorded is asked about once, the same way.
+
 ## If a question confuses you {#confusing}
 
 Say so. A question you do not understand is a problem with the question, not with you. Ask what it means, or say what you think it is getting at, and your assistant will put it differently.

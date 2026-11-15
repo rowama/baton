@@ -510,6 +510,9 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         wake_problems, wake_warnings = _wake_check(project)
         problems += wake_problems
         warnings = warnings + wake_warnings
+        notice = project.policy_state().notice()
+        if notice is not None:  # the project policy waits on the owner (§13.7; 0151, 0153)
+            warnings = warnings + [f"{notice['message']} ({notice['next']})"]
     try:
         profiles = project.profiles()
     except EngineError as e:

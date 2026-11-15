@@ -90,6 +90,7 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **CAS** | Content-addressed artifact store inside each run. |
 | **Lease** | Which Director may change a run right now. |
 | **Project document** | A file in the repo that the project accepted: a deliverable an accepted step published, or a file the owner attested. A recipe declares the documents it would like by **role**; a run binds a role to a document, with the owner's confirmation, and its steps receive the bound version like any other input (Decision: [0142](decisions/0142-project-documents-bound-by-role.md)). |
+| **Project policy** | A few rules in `project.yaml` that every run of the project follows: the lowest rating a recipe's axis may get (*floors*), what may be pushed, tagged, merged or deployed without asking (the action permissions, the release authority), and the recipe that governs a kind of work (advice to the Director). It changes only through a recorded owner decision and is pinned at run start (§13.7; Decision: [0143](decisions/0143-project-policy.md)). |
 | **Owner** | The human who makes the decisions. |
 
 Experts (§12) add none either: a *consultation* is a series of SME dispatches (turns); an *incident* is a platform record; a person is reached through a proxy SME, never directly.

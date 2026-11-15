@@ -36,9 +36,11 @@ ACTIONS: tuple[str, ...] = ("push", "tag", "force_push", "merge", "deploy")
 CATEGORIES: tuple[str, ...] = ("docs_only", "after_verified", "other")
 
 
-def rule_for(config: Any, action: str, category: str | None = None) -> str:
-    """The rule (``allow`` | ``ask`` | ``deny``) for an action (and, for ``push``, its category)."""
-    perms = config.permissions
+def rule_for(perms: Any, action: str, category: str | None = None) -> str:
+    """The rule (``allow`` | ``ask`` | ``deny``) for an action (and, for ``push``, its category).
+
+    ``perms`` is the permissions in force: the recorded policy's (``Project.permissions_in_force``), never
+    an unconfirmed hand edit of project.yaml (Decisions 0151, 0153)."""
     if action == "push":
         return getattr(perms.push, category or "other")
     if action not in ACTIONS:

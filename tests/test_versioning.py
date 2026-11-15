@@ -100,6 +100,7 @@ def test_an_unreadable_format_is_refused_with_the_migrate_hint_and_migrate_fixes
     cli.run("platform-fact", "the runtime host is a laptop")
     log = project / ".baton" / "runs" / run / "events.jsonl"
     original = log.read_bytes()
+    project_lines = len((project / ".baton" / "project" / "events.jsonl").read_bytes().splitlines())
 
     synthetic(monkeypatch, events=3, lock=3, recipe=3)  # two versions on: version 1 is out of the window
     refused = cli("status", run, expect=1).payload
@@ -120,7 +121,7 @@ def test_an_unreadable_format_is_refused_with_the_migrate_hint_and_migrate_fixes
     assert _commit_files(project) == {
         ".baton/baton.lock", ".baton/recipes/fit-check@5.migrated.json", ".baton/project/events.jsonl",
         f".baton/runs/{run}/events.jsonl", f".baton/runs/{run}/events.migrated-{len(original.splitlines())}.jsonl",
-        ".baton/project/events.migrated-2.jsonl",
+        f".baton/project/events.migrated-{project_lines}.jsonl",
     }
     # Earlier events are never rewritten: the log only grew, by one `migrated` record.
     assert log.read_bytes().startswith(original)

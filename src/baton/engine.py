@@ -2464,7 +2464,8 @@ class Api:
 
         open_inc = [{k: i.get(k) for k in ("id", "run", "step_path", "attempt", "class", "code", "message")}
                     for i in incidents(self.project.store.project_log().events()).values() if i["status"] == "open"]
-        return {"runs": runs, "workspace": ws, "incidents": open_inc, "needs_owner": any(r.get("needs_owner") for r in runs)}
+        return {"runs": runs, "workspace": ws, "incidents": open_inc, "needs_owner": any(r.get("needs_owner") for r in runs),
+                **self._policy_notice()}
 
     def status(self, run_id: str) -> dict[str, Any]:
         from . import gitops, locks, supervisor
@@ -2579,7 +2580,13 @@ class Api:
             **({"adoption": started["adoption"], "awaiting_baseline": awaiting_baseline(events)} if started.get("adoption") else {}),
             "last_checkpoint": gitops.last_checkpoint(self.project.root, run_id),
             "last_seq": rs.last_seq,
+            **self._policy_notice(),
         }
+
+    def _policy_notice(self) -> dict[str, Any]:
+        """``policy`` for ``status`` and ``board`` only while the owner has a policy to confirm (0151, 0153)."""
+        notice = self.project.policy_state().notice()
+        return {"policy": notice} if notice is not None else {}
 
     def _routing(self, ctx: RunContext, step_path: str) -> Any:
         from .routing import PreferencesError, eligible_workers, load_preferences
@@ -3816,6 +3823,101 @@ class Api:
             out["checkpoint"] = cp.as_dict()
         return out
 
+    # -- project policy (§13.7; Decisions 0143, 0151, 0153) -------------------
+
+    def policy(self) -> dict[str, Any]:
+        """The policy in force (floors, governing recipes, permissions), each rule with the decision that last
+        changed it; ``unconfirmed`` when project.yaml was edited by hand or the policy was never recorded."""
+        from . import policy
+
+        return policy.listing(self.project.policy_state())
+
+    def policy_set(self, note: str, *, floors: dict[str, dict[str, str | None]] | None = None,
+                   governing: dict[str, str | None] | None = None, permissions: dict[str, str] | None = None) -> dict[str, Any]:
+        """Change the policy with the owner's words: a ``None`` floor or governing recipe removes it.
+        Recorded as ``human_decision {kind: policy}`` and ``policy_changed``; project.yaml is rewritten and committed."""
+        from . import policy
+
+        self._policy_note(note)
+        st = self.project.policy_state()
+        if st.state == "edited":
+            raise EngineError("policy.unconfirmed_edit",
+                              "project.yaml's policy was edited by hand and not confirmed: confirm it first (`baton policy confirm`), "
+                              "or restore the file, then make this change")
+        after = policy.apply(st.in_force, floors=floors, governing=governing, permissions=permissions)
+        if policy.sha256(after) == st.sha256:
+            raise EngineError("policy.unchanged", "the policy already says that; nothing to change")
+        warnings = self._policy_checked(after)
+        return self._record_policy(st.in_force, after, note, "set", warnings)
+
+    def policy_confirm(self, note: str) -> dict[str, Any]:
+        """Record project.yaml's policy, edited by hand or never recorded, as the owner's decision (their words)."""
+        self._policy_note(note)
+        st = self.project.policy_state()
+        if st.state == "recorded":
+            raise EngineError("policy.nothing_to_confirm", "project.yaml holds the recorded policy; there is no edit to confirm")
+        warnings = self._policy_checked(st.file)
+        return self._record_policy(st.recorded, st.file, note, "confirm", warnings, write=False)
+
+    @staticmethod
+    def _policy_note(note: str | None) -> None:
+        if not (note or "").strip():
+            raise EngineError("policy.note", "a policy change needs the owner's words (--note), recorded verbatim")
+
+    def _recipe_scales(self, rid: str | None) -> Any:
+        """A recipe's axes and scales (the highest vendored version, else the catalog's), or every vendored one's."""
+        from .project import catalog
+
+        vendored: dict[str, Any] = {}
+        for ref in self.project.vendored():
+            vendored[ref.split("@", 1)[0]] = ref  # sorted by version: the highest wins
+        if rid is None:
+            return {r: tailoring.scales(self.project.recipe(ref).recipe.complexity) for r, ref in vendored.items()}
+        if rid in vendored:
+            return tailoring.scales(self.project.recipe(vendored[rid]).recipe.complexity)
+        found = catalog().get(rid)
+        return None if found is None else tailoring.scales(found.recipe.complexity)
+
+    def _policy_checked(self, value: dict[str, Any]) -> list[str]:
+        """Refuse floors the named recipe does not declare and governing recipes nobody knows; warnings for the rest."""
+        from . import policy
+
+        refusals, warnings = policy.floor_problems(value, self._recipe_scales)
+        for g in value.get("governing") or []:
+            if self._recipe_scales(g["recipe"]) is None:
+                refusals.append(f"no recipe {g['recipe']} is vendored or in the catalog (for {g['work']!r})")
+        if refusals:
+            raise EngineError("policy.invalid", "; ".join(refusals))
+        return warnings
+
+    def _record_policy(self, before: dict[str, Any] | None, after: dict[str, Any], note: str, decision: str,
+                       warnings: list[str], *, write: bool = True) -> dict[str, Any]:
+        from . import policy
+        from .locks import project_lock
+        from .project import PROJECT_FILE
+
+        changes = policy.differences(before, after)
+        path = self.project.baton / PROJECT_FILE
+        with project_lock(self.project.baton):
+            plog = self.project.store.project_log()
+            decision_id = f"d{len(plog.events()) + 1}"
+            if write:
+                policy.write(path, after)
+            sha = self.project.store.project_cas.put(canonical_json(after).encode("utf-8"))
+            plog.append("human_decision", actor="human", data={
+                "kind": "policy", "decision": decision, "note": note, "decision_id": decision_id,
+                "changes": changes, "recorded_by": self.director.actor})
+            plog.append("policy_changed", actor="human", data={
+                "before": before, "after": after, "sha256": sha, "decision_id": decision_id, "changes": changes})
+        self.project.reload_config()
+        out = {**self.policy(), "decision_id": decision_id, "changes": changes}
+        if warnings:
+            out["warnings"] = warnings
+        cp = self._project_checkpoint(f"policy {'changed' if decision == 'set' else 'confirmed'} ({decision_id})", extra=[path])
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
     # -- action permissions (§13.7) ------------------------------------------
 
     def push(self, *, approved: bool = False, note: str | None = None) -> dict[str, Any]:
@@ -3835,7 +3937,7 @@ class Api:
             raise EngineError("push.git", str(e)) from e
         if not plan.commits:
             return {"pushed": False, "reason": "nothing to push", **plan.summary(), "needs_owner": False}
-        rule = permissions.rule_for(self.project.config, "push", plan.category)
+        rule = permissions.rule_for(self.project.permissions_in_force(), "push", plan.category)
         out = self._permit("push", rule, plan.summary(), approved, note, label=f"push ({plan.category.replace('_', '-')})")
         if not out["granted"]:
             return out
@@ -3858,7 +3960,7 @@ class Api:
         if action == "push":
             raise EngineError("permission.use_push", "the runtime does the pushing: use `baton push`, which checks permissions.push itself")
         try:
-            rule = permissions.rule_for(self.project.config, action)
+            rule = permissions.rule_for(self.project.permissions_in_force(), action)
         except ValueError as e:
             raise EngineError("permission.unknown_action", str(e)) from e
         return self._permit(action, rule, {"detail": detail} if detail else {}, approved, note, label=action.replace("_", "-"))

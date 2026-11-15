@@ -28,11 +28,13 @@ These are the keys of `.baton/project.yaml`, which is committed and never holds 
 | `hooks.on_platform_failure` | text | empty | A shell command run when work fails because of the platform. Falls back to `on_complete`; on its own it wakes nobody for owner decisions. |
 | `limits.active_runs` | whole number (optional) | none | The most pieces of work that may be active at once; `start` refuses beyond it. Unset means no limit. |
 | `sme` | mapping | none | Per subject (`project`, `platform`, `process`), the profiles tried first when an expert is consulted: `preferred_profiles: [...]`. |
-| `permissions.push.docs_only` | allow, ask or deny | `allow` | Pushing commits that change only documents (see `docs_only_globs`): `allow`, `ask` or `deny`. |
+| `permissions.push.docs_only` | allow, ask or deny | `allow` | Pushing commits that change only documents (see `docs_only_globs`): `allow`, `ask` or `deny`. The permissions are part of the project policy: change them with `baton policy set`; a hand edit waits for the owner's confirmation. |
 | `permissions.push.after_verified` | allow, ask or deny | `allow` | Pushing commits that are Baton checkpoints, or that a passed step's own checks vouched for. |
 | `permissions.push.other` | allow, ask or deny | `ask` | Pushing anything else. |
 | `permissions.tag` | allow, ask or deny | `ask` | Tagging a release. |
 | `permissions.force_push` | allow, ask or deny | `deny` | Force-pushing. The default never does. |
 | `permissions.merge` | allow, ask or deny | `deny` | Merging. The default never does. |
 | `permissions.deploy` | allow, ask or deny | `deny` | Deploying. The default never does. |
+| `policy.floors` | mapping | none | Project policy: the lowest rating a recipe's axis may get, as `{ <recipe>: { <axis>: <value> } }`; `"*"` for every recipe that declares that axis with that value, `level` for a one-axis recipe. Change it with `baton policy set`; a hand edit waits for the owner's confirmation. |
+| `policy.governing` | list | none | Project policy: the recipe that suits a kind of work, as `[ { work: "<kind of work>", recipe: <id> } ]`. Advice the assistant gives; nothing is refused because of it. Change it with `baton policy set`. |
 | `docs_only_globs` | list | `["docs/**", "**/*.md", ".baton/runs/**", ".baton/project/**", ".baton/platform/**", ".baton/process/**"]` | Paths that count as documents only for `permissions.push.docs_only`. |

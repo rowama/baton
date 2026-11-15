@@ -457,7 +457,13 @@ def _status_text(s: dict) -> str:
     if s.get("awaiting_baseline"):
         lines.append(f"  waiting for the baseline of adoption {s['adoption']['run']} (only triage runs until then)")
     lines += _pending_lines(s)
+    lines += _policy_lines(s)
     return "\n".join(lines)
+
+
+def _policy_lines(s: dict) -> list[str]:
+    p = s.get("policy")
+    return [f"Project policy: {p['message']}; {p['next']}"] if p else []
 
 
 @app.command()
@@ -494,6 +500,7 @@ def board(
     ws = out["workspace"]
     if ws["holder"]:
         lines.append(f"Working tree: held by {ws['holder']['step_path']} of {ws['holder']['run_id']}" + (f"; {ws['queued']} queued" if ws["queued"] else ""))
+    lines += _policy_lines(out)
     _done(out, as_json, "\n".join(lines))
 
 
@@ -856,7 +863,7 @@ def trace(
 
 @app.command()
 def check(
-    strict: Annotated[bool, typer.Option("--strict", help="Treat drift of published deliverables as an error.")] = False,
+    strict: Annotated[bool, typer.Option("--strict", help="Treat drift of published deliverables and an unconfirmed policy as errors.")] = False,
     as_json: JsonOpt = False,
 ) -> None:
     """Repository consistency for pre-commit and CI: one ERROR line per problem, exit 0 when clean."""
@@ -1175,6 +1182,94 @@ def permission(
     """Check (and record) an action the Director takes outside the runtime: allow, ask (exit 4) or deny (exit 1)."""
     out = _call(as_json, lambda: _api().permission(action.replace("-", "_"), detail, approved=approved, note=note))
     _done(out, as_json, _permit_text(out, action))
+
+
+# ---------------------------------------------------------------------------
+# Project policy (§13.7; Decisions 0143, 0151, 0153)
+# ---------------------------------------------------------------------------
+
+policy_app = typer.Typer(invoke_without_command=True, help="The project's policy: rating floors, governing recipes, release authority (permissions).")
+app.add_typer(policy_app, name="policy")
+
+
+def _policy_text(out: dict) -> str:
+    lines = []
+    if out.get("changes"):
+        lines.append(f"Recorded ({out['decision_id']}): " + "; ".join(
+            f"{c['key']} {c['before'] if c['before'] is not None else '(none)'} -> {c['after'] if c['after'] is not None else '(removed)'}"
+            for c in out["changes"]))
+    for r in out["rules"]:
+        who = r["decision_id"] or ("set by init" if (r.get("actor") or "").endswith(":init") else "not recorded")
+        lines.append(f"{r['key']}: {r['value']}  ({who})")
+    un = out.get("unconfirmed")
+    if un:
+        lines.append(f"NOTE: {un['message']}.")
+        lines += [f"  {d['key']}: recorded {d['before']}, file {d['after']}" for d in un.get("differences") or []]
+    return "\n".join(lines)
+
+
+@policy_app.callback()
+def policy(ctx: typer.Context, as_json: JsonOpt = False) -> None:
+    """Show the policy in force, each rule with the owner's decision that last changed it."""
+    if ctx.invoked_subcommand is None:
+        out = _call(as_json, lambda: _api().policy())
+        _done(out, as_json, _policy_text(out))
+
+
+def _pairs(as_json: bool, values: list[str], what: str, *, last: bool = False) -> list[tuple[str, str]]:
+    out = []
+    for v in values:
+        k, sep, val = v.rpartition("=") if last else v.partition("=")
+        if not sep or not k.strip() or not val.strip():
+            _fail(as_json, EXIT_USAGE, "usage.policy", f"{what} takes KEY=VALUE, got {v!r}")
+        out.append((k.strip(), val.strip()))
+    return out
+
+
+def _floor_key(as_json: bool, key: str) -> tuple[str, str]:
+    recipe, sep, axis = key.partition(".")
+    if not sep or not recipe or not axis:
+        _fail(as_json, EXIT_USAGE, "usage.policy", f"a floor is RECIPE.AXIS (or *.AXIS), got {key!r}")
+    return recipe, axis
+
+
+@policy_app.command("set")
+def policy_set(
+    note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")],
+    floor: Annotated[Optional[list[str]], typer.Option("--floor", help="RECIPE.AXIS=VALUE (RECIPE may be *; a one-axis recipe's axis is level).")] = None,
+    remove_floor: Annotated[Optional[list[str]], typer.Option("--remove-floor", help="RECIPE.AXIS")] = None,
+    governing: Annotated[Optional[list[str]], typer.Option("--governing", help="\"KIND OF WORK=RECIPE\"")] = None,
+    remove_governing: Annotated[Optional[list[str]], typer.Option("--remove-governing", help="KIND OF WORK")] = None,
+    permission: Annotated[Optional[list[str]], typer.Option("--permission", help="ACTION=allow|ask|deny (push.docs-only, push.after-verified, push.other, tag, force-push, merge, deploy).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Change the policy with the owner's words; recorded, written to project.yaml and committed."""
+    floors: dict[str, dict[str, str | None]] = {}
+    for k, v in _pairs(as_json, floor or [], "--floor"):
+        r, a = _floor_key(as_json, k)
+        floors.setdefault(r, {})[a] = v
+    for k in remove_floor or []:
+        r, a = _floor_key(as_json, k)
+        floors.setdefault(r, {})[a] = None
+    gov: dict[str, str | None] = dict(_pairs(as_json, governing or [], "--governing", last=True))
+    gov.update({w: None for w in remove_governing or []})
+    perms = {k.replace("-", "_"): v for k, v in _pairs(as_json, permission or [], "--permission")}
+    if not (floors or gov or perms):
+        _fail(as_json, EXIT_USAGE, "usage.policy", "nothing to change: give --floor, --remove-floor, --governing, --remove-governing or --permission")
+    out = _call(as_json, lambda: _api().policy_set(note, floors=floors or None, governing=gov or None, permissions=perms or None))
+    _warn(out, as_json)
+    _done(out, as_json, _policy_text(out))
+
+
+@policy_app.command("confirm")
+def policy_confirm(
+    note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Record project.yaml's policy, edited by hand or never recorded, as the owner's decision."""
+    out = _call(as_json, lambda: _api().policy_confirm(note))
+    _warn(out, as_json)
+    _done(out, as_json, _policy_text(out))
 
 
 @app.command()

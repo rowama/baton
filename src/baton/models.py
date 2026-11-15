@@ -695,6 +695,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "project_log": (
         "platform_fact_recorded", "platform_incident_opened", "platform_incident_resolved",
         "process_feedback", "step_skip_recorded", "note_recorded", "capability_observed", "document_attested",
+        "policy_changed",
     ),
 }
 EVENT_TYPES: frozenset[str] = frozenset(t for ts in EVENT_TYPES_BY_AREA.values() for t in ts)
@@ -846,6 +847,49 @@ class PermissionsConfig(_Strict):
     deploy: Rule = "deny"
 
 
+class GoverningRecipe(_Strict):
+    """``policy.governing`` (§13.7; Decision 0143): the recipe that governs a kind of work, as advice."""
+
+    work: str = Field(min_length=1)       # a plain description, e.g. "software development"
+    recipe: str = Field(pattern=RECIPE_ID)
+
+
+class PolicyConfig(_Strict):
+    """``project.yaml`` ``policy`` (§13.7; Decisions 0143, 0151): rules every run follows.
+
+    ``floors`` maps a recipe id (or ``"*"``, every recipe) to the lowest rating allowed per
+    axis; ``governing`` names the recipe for a kind of work. Release authority is
+    ``permissions`` (0151). Changes are recorded (``policy set``); a hand edit waits for
+    the owner's confirmation."""
+
+    floors: dict[str, dict[str, str]] = Field(default_factory=dict)
+    governing: list[GoverningRecipe] = Field(default_factory=list)
+
+    @field_validator("floors")
+    @classmethod
+    def _floors(cls, v: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        import re
+
+        for recipe, axes in v.items():
+            if recipe != "*" and not re.match(RECIPE_ID, recipe):
+                raise ValueError(f"floor recipe {recipe!r} is not a recipe id (or \"*\" for every recipe)")
+            for axis in axes:
+                if not re.match(STEP_ID, axis):
+                    raise ValueError(f"floor axis {axis!r} of {recipe} is not an axis name")
+        return v
+
+    @field_validator("governing")
+    @classmethod
+    def _governing(cls, v: list[GoverningRecipe]) -> list[GoverningRecipe]:
+        seen: set[str] = set()
+        for g in v:
+            key = " ".join(g.work.lower().split())
+            if key in seen:
+                raise ValueError(f"the kind of work {g.work!r} is listed twice")
+            seen.add(key)
+        return v
+
+
 class SmeSubjectConfig(_Strict):
     """``project.yaml`` ``sme.<subject>`` (§12.1): profiles tried first for this subject."""
 
@@ -865,4 +909,5 @@ class ProjectConfig(_Strict):
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     sme: dict[Literal["project", "platform", "process"], SmeSubjectConfig] = Field(default_factory=dict)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    policy: PolicyConfig = Field(default_factory=PolicyConfig)
     docs_only_globs: list[str] = Field(default_factory=lambda: list(DEFAULT_DOCS_ONLY_GLOBS))

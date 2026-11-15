@@ -406,6 +406,24 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.push(approved=approved, note=note))
 
     @tool
+    def policy() -> dict[str, Any]:
+        """The project policy in force (rating floors, governing recipes, permissions), each rule with the decision that
+        last changed it; `unconfirmed` when project.yaml was edited by hand or never recorded: ask the owner."""
+        return t.call(lambda api: api.policy())
+
+    @tool
+    def policy_set(note: str, floors: dict[str, dict[str, str | None]] | None = None, governing: dict[str, str | None] | None = None,
+                   permissions: dict[str, str] | None = None) -> dict[str, Any]:
+        """Change the policy (note = the owner's words). floors {recipe or "*": {axis: value, or null to remove}};
+        governing {kind of work: recipe, or null}; permissions {"push.other" | "tag" | ...: allow | ask | deny}."""
+        return t.call(lambda api: api.policy_set(note, floors=floors, governing=governing, permissions=permissions))
+
+    @tool
+    def policy_confirm(note: str) -> dict[str, Any]:
+        """Record project.yaml's policy, edited by hand or never recorded, as the owner's decision (note = their words)."""
+        return t.call(lambda api: api.policy_confirm(note))
+
+    @tool
     def permission(action: str, detail: str | None = None, approved: bool = False, note: str | None = None) -> dict[str, Any]:
         """Check and record an action taken outside the runtime (tag | merge | deploy | force_push): allow, ask or deny."""
         return t.call(lambda api: api.permission(action.replace("-", "_"), detail, approved=approved, note=note))

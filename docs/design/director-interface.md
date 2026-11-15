@@ -46,6 +46,7 @@ Every call is available as a CLI command (`--json` output; exit codes below) and
 | `help(topic?, search?)` | The manual (§13.10), read-only: no arguments lists the topics, `search` finds topics by words, `topic` returns one topic or, as `topic#anchor`, one section. The Director answers "how do I..." about Baton from it, never from memory (Decision: [0131](../decisions/0131-director-reads-the-manual.md)). Needs no owner decision (§13.7). `baton help` works outside a project; the Director's call needs one | `baton help` |
 | `ui(detach?, idle_timeout?)` | The optional local setup page (§13.9): `baton ui` serves it in the foreground; the Director's `ui` starts it detached (or finds the running one) and returns its URL, which the Director gives the owner ("open this link to connect your accounts"). Never needed by any other call |
 | `push(approved?, note?)` / `permission(action, detail?, approved?, note?)` | Action permissions (§13.7): the runtime pushes the current branch under `permissions.push`; the Director checks a tag, merge, deploy or force push before doing it. `ask` returns `needs_owner` (exit 4); the owner's approval is the same call with `approved` and their words |
+| `policy()` / `policy_set(note, floors?, governing?, permissions?)` / `policy_confirm(note)` | Project policy (§13.7; Decisions: [0143](../decisions/0143-project-policy.md), [0151](../decisions/0151-project-policy-details.md), [0153](../decisions/0153-policy-upgrade-and-baseline-floors.md)): the policy in force, each rule (`floors.<recipe>.<axis>`, `governing.<work>`, `permissions.<action>`) with the decision that last changed it, and `unconfirmed` while `project.yaml` holds an unconfirmed edit or the policy was never recorded; a change with the owner's words (a `null` floor or governing recipe removes it; CLI `policy set --floor RECIPE.AXIS=VALUE --remove-floor … --governing "WORK=RECIPE" --remove-governing … --permission ACTION=RULE`); the owner's confirmation of a hand edit or of a policy never recorded. Owner-approved, never on the Director's own judgment |
 | `init(bare?)` / `vendor(recipe_dir, approved?, note?)` / `upgrade(to?)` / `migrate(dry_run?)` | Setup and versioning (§14): `init` also vendors the starter recipes unless `bare` (§11.6); a vendoring that changes or reuses step ids returns `needs_owner` until repeated with `approved` and the owner's words; `upgrade` pins this runtime (the launcher runs `--to <v>` under `<v>`); `migrate` brings stored files below the readable window to the current formats |
 
 No call lets the Director write step outputs, artifacts or events directly. Quiet by default: `detect`, `doctor`, `resume`, `status` and `check` print one line when healthy (a completed run's status leaves out its group progress).
@@ -81,7 +82,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
 - Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - Retry guidance is additive; never restate or summarize inputs.
-- Choose workers only from `eligible`. Never edit profiles, preferences, permissions or the lockfile without the owner's instruction. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
+- Choose workers only from `eligible`. Never edit profiles, preferences, the project policy (permissions included) or the lockfile without the owner's instruction; the policy changes only through `policy set`. Change a capability's state only with `workers_declare --profile <name> --likely|--absent <capability>`, and only when the owner asks.
 - Never add, remove, skip or reorder steps or roles. Changes go through retriage or revise.
 - Act only within the project's action permissions. `ask` means request it; `deny` means never.
 
@@ -122,6 +123,11 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - Push only through `push`; it sorts the commits (docs only, verified by passed steps, other) and applies `permissions.push`.
 - Before a tag, merge, deploy or force push, call `permission <action> --detail "<what you will do>"`.
 - `allow`: go ahead. `ask` (exit 4): ask the owner; if they approve, repeat the same call with `--approved --note "<owner's words>"`. `deny`: never attempt it, and say so.
+
+## Project policy
+- `policy` lists the rules every run here follows: the lowest ratings allowed, what may be pushed, tagged, merged or deployed without asking, and which process suits a kind of work. Each rule shows the owner's decision that set it.
+- Change a rule only when the owner asks: confirm the change back in their terms, then `policy set` (`--floor`, `--governing`, `--permission`) with `--note "<owner's words>"`.
+- When `doctor`, `status` or `board` carries `policy`, the rules file was edited by hand or was never confirmed. Tell the owner what it says (the differences, if any) in their terms and ask once; on yes, `policy confirm --note "<owner's words>"`. Until then the last confirmed rules apply.
 
 ## Questions
 - About the process (where things are, what's next): answer from `explain`/`status`/`board`, never from memory. If the record doesn't say, say so.
@@ -197,6 +203,7 @@ For pre-commit and CI; needs no network or profiles. Exit 0 when clean, otherwis
 - lockfile versus vendored recipes, and the neutrality lint;
 - drift of active runs' published deliverables (a warning unless `--strict`, §10.5);
 - project documents bound by active runs that moved on since (always a warning, §10.5);
+- the project policy (§13.7): an unconfirmed hand edit (`policy.unconfirmed`) or a policy never recorded (`policy.unrecorded`), each a warning unless `--strict`; a floor in force that a vendored recipe does not declare, or a `"*"` floor no vendored recipe matches (`policy.floor`, a warning);
 - no secrets under `.baton/` (sentinels and patterns);
 - no impossible states;
 - `project.yaml` and `communication.md` present and valid;
@@ -245,6 +252,16 @@ Decision: [0050](../decisions/0050-action-permissions.md).
 - **Outcomes.** `deny` is refused (exit 1) and records nothing. `allow` records `permission_used` in the project log and commits it (`baton(project): permission used: …`) before pushing, so the record travels with the push. `ask` records `permission_requested` and returns `needs_owner` (exit 4) without pushing; the Director asks the owner and, on approval, repeats the call with `--approved --note "<owner's words>"`, which records `human_decision {kind: permission}` then `permission_used` with its `decision_id` (as with `waive`, the runtime requires the words and the director skill requires the actual approval). Approval never lifts a `deny`.
 - **Director actions** outside the runtime (`tag`, `merge`, `deploy`, `force_push`): `permission(action, detail?)` (`baton permission <action> --detail "<what>"`) applies the same rule and records the same events; `push` is not checked this way (the runtime pushes).
 - **Defaults** (written by `init`): as above, with `.baton/project/**` added to `docs_only_globs` because project checkpoints write there.
+- **Release authority is project policy** (Decisions: [0143](../decisions/0143-project-policy.md), [0151](../decisions/0151-project-policy-details.md), [0153](../decisions/0153-policy-upgrade-and-baseline-floors.md)). The permissions are one part of the project policy, with `policy.floors` (the lowest rating a recipe's axis may get, §5.5) and `policy.governing` (the recipe for a kind of work, advice only, §5.7):
+
+  ```yaml
+  policy:
+    floors: { eng-process: { assurance: medium }, "*": { release: medium } }
+    governing: [ { work: "software development", recipe: eng-process } ]
+  ```
+
+  The policy's value is the validated `policy` and `permissions` as canonical JSON, hashed; formatting and comments never change it. Changes are recorded: `policy set` (with the owner's words) records `human_decision {kind: policy, decision: set}` and `policy_changed {before, after, sha256, decision_id, changes}` (the value also in the project CAS), rewrites the two blocks of `project.yaml` (keeping its other lines) and commits both as a project checkpoint. A change without words is refused, as is a floor naming an axis or value the named recipe (vendored, else in the catalog) does not declare, a floor or governing recipe for a recipe the project does not know, and a change that changes nothing. A one-axis recipe's floor names the axis `level`; a `"*"` floor applies only to recipes that declare that axis with that value, and setting one that matches no vendored recipe returns a warning. `init` records the defaults it writes (`policy_changed` by `runtime:init`).
+- **The recorded policy is in force.** The latest `policy_changed`'s `after` is what the runtime enforces (its pushes, `permission`, and the floors, §5.5). A hand edit of `project.yaml` that changes the policy is noticed, never trusted silently: `check` warns (an error under `--strict`), `status`, `board` and `doctor` carry `policy` (`state: edited`, the differences and what to ask), and the Director asks the owner; `policy confirm --note "<owner's words>"` records the file's policy as their decision (`human_decision {kind: policy, decision: confirm}`, then `policy_changed`). Until then the recorded policy stays in force, and `policy set` is refused (`policy.unconfirmed_edit`) so the edit is never overwritten unseen. A project with no `policy_changed` at all (one from before policy) keeps `project.yaml` in force until its first record, and is asked once the same way (`state: unrecorded`).
 
 ### 13.8 The conversation layer
 

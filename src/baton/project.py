@@ -66,7 +66,10 @@ hooks:                        # completion hooks (shell commands, non-secret); m
   on_complete: ""
   on_needs_human: ""          # falls back to on_complete
   on_platform_failure: ""     # falls back to on_complete
-permissions:                  # what the runtime and the Director may do to the repo and remotes: allow | ask | deny
+policy:                       # rules every run follows; change with `baton policy set` (a hand edit waits for the owner's confirmation)
+  floors: {}                  # lowest rating per recipe and axis, e.g. { eng-process: { assurance: medium }, "*": { release: medium } }
+  governing: []               # the recipe for a kind of work (advice), e.g. [ { work: "software development", recipe: eng-process } ]
+permissions:                  # release authority, part of the policy: what the runtime and the Director may do to the repo and remotes: allow | ask | deny
   push: { docs_only: allow, after_verified: allow, other: ask }
   tag: ask
   force_push: deny
@@ -204,6 +207,24 @@ class Project:
     @property
     def recipes_dir(self) -> Path:
         return self.baton / "recipes"
+
+    # -- policy (§13.7; Decisions 0143, 0151, 0153) ---------------------------
+
+    def policy_state(self) -> Any:
+        """The project policy: in force, in the file, and recorded (``policy.State``)."""
+        from . import policy
+
+        return policy.current(self.store.project_log().events(), self.config)
+
+    def permissions_in_force(self) -> Any:
+        """The action permissions the runtime enforces: the recorded ones (the file's until a first record)."""
+        return self.policy_state().permissions()
+
+    def reload_config(self) -> None:
+        config, issues = load_config(self.baton / PROJECT_FILE)
+        if config is None:
+            raise EngineError("configuration.project", "; ".join(f"{i.where}: {i.message}" for i in issues))
+        self.config = config
 
     # -- lockfile -----------------------------------------------------------
 
@@ -358,6 +379,32 @@ def read_lock(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _record_initial_policy(root: Path) -> None:
+    """``init`` records the policy it wrote, so the defaults count as recorded (§13.7; Decision 0153)."""
+    from . import policy
+    from .locks import project_lock
+
+    config, _ = load_config(root / BATON_DIR / PROJECT_FILE)
+    assert config is not None  # the default is valid
+    store = Store(root)
+    try:
+        if any(e.type == "policy_changed" for e in store.project_log().events()):
+            return
+        value = policy.value_of(config)
+        sha = store.project_cas.put(data_bytes(value))
+        with project_lock(root / BATON_DIR):
+            store.project_log().append("policy_changed", actor="runtime:init",
+                                       data={"before": None, "after": value, "sha256": sha, "decision_id": None, "changes": policy.differences(None, value)})
+    finally:
+        store.close()
+
+
+def data_bytes(value: Any) -> bytes:
+    from .store import canonical_json
+
+    return canonical_json(value).encode("utf-8")
+
+
 def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dict[str, Any]:
     """Create ``.baton/`` with defaults. Existing files are left untouched.
 
@@ -381,6 +428,8 @@ def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dic
             created.append(rel)
 
     create(f"{BATON_DIR}/{PROJECT_FILE}", DEFAULT_PROJECT_YAML)
+    if f"{BATON_DIR}/{PROJECT_FILE}" in created:
+        _record_initial_policy(r)
     create(f"{BATON_DIR}/{COMM_FILE}", read_text(data.path("defaults") / COMM_FILE))
     create(f"{BATON_DIR}/{LOCK_FILE}", versions.dump_lock(versions.new_lock()))
     ensure_dir(baton / "recipes")

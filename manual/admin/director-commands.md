@@ -56,6 +56,14 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | `attest <path> --note "<words>"` | Record that the owner vouches for a file in the project, with their words, so later work can build on it; again on the same file records a newer version |
 | `bind <run> <role> <path>… --note "<words>"` | Give a run the project document the owner confirmed for one of its recipe's roles; at start, `start <recipe> --bind <role>=<path> --note "<words>"` does the same |
 
+## Project policy {#policy}
+
+| Command | What it does |
+|---|---|
+| `policy` | The rules every run follows (rating floors, governing recipes, permissions), each with the owner's decision that last changed it; `unconfirmed` when `project.yaml` was edited by hand or never recorded |
+| `policy set --note "<words>"` | Change a rule with the owner's words: `--floor RECIPE.AXIS=VALUE`, `--remove-floor`, `--governing "WORK=RECIPE"`, `--remove-governing`, `--permission ACTION=allow\|ask\|deny`; records it, rewrites `project.yaml` and commits both |
+| `policy confirm --note "<words>"` | Record a hand edit of the policy (or a policy never recorded) as the owner's decision |
+
 ## Experts {#experts}
 
 | Command | What it does |

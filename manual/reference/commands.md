@@ -112,7 +112,7 @@ Explained in the manual: [Troubleshooting and diagnostics](admin.troubleshooting
 
 | Argument or option | What it does |
 |---|---|
-| `--strict` | Treat drift of published deliverables as an error. |
+| `--strict` | Treat drift of published deliverables and an unconfirmed policy as errors. |
 | `--json` | Machine-readable output. |
 
 ## baton decide {#baton-decide}
@@ -409,6 +409,43 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `action <str>` | list \| show \| resolve |
 | `incident <str>` | Incident id (show, resolve). |
 | `--fix <str>` | With resolve: what was fixed. |
+| `--json` | Machine-readable output. |
+
+## baton policy {#baton-policy}
+
+The project's policy: rating floors, governing recipes, release authority (permissions).
+
+Explained in the manual: [Project settings](admin.project-settings#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--json` | Machine-readable output. |
+
+### baton policy confirm {#baton-policy-confirm}
+
+Record project.yaml's policy, edited by hand or never recorded, as the owner's decision.
+
+Explained in the manual: [Project settings](admin.project-settings#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--note <str>` | The owner's words, recorded verbatim. |
+| `--json` | Machine-readable output. |
+
+### baton policy set {#baton-policy-set}
+
+Change the policy with the owner's words; recorded, written to project.yaml and committed.
+
+Explained in the manual: [Project settings](admin.project-settings#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--note <str>` | The owner's words, recorded verbatim. |
+| `--floor <str>` | RECIPE.AXIS=VALUE (RECIPE may be *; a one-axis recipe's axis is level). |
+| `--remove-floor <str>` | RECIPE.AXIS |
+| `--governing <str>` | "KIND OF WORK=RECIPE" |
+| `--remove-governing <str>` | KIND OF WORK |
+| `--permission <str>` | ACTION=allow\|ask\|deny (push.docs-only, push.after-verified, push.other, tag, force-push, merge, deploy). |
 | `--json` | Machine-readable output. |
 
 ## baton promote-sme {#baton-promote-sme}

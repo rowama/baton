@@ -9,7 +9,7 @@ related: [reference.project-settings, admin.files-and-paths, user.what-baton-may
 
 ## Here, now {#here-now}
 
-`.baton/project.yaml` holds the project's own, non-secret settings, and is committed. `baton init` writes it with safe defaults; most projects change only `paths`, `project.test_command` and, later, `permissions` and `hooks`. Every setting is listed in the [project settings reference](reference.project-settings#here-now).
+`.baton/project.yaml` holds the project's own, non-secret settings, and is committed. `baton init` writes it with safe defaults; most projects change only `paths`, `project.test_command` and, later, `policy` (with `permissions`) and `hooks`. Every setting is listed in the [project settings reference](reference.project-settings#here-now).
 
 ```yaml
 paths: { specs: docs/specs, designs: docs/design, process_plans: docs, notes: docs }
@@ -31,7 +31,21 @@ permissions:
 
 ## Permissions {#permissions}
 
-`permissions` says what Baton and the assistant may do to the repository: `allow`, `ask` or `deny` for each of `push` (split by `docs_only`, `after_verified`, `other`), `tag`, `force_push`, `merge` and `deploy`. See [what Baton may do](user.what-baton-may-do#here-now). `docs_only_globs` defines which paths count as documents only.
+`permissions` says what Baton and the assistant may do to the repository: `allow`, `ask` or `deny` for each of `push` (split by `docs_only`, `after_verified`, `other`), `tag`, `force_push`, `merge` and `deploy`. They are the release-authority part of the [project policy](#policy), and change the same way. See [what Baton may do](user.what-baton-may-do#here-now). `docs_only_globs` defines which paths count as documents only.
+
+## Project policy {#policy}
+
+The policy is the few rules every run follows: `policy.floors` (the lowest rating a recipe's axis may get), `policy.governing` (which recipe suits a kind of work) and `permissions`.
+
+```yaml
+policy:
+  floors: { software-feature: { level: standard }, "*": { assurance: medium } }
+  governing: [ { work: "software development", recipe: software-feature } ]
+```
+
+Policy changes are recorded: `baton policy set ... --note "<the owner's words>"` records the owner's decision, rewrites these blocks and commits them. `baton policy` lists each rule with the decision that last changed it. A floor must name an axis and value its recipe declares (a one-axis recipe's axis is `level`); a floor for `"*"` applies only to recipes that declare that axis with that value, and `baton check` warns when none does.
+
+A hand edit is noticed, not trusted: `baton check` warns (an error with `--strict`), `baton status`, `board` and `doctor` say so, and runs keep the last recorded policy until the owner confirms the edit (`baton policy confirm --note "<words>"`). `baton init` records the defaults it writes. A project from before the policy was recorded keeps `project.yaml` in force until its first record; `baton check` warns until then.
 
 ## Hooks {#hooks}
 
