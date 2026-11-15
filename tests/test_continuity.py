@@ -122,7 +122,7 @@ def test_records_golden(plain, monkeypatch):
 
     The recipe catalog is fixed: the `assess` packet holds it, so its hash would change whenever a recipe ships.
     """
-    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False: [])
+    monkeypatch.setattr("baton.frame.recipe_listing", lambda project, with_scope=False, governing=None: [])
     api, root, home, clock = plain
     run = api.start("fit-check", FIT_INPUTS, run_id="r_20261101_ab12")["run_id"]
     api.dispatch(run, "describe", "owner")
