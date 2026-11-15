@@ -290,3 +290,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0150 Project guidance is an opt-in review process run in short, repeatable runs](decisions/0150-project-review-opt-in.md) | accepted |
 | [0151 Project policy: permissions are the release authority, hand edits wait for confirmation, re-triage takes current policy](decisions/0151-project-policy-details.md) | accepted |
 | [0152 Project review: framing's selection generalized, a catalog recipe, metadata-only summary, bindings in proposals](decisions/0152-project-review-details.md) | accepted |
+| [0153 Project policy: the file is in force until the first record, and floors raise baseline ratings](decisions/0153-policy-upgrade-and-baseline-floors.md) | accepted |

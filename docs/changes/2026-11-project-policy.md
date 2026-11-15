@@ -1,10 +1,10 @@
 ---
 id: 2026-11-project-policy
 title: "A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work"
-status: proposed
+status: in-progress
 level: major
-decisions: ["0143", "0151", "0050", "0144", "0147"]
-touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md]
+decisions: ["0143", "0151", "0153", "0050", "0144", "0147"]
+touches: [principles.md, design/recipes.md, design/runtime.md, design/director-interface.md, design/layouts.md, design/adoption-and-framing.md]
 manual: [admin/project-settings.md, admin/director-commands.md, user/what-baton-may-do.md, user/answer-questions-and-decide.md, reference/project-settings.md, reference/commands.md]
 ---
 
@@ -29,8 +29,9 @@ Tailoring axes (`2026-11-tailoring-axes`, done) supply the ratings that floors a
 
 - **Policy is declared and listed.** `project.yaml` has a `policy:` block with `floors` and `governing`. `policy()` (CLI `baton policy`, MCP, API) shows the policy in force, release authority included, with the decision that last changed each part.
 - **Changes are recorded.** `policy set …` (CLI, MCP, API) records `human_decision {kind: policy}` with the owner's words and `policy_changed {before, after, decision_id}` in the project log. It writes `project.yaml` and commits both as a project checkpoint. A change without words is refused.
-- **Hand edits are noticed, not trusted silently.** If the policy in `project.yaml` differs from the last recorded one, `check` warns (an error under `--strict`), `status` says so, and the Director asks the owner. `policy confirm --note` records the edit as the owner's decision. Until it is confirmed, runs keep using the last recorded policy.
+- **Hand edits are noticed, not trusted silently.** If the policy in `project.yaml` differs from the last recorded one, `check` warns (an error under `--strict`), `status` says so, and the Director asks the owner. `policy confirm --note` records the edit as the owner's decision. Until it is confirmed, runs keep using the last recorded policy. A project with no record yet (one that predates policy) keeps `project.yaml` in force; `check` warns that the policy is not recorded and the Director asks the owner once.
 - **Floors raise ratings.** When triage or re-triage rates an axis below a floor that applies to the run, the rating is raised to the floor. `complexity_set` (or `retriage_applied`) records `floors_applied [{axis, rated, floor, decision_id}]`, and the owner's triage prompt says which ratings project policy raised and why. A raised rating is never applied without the owner, because it is above the lowest.
+- **Floors reach adopted runs.** An adoption baseline proposal (§11.5) carries ratings already raised to the floors, saying which were raised, and the run's `complexity_set` records `floors_applied`.
 - **Floors are checked.** A floor naming an axis or value that the named recipe does not declare is refused when set. A floor for all recipes applies only to recipes that declare that axis with that value, and `check` warns when it matches no vendored recipe. A floor on a one-axis recipe uses the axis `level`.
 - **Policy is pinned per run.** `run_started` records the policy's hash. Triage applies the floors pinned at start. When the policy changes later, `status` and `board` report the runs still under the older policy. Re-triage applies the policy current at the time and records the new hash.
 - **Release authority is enforced as today, with a record.** The action permissions (§13.7) are the release-authority part of policy: `push`, `tag`, `merge`, `deploy` and `force_push` keep their meaning and enforcement. Changing them now goes through `policy set` and is recorded like any other policy change.
@@ -49,9 +50,14 @@ None open. The six questions this change raised were answered by the owner on 20
 5. Governing recipes show in `catalog.summaries`, `recipes()` and the Director skill now; in proposals with `2026-11-project-review`.
 6. Workers see the policy only through a declared `project.policy` input.
 
+Checking the Design against the code raised two more, answered by the owner on 2026-11-14 as suggested and recorded in Decision [0153](../decisions/0153-policy-upgrade-and-baseline-floors.md):
+
+7. Until a project's first policy record, `project.yaml` is in force, as before; `check` warns and the Director asks once.
+8. Floors raise an adoption baseline's ratings when its proposal is built, so the owner approves the raised rating.
+
 ## Design
 
-For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
+Approved by the owner with the Request on 2026-11-14, with the answers in Decision 0153.
 
 ### Shape
 
@@ -63,9 +69,9 @@ For the owner's approval, with the Request (a major change: Request and Design a
   permissions: { … }                 # release authority, unchanged (§13.7)
   ```
   The recorded policy is the canonical JSON of `policy` plus `permissions`, hashed. The project log's latest `policy_changed` holds the recorded value.
-- **Enforcement.** Floors are applied in the triage application path that `complexity_set` and `retriage_applied` share (`tailoring.py`), after the worker's ratings are schema-checked and before the owner gate. Pinning is `run_started.policy_sha256`, with the policy blob in the project CAS.
+- **Enforcement.** Floors are applied where triage results are read in `engine.py` (`_triage_gate`, `_apply_triage`, `_apply_retriage`), after the worker's ratings are schema-checked and before the owner gate; the arithmetic (raise each rating to its floor on the axis's scale) is a helper in `tailoring.py`. The adoption baseline proposal applies the same helper (§11.5). Pinning is `run_started.policy_sha256`, with the policy blob in the project CAS.
 - **Unrecorded edits.** `ProjectConfig` loading compares the file's policy hash with the recorded one. The result feeds `check`, `status` and `doctor`. Enforcement reads the recorded policy, never the file, until it is confirmed.
-- **Permissions.** The runtime's own pushes and `permission()` read the recorded permissions. An `init`-written default counts as recorded, by `init`'s own `policy_changed {actor: init}`, so existing projects need one confirmation on upgrade, which the Director asks for.
+- **Permissions.** The runtime's own pushes and `permission()` read the recorded permissions. An `init`-written default counts as recorded, by `init`'s own `policy_changed {actor: init}`. A project with no `policy_changed` at all keeps the file in force until its first record (0153), and the Director asks for that confirmation once.
 
 ### Doc edits
 
@@ -74,6 +80,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 - `design/runtime.md` §8.2: `policy_changed`, `run_started.policy_sha256`, `floors_applied`.
 - `design/director-interface.md` §13.1–§13.3 (`policy`, `policy set`, `policy confirm`; the skill's governing-recipe advice and confirm-back), §13.7 (permissions as release-authority policy, recorded changes).
 - `design/layouts.md`: the `policy:` block in `project.yaml`.
+- `design/adoption-and-framing.md` §11.5: baseline ratings raised to the floors.
 - `docs/README.md`: new records.
 
 ### Manual edits
@@ -89,21 +96,22 @@ For the owner's approval, with the Request (a major change: Request and Design a
 - [0050](../decisions/0050-action-permissions.md) (accepted): action permissions, kept and brought under policy.
 - [0144](../decisions/0144-tailoring-axes.md), [0147](../decisions/0147-tailoring-axes-details.md) (accepted): the axes floors act on.
 - [0151](../decisions/0151-project-policy-details.md) (accepted): permissions as release authority, hand edits, `"*"` floors, re-triage's policy, where governing recipes show, `project.policy`.
+- [0153](../decisions/0153-policy-upgrade-and-baseline-floors.md) (accepted): the file is in force until the first record; floors raise baseline ratings.
 
 ## Plan
 
-Slices as proposed; refined, if needed, once the Request and Design are approved. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
+Request and Design approved 2026-11-14. Each slice carries its tests, design and manual edits and Log entry, and follows the quick, background and full gates in AGENTS.md.
 
 ### Slice 1: recorded policy
 
 - **Outcome:** policy, permissions included, is listed, changed with a record, and hand edits are noticed.
-- **Criteria:** `policy`, `policy set` and `policy confirm` through API, CLI and MCP; refusals (no words, bad floor); hand edit detected by `check` (warning, `--strict` error) and `status`; enforcement keeps the recorded policy until confirmed; `init` records its defaults; an upgraded project is asked once.
+- **Criteria:** `policy`, `policy set` and `policy confirm` through API, CLI and MCP; refusals (no words, bad floor); hand edit detected by `check` (warning, `--strict` error) and `status`; enforcement keeps the recorded policy until confirmed; `init` records its defaults; a project with no record keeps the file in force and is asked once.
 - **Effort:** M
 
 ### Slice 2: floors and pinning
 
 - **Outcome:** floors raise ratings at triage and re-triage; runs are pinned and report newer policy.
-- **Criteria:** a rating below a floor is raised and recorded; the owner's prompt names it; all-lowest with a floor waits on the owner; `*` floors match by axis and value only; a one-axis floor; `run_started` hash; runs under older policy reported; re-triage takes the current policy.
+- **Criteria:** a rating below a floor is raised and recorded; the owner's prompt names it; a baseline proposal's ratings are raised and its `complexity_set` records it; all-lowest with a floor waits on the owner; `*` floors match by axis and value only; a one-axis floor; `run_started` hash; runs under older policy reported; re-triage takes the current policy.
 - **Effort:** M
 
 ### Slice 3: governing recipes, `project.policy` and the manual
@@ -125,3 +133,9 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0151. The Request has no open questions; the Design is ready for approval. No code changed.
 - **Owner decision:** 2026-11-14, "Accept all for B and D." (0151).
 - **Accepted:** Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** Checked the Design against the code. Two gaps answered (0153): a project with no policy record keeps `project.yaml` in force until its first record, and floors raise adoption baseline ratings in the proposal. Corrected where floors are applied (`engine.py`, with a `tailoring.py` helper). Added `design/adoption-and-framing.md` to `touches:`. No code changed.
+- **Owner decision:** 2026-11-14: approved the Request and Design with the suggested answers (0153).
+- **Accepted:** Yes; status in-progress.
