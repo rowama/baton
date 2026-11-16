@@ -1,7 +1,7 @@
 ---
 id: 2026-11-tool-steps
 title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
-status: in-progress
+status: done
 level: major
 decisions: ["0154", "0156", "0158", "0159", "0160", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md, design/adoption-and-framing.md]
@@ -224,4 +224,10 @@ Added on 2026-11-16 when Slice 3 was split (Decision 0160).
 - **Manual:** `manual/recipe-sources/spreadsheet-reconcile.md`, generated into `manual/recipes/spreadsheet-reconcile.md`; `manual/anchors.yaml`.
 - **Tests:** `tests/test_project_documents.py` lets the new recipe declare roles. `tests/test_spreadsheet_reconcile.py`: the recipe is in the catalog with its tool; the comparison's counts and differences; a table its key cannot identify is refused plainly (three cases); end to end, vendoring by name asks about the tool, then with the owner's approval the two attested files are bound, the tool compares them, and the report step receives the counts and differences; in framing, the part's `next` describes the tool, and choosing it vendors the recipe with the owner's words recorded as the approval. The catalog lists in `tests/test_conversation.py`, `tests/test_manual_gen.py` and `tests/test_real_use.py` include it.
 - **Accepted:** Yes; slice of the in-progress change.
+
+### Finished
+
+- **Summary:** Every acceptance criterion is demonstrated by tests: 1 and 2 (`tests/test_tool_steps.py`: loading, `tool.yaml`, the lock, the load errors); 3 (`eligible` gives only `tool:<id>`, workers cannot take it, `tests/test_tool_runs.py`); 4 (the inputs file and the output folder, values never on the command line, `result.json` echoing the packet hash through intake); 5 (environments built by lock and Python and reused; a missing Python and a failed build are platform failures, the second added at finish: `test_a_failed_build_is_a_platform_failure_and_leaves_no_environment`); 6 (`tests/test_tool_readiness.py`: `check`, `doctor`, `start`, `eligible`, dispatch); 7 (`dispatched.tool`); 8 (only named secrets, masked in notes; workspace enforced; network shown at vendoring); 9 (the output and artifact feed later steps; schema and human gates run on a tool step, the human gate end to end added at finish: `test_a_tool_steps_human_gate_waits_for_the_owner`; review gates load and a tool is always independent of a reviewer); 10 (approval at vendoring and in framing, in plain words; `baton recipe check` uses the loader's rules); 11 (recipes without tools: no `tools` in plans, signatures, lock entries, `run_started` or packets; the existing golden packets are unchanged). The shipped `spreadsheet-reconcile` recipe (Slice 4) is the working example.
+- **Left for later changes (as the Request says):** external software and specified interfaces, waiting steps, `recipe-builder` writing tools, a catalog of tools shared between recipes, and network enforcement without `isolation: container`.
+- **Accepted:** Yes; change done.
 

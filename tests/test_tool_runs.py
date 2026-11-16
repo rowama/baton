@@ -333,3 +333,29 @@ def test_a_secret_in_a_tools_error_output_is_never_recorded(tmp_path, monkeypatc
     assert s.backtest().payload["outcome"] == "escalated"
     recorded = json.dumps(s.events())
     assert "token is" in recorded and "s3cret-value" not in recorded
+
+
+@pytest.mark.slow
+def test_a_failed_build_is_a_platform_failure_and_leaves_no_environment(tmp_path, monkeypatch):
+    from baton import tool_env
+    from baton.recipe import load_recipe
+
+    src = tmp_path / "tool-demo"
+    shutil.copytree(TOOL_DEMO, src)
+    (src / "tools" / "backtest" / "requirements.lock").write_text(
+        "no-such-package-for-baton==1.0.0 --hash=sha256:" + "0" * 64 + "\n", encoding="utf-8")
+    monkeypatch.setenv("UV_OFFLINE", "1")  # nothing can be fetched: the install fails quickly
+    tool = load_recipe(src).tools["backtest"]
+    with pytest.raises(tool_env.ToolSetupError) as e:
+        tool_env.ensure(tool, tmp_path / "home")
+    assert e.value.code == "tool.build_failed" and e.value.failure_class == "platform" and "install its dependencies" in str(e.value)
+    assert not list((tmp_path / "home" / "tools").glob("*/env.json"))  # an unfinished build is never reused
+
+
+@pytest.mark.slow
+def test_a_tool_steps_human_gate_waits_for_the_owner(tmp_path):
+    s = Setup(tmp_path, step={"gates": [{"type": "schema"}, {"type": "human", "prompt": "Accept these results?"}]})
+    s.parameters()
+    assert s.backtest().payload["outcome"] == "needs_human"
+    out = s.cli("decide", s.run, "backtest", "approve", "--note", "Looks right.", expect=None).payload
+    assert s.last("step_passed")["type"] == "step_passed", out
