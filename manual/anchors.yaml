@@ -187,6 +187,14 @@ published:
 - recipes.fit-check#what-it-needs
 - recipes.fit-check#what-it-produces
 - recipes.fit-check#what-you-are-asked
+- recipes.project-review
+- recipes.project-review#here-now
+- recipes.project-review#if-it-goes-wrong
+- recipes.project-review#parts
+- recipes.project-review#what-it-needs
+- recipes.project-review#what-it-produces
+- recipes.project-review#what-it-reads
+- recipes.project-review#what-you-are-asked
 - recipes.recipe-builder
 - recipes.recipe-builder#example
 - recipes.recipe-builder#here-now
@@ -303,6 +311,7 @@ published:
 - user.check-on-your-work#one-piece
 - user.check-on-your-work#the-record
 - user.check-on-your-work#waiting-on-you
+- user.check-on-your-work#whats-next
 - user.choose-models
 - user.choose-models#here-now
 - user.choose-models#likely-verified-absent
@@ -341,6 +350,7 @@ published:
 - user.start-with-a-goal#here-now
 - user.start-with-a-goal#what-happens
 - user.start-with-a-goal#what-you-keep
+- user.start-with-a-goal#whats-next
 - user.using-the-manual
 - user.using-the-manual#here-now
 - user.using-the-manual#layout

@@ -4,8 +4,8 @@ title: "An owner who wants guidance can run a project review that recommends whi
 status: in-progress
 level: major
 decisions: ["0150", "0152", "0069", "0044", "0062", "0066", "0068", "0142", "0148", "0157"]
-touches: [principles.md, design/recipes.md, design/adoption-and-framing.md, design/runtime.md, design/director-interface.md]
-manual: [recipes/baton-frame.md, user/start-with-a-goal.md, user/check-on-your-work.md, admin/director-commands.md, reference/commands.md]
+touches: [principles.md, design/recipes.md, design/adoption-and-framing.md, design/runtime.md, design/director-interface.md, design/layouts.md]
+manual: [recipes/project-review.md, recipes/baton-frame.md, user/start-with-a-goal.md, user/check-on-your-work.md, admin/director-commands.md, reference/commands.md]
 ---
 
 # An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on
@@ -66,7 +66,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 
 ### Manual edits
 
-- `manual/recipes/project-review.md` (new, from `manual/recipe-sources/`; added to `manual:` in Slice 4, when it exists): what a review does, what it reads, what you are asked.
+- `manual/recipes/project-review.md` (new, generated from `manual/recipe-sources/project-review.md`): what a review does, what it reads, what you are asked.
 - `manual/recipes/baton-frame.md`: proposals that build on existing documents (`@2`).
 - `manual/user/start-with-a-goal.md`: asking for a review after framing; reading a review's plan.
 - `manual/user/check-on-your-work.md`: "what's next?" through a review.
@@ -151,4 +151,12 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Design docs:** `design/recipes.md` §5.2 (`project.summary`; `catalog.summaries` now says which framing version carries roles), §5.3 (the reserved role).
 - **Manual:** none in this slice: no owner-visible command, option or message changes (the review recipe that reads it comes in Slice 4).
 - **Tests:** `tests/test_proposing_steps.py`: in a project with a framing selection (a started part bound to a survey, a part for later, a gap), the survey edited after binding, a deleted document and the policy, a step's summary lists each run (the reviewing run left out), each document with its state, the binding and its upstream change, the plan's parts with their statuses and the pinned policy, holds no document's contents, and equals a rebuild from the same records byte for byte; `summary` is refused as a role name and accepted as a reference.
+- **Accepted:** Yes; slice of the in-progress change.
+
+### Slice 4: the `project-review` recipe, the Director and the manual
+
+- **Summary:** New catalog recipe `examples/recipes/project-review/` (`project-review@1`): one step, `recommend`, `proposes_runs`, output `baton:proposals`, inputs `project.summary`, `catalog.summaries`, the owner's question (`run.inputs.words`, optional) and two optional roles, `project_plan` and `decisions` (`many`). `baton-proposals/1` gains `position {rank, reason}` and `waits_on [{on, reason}]`. A proposing run other than framing gets its own plan file, `<paths.process_plans>/<recipe id>-<run id>-process-plan.md` (`frame.plan_path`), and its plan gives each part's reasons, suggested order and waits, with a line saying the order is advice (`render_plan(..., framing=False)`); framing's plan is unchanged and never shows them. `vendor` takes a shipped recipe's id with the owner's words (`engine._shipped_by_name`): recorded as `human_decision {kind: vendor, shipped: true}` and committed (Decision 0157). The Director skill offers a review after a selection of two or more parts and on "what next?", never starts one unasked, vendors it by name on the owner's yes, and relays recommendations with the review's reasons only.
+- **Design docs:** `principles.md` §1.3 (a review's order is advice, not scheduling) and §2 (no new concept); `design/recipes.md` §5.7 (`project-review`); `design/adoption-and-framing.md` §11.6 (item 7's plan path and order lines, 0069's rule with the review's exception, the review paragraph, vendoring by name); `design/director-interface.md` §13.1 (`vendor` by id) and §13.3 (the skill text). Decision 0157's sections add §13.1.
+- **Manual:** `manual/recipe-sources/project-review.md` and the generated `manual/recipes/project-review.md` (new); `manual/user/start-with-a-goal.md` (`#whats-next`: asking for a review, reading its plan); `manual/user/check-on-your-work.md` (`#whats-next`); `manual/admin/director-commands.md` (`start --from-plan`, `vendor project-review --note`, `decide ... select`); the generated `manual/reference/commands.md` (`vendor`'s help); `manual/anchors.yaml`.
+- **Tests:** `tests/test_proposing_steps.py`: the end-to-end scenario (framing with three parts, the survey started and finished, its report a project document; `vendor project-review` refused without `--note`, then vendored with the owner's words recorded and committed; the review's packet holds the summary, the owner's words and the recipe listing; it recommends building on the survey (rank 1) and signs (rank 2, waiting on the build); `next` names the document; the owner selects the build, which starts bound to the survey; the review's plan has reasons, order and waits, and framing's has none); the recipe ships with its optional roles. Catalog listings in `tests/test_conversation.py`, `tests/test_manual_gen.py` and `tests/test_project_documents.py` and `tests/test_real_use.py` now include `project-review`, the one shipped recipe that declares roles.
 - **Accepted:** Yes; slice of the in-progress change.

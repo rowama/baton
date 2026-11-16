@@ -204,6 +204,23 @@ _PROPOSALS: dict[str, Any] = {
                         "additionalProperties": False,
                     },
                     "reasons": {"type": "array", "items": {"type": "string"}},
+                    "position": {
+                        "type": "object",
+                        "description": "A suggested order (1 first), with why: shown in the process plan, never enforced (Decision 0152)",
+                        "required": ["rank", "reason"],
+                        "properties": {"rank": {"type": "integer", "minimum": 1}, "reason": {"type": "string", "minLength": 1}},
+                        "additionalProperties": False,
+                    },
+                    "waits_on": {
+                        "type": "array",
+                        "description": "What this part should wait for (a part id, or a piece of work in the owner's terms), with why",
+                        "items": {
+                            "type": "object",
+                            "required": ["on", "reason"],
+                            "properties": {"on": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}},
+                            "additionalProperties": False,
+                        },
+                    },
                     "bind": {
                         "type": "object",
                         "description": "Project documents the proposed run builds on: {role: [paths]}, checked when the part is chosen",

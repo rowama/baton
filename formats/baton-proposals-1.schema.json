@@ -72,6 +72,25 @@
             "minLength": 1,
             "type": "string"
           },
+          "position": {
+            "additionalProperties": false,
+            "description": "A suggested order (1 first), with why: shown in the process plan, never enforced (Decision 0152)",
+            "properties": {
+              "rank": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "reason": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "rank",
+              "reason"
+            ],
+            "type": "object"
+          },
           "proposal": {
             "additionalProperties": false,
             "oneOf": [
@@ -140,6 +159,28 @@
           "reasons": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "waits_on": {
+            "description": "What this part should wait for (a part id, or a piece of work in the owner's terms), with why",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "on": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "on",
+                "reason"
+              ],
+              "type": "object"
             },
             "type": "array"
           }

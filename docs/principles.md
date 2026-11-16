@@ -49,7 +49,7 @@
 ### 1.3 Non-goals
 
 - Not an agent framework. Baton runs no LLM loop of its own. Iteration *inside* a worker (a coding agent looping until its tests pass) is the worker's business; Baton supplies the exit criteria and a time budget.
-- Not a general scheduler. Steps run when the Director dispatches them; the runtime only supervises dispatched work.
+- Not a general scheduler. Steps run when the Director dispatches them; the runtime only supervises dispatched work. A project review the owner chose to run (§5.7) may suggest an order for the work it recommends, with reasons; that is advice the owner reads, never a schedule: nothing starts until the owner chooses it (Decision: [0150](decisions/0150-project-review-opt-in.md)).
 - No required GUI. Baton is complete through its CLI and MCP; a UI is an optional client (§13.9). A broader owner-interaction UI is a direction the owner has named, not yet authorized (Decision: [0121](decisions/0121-optional-ui-is-a-client.md)). No backlog or idea management as a feature: Baton does not prioritize, track or organize ideas (owners use tools of their choice). A backlog and notes are valid project deliverables, and Baton may write them: framing's process plan (§11.6) and the owner's notes file (§13.1) (Decision: [0063](decisions/0063-backlog-and-notes-are-deliverables.md)).
 
 ### 1.4 Key design decisions
@@ -96,6 +96,8 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 Experts (§12) add none either: a *consultation* is a series of SME dispatches (turns); an *incident* is a platform record; a person is reached through a proxy SME, never directly.
 
 Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe whose one step is research, a *crosswalk* is a recipe (or project) file, and the *baseline* is one owner decision over a proposal file.
+
+A project review (§5.7) adds none either: it is a run of a catalog recipe whose step proposes runs, its choice is framing's selection, generalized (§11.6), and `project.summary` is an input (§5.2) (Decision: [0152](decisions/0152-project-review-details.md)).
 
 Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
 

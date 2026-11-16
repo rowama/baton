@@ -359,6 +359,15 @@ def plan_target(paths: dict[str, Any] | None, words: str) -> str:
     return f"{folder}/{goal_slug(words) or 'goal'}-process-plan.md"
 
 
+def plan_path(ctx: Any, paths: dict[str, Any] | None, out: dict[str, Any]) -> str:
+    """Where a proposing run's process plan goes: framing's from the goal (Decision 0073); any other proposing run's
+    ``<paths.process_plans>/<recipe id>-<run id>-process-plan.md``, so repeated reviews never share a file."""
+    if _is_frame(ctx):
+        return plan_target(paths, run_words(ctx) or out.get("goal") or ctx.run_id)
+    folder = str((paths or {}).get("process_plans") or DEFAULT_PATHS["process_plans"]).replace("\\", "/").rstrip("/")
+    return f"{folder}/{ctx.recipe.recipe.id}-{ctx.run_id}-process-plan.md"
+
+
 def started_parts(events: list[Any]) -> dict[str, dict[str, Any]]:
     """Every part of a framing run that has a run, ``{part: {part, run, recipe}}``, from the record."""
     out: dict[str, dict[str, Any]] = {}
@@ -371,19 +380,36 @@ def started_parts(events: list[Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def render_plan(api: Any, run_id: str, out: dict[str, Any], started: dict[str, dict[str, Any]], gaps: dict[str, dict[str, Any]]) -> str:
+def render_plan(api: Any, run_id: str, out: dict[str, Any], started: dict[str, dict[str, Any]], gaps: dict[str, dict[str, Any]],
+                framing: bool = True) -> str:
     """The process plan (Decisions 0064, 0068, 0069): every part, what choosing it starts, and where it stands.
 
-    Rendered from the record, never by a worker. It lists; it never orders or schedules."""
+    Rendered from the record, never by a worker. Framing's lists and never orders. Any other proposing step's (a project
+    review the owner chose, Decision 0150) also gives each part's reasons and, where it suggests them, its place in a
+    suggested order and what it waits on: advice, never a schedule."""
     active = _active_others(api, run_id)
-    lines = [f"# Process plan: {out.get('goal') or ''}".rstrip(), "",
-             "The parts of this goal, what choosing each one starts, and where each stands. "
-             "Nothing here is scheduled: a part starts only when you choose it.", ""]
-    for p in out.get("parts") or []:
+    parts = out.get("parts") or []
+    labels = {p.get("id"): p.get("label") or p.get("id") for p in parts}
+    ordered = not framing and any(p.get("position") or p.get("waits_on") for p in parts)
+    intro = ("The parts of this goal, what choosing each one starts, and where each stands. "
+             "Nothing here is scheduled: a part starts only when you choose it.") if framing else (
+             "The recommended pieces of work, why each is recommended, what choosing each one starts, and where each stands. "
+             + ("The order suggested is advice, with its reasons. " if ordered else "")
+             + "Nothing here is scheduled: a piece starts only when you choose it.")
+    lines = [f"# Process plan: {out.get('goal') or ''}".rstrip(), "", intro, ""]
+    for p in parts:
         pid = p.get("id")
         lines += [f"## {p.get('label') or pid}", ""]
         if (p.get("description") or "").strip():
             lines += [str(p["description"]).strip(), ""]
+        if not framing:
+            reasons = [str(r).strip() for r in p.get("reasons") or [] if str(r).strip()]
+            if reasons:
+                lines.append("- **Why:** " + " ".join(r if r.endswith((".", "!", "?")) else r + "." for r in reasons))
+            if p.get("position"):
+                lines.append(f"- **Suggested order:** {p['position']['rank']}: {p['position']['reason']}")
+            for w in p.get("waits_on") or []:
+                lines.append(f"- **Waits on:** {labels.get(w['on'], w['on'])}: {w['reason']}")
         if p.get("bind"):  # only a proposal that builds on project documents (baton-frame@2, other proposing steps)
             lines.append("- **Builds on:** " + "; ".join(f"{', '.join(f'`{x}`' for x in paths)} ({role})" for role, paths in p["bind"].items()))
         if pid in started:
@@ -597,8 +623,8 @@ def start_from_plan(api: Any, ref: str, paths: list[Any], note: str = "") -> tup
     started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
     sel = next(e for e in events if e.type == "framing_selected")
     out = frame_output(fctx, log.state().step(proposer(fctx) or FRAME_STEP).attempt)
-    content = render_plan(api, fctx.run_id, out, started, {g["part"]: g for g in sel.data.get("gaps") or []})
-    target = (sel.data.get("plan") or {}).get("path") or plan_target(api.project.config.paths, run_words(fctx) or out.get("goal") or fctx.run_id)
+    content = render_plan(api, fctx.run_id, out, started, {g["part"]: g for g in sel.data.get("gaps") or []}, framing=_is_frame(fctx))
+    target = (sel.data.get("plan") or {}).get("path") or plan_path(fctx, api.project.config.paths, out)
     plan_ref = {"path": target, "sha256": log.cas.put(content.encode("utf-8"))}
     log.append("framing_started_later", actor=api.director.actor, data={
         "part": pid, "run": wctx.run_id, "recipe": recipe_ref, "plan": plan_ref, **({"vendored": vendored} if vendored else {}),
@@ -672,9 +698,8 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
         docs.write_records(wctx)
         paths.append(wctx.run_dir)
         runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": ref, **({"bound": _bound(plan)} if plan["bind"] else {})})
-    words = run_words(ctx)
-    content = render_plan(api, ctx.run_id, out, {r["part"]: r for r in runs}, {g["part"]: g for g in gaps})
-    plan_ref = {"path": plan_target(api.project.config.paths, words or out.get("goal") or ctx.run_id),
+    content = render_plan(api, ctx.run_id, out, {r["part"]: r for r in runs}, {g["part"]: g for g in gaps}, framing=_is_frame(ctx))
+    plan_ref = {"path": plan_path(ctx, api.project.config.paths, out),
                 "sha256": log.cas.put(content.encode("utf-8"))}
     log.append("framing_selected", actor="human", data={
         "decision_id": decision_id, "selected": chosen, "runs": runs, "gaps": gaps, **({"vendored": vendored} if vendored else {}),

@@ -4,7 +4,7 @@ title: "Project review: it reads the policy and governing recipes, proposes reci
 status: accepted
 date: 2026-11-15
 source: "Owner, 2026-11-15: \"All approved.\" (the Request and Design of 2026-11-project-review, with refinements A to C as suggested)"
-sections: ["§5.2", "§5.7", "§11.6", "§13.3"]
+sections: ["§5.2", "§5.7", "§11.6", "§13.1", "§13.3"]
 ---
 
 # 0157. Project review: it reads the policy and governing recipes, proposes recipes or fit checks only, and starts as an ordinary run

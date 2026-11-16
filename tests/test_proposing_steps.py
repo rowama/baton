@@ -90,7 +90,6 @@ from projectkit import git, packet_dir, write_result  # noqa: E402
 from runkit import make_recipe  # noqa: E402
 
 GOAL = "Get the lemonade stand open"
-PLAN_PATH = "docs/get-the-lemonade-stand-open-process-plan.md"
 
 
 def _advisor(root: Path, recommend: dict | None = None, schemas: dict | None = None, extra_steps: list[dict] | None = None) -> Path:
@@ -133,6 +132,7 @@ def _advisor_project(tmp_path: Path, **kw):
 @pytest.mark.slow
 def test_a_proposing_step_gets_selection_starts_gaps_the_plan_and_start_from_plan(tmp_path):
     cli, project, run = _advisor_project(tmp_path)
+    PLAN_PATH = f"docs/advisor-{run}-process-plan.md"  # one file per proposing run (framing's comes from its goal)
     out = manual(cli, project, run, "recommend", proposals())
     assert out["outcome"] == "needs_human"
     (pd,) = status(cli, run)["pending_decisions"]
@@ -418,3 +418,115 @@ def test_summary_is_a_reserved_role_name_and_a_reference_steps_may_take(tmp_path
     use = {"id": "look", "output_schema": "schemas/out.json"}
     root = make_recipe(tmp_path / "bad", [use], schemas={"out.json": {"type": "object"}}, project_inputs=[role])
     assert _codes(root) == {"project_inputs.reserved_role"}
+
+
+# -- Slice 4: the project-review recipe -------------------------------------------------------------------------------
+
+DOC_TARGET = "{{ paths.docs }}/{{ run.slug }}-survey.md"
+
+
+def _surveyor(root: Path) -> Path:
+    """One step that publishes a survey (a project document once accepted)."""
+    draft = {"id": "survey", "output_schema": "schemas/out.json",
+             "artifacts": [{"name": "report", "required": True, "media_type": "text/markdown", "publish": {"to": DOC_TARGET}}]}
+    return make_recipe(root, [draft], schemas={"out.json": {"type": "object"}}, id="site-survey",
+                       run_inputs={"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}}})
+
+
+def _review_project(tmp_path: Path):
+    cli, project = fresh(tmp_path)
+    for r in (_surveyor(tmp_path / "site-survey"), _builder(tmp_path / "site-build")):
+        cli.run("vendor", str(r))
+    py = project / ".baton" / "project.yaml"
+    cfg = yaml.safe_load(py.read_text(encoding="utf-8"))
+    cfg.setdefault("paths", {})["docs"] = "docs/out"
+    py.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Recipes")
+    return cli, project
+
+
+@pytest.mark.slow
+def test_a_review_after_framing_recommends_the_next_two_with_a_binding_and_an_order(tmp_path):
+    cli, project = _review_project(tmp_path)
+    # Framing: three parts; the owner starts the survey only.
+    fr = _frame(cli, project)
+    out = frame_output()
+    out["parts"] = [
+        {"id": "survey", "label": "Surveying the site", "description": "What the ground and services are like.", "kind": "project",
+         "proposal": {"recipe": "site-survey", "inputs": {"title": "Survey"}}, "reasons": ["Everything else depends on the site"]},
+        _part("build", None),
+        {"id": "signs", "label": "Signs", "description": "Signs for the stand.", "kind": "project",
+         "proposal": {"fit_check": {"idea": "Signs for a lemonade stand."}}, "reasons": ["Unclear"]},
+    ]
+    manual(cli, project, fr, "frame", out)
+    sel = cli.run("decide", fr, "frame", "select", "--items", "survey", "--note", "Just the survey for now. Yes.")
+    sv = sel["runs"][0]["run"]
+    framing_plan = (project / sel["plan"]).read_text(encoding="utf-8")
+    # The survey is done: its report is published and becomes a project document.
+    d = cli.run("dispatch", sv, "survey", "--worker", "owner")
+    pdir = packet_dir(project, sv, "survey", d["attempt"])
+    (pdir.parent / "result" / "artifacts").mkdir(parents=True, exist_ok=True)
+    (pdir.parent / "result" / "artifacts" / "report.md").write_text("# Survey\n\nFlat ground.\n", encoding="utf-8")
+    write_result(pdir, {}, artifacts=[{"name": "report", "path": "artifacts/report.md"}])
+    cli("submit", sv, "survey", expect=None)
+    assert status(cli, sv)["state"] == "completed"
+    (doc,) = [x["path"] for x in cli.run("documents")["documents"] if x["path"].endswith("-survey.md")]
+
+    # The owner asks what's next; the Director offers a review and, on yes, vendors it by name and starts it.
+    assert cli.run("vendor", "project-review", expect=1)["error"] == "vendor.note"
+    words = "What should we do next? Yes, look it over."
+    v = cli.run("vendor", "project-review", "--note", words)
+    assert v["recipe"] == "project-review@1" and v["changed"] and v["decision_id"]
+    plog = [json.loads(x) for x in (project / ".baton" / "project" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(e["type"] == "human_decision" and e["data"].get("kind") == "vendor" and e["data"]["note"] == words for e in plog)
+    assert git(project, "status", "--porcelain", "--", ".baton/recipes", ".baton/baton.lock").strip() == ""
+    rv = cli.run("start", "project-review", "--inputs", json.dumps({"title": "Project review", "words": words}), expect=None)["run_id"]
+    d = cli.run("dispatch", rv, "recommend", "--worker", "owner")
+    inputs = packet_dir(project, rv, "recommend", d["attempt"]) / "inputs"
+    state = json.loads((inputs / "state.json").read_text(encoding="utf-8"))
+    (plan,) = state["process_plans"]
+    assert [(p["id"], p["status"]) for p in plan["parts"]] == [("survey", "started"), ("build", "later"), ("signs", "later")]
+    assert {r["run"]: r["state"] for r in state["runs"]}[sv] == "completed" and doc in [x["path"] for x in state["documents"]]
+    assert json.loads((inputs / "words.json").read_text(encoding="utf-8")) == words
+    assert "site-build" in [r["id"] for r in json.loads((inputs / "recipes.json").read_text(encoding="utf-8"))]
+
+    recs = {"goal": "The site is surveyed; building comes next, then signs.", "parts": [
+        {**_part("build", {"site_survey": [doc]}), "label": "Building the stand", "position": {"rank": 1, "reason": "The survey is done"},
+         "reasons": ["The survey is settled", "It builds on the survey"]},
+        {"id": "signs", "label": "Signs", "description": "Signs for the stand.", "proposal": {"fit_check": {"idea": "Signs for a lemonade stand."}},
+         "reasons": ["Customers need to find it"], "position": {"rank": 2, "reason": "Signs go on the stand"},
+         "waits_on": [{"on": "build", "reason": "the stand must exist first"}]},
+    ]}
+    write_result(packet_dir(project, rv, "recommend", d["attempt"]), recs)
+    assert cli("submit", rv, "recommend", expect=None).payload["outcome"] == "needs_human"
+    (pd,) = status(cli, rv)["pending_decisions"]
+    nxt = {p["part"]: p["next"] for p in next(o for o in pd["options"] if o["decision"] == "select")["next"]}
+    assert nxt["build"] == f"starts site-build, building on {doc}"
+    rsel = cli.run("decide", rv, "recommend", "select", "--items", "build", "--note", "Build the stand on the survey. Yes.")
+    assert [(r["part"], r["recipe"], r["bound"]) for r in rsel["runs"]] == [("build", "site-build@1", [{"role": "site_survey", "paths": [doc]}])]
+    assert rsel["state"] == "completed" and rsel["plan"] == f"docs/project-review-{rv}-process-plan.md"
+    text = (project / rsel["plan"]).read_text(encoding="utf-8")
+    assert "The order suggested is advice, with its reasons." in text
+    build = text[text.index("## Building the stand"):text.index("## Signs")]
+    assert "- **Why:** The survey is settled. It builds on the survey." in build and "- **Suggested order:** 1: The survey is done" in build
+    assert f"started (site-build, run {rsel['runs'][0]['run']})" in build and f"`{doc}` (site_survey)" in build
+    signs = text[text.index("## Signs"):]
+    assert "- **Waits on:** Building the stand: the stand must exist first" in signs and "**Status:** for later" in signs
+    # Framing's plan never shows an order or reasons (Decision 0069).
+    assert "Suggested order" not in framing_plan and "Waits on" not in framing_plan and "**Why:**" not in framing_plan
+    assert git(project, "status", "--porcelain", "--", f".baton/runs/{rv}", "docs").strip() == ""
+    assert cli.run("check")["ok"]
+
+
+@pytest.mark.not_slow("loads shipped recipes in process")
+def test_project_review_ships_in_the_catalog_with_optional_roles():
+    from baton.frame import proposing_step
+    from baton.project import catalog
+
+    rv = catalog()["project-review"]
+    assert proposing_step(rv) == "recommend" and rv.recipe.steps[0].output_schema == "baton:proposals"
+    roles = {r.role: r for r in rv.recipe.project_inputs}
+    assert set(roles) == {"project_plan", "decisions"} and not roles["project_plan"].required
+    assert roles["decisions"].many and not roles["decisions"].required
+    assert {i.from_ for i in rv.recipe.steps[0].inputs} >= {"project.summary", "catalog.summaries", "run.inputs.words"}

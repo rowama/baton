@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "words": {"type": "string", "minLength": 1, "description": "What the owner asked, verbatim (for example \"what should we do next?\")"}
+  },
+  "additionalProperties": false
+}

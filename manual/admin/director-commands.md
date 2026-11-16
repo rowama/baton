@@ -28,6 +28,8 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | Command | What it does |
 |---|---|
 | `start <recipe>` | Start a run (a piece of work) and claim it |
+| `start --from-plan <part>` | Start a part left for later in a plan (a breakdown's or a project review's), as it was proposed; a part that builds on project documents needs `--note "<words>"` |
+| `vendor project-review --note "<words>"` | Add a recipe shipped with Baton to the project by its name, with the owner's words as their approval (how a project review is added the first time) |
 | `eligible <run> <step>` | The helpers that may do a part, in preference order, with every exclusion's reason |
 | `dispatch <run> <step>` | Build the part's inputs and hand them to a helper; returns once started (`--wait` blocks) |
 | `wait <run>` | Block until dispatched work finishes and is recorded |
@@ -40,6 +42,7 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | Command | What it does |
 |---|---|
 | `decide <run> <step> <decision> --note "<words>"` | Record an owner decision, with their words |
+| `decide <run> <step> select --items <ids> --note "<words>"` | Record which proposed pieces of work the owner chose (a breakdown's `frame` step, a project review's `recommend` step); the chosen ones start, with the documents they build on |
 | `waive` | Waive one failed check, as an owner decision |
 | `disposition` | Record how a review finding was handled |
 | `revise` | Correct an earlier part of a run, with approval: a new attempt, and what depended on it becomes stale |

@@ -721,9 +721,9 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 
 | Argument or option | What it does |
 |---|---|
-| `recipe_dir <path>` | Recipe package directory. |
+| `recipe_dir <path>` | Recipe package directory, or the id of a recipe shipped with Baton (needs --note). |
 | `--approved` | The owner approved the flagged step-id changes. |
-| `--note <str>` | With --approved: the owner's words, recorded verbatim. |
+| `--note <str>` | With --approved, or a shipped recipe's id: the owner's words, recorded verbatim. |
 | `--json` | Machine-readable output. |
 
 ## baton wait {#baton-wait}

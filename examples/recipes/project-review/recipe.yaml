@@ -1,0 +1,37 @@
+id: project-review
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Look at where the project stands and recommend which pieces of work to start next, in what order and why, with the documents each would build on.
+
+scope:
+  covers: ["deciding what to work on next in a project", "a check on where a project stands and what is waiting"]
+  not_for: [{ job: "breaking a brand-new goal into pieces of work" }, { job: "doing any of the recommended work" }]
+  varies_by: ["how much of the project is already under way", "whether the project has a written plan or decisions"]
+
+run_inputs:
+  schema: schemas/run_inputs.json      # title, words (optional: the owner's question, verbatim)
+
+project_inputs:
+  - role: project_plan
+    description: "The project's charter or plan: what it is for, its scope and its constraints"
+    required: false
+  - role: decisions
+    description: "Decisions the project has recorded, each in its own document"
+    required: false
+    many: true
+
+steps:
+  - id: recommend
+    title: Recommend what to start next
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: standard }
+    prompt: prompts/recommend.md
+    proposes_runs: true
+    inputs:
+      - { name: state,     from: project.summary,      required: true }
+      - { name: recipes,   from: catalog.summaries,    required: true }
+      - { name: words,     from: run.inputs.words,     required: false }
+      - { name: plan,      from: project.project_plan, required: false }
+      - { name: decisions, from: project.decisions,    required: false }
+    output_schema: baton:proposals
+    gates: [ { type: schema } ]

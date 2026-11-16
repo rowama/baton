@@ -2299,7 +2299,28 @@ class Api:
         from .locks import project_lock
         from .project import vendor
 
-        out = vendor(self.project, src)
+        shipped = self._shipped_by_name(src)
+        if shipped is not None:  # a recipe shipped with Baton, named by id: the owner's words are its approval (Decision 0157)
+            if not (note or "").strip():
+                raise EngineError("vendor.note", f"vendoring {src} from the recipes shipped with Baton is the owner's decision: "
+                                                 "give their words with --note, recorded verbatim")
+            out = vendor(self.project, shipped)
+            if out["changed"] and not out["needs_owner"]:
+                with project_lock(self.project.baton):
+                    decision_id = f"d{len(self.project.store.project_log().events()) + 1}"
+                sme.project_append(self.project, "human_decision", {"kind": "vendor", "recipe": out["recipe"], "decision": "approve",
+                                                                    "note": note, "decision_id": decision_id, "shipped": True}, actor="human")
+                out["decision_id"] = decision_id
+                cp = self._project_checkpoint(f"vendored {out['recipe']} (shipped with Baton)",
+                                              [self.project.recipes_dir / out["recipe"], self.project.baton / "baton.lock"])
+                if cp is not None:
+                    out["checkpoint"] = cp.as_dict()
+                return out
+            if not out["needs_owner"] or not approved:
+                return out
+            src = shipped
+        else:
+            out = vendor(self.project, src)
         if not out["needs_owner"] or not approved:
             return out
         if not (note or "").strip():
@@ -2314,6 +2335,22 @@ class Api:
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
         return out
+
+    def _shipped_by_name(self, src: str | Path) -> Path | None:
+        """The package of a shipped recipe ``src`` names by id (``project-review``, ``id@<version>``), when no such path exists."""
+        import re
+
+        from .project import catalog
+
+        text = str(src)
+        if Path(text).exists() or not re.fullmatch(r"[a-z][a-z0-9-]*(@[0-9]+)?", text):
+            return None
+        rid, _, ver = text.partition("@")
+        loaded = catalog().get(rid)
+        if loaded is None or (ver and int(ver) != loaded.recipe.version):
+            raise EngineError("vendor.unknown_recipe", f"no recipe package at {text!r}, and no recipe {text!r} is shipped with Baton "
+                                                       f"(shipped: {', '.join(sorted(catalog()))})")
+        return loaded.root
 
     # -- versioning (§14) -----------------------------------------------------
 

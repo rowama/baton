@@ -387,7 +387,8 @@ def build_server(project: str | Path | None = None, director: str | None = None)
 
     @tool
     def vendor(recipe_dir: str, approved: bool = False, note: str | None = None) -> dict[str, Any]:
-        """Vendor a recipe package directory into .baton/recipes/ and pin it; changed or reused step ids → needs_owner."""
+        """Vendor a recipe package directory (or a shipped recipe by id, with the owner's words in note) into .baton/recipes/
+        and pin it; changed or reused step ids → needs_owner."""
         return t.call(lambda api: api.vendor(recipe_dir, approved=approved, note=note))
 
     @tool

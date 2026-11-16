@@ -61,7 +61,8 @@ def test_every_refusal_the_map_explains_is_a_real_account_error_code():
 def test_every_shipped_recipe_has_a_topic_with_a_table_generated_from_it():
     m = manual.Manual()
     shipped = manual_gen.shipped_recipes()
-    assert set(shipped) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "baton-adopt", "baton-frame"}
+    assert set(shipped) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "baton-adopt", "baton-frame",
+                            "project-review"}
     for rid in shipped:
         t, _ = m.resolve(f"recipes.{rid}")
         assert "| Part | When | You are asked |" in t.body and "%parts%" not in t.body, rid

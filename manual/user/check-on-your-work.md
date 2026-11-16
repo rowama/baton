@@ -19,6 +19,10 @@ baton board
 
 It lists every piece of work that is not finished: where it stands, what is running, what is waiting for you, and who is working on it now. `No active runs.` means nothing is in progress.
 
+## What should we do next? {#whats-next}
+
+Ask your assistant. It answers from the record, and when you would like a recommendation it offers a [project review](recipes.project-review#here-now): a short look at the whole project that suggests which pieces of work to start next, with reasons. You choose what starts, if anything.
+
 ## One piece of work {#one-piece}
 
 ```baton

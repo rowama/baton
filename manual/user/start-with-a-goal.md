@@ -30,6 +30,12 @@ What one piece of work settles, later pieces can use. Once your business plan is
 
 A document can also be one you wrote yourself, such as a plan or a set of policies. Tell your assistant it is settled and it records that you vouch for it, with your words, so later work can use it. See [confirming a document](user.answer-questions-and-decide#documents).
 
+## What to do next {#whats-next}
+
+When you have chosen several pieces, your assistant offers a [project review](recipes.project-review#here-now): a short look at where the project stands that recommends which pieces to start next, why, and in what order. Say yes or no; it is never run unless you ask. You can ask for one at any time ("what should we do next?").
+
+A review's plan reads like the breakdown's, with more in it: each recommendation's reasons, its place in the suggested order and what it waits on. The order is advice: a piece starts only when you choose it. The breakdown's own plan never suggests an order.
+
 ## From the command line {#command-line}
 
 Your assistant does this for you. If you want to do it yourself:

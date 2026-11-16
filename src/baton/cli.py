@@ -319,9 +319,9 @@ def _flag_text(f: dict) -> str:
 
 @app.command()
 def vendor(
-    recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory.")],
+    recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory, or the id of a recipe shipped with Baton (needs --note).")],
     approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes.")] = False,
-    note: Annotated[Optional[str], typer.Option("--note", help="With --approved: the owner's words, recorded verbatim.")] = None,
+    note: Annotated[Optional[str], typer.Option("--note", help="With --approved, or a shipped recipe's id: the owner's words, recorded verbatim.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids need the owner: exit 4)."""
