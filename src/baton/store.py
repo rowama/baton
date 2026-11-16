@@ -52,7 +52,7 @@ from .state import IllegalTransition, RunState, StepState
 
 BATON_DIR = ".baton"
 EVENTS_FILE = "events.jsonl"
-CACHE_SCHEMA_VERSION = "1"
+CACHE_SCHEMA_VERSION = "2"  # 2: step_limits (tool steps, §5.9)
 
 
 def _cache_key() -> str:
@@ -481,6 +481,7 @@ class RunLog(EventLog):
             run_id=current.run_id,
             state=current.state,
             max_attempts=current.max_attempts,
+            step_max_attempts=dict(current.step_max_attempts),
             last_seq=current.last_seq,
             last_sha256=current.last_sha256,
             steps=dict(current.steps),
@@ -502,6 +503,8 @@ CREATE TABLE IF NOT EXISTS runs  (run_id TEXT PRIMARY KEY, state TEXT, max_attem
 CREATE TABLE IF NOT EXISTS steps (run_id TEXT NOT NULL, step_path TEXT NOT NULL, state TEXT NOT NULL,
                                   attempt INTEGER NOT NULL, budget_base INTEGER NOT NULL, last_seq INTEGER NOT NULL,
                                   PRIMARY KEY (run_id, step_path));
+CREATE TABLE IF NOT EXISTS step_limits (run_id TEXT NOT NULL, step_id TEXT NOT NULL, max_attempts INTEGER NOT NULL,
+                                        PRIMARY KEY (run_id, step_id));
 """
 
 
@@ -525,6 +528,7 @@ class _Cache:
                 with self._conn:
                     self._conn.execute("DELETE FROM runs")
                     self._conn.execute("DELETE FROM steps")
+                    self._conn.execute("DELETE FROM step_limits")
                     self._conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (key,))
         return self._conn
 
@@ -543,6 +547,7 @@ class _Cache:
             "SELECT step_path, state, attempt, budget_base, last_seq FROM steps WHERE run_id=?", (run_id,)
         ):
             rs.steps[path] = StepState(state=st, attempt=attempt, budget_base=base, last_seq=seq)
+        rs.step_max_attempts = {sid: n for sid, n in c.execute("SELECT step_id, max_attempts FROM step_limits WHERE run_id=?", (run_id,))}
         return rs, row[4]
 
     def save(self, rs: RunState, log_size: int, changed: str | None | object) -> None:
@@ -553,6 +558,8 @@ class _Cache:
                 "INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?)",
                 (rs.run_id, rs.state, rs.max_attempts, rs.last_seq, rs.last_sha256, log_size),
             )
+            if rs.step_max_attempts:  # tool steps' own limits (§5.9); fixed at run_started
+                c.executemany("INSERT OR REPLACE INTO step_limits VALUES (?,?,?)", [(rs.run_id, k, v) for k, v in rs.step_max_attempts.items()])
             if changed is _ALL:
                 c.execute("DELETE FROM steps WHERE run_id=?", (rs.run_id,))
                 paths = list(rs.steps)
@@ -567,6 +574,7 @@ class _Cache:
         with c:
             c.execute("DELETE FROM runs")
             c.execute("DELETE FROM steps")
+            c.execute("DELETE FROM step_limits")
 
 
 _ALL = object()

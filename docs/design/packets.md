@@ -4,7 +4,7 @@
 
 ```
 .baton/runs/<run_id>/steps/<step_path>/attempt-<n>/packet/
-├── manifest.json   INSTRUCTIONS.md   output_schema.json
+├── manifest.json   INSTRUCTIONS.md   output_schema.json      (a tool step's packet has no INSTRUCTIONS.md)
 └── inputs/<name>.json | <name>.<ext> | <name>/<n>.<ext>   (the last: each document of a `many` role, §5.1)
 ```
 
@@ -45,6 +45,8 @@
 - **Reviewer packets** (steps whose output is `baton:findings`, and review steps, §9.1) also carry `prior_findings`: `null` at the first review, else `{evaluated_at, attempt, findings}`, the previous evaluation of the same findings line with each finding's status and disposition. A review step's inputs are the reviewed step's declared inputs plus the result under review: `reviewed_output` (JSON) and `reviewed_<artifact>` for each registered artifact, from the reviewed attempt's `result_submitted`.
 
 `INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback; for reviewers, the earlier findings with the rule "reuse an id you still see, leave out a resolved one, check each disposition's evidence"; for steps shown findings, how to write `dispositions`.
+
+A tool step's packet (§5.9) differs in two ways, and only a tool step's: it has no `INSTRUCTIONS.md` (a tool reads no instructions; its runner reads the manifest, §6.3), and its manifest carries `tool {id, sha256, lock_sha256}`. Its runner, not the tool, writes the result below; the tool writes only `output.json` and its artifacts (Decision: [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md)).
 
 ### 7.2 Result (worker → runtime)
 

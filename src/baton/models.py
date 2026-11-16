@@ -148,6 +148,7 @@ class Step(_Strict):
     requires: Requires | None = None
     prompt: str | None = None
     tool: str | None = Field(default=None, pattern=STEP_ID)  # tools/<id>/ in the package (§5.9)
+    max_attempts: int | None = Field(default=None, ge=1)  # a tool step only: its attempts (default 1; Decision 0156, item 4)
     inputs: list[Input] = Field(default_factory=list)
     output_schema: str | None = None  # recipe-relative path, "baton:findings" or "baton:proposals"
     artifacts: list[Artifact] = Field(default_factory=list)

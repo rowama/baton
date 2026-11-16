@@ -3,7 +3,7 @@ id: 2026-11-tool-steps
 title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
 status: in-progress
 level: major
-decisions: ["0154", "0156", "0158", "0085"]
+decisions: ["0154", "0156", "0158", "0159", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
 manual: []
 ---
@@ -129,6 +129,7 @@ To be listed when the change is accepted. Expected: an administrator topic on to
 - [0085](../decisions/0085-harness-tool-maps.md) (accepted): least privilege for a worker's tooling; this change applies the same rule to tools.
 - [0156](../decisions/0156-tool-steps-details.md) (accepted): the environment builder, runtimes, network reach, retries, readiness, where environments live, the format version, time limits.
 - [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md) (accepted): uv never downloads a Python; a tool runs in a fresh scratch folder.
+- [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md) (accepted): environments named by lock and Python; the inputs file; built at dispatch; undeclared output files fail.
 - [0155](../decisions/0155-recipe-builder-builds-software.md) (accepted): what `recipe-builder` will do with tools; out of scope here.
 
 ## Plan
@@ -179,5 +180,19 @@ Final: the Request and Design are approved (2026-11-16).
 - **Design docs:** `principles.md` §2 (**Tool**; **Step**); `design/recipes.md` §5.1 (a pointer), §5.3 (steps and tools; neutrality covers `tool.yaml`), new §5.9 (tools in a recipe); `design/layouts.md` §4.2 (`tools/<id>/`); `docs/README.md` § index.
 - **Manual:** none in this slice: no shipped recipe has a tool yet, and nothing an owner sees or an administrator configures changes; the manual edits come with Slice 3.
 - **Tests:** `tests/test_tool_steps.py`: the `tool-demo` fixture (`tests/fixtures/recipes/tool-demo`: a worker step, a tool step, and a worker step taking the tool's output and artifact) loads, plans and conforms to the published schema; the recipe hash and the tool's hash cover the tool's files; a uv-written lock loads with its markers; an unused tool folder warns; 27 broken cases, each with its code; lock errors name their line; worker steps still need `requires` and `prompt`; recipes without tools have no tools, no `tool` in their step signatures or plans; no worker can do a tool step; the lock parser on its own.
+- **Accepted:** Yes; slice of the in-progress change.
+
+### Four details settled before Slice 2
+
+- **Summary:** Starting Slice 2 raised four details the Design left open, answered by the owner as suggested and recorded as Decision 0159: an environment is named by its lock and its Python (`<lock sha256>-py<x.y>`, refining 0156 item 6); the inputs file is keyed by input name, JSON inputs as values and others as `{path, media_type}`; dispatch builds a missing environment, a failure being a platform failure; an undeclared file in the output folder fails the attempt.
+- **Owner decision:** 2026-11-16, "Lock + Python", "Values and file refs", "Build at dispatch", "Attempt fails" (0159).
+- **Accepted:** Yes.
+
+### Slice 2: a tool step runs
+
+- **Summary:** A tool step is dispatched to `tool:<id>`, its one executor: `engine.tool_routing` gives it as the only eligible entry, `Api._dispatch` makes the in-memory profile (`engine.tool_profile`: adapter and creator `tool`, a `clean` environment, `auth.env` only for the secrets in `reach.secrets`) after `tool_env.ensure` finds or builds the environment, and a worker profile cannot take a tool step nor the tool another step (`routing.ineligible`, `configuration.unknown_profile`; a machine profile with `adapter: tool` is never eligible). New `tool_env.py`: `uv python find --no-python-downloads --system --no-project` (a missing Python is `tool.no_runtime`, a missing uv `tool.no_uv`), `uv venv` and `uv pip install --require-hashes` into `~/.baton/tools/<lock>-py<x.y>/`, `env.json` written last, a file lock around the build, reused while the lock is unchanged; a `ToolSetupError` opens a platform incident and nothing is dispatched. New `adapters/tool.py` and `tool_runner.py`: the inputs file, a scratch working folder and an output folder outside the repository, the entry command with its placeholders and its first word from the environment's `bin` only, no `BATON_*` variables, and `result.json` from `output.json` and the declared artifacts (exit codes, missing or invalid `output.json` and undeclared files fail, with the last 20 lines of error output). Found while testing: a tool that printed its secret into its error output had it recorded in the notes, so the runner now masks the values of the secrets the tool names (`--secret-names`). The packet of a tool step has no `INSTRUCTIONS.md` and carries `manifest.tool`; `dispatched.tool` records the tool, lock, runtime, environment and reach (criterion 7). Effort defaults to `S` (`effort_source: tool default`). A tool step has one attempt unless it sets `max_attempts` (new `Step.max_attempts`, tool steps only, `step.max_attempts_needs_tool`): `run_started.step_max_attempts` (only in recipes with tool steps), `RunState.limit_for`, and a `step_limits` table in the SQLite cache (cache schema 2, so old caches rebuild). `routing.same_at` never matches a tool against a worker, so a reviewer of a tool step is always independent of it. `formats/baton-recipe-1.schema.json` regenerated.
+- **Design docs:** `design/workers.md` §6.3 (the `tool` adapter); `design/packets.md` §7.1 (tool packets); `design/runtime.md` §8.2 (`run_started.step_max_attempts`, `dispatched.tool`), §8.4 (no routing; independence), §8.7 (effort `S`); `design/recipes.md` §5.9 (`max_attempts`, effort); `design/layouts.md` §4.4 (`~/.baton/tools/`); `design/platform-and-security.md` §15.2 (what a tool may touch, and what is enforced); Decision 0159 and `docs/README.md`.
+- **Manual:** none in this slice: no shipped recipe has a tool yet, and nothing an administrator configures is added (environments are built by Baton); the administrator's topic on tools and `baton tools setup` come with Slice 3.
+- **Tests:** `tests/test_tool_runs.py` (end to end, `slow`): the tool-demo run, the tool's output and artifact feeding the next step, `eligible`, `dispatched.tool`, effort `S`, the environment built; a probe tool sees only its named secret, no `BATON_*` variable, an empty scratch working folder, its inputs as values and none on its command line, and the environment's Python; a failing tool fails with its error output and escalates after one attempt, and `max_attempts: 2` gives a retry; an undeclared output file fails; no fitting Python is a platform failure with an incident and no dispatch; a missing secret refuses the dispatch; a read step's tool that writes the workspace is escalated; the environment is reused by a second run; a worker cannot take the tool step, nor the tool another; runs without tools record no tool limits; a secret printed by a failing tool is masked. Quick: the inputs file, output collection, placeholders, the per-step limit and independence. `tests/test_tool_steps.py`: `max_attempts` rules; review and human gates on a tool step load.
 - **Accepted:** Yes; slice of the in-progress change.
 

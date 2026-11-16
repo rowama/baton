@@ -230,3 +230,26 @@ def test_tool_recipe_conforms_to_published_schema():
     schema = json.loads((data_path("formats") / "baton-recipe-1.schema.json").read_text(encoding="utf-8"))
     raw = yaml.safe_load((TOOL_DEMO / "recipe.yaml").read_text(encoding="utf-8"))
     assert not [e.message for e in Draft202012Validator(schema).iter_errors(raw)]
+
+
+def test_a_tool_step_may_raise_its_attempts(make_recipe):
+    assert load_recipe(make_recipe(_set_step("max_attempts", 3), source=TOOL_DEMO)).recipe.steps[1].max_attempts == 3
+
+
+def test_max_attempts_is_for_tool_steps_only(make_recipe):
+    with pytest.raises(RecipeError) as exc:
+        load_recipe(make_recipe(lambda r, _: step(r, "parameters").__setitem__("max_attempts", 2), source=TOOL_DEMO))
+    assert exc.value.codes() == {"step.max_attempts_needs_tool"}
+
+
+def test_a_tool_step_may_have_review_and_human_gates(make_recipe):
+    def edit(r: dict, d: Path) -> None:
+        (d / "prompts" / "rubric.md").write_text("Are the trades plausible?", encoding="utf-8")
+        step(r, "backtest")["gates"] += [
+            {"type": "review", "reviewer_requires": {"capabilities": ["structured_output"]}, "rubric": "prompts/rubric.md",
+             "block_on": ["critical"], "independence": {"from_step": "backtest", "level": "different_vendor"}},
+            {"type": "human", "prompt": "Accept these results?"},
+        ]
+
+    loaded = load_recipe(make_recipe(edit, source=TOOL_DEMO))
+    assert [g.type for g in loaded.recipe.steps[1].gates] == ["schema", "review", "human"]

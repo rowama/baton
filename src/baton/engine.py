@@ -116,6 +116,7 @@ def start(
         "formats": {"events": versions.current_format("events"), "packet": PROTOCOL, "recipe": recipe.recipe.format},
         "capabilities_vocab": recipe.recipe.capabilities_vocab,
         "max_attempts": recipe.recipe.defaults.max_attempts,
+        **({"step_max_attempts": tool_attempts} if (tool_attempts := tool_step_attempts(recipe)) else {}),  # only with tool steps
         "inputs_sha256": hashlib.sha256(blob).hexdigest(),
         **(work_item or {}),
     }
@@ -1272,7 +1273,50 @@ def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | Non
         if value in EFFORTS:
             return value, "effort_from"
         return config.default, f"default ({ref} is {value!r}, not one of {', '.join(EFFORTS)})"
+    if getattr(node, "tool", None):
+        return "S", "tool default"  # a tool step's default effort (Decision 0156, item 8)
     return config.default, "default"
+
+
+def tool_step_attempts(loaded: Any) -> dict[str, int]:
+    """Attempts per tool step id: one unless the step raises it (Decision 0156, item 4)."""
+    out: dict[str, int] = {}
+
+    def visit(nodes: list[Any]) -> None:
+        for n in nodes:
+            if isinstance(n, Group):
+                visit(n.steps)
+            elif n.tool is not None:
+                out[n.id] = n.max_attempts or 1
+
+    visit(loaded.recipe.steps)
+    return out
+
+
+def tool_profile(tool: Any, env: Any) -> WorkerProfile:
+    """The profile a tool step runs under (§6.3 ``tool``): a clean environment with only the secrets the tool names."""
+    from .adapters.tool import PROFILE_PREFIX  # noqa: F401  (the name is ``tool:<id>``)
+    from .models import ProfileAuth
+
+    secrets_ = tool.spec.reach.secrets
+    auth = ProfileAuth(mode="api_key", env={n: f"secret:{n}" for n in secrets_}) if secrets_ else ProfileAuth(mode="none")
+    return WorkerProfile(
+        adapter="tool", creator="tool", env_mode="clean", auth=auth,
+        options={"tool": tool.id, "tool_dir": str(tool.root), "bin_dir": str(env.bin_dir), "entry": list(tool.spec.entry)},
+    )
+
+
+def tool_routing(loaded: Any, node: Step, step_path: str) -> Any:
+    """A tool step's eligibility: its tool, the one executor (§5.9; criterion 3)."""
+    from .adapters.tool import PROFILE_PREFIX
+    from .routing import Eligibility
+
+    out = Eligibility(step_path)
+    out.eligible.append({
+        "profile": f"{PROFILE_PREFIX}{node.tool}", "adapter": "tool", "tool": node.tool, "vendor": "tool", "creator": "tool",
+        "reasons": ["the step's own tool, shipped with the recipe: no routing"],
+    })
+    return out
 
 
 def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str, Any]], *, actor: str = "runtime",
@@ -2722,6 +2766,8 @@ class Api:
         node = node_for(ctx.recipe, step_path)
         if not isinstance(node, Step):
             raise EngineError("engine.unknown_step", f"{step_path} is not a runnable step of {ctx.recipe.recipe.ref}")
+        if node.tool is not None:
+            return tool_routing(ctx.recipe, node, step_path), None
         try:
             prefs = load_preferences(self.project.baton, self.project.home)
         except PreferencesError as e:
@@ -2807,18 +2853,27 @@ class Api:
         from . import adapters, locks, supervisor
         from .profiles import SetupError, build_env
 
-        profiles = self.project.profiles()
-        if worker not in profiles:
-            raise EngineError("configuration.unknown_profile", f"no worker profile {worker!r} on this machine (known: {', '.join(sorted(profiles)) or 'none'})")
-        profile = profiles[worker]
-        adapter = adapters.get(profile.adapter)
-        if profile.isolation != "none":
-            raise EngineError("configuration.isolation_unsupported", f"{worker}: isolation {profile.isolation!r} is not supported by this runtime yet; use none")
         ctx0 = self._ctx(run_id)
-        routing, waiver = self._routing(ctx0, step_path)
-        if worker not in routing.names():
-            why = "; ".join(routing.reasons_for(worker)) or "not eligible"
-            raise EngineError("routing.ineligible", f"{worker} is not eligible for {step_path}: {why} (see `baton eligible {run_id} {step_path}`)")
+        node0 = node_for(ctx0.recipe, step_path)
+        tool_info: dict[str, Any] | None = None
+        if isinstance(node0, Step) and node0.tool is not None:
+            # A tool step's one executor is its tool (§5.9): no machine profile, no routing.
+            routing, waiver = self._routing(ctx0, step_path)
+            if worker not in routing.names():
+                raise EngineError("routing.ineligible", f"{step_path} is done by its tool: dispatch it to {routing.names()[0]} (see `baton eligible {run_id} {step_path}`)")
+            profile, tool_info = self._tool_profile(ctx0, node0, step_path, worker)
+        else:
+            profiles = self.project.profiles()
+            if worker not in profiles:
+                raise EngineError("configuration.unknown_profile", f"no worker profile {worker!r} on this machine (known: {', '.join(sorted(profiles)) or 'none'})")
+            profile = profiles[worker]
+            if profile.isolation != "none":
+                raise EngineError("configuration.isolation_unsupported", f"{worker}: isolation {profile.isolation!r} is not supported by this runtime yet; use none")
+            routing, waiver = self._routing(ctx0, step_path)
+            if worker not in routing.names():
+                why = "; ".join(routing.reasons_for(worker)) or "not eligible"
+                raise EngineError("routing.ineligible", f"{worker} is not eligible for {step_path}: {why} (see `baton eligible {run_id} {step_path}`)")
+        adapter = adapters.get(profile.adapter)
 
         def body(ctx: RunContext) -> dict[str, Any]:
             dispatch_id = f"d_{secrets.token_hex(4)}"
@@ -2890,6 +2945,8 @@ class Api:
                 extra["effort_source"] = effort_source
             if env is not None:
                 extra["env"] = env.describe()
+            if tool_info is not None:
+                extra["tool"] = tool_info  # what ran: tool, lock, runtime, environment (criterion 7)
             tools = self._tool_plan(profile, getattr(node, "requires", None), mode)
             if tools is not None:
                 extra["tools"] = tools.describe()
@@ -2966,6 +3023,27 @@ class Api:
                 if k in res or k in waited:
                     out[k] = res.get(k, waited.get(k))
         return out
+
+    def _tool_profile(self, ctx: RunContext, node: Step, step_path: str, worker: str) -> tuple[WorkerProfile, dict[str, Any]]:
+        """The in-memory profile that runs a tool step, its environment built first (Decision 0159, item 3).
+
+        A missing uv or Python, or a failed build, is a platform failure:
+        nothing is dispatched, the step stays ready, and an incident says why.
+        """
+        from . import tool_env
+
+        tool = ctx.recipe.tools[node.tool]  # type: ignore[index]
+        try:
+            env = tool_env.ensure(tool, self.project.home)
+        except tool_env.ToolSetupError as e:
+            inc = self._open_incident({"run": ctx.run_id, "step_path": step_path, "attempt": None, "class": "platform",
+                                       "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": worker})
+            raise EngineError(e.code, f"{e} (platform incident {inc} opened)") from e
+        return tool_profile(tool, env), {
+            "id": tool.id, "sha256": tool.sha256, "lock_sha256": tool.lock_sha256,
+            "runtime": tool.spec.runtime.model_dump(exclude_none=True), **env.describe(),
+            "reach": tool.spec.reach.model_dump(),
+        }
 
     # -- the workspace queue (§8.9) -----------------------------------------
 

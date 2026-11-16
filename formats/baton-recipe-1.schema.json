@@ -1096,6 +1096,19 @@
           "title": "Inputs",
           "type": "array"
         },
+        "max_attempts": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Attempts"
+        },
         "output_schema": {
           "anyOf": [
             {

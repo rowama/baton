@@ -127,6 +127,7 @@ baton/
 ├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
+├── tools/            # tools' environments, <lock sha256>-py<x.y>/ (venv/, env.json), built by uv from the lock (§6.3, §5.9)
 ├── homes/<profile>/  # optional relocated CLI config homes [VERIFY per CLI]
 ├── mcp.yaml          # `token: secret:<name>`: the bearer token for `baton mcp --http` (§13.2)
 ├── launcher.yaml     # optional: where the launcher installs runtime versions from (`source`, `extras`, `python`; §14.1)

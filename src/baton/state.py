@@ -185,12 +185,20 @@ class RunState:
     run_id: str
     state: str | None = None  # None until run_started
     max_attempts: int | None = None
+    step_max_attempts: dict[str, int] = field(default_factory=dict)  # by step id: tool steps (§5.9)
     last_seq: int = 0
     last_sha256: str | None = None
     steps: dict[str, StepState] = field(default_factory=dict)
 
     def step(self, path: str) -> StepState:
         return self.steps.get(path, StepState())
+
+    def limit_for(self, path: str) -> int | None:
+        """The attempt limit of the step at ``path``: its own (a tool step's) or the run's."""
+        last = path.rsplit("/", 1)[-1]
+        if "~" in last:
+            return self.max_attempts  # a review keeps the run's limit
+        return self.step_max_attempts.get(last, self.max_attempts)
 
     def apply(self, event: Mapping[str, Any]) -> None:
         """Fold one event (a mapping with the §8.2 envelope fields) or raise.
@@ -219,7 +227,7 @@ class RunState:
             if self.state != "active":
                 raise IllegalTransition(f"{etype} on {path}: run is {self.state}", code="state.run_closed")
             not_counted = etype == "step_ready" and bool((event.get("data") or {}).get("not_counted"))
-            new_step = next_step_state(self.step(path), etype, attempt, self.max_attempts, not_counted=not_counted)
+            new_step = next_step_state(self.step(path), etype, attempt, self.limit_for(path), not_counted=not_counted)
         if path is not None and not _STEP_PATH.match(path):
             raise IllegalTransition(f"malformed step_path {path!r}", code="state.bad_step_path")
 
@@ -229,6 +237,10 @@ class RunState:
             if max_attempts is not None and (not isinstance(max_attempts, int) or max_attempts < 1):
                 raise IllegalTransition(f"run_started.data.max_attempts must be a positive integer, got {max_attempts!r}")
             self.max_attempts = max_attempts
+            per_step = (event.get("data") or {}).get("step_max_attempts") or {}
+            if not isinstance(per_step, dict) or any(not isinstance(v, int) or v < 1 for v in per_step.values()):
+                raise IllegalTransition(f"run_started.data.step_max_attempts must map step ids to positive integers, got {per_step!r}")
+            self.step_max_attempts = dict(per_step)
         self.state = new_run_state
         if new_step is not None:
             self.steps[path] = replace(new_step, last_seq=seq)

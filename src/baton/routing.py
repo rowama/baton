@@ -226,6 +226,8 @@ def same_at(level: str, a: WorkerIdentity, b: WorkerIdentity) -> bool:
     """
     if a.profile == b.profile:
         return True
+    if (a.adapter == "tool") != (b.adapter == "tool"):
+        return False  # a tool and a worker are never the same worker (§5.9)
     if level == "different_profile":
         return False
     ca, cb = (a.creator or "").lower() or None, (b.creator or "").lower() or None
@@ -331,6 +333,8 @@ def eligible_workers(
                 reasons.append(independence_reason(indep.level, indep.from_step, identity_of(name, p), other))
             else:
                 waived = True
+        if p.adapter == "tool":
+            reasons.append("the tool adapter runs a recipe's own tool steps only (§5.9)")
         if name in prefs.exclude:
             reasons.append("turned off for this machine (~/.baton/preferences.yaml; `baton workers prefs --include`)"
                            if prefs.excluded_by_machine(name) else "excluded by preferences.yaml")

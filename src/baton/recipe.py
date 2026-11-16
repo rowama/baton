@@ -665,6 +665,9 @@ class _Checker:
         if step.tool is not None:
             self._check_tool_step(step, w)
         else:
+            if step.max_attempts is not None:
+                self.error("step.max_attempts_needs_tool", f"{w}.max_attempts",
+                           "max_attempts on a step is for a tool step only; other steps use the recipe's defaults.max_attempts")
             for key in ("requires", "prompt"):
                 if getattr(step, key) is None:
                     self.error("recipe.missing_key", f"{w}.{key}", f"required key {key!r} is missing (or name a tool with 'tool')")

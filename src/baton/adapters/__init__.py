@@ -7,6 +7,7 @@ from .base import WorkerAdapter
 from .harness import ClaudeCodeAdapter, CodexAdapter, CommandAdapter
 from .litellm_api import LitellmApiAdapter
 from .manual import ManualAdapter
+from .tool import ToolAdapter
 
 #: Adapters this runtime can run.
 ADAPTERS: dict[str, WorkerAdapter] = {
@@ -15,6 +16,7 @@ ADAPTERS: dict[str, WorkerAdapter] = {
     "claude_code": ClaudeCodeAdapter(),
     "codex": CodexAdapter(),
     "command": CommandAdapter(),
+    "tool": ToolAdapter(),
 }
 
 
