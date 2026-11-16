@@ -23,7 +23,7 @@ A recipe can only say what kind of AI worker or person a step needs (`requires`)
   - the command must speak the packet protocol itself, and its instructions are prose written for a model;
   - nothing states what it needs installed, and no run records which version ran.
 
-So a recipe author who wants a step done by code gives it to an AI worker with `shell`, which costs a model call, varies between runs and ties the step to a harness. The owner's direction (Decision [0154](../decisions/0154-tool-steps.md)): a tool is a third kind of executor, visible to the recipe designer at the same level as AI capabilities, separable from any harness, and more locked down than an AI worker.
+So a recipe author who wants a step done by code gives it to an AI worker with `shell`, which costs a model call, varies between runs and ties the step to a harness. The owner's direction (Decision [0154](../../decisions/0154-tool-steps.md)): a tool is a third kind of executor, visible to the recipe designer at the same level as AI capabilities, separable from any harness, and more locked down than an AI worker.
 
 This is the first of three changes. It covers scripts a recipe ships. External software and waiting steps come later (see *Out of scope*).
 
@@ -59,7 +59,7 @@ Each has a suggested answer, assumed until the owner decides.
 - **External software and specified interfaces** (Decision 0154, forms 2 and 3): the second change.
 - **Waiting steps and the scheduler helper:** the third change.
 - **`recipe-builder` choosing between a tool, an AI worker and a person,** and writing and testing tools: its own change, after this one.
-- **Tools offered to a model inside a worker** ([2026-11-step-tool-harness](2026-11-step-tool-harness.md), on hold). That change gives an AI worker tools to call; this one runs a tool with no model. The two may later share tool definitions.
+- **Tools offered to a model inside a worker** ([2026-11-step-tool-harness](../../changes/2026-11-step-tool-harness.md), on hold). That change gives an AI worker tools to call; this one runs a tool with no model. The two may later share tool definitions.
 - **A catalog of tools shared between recipes.** A tool lives in its recipe for now.
 - **The `command` adapter** stays as it is, for relaying to other agents and for machine-local tools.
 
@@ -123,8 +123,8 @@ To be listed when the change is accepted. Expected: an administrator topic on to
 
 ### Decisions
 
-- [0154](../decisions/0154-tool-steps.md) (accepted): a tool is a third kind of executor; pinned; three forms; three changes.
-- [0085](../decisions/0085-harness-tool-maps.md) (accepted): least privilege for a worker's tooling; this change applies the same rule to tools.
+- [0154](../../decisions/0154-tool-steps.md) (accepted): a tool is a third kind of executor; pinned; three forms; three changes.
+- [0085](../../decisions/0085-harness-tool-maps.md) (accepted): least privilege for a worker's tooling; this change applies the same rule to tools.
 - The eight open questions above become one record when the owner answers them.
 
 ## Plan
