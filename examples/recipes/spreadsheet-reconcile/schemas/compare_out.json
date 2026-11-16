@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["key", "rows_before", "rows_after", "added", "removed", "changed", "unchanged", "columns_added", "columns_removed"],
+  "properties": {
+    "key": {"type": "string"},
+    "rows_before": {"type": "integer", "minimum": 0},
+    "rows_after": {"type": "integer", "minimum": 0},
+    "added": {"type": "integer", "minimum": 0},
+    "removed": {"type": "integer", "minimum": 0},
+    "changed": {"type": "integer", "minimum": 0},
+    "unchanged": {"type": "integer", "minimum": 0},
+    "columns_added": {"type": "array", "items": {"type": "string"}},
+    "columns_removed": {"type": "array", "items": {"type": "string"}},
+    "changed_by_column": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
+  },
+  "additionalProperties": false
+}

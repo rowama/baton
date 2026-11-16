@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "key"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "key": {"type": "string", "minLength": 1, "description": "The column that identifies a row in both tables, such as an id or an email address"},
+    "purpose": {"type": "string", "minLength": 1, "description": "Optional: what the owner wants to learn from the comparison, in their words"}
+  },
+  "additionalProperties": false
+}

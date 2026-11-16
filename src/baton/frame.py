@@ -500,7 +500,19 @@ def part_next(api: Any, part: dict[str, Any], active: int) -> str:
         return FIT_CHECK_NEXT
     text = f"starts {r.id}: {r.description or ''}".rstrip(": ")
     paths = [p for ps in (part.get("bind") or {}).values() for p in ps]
-    return text + (f", building on {', '.join(paths)}" if paths else "")
+    text += f", building on {', '.join(paths)}" if paths else ""
+    for f in tool_flags_for(api, plan):  # choosing the part approves the tool, so the owner hears what it is first (§5.9)
+        text += f"; it brings a program that runs on this computer ({f['tool']}): {f['does']} It needs {f['needs']}; it {f['touches']}"
+    return text
+
+
+def tool_flags_for(api: Any, plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """The tools a part's shipped recipe brings that this project has not approved (§5.9; criterion 10)."""
+    if plan.get("vendor_from") is None:
+        return []
+    from .project import tool_flags
+
+    return tool_flags(api.project.lock(), plan["recipe"])
 
 
 def _web_advice(api: Any, parts: list[dict[str, Any]], active: int) -> dict[str, Any] | None:
@@ -554,6 +566,11 @@ def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any
     vendored: list[str] = []
     if plan["vendor_from"] is not None:
         res = vendor(api.project, plan["vendor_from"])
+        if res["needs_owner"]:
+            if any(f["code"] != "tool" for f in res["flags"]) or not note.strip():
+                raise EngineError("frame.vendor_needs_owner", f"{res['recipe']} needs the owner's decision before it is vendored: {res['message']}")
+            # The owner chose this part after hearing what its tools do (``part_next``): their words approve them.
+            res = vendor(api.project, plan["vendor_from"], decision={"decision_id": _vendor_decision(api, res, note, framing_run), "note": note})
         if res["changed"]:
             vendored.append(res["recipe"])
         loaded = api.project.recipe(res["recipe"])
@@ -568,6 +585,18 @@ def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any
         role = loaded.recipe.role(role.role) or role
         record_binding(wctx, role, entries, note, recorded_by=api.director.actor)
     return wctx, loaded.recipe.ref, vendored
+
+
+def _vendor_decision(api: Any, res: dict[str, Any], note: str, framing_run: str) -> str:
+    """Record the owner's approval of a shipped recipe's tools, given by choosing its part (project log)."""
+    from . import sme
+    from .locks import project_lock
+
+    with project_lock(api.project.baton):
+        decision_id = f"d{len(api.project.store.project_log().events()) + 1}"
+    sme.project_append(api.project, "human_decision", {"kind": "vendor", "recipe": res["recipe"], "decision": "approve", "note": note,
+                                                       "decision_id": decision_id, "flags": res["flags"], "via": framing_run}, actor="human")
+    return decision_id
 
 
 def find_part(api: Any, ref: str) -> tuple[Any, dict[str, Any]]:
@@ -619,6 +648,9 @@ def start_from_plan(api: Any, ref: str, paths: list[Any], note: str = "") -> tup
     if plan["bind"] and not (note or "").strip():
         raise EngineError("bind.note_required", f"{part.get('label') or pid} builds on project documents; binding them is the owner's "
                           "decision: give their words with --note")
+    if tool_flags_for(api, plan) and not (note or "").strip():
+        raise EngineError("vendor.note", f"{part.get('label') or pid} brings a program that runs on this computer; approving it is the "
+                          "owner's decision: give their words with --note")
     wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor, note=note)
     started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
     sel = next(e for e in events if e.type == "framing_selected")

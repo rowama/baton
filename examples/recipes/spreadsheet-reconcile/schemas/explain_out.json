@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["summary", "highlights"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1, "description": "Two or three sentences: what changed overall"},
+    "highlights": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "The changes most worth the owner's attention, each with its row key"},
+    "questions": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Changes that look like mistakes or need the owner's explanation"}
+  },
+  "additionalProperties": false
+}

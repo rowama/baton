@@ -4,8 +4,8 @@ title: "A step can be run by a script the recipe ships, with pinned dependencies
 status: in-progress
 level: major
 decisions: ["0154", "0156", "0158", "0159", "0160", "0085"]
-touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
-manual: [admin/recipes-and-vendoring.md, admin/files-and-paths.md, user/what-baton-may-do.md, reference/commands.md, context.yaml, anchors.yaml]
+touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md, design/adoption-and-framing.md]
+manual: [admin/recipes-and-vendoring.md, admin/files-and-paths.md, user/what-baton-may-do.md, reference/commands.md, context.yaml, anchors.yaml, recipe-sources/spreadsheet-reconcile.md, recipes/spreadsheet-reconcile.md]
 ---
 
 # A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran
@@ -125,7 +125,7 @@ Approved by the owner with the Request on 2026-11-16.
 - `manual/admin/files-and-paths.md`: `~/.baton/tools/`. (Slice 3.)
 - `manual/user/what-baton-may-do.md`: new section *Scripts a process runs* (`#tools`), in the owner's terms. (Slice 3.)
 - `manual/reference/commands.md` (generated): `baton tools setup`; `vendor`'s help. `manual/context.yaml`: `tools` explained by the recipes topic. `manual/anchors.yaml`: the two new anchors. (Slice 3.)
-- The `spreadsheet-reconcile` recipe's topic (`manual/recipe-sources/`, generated into `manual/recipes/`). (Slice 4.)
+- `manual/recipe-sources/spreadsheet-reconcile.md`, generated into `manual/recipes/spreadsheet-reconcile.md`: the recipe's topic for owners (what it does, what is asked, what it produces and needs, its parts, an example, what goes wrong); `manual/anchors.yaml`. (Slice 4.)
 
 ### Decisions
 
@@ -215,5 +215,13 @@ Added on 2026-11-16 when Slice 3 was split (Decision 0160).
 - **Design docs:** `design/recipes.md` §5.9 (approval at vendoring, the lock's `tools`); `design/director-interface.md` §13.1 (`eligible` for a tool step; `tools setup`; readiness in `check`, `doctor`, `start`; the Director skill's text); `docs/README.md` (Decision 0160).
 - **Manual:** `manual/admin/recipes-and-vendoring.md` (*Tools a recipe ships*), `manual/admin/files-and-paths.md` (`~/.baton/tools/`), `manual/user/what-baton-may-do.md` (*Scripts a process runs*), the generated command reference, `manual/context.yaml`, `manual/anchors.yaml`.
 - **Tests:** `tests/test_tool_readiness.py`: vendoring a recipe with a tool needs the owner and says what the tool does, needs and touches, in JSON and plain text, and the approval is recorded in the lock; an unchanged tool is not asked about again and a changed one is; a recipe without tools vendors as before; a tool with no fitting Python is reported by `check`, `doctor`, `start` and `eligible` and refused at dispatch; a missing secret makes a tool not ready until it is stored; `tools setup` builds, then reuses, and `doctor` then shows the environment; `tools setup` reports a tool it cannot build, and a project with no tools. `tests/test_tool_runs.py` vendors with the owner's approval.
+- **Accepted:** Yes; slice of the in-progress change.
+
+### Slice 4: a shipped recipe with a tool
+
+- **Summary:** `examples/recipes/spreadsheet-reconcile` (Decision 0160): the roles `before` and `after` (CSV), run inputs `title`, `key` and optional `purpose`; `compare` is done by the tool `csv_diff` (standard library, empty lock, `reach` none), which outputs the counts and the `differences` CSV and exits 1 with a plain reason for a table its key cannot identify (missing column, empty key, a key twice) or one that is not UTF-8; `explain` is an ordinary worker step with a human gate. Being in the catalog, framing and project review may propose it, so framing now handles a shipped recipe with a tool: a part's `next` describes each tool not yet approved in the owner's terms (`frame.tool_flags_for`), and choosing the part approves it, recorded as a project `human_decision {kind: vendor, via: <framing run>}` with the selection's words before vendoring with that decision (`frame._vendor_decision`); `start --from-plan` needs `--note` for such a part; a recipe whose vendoring would also change step ids is refused (`frame.vendor_needs_owner`). Without this, choosing such a part would have failed, since its vendoring needs the owner.
+- **Design docs:** `design/recipes.md` §5.7 (`spreadsheet-reconcile`); `design/adoption-and-framing.md` §11.6 item 4 (tools in framing); `design/layouts.md` (the catalog).
+- **Manual:** `manual/recipe-sources/spreadsheet-reconcile.md`, generated into `manual/recipes/spreadsheet-reconcile.md`; `manual/anchors.yaml`.
+- **Tests:** `tests/test_project_documents.py` lets the new recipe declare roles. `tests/test_spreadsheet_reconcile.py`: the recipe is in the catalog with its tool; the comparison's counts and differences; a table its key cannot identify is refused plainly (three cases); end to end, vendoring by name asks about the tool, then with the owner's approval the two attested files are bound, the tool compares them, and the report step receives the counts and differences; in framing, the part's `next` describes the tool, and choosing it vendors the recipe with the owner's words recorded as the approval. The catalog lists in `tests/test_conversation.py`, `tests/test_manual_gen.py` and `tests/test_real_use.py` include it.
 - **Accepted:** Yes; slice of the in-progress change.
 

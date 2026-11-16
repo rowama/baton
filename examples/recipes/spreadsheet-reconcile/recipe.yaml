@@ -1,0 +1,52 @@
+id: spreadsheet-reconcile
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Compare two versions of a spreadsheet row by row, list exactly what was added, removed and changed, and explain the differences in plain words.
+
+scope:
+  covers: ["comparing two exports of the same list, such as a customer list, an inventory or a price list", "checking what changed between two versions of a table"]
+  not_for: [{ job: "merging two spreadsheets into one" }, { job: "comparing documents or prose" }]
+  varies_by: ["which column identifies a row", "how many rows changed"]
+
+run_inputs:
+  schema: schemas/run_inputs.json      # title, key, purpose (optional)
+
+project_inputs:
+  - role: before
+    description: "The earlier version of the table, as a CSV file"
+    media_type: text/csv
+  - role: after
+    description: "The later version of the same table, as a CSV file"
+    media_type: text/csv
+
+steps:
+  - id: compare
+    title: Compare the two tables row by row
+    tool: csv_diff
+    workspace: none
+    inputs:
+      - { name: before, from: project.before,   required: true }
+      - { name: after,  from: project.after,    required: true }
+      - { name: key,    from: run.inputs.key,   required: true }
+    output_schema: schemas/compare_out.json
+    artifacts:
+      - { name: differences, required: true, media_type: text/csv }
+    gates: [ { type: schema } ]
+
+  - id: explain
+    title: Explain the differences
+    depends_on: [compare]
+    requires: { capabilities: [structured_output, long_form_writing], tier: standard }
+    prompt: prompts/explain.md
+    inputs:
+      - { name: counts,      from: steps.compare.output,                required: true }
+      - { name: differences, from: steps.compare.artifacts.differences, required: true }
+      - { name: purpose,     from: run.inputs.purpose,                  required: false }
+    output_schema: schemas/explain_out.json
+    artifacts:
+      - { name: report, required: true, media_type: text/markdown }
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Accept this report on what changed?",
+          labels: { approve: "That's a fair account", reject: "Something's missing or wrong" } }

@@ -213,6 +213,14 @@ published:
 - recipes.software-feature#what-it-needs
 - recipes.software-feature#what-it-produces
 - recipes.software-feature#what-you-are-asked
+- recipes.spreadsheet-reconcile
+- recipes.spreadsheet-reconcile#example
+- recipes.spreadsheet-reconcile#here-now
+- recipes.spreadsheet-reconcile#if-it-goes-wrong
+- recipes.spreadsheet-reconcile#parts
+- recipes.spreadsheet-reconcile#what-it-needs
+- recipes.spreadsheet-reconcile#what-it-produces
+- recipes.spreadsheet-reconcile#what-you-are-asked
 - reference.commands
 - reference.commands#baton-abandon
 - reference.commands#baton-adopt
