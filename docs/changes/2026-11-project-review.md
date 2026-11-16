@@ -1,7 +1,7 @@
 ---
 id: 2026-11-project-review
 title: "An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on"
-status: in-progress
+status: done
 level: major
 decisions: ["0150", "0152", "0069", "0044", "0062", "0066", "0068", "0142", "0148", "0157"]
 touches: [principles.md, design/recipes.md, design/adoption-and-framing.md, design/runtime.md, design/director-interface.md, design/layouts.md]
@@ -160,3 +160,9 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Manual:** `manual/recipe-sources/project-review.md` and the generated `manual/recipes/project-review.md` (new); `manual/user/start-with-a-goal.md` (`#whats-next`: asking for a review, reading its plan); `manual/user/check-on-your-work.md` (`#whats-next`); `manual/admin/director-commands.md` (`start --from-plan`, `vendor project-review --note`, `decide ... select`); the generated `manual/reference/commands.md` (`vendor`'s help); `manual/anchors.yaml`.
 - **Tests:** `tests/test_proposing_steps.py`: the end-to-end scenario (framing with three parts, the survey started and finished, its report a project document; `vendor project-review` refused without `--note`, then vendored with the owner's words recorded and committed; the review's packet holds the summary, the owner's words and the recipe listing; it recommends building on the survey (rank 1) and signs (rank 2, waiting on the build); `next` names the document; the owner selects the build, which starts bound to the survey; the review's plan has reasons, order and waits, and framing's has none); the recipe ships with its optional roles. Catalog listings in `tests/test_conversation.py`, `tests/test_manual_gen.py` and `tests/test_project_documents.py` and `tests/test_real_use.py` now include `project-review`, the one shipped recipe that declares roles.
 - **Accepted:** Yes; slice of the in-progress change.
+
+### Done
+
+- **Summary:** Every acceptance criterion is demonstrated by tests: `project.summary` (Slice 3); the `project-review` recipe, its selection and the owner's choice (Slice 4); one selection mechanism with `baton-frame@1` unchanged (Slice 1, goldens on `@1` and `@2`); proposals with bindings and `baton-frame@2` (Slice 2); order only in a review's plan (Slice 4); the Director's offer, never unasked (Slice 4, skill text); optional roles (Slice 4); design and manual current (each slice).
+- **Owner decision:** 2026-11-15: Request and Design approved (0157).
+- **Accepted:** Yes; status done.
