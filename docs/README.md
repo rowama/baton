@@ -295,3 +295,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0155 Recipe builder builds software within a budget: one recipe, an owner-set ceiling, software preferred to an AI worker, 0149 narrowed](decisions/0155-recipe-builder-builds-software.md) | accepted |
 | [0156 Tool steps: uv environments from a hash-locked file, Python first, declared network reach, one attempt, readiness checked at start and dispatch](decisions/0156-tool-steps-details.md) | accepted |
 | [0157 Project review: it reads the policy and governing recipes, proposes recipes or fit checks only, and starts as an ordinary run](decisions/0157-project-review-starts-as-a-run.md) | accepted |
+| [0158 Tool steps: uv never downloads a Python, and a tool runs in a fresh scratch folder](decisions/0158-tool-steps-no-python-download-scratch-cwd.md) | accepted |

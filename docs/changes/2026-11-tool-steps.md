@@ -1,9 +1,9 @@
 ---
 id: 2026-11-tool-steps
 title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
-status: proposed
+status: accepted
 level: major
-decisions: ["0154", "0156", "0085"]
+decisions: ["0154", "0156", "0158", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
 manual: []
 ---
@@ -45,7 +45,7 @@ This is the first of three changes. It covers scripts a recipe ships. External s
 
 None open. The eight questions this change raised were answered by the owner on 2026-11-15 as suggested, and are recorded in Decision [0156](../decisions/0156-tool-steps-details.md):
 
-1. Environments are built with `uv` from a requirements file with exact versions and hashes **[VERIFY against the installed uv]**.
+1. Environments are built with `uv` from a requirements file with exact versions and hashes (verified against uv 0.13.7: `uv pip compile --generate-hashes`, `uv venv --python`, `uv pip install --require-hashes`).
 2. Python only in the first version; `tool.yaml` names the runtime kind.
 3. Network reach is declared, shown at vendoring and recorded; it is enforced only under `isolation: container`, and the manual says so.
 4. One attempt by default; a failure escalates with the tool's error output; a recipe may raise the limit.
@@ -53,6 +53,8 @@ None open. The eight questions this change raised were answered by the owner on 
 6. Environments live in `~/.baton/tools/<lock hash>/`.
 7. The recipe format stays `baton-recipe/1`.
 8. Tool steps use the effort bands, defaulting to `S`.
+
+Checking the Design before approval confirmed item 1 against uv 0.13.7 and raised two more questions, answered by the owner on 2026-11-16 as suggested and recorded in Decision [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md): uv never downloads a Python (a missing one makes the tool not ready), and a tool runs in a fresh scratch folder, reaching its own files through `{tool}`.
 
 ### Out of scope
 
@@ -65,7 +67,7 @@ None open. The eight questions this change raised were answered by the owner on 
 
 ## Design
 
-For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
+Approved by the owner with the Request on 2026-11-16.
 
 ### Shape
 
@@ -94,15 +96,15 @@ For the owner's approval, with the Request (a major change: Request and Design a
   id: backtest
   description: Runs a strategy over a price history and reports its trades and returns.
   runtime: { kind: python, version: ">=3.11" }
-  entry: ["python", "backtest.py", "--input", "{input}", "--output", "{output}"]
+  entry: ["python", "{tool}/backtest.py", "--input", "{input}", "--output", "{output}"]
   dependencies: { lock: requirements.lock }
   reach: { network: false, secrets: [] }
   ```
-  `{input}`, `{output}` and `{workspace}` are the only placeholders. `entry[0]` resolves inside the tool's environment.
-- **Runner.** A new adapter, `tool`, runs `python -m baton.tool_runner` as the child, as `litellm_api` runs `worker_runner` (§6.3). The runner writes the inputs file from the packet, starts the entry command in the tool's environment with the tool's directory as its working directory, and turns `output.json` and the artifacts into `result.json`. Exit 0 with a valid output is `completed`; anything else is `failed` with the last lines of the tool's error output in `notes`. A tool cannot return `blocked` or questions.
+  `{input}`, `{output}`, `{tool}` (the tool's folder) and `{workspace}` are the only placeholders. `entry[0]` resolves inside the tool's environment.
+- **Runner.** A new adapter, `tool`, runs `python -m baton.tool_runner` as the child, as `litellm_api` runs `worker_runner` (§6.3). The runner writes the inputs file from the packet, starts the entry command in the tool's environment, in a fresh, empty scratch folder as its working directory (Decision [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md), item 2), and turns `output.json` and the artifacts into `result.json`. Exit 0 with a valid output is `completed`; anything else is `failed` with the last lines of the tool's error output in `notes`. A tool cannot return `blocked` or questions.
 - **Supervision.** Unchanged: the per-dispatch supervisor, running marker, deadline, intake, hooks and checkpoint (§8.7). A tool step is async like any other.
 - **Identity.** A tool's result is recorded with creator `tool` and identity `tool/<recipe>/<id>@<hash>`. Independence rules (§8.4) therefore never match a tool against a model or a person.
-- **Readiness.** One function answers "is this tool ready here, and if not, why": runtime found, environment built for this lock hash, named secrets resolvable. `check`, `doctor`, `start`, `eligible` and dispatch all use it. `baton tools setup` builds the environments for the vendored recipes' tools.
+- **Readiness.** One function answers "is this tool ready here, and if not, why": runtime found on the machine (uv never downloads a Python: Decision [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md), item 1), environment built for this lock hash, named secrets resolvable. `check`, `doctor`, `start`, `eligible` and dispatch all use it. `baton tools setup` builds the environments for the vendored recipes' tools.
 - **Trust.** Tools are part of the recipe's hash, so the existing rule holds: vendored recipes are trusted code, reviewed before vendoring, and `check` and `doctor` verify their hashes (§15.2). A changed tool file is a changed recipe.
 
 ### Doc edits
@@ -126,11 +128,12 @@ To be listed when the change is accepted. Expected: an administrator topic on to
 - [0154](../decisions/0154-tool-steps.md) (accepted): a tool is a third kind of executor; pinned; three forms; three changes.
 - [0085](../decisions/0085-harness-tool-maps.md) (accepted): least privilege for a worker's tooling; this change applies the same rule to tools.
 - [0156](../decisions/0156-tool-steps-details.md) (accepted): the environment builder, runtimes, network reach, retries, readiness, where environments live, the format version, time limits.
+- [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md) (accepted): uv never downloads a Python; a tool runs in a fresh scratch folder.
 - [0155](../decisions/0155-recipe-builder-builds-software.md) (accepted): what `recipe-builder` will do with tools; out of scope here.
 
 ## Plan
 
-Slices as proposed; refined once the Request and Design are approved.
+Final: the Request and Design are approved (2026-11-16).
 
 ### Slice 1: a recipe declares tools
 
@@ -163,3 +166,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** The eight questions the proposal raised were answered as suggested and recorded as Decision 0156. The Request has no open questions; the Design is ready for approval. No code changed.
 - **Owner decision:** 2026-11-15, "1-concur. 2-concur. 3-concur. 4-concur. 5-concur. 6-concur. 7-concur. 8-concur." (0156).
 - **Accepted:** Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** Confirmed Decision 0156 item 1 against uv 0.13.7. Two new questions (whether uv may download a Python; a tool's working folder) were answered as suggested and recorded as Decision 0158; the Design now runs a tool in a fresh scratch folder with a `{tool}` placeholder and builds environments with `--no-python-downloads`. Status set to accepted. No code changed.
+- **Owner decision:** 2026-11-16, "No download", "Fresh scratch folder", "Approve" (0158).
+- **Accepted:** Yes; Plan final, Slice 1 next.
