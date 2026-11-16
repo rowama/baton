@@ -96,13 +96,19 @@ def render_all(base: Path | None = None) -> dict[str, str]:
 # ---- recipe topics: hand-written prose, generated parts table ---------------------------------
 
 def shipped_recipes() -> dict[str, Path]:
-    """Every recipe that ships with Baton: the examples and the built-in ones."""
-    found: dict[str, Path] = {}
+    """Every recipe that ships with Baton, by id: the examples and the built-in ones, each at its highest version
+    (``builtin/baton-frame-2`` is ``baton-frame`` version 2)."""
+    import yaml
+
+    found: dict[str, tuple[int, Path]] = {}
     for top in (data.path("examples") / "recipes", data.path("builtin")):
         for d in sorted(top.glob("*")):
             if (d / "recipe.yaml").is_file():
-                found[d.name] = d
-    return found
+                raw = yaml.safe_load((d / "recipe.yaml").read_text(encoding="utf-8-sig")) or {}
+                rid, ver = str(raw.get("id") or d.name), int(raw.get("version") or 0)
+                if rid not in found or ver > found[rid][0]:
+                    found[rid] = (ver, d)
+    return {rid: root for rid, (_, root) in sorted(found.items())}
 
 
 def _human(text: str) -> str:

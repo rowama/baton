@@ -84,7 +84,7 @@ SKILLS_DIR = ".agents/skills"
 
 
 #: Recipes shipped with the runtime (§11.1): loaded from ``builtin/``, never vendored.
-BUILTIN_RECIPES: dict[str, str] = {"baton-adopt@1": "baton-adopt", "baton-frame@1": "baton-frame"}
+BUILTIN_RECIPES: dict[str, str] = {"baton-adopt@1": "baton-adopt", "baton-frame@1": "baton-frame", "baton-frame@2": "baton-frame-2"}
 
 #: Recipes ``init`` vendors unless ``--bare`` (§11.6): the starter kit an owner needs to begin.
 STARTER_RECIPES: tuple[str, ...] = ("fit-check",)

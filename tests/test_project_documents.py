@@ -275,7 +275,7 @@ def test_shipped_recipes_declare_no_roles_and_their_summaries_are_unchanged():
     from baton.frame import _summary
     from baton.project import builtin_recipe, catalog
 
-    for loaded in [*catalog().values(), builtin_recipe("baton-frame@1"), builtin_recipe("baton-adopt@1")]:
+    for loaded in [*catalog().values(), builtin_recipe("baton-frame@1"), builtin_recipe("baton-frame@2"), builtin_recipe("baton-adopt@1")]:
         assert loaded.recipe.project_inputs == []
         assert "project_inputs" not in _summary(loaded, False, with_scope=True)
 

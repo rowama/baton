@@ -2419,7 +2419,7 @@ class Api:
         if from_plan is not None:
             if bind:
                 raise EngineError("start.from_plan_alone", "--from-plan starts the part's recorded proposal; bind its documents with `bind` once it has started")
-            return self._start_from_plan(from_plan, recipe, inputs, title)
+            return self._start_from_plan(from_plan, recipe, inputs, title, note or "")
         if not recipe:
             raise EngineError("start.no_recipe", "start needs a recipe, or --from-plan <part>")
         inputs = inputs if inputs is not None else {}
@@ -2477,14 +2477,14 @@ class Api:
         if adv is not None:
             out["web_advice"] = adv
 
-    def _start_from_plan(self, ref: str, recipe: str | None, inputs: dict[str, Any] | None, title: str | None) -> dict[str, Any]:
+    def _start_from_plan(self, ref: str, recipe: str | None, inputs: dict[str, Any] | None, title: str | None, note: str = "") -> dict[str, Any]:
         """``start --from-plan <part>``: a part of a process plan, started as its framing run recorded it (§11.6; Decision 0066)."""
         from . import frame as framing
 
         if recipe or inputs or title:
             raise EngineError("start.from_plan_alone", "--from-plan starts the part's recorded proposal; give no recipe, --inputs or --title with it")
         paths: list[Path] = [self.project.baton / "baton.lock"]
-        ctx, res = framing.start_from_plan(self, ref, paths)
+        ctx, res = framing.start_from_plan(self, ref, paths, note)
         fctx = self._ctx(res["framing"])
         fr_before = next(e.seq for e in reversed(fctx.log.events()) if e.type == "framing_started_later") - 1
         leases = self._leases(ctx)
@@ -4742,7 +4742,7 @@ class Api:
                 return {**framing.status(self, rid), "started": False}
         if not (words or "").strip():
             raise EngineError("frame.no_words", "framing starts from the owner's goal in their own words (--note)")
-        inputs = framing.inputs_for(self.project, words)
+        inputs = framing.inputs_for(self.project, words, framing.FRAME_RECIPE)
         ctx = start(self.project.store, self.project.recipe(framing.FRAME_RECIPE), inputs, title=inputs["title"],
                     project=self.project.variables(), actor=self.director.actor,
                     work_item={"kind": "framing", "slug": slugify(inputs["title"]), "branch": self.project.branch()})

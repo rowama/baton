@@ -517,7 +517,7 @@ def start(
     title: Annotated[Optional[str], typer.Option(help="Work item title (default: inputs.title).")] = None,
     from_plan: Annotated[Optional[str], typer.Option("--from-plan", help="A part of a process plan (<part> or <framing run>/<part>), started as proposed.")] = None,
     bind_: Annotated[Optional[list[str]], typer.Option("--bind", help="<role>=<path>: bind a project document to a role the recipe declares (repeat for each role, and for each document of a role that takes several). Needs --note.")] = None,
-    note: Annotated[Optional[str], typer.Option("--note", help="With --bind: the owner's confirmation, in their words (recorded verbatim).")] = None,
+    note: Annotated[Optional[str], typer.Option("--note", help="With --bind, or --from-plan for a part that builds on project documents: the owner's confirmation, in their words (recorded verbatim).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Start a run (a work item) and claim its lease."""

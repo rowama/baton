@@ -637,7 +637,7 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `--title <str>` | Work item title (default: inputs.title). |
 | `--from-plan <str>` | A part of a process plan (`<part>` or `<framing run>`/`<part>`), started as proposed. |
 | `--bind <str>` | `<role>`=`<path>`: bind a project document to a role the recipe declares (repeat for each role, and for each document of a role that takes several). Needs --note. |
-| `--note <str>` | With --bind: the owner's confirmation, in their words (recorded verbatim). |
+| `--note <str>` | With --bind, or --from-plan for a part that builds on project documents: the owner's confirmation, in their words (recorded verbatim). |
 | `--json` | Machine-readable output. |
 
 ## baton status {#baton-status}

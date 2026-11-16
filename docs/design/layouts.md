@@ -50,7 +50,8 @@ baton/
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   formats/baton-proposals-1.schema.json   # generated (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── builtin/baton-adopt/     # the built-in adoption recipe (§11.1): research step, baton-research/1 schema
-├── builtin/baton-frame/     # the built-in framing recipe (§11.6): frame step, baton-frame/1 schema
+├── builtin/baton-frame/     # the built-in framing recipe, version 1 (§11.6): frame step, baton-frame/1 schema (open runs keep it)
+├── builtin/baton-frame-2/   # version 2, started by `frame`: proposals may bind project documents (baton-frame/2)
 ├── skills/baton-director/SKILL.md   skills/baton-worker/SKILL.md
 ├── defaults/communication.md        # default owner communication contract, conversational (written by `baton init`)
 ├── defaults/communication-operator.md   # the terse operator style, for owners who choose it (§13.6)

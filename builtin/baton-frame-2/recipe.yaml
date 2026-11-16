@@ -1,0 +1,24 @@
+# The runtime's built-in framing recipe (§11.6), version 2: proposals may build on project documents.
+# Loaded by the runtime, never vendored. Runs started on version 1 keep it.
+id: baton-frame
+version: 2
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Turn an owner's goal, in their words, into pieces of work they can choose to start, building on the project's documents.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: frame
+    title: Break the goal into pieces of work
+    requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: standard }
+    prompt: prompts/frame.md
+    proposes_runs: true
+    inputs:
+      - { name: words,     from: run.inputs.words,     required: true }
+      - { name: recipes,   from: run.inputs.recipes,   required: true }
+      - { name: documents, from: run.inputs.documents, required: false }
+      - { name: rubric,    from: run.inputs.rubric,    required: false }
+    output_schema: schemas/frame.json
+    gates: [ { type: schema } ]

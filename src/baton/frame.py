@@ -26,7 +26,7 @@ from jsonschema import Draft202012Validator
 from . import diag, tailoring
 from .packet import EngineError
 
-FRAME_RECIPE = "baton-frame@1"
+FRAME_RECIPE = "baton-frame@2"  # new framing runs; a run started on baton-frame@1 keeps it
 FRAME_STEP = "frame"
 SELECT_GATE = "select"
 FRAME_DECISIONS = ("select", "reject")
@@ -34,7 +34,7 @@ FIT_CHECK = "fit-check"
 FRAME_ID = "baton-frame"
 PROPOSALS_REF = "baton:proposals"
 #: Built-in recipes that predate ``proposes_runs``, with their proposing step (a pinned run's recipe hash cannot change).
-LEGACY_PROPOSING: dict[str, str] = {FRAME_RECIPE: FRAME_STEP}
+LEGACY_PROPOSING: dict[str, str] = {"baton-frame@1": FRAME_STEP}
 
 
 def is_framing(events: list[Any]) -> bool:
@@ -150,12 +150,24 @@ def rubric(project: Any) -> str | None:
     return None
 
 
-def inputs_for(project: Any, words: str) -> dict[str, Any]:
+def document_listing(project: Any) -> list[dict[str, Any]]:
+    """The project documents a proposal may bind (§8.6): path, kind, media type and state, never contents. Deleted ones are left out."""
+    from .documents import list_documents
+
+    return [{k: d.get(k) for k in ("path", "kind", "media_type", "state")} for d in list_documents(project.store) if d["state"] != "deleted"]
+
+
+def inputs_for(project: Any, words: str, ref: str | None = None) -> dict[str, Any]:
+    """A framing run's inputs: the owner's words, every recipe and fit-check's rubric; for ``baton-frame@2`` (the default)
+    each recipe also carries its scope and roles, and the project's documents are listed."""
     title = " ".join(words.split())
+    v2 = (ref or FRAME_RECIPE) != "baton-frame@1"
     out: dict[str, Any] = {
         "title": "Frame: " + (title if len(title) <= 60 else title[:57].rstrip() + "..."),
-        "words": words, "recipes": recipe_listing(project),
+        "words": words, "recipes": recipe_listing(project, with_scope=v2),
     }
+    if v2:
+        out["documents"] = document_listing(project)
     rb = rubric(project)
     if rb is not None:
         out["rubric"] = rb
@@ -267,11 +279,27 @@ def _plan_part(api: Any, part: dict[str, Any], active: int) -> tuple[dict[str, A
     if missing:
         return None, (f"{loaded.recipe.ref} delivers files to paths.{', paths.'.join(missing)}, which project.yaml does not map "
                       "(add them under paths:)")
+    bind, why = _check_bind(project, loaded, part.get("bind") or {})
+    if why is not None:
+        return None, why
     limit = project.config.limits.active_runs
     if limit is not None and active >= limit:
         return None, f"project.yaml limits.active_runs is {limit} and that many pieces of work are already active"
     return {"part": part["id"], "recipe": loaded, "vendor_from": vendor_from, "inputs": inputs,
-            "title": inputs.get("title") or part.get("label")}, None
+            "title": inputs.get("title") or part.get("label"), "bind": bind}, None
+
+
+def _check_bind(project: Any, loaded: Any, bind: dict[str, list[str]]) -> tuple[list[tuple[Any, list[dict[str, Any]]]], str | None]:
+    """A proposal's ``bind``, checked like ``start --bind`` (§8.6): ``(checked bindings, None)`` or ``([], reason)``."""
+    from .documents import check_binding
+
+    out = []
+    for role, paths in bind.items():
+        try:
+            out.append(check_binding(project.store, loaded.recipe, role, list(paths)))
+        except EngineError as e:
+            return [], f"the proposed document for {role} ({', '.join(paths)}) cannot be used: {e}"
+    return out, None
 
 
 PLAN_ARTIFACT = "process_plan"
@@ -356,6 +384,8 @@ def render_plan(api: Any, run_id: str, out: dict[str, Any], started: dict[str, d
         lines += [f"## {p.get('label') or pid}", ""]
         if (p.get("description") or "").strip():
             lines += [str(p["description"]).strip(), ""]
+        if p.get("bind"):  # only a proposal that builds on project documents (baton-frame@2, other proposing steps)
+            lines.append("- **Builds on:** " + "; ".join(f"{', '.join(f'`{x}`' for x in paths)} ({role})" for role, paths in p["bind"].items()))
         if pid in started:
             r = started[pid]
             lines.append(f"- **Status:** started ({str(r['recipe']).split('@')[0]}, run {r['run']})")
@@ -442,7 +472,9 @@ def part_next(api: Any, part: dict[str, Any], active: int) -> str:
     r = plan["recipe"].recipe
     if r.id == FIT_CHECK and "fit_check" in (part.get("proposal") or {}):
         return FIT_CHECK_NEXT
-    return f"starts {r.id}: {r.description or ''}".rstrip(": ")
+    text = f"starts {r.id}: {r.description or ''}".rstrip(": ")
+    paths = [p for ps in (part.get("bind") or {}).values() for p in ps]
+    return text + (f", building on {', '.join(paths)}" if paths else "")
 
 
 def _web_advice(api: Any, parts: list[dict[str, Any]], active: int) -> dict[str, Any] | None:
@@ -484,8 +516,11 @@ def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dic
     return pending
 
 
-def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any], actor: str = "runtime") -> tuple[Any, str, list[str]]:
-    """Start one planned part (vendoring a shipped recipe first): ``(run context, recipe ref, recipes vendored)``."""
+def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any], actor: str = "runtime",
+               note: str = "") -> tuple[Any, str, list[str]]:
+    """Start one planned part (vendoring a shipped recipe first), binding its proposed documents with the owner's words
+    (``note``): ``(run context, recipe ref, recipes vendored)``."""
+    from .documents import record_binding
     from .engine import start
     from .project import vendor
 
@@ -503,6 +538,9 @@ def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any
         work_item={"kind": inputs.get("kind"), "slug": api.project.render_slug(inputs, plan["title"]),
                    "branch": api.project.branch(), "framing": {"run": framing_run, "part": plan["part"]}},
     )
+    for role, entries in plan.get("bind") or []:  # checked when planned; the role is re-read from the recipe vendored now
+        role = loaded.recipe.role(role.role) or role
+        record_binding(wctx, role, entries, note, recorded_by=api.director.actor)
     return wctx, loaded.recipe.ref, vendored
 
 
@@ -534,7 +572,7 @@ def find_part(api: Any, ref: str) -> tuple[Any, dict[str, Any]]:
     return api._ctx(rid), part
 
 
-def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str, Any]]:
+def start_from_plan(api: Any, ref: str, paths: list[Any], note: str = "") -> tuple[Any, dict[str, Any]]:
     """``start --from-plan <part>`` (Decision 0066): start a part exactly as its framing run recorded it.
 
     Reads the proposal from the record, never from the published file. Returns ``(new run context, result)``."""
@@ -552,7 +590,10 @@ def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str
     plan, why = _plan_part(api, part, _active_others(api, fctx.run_id))
     if plan is None:
         raise EngineError("frame.gap", f"{part.get('label') or pid} cannot start: {why}")
-    wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor)
+    if plan["bind"] and not (note or "").strip():
+        raise EngineError("bind.note_required", f"{part.get('label') or pid} builds on project documents; binding them is the owner's "
+                          "decision: give their words with --note")
+    wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor, note=note)
     started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
     sel = next(e for e in events if e.type == "framing_selected")
     out = frame_output(fctx, log.state().step(proposer(fctx) or FRAME_STEP).attempt)
@@ -561,10 +602,17 @@ def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str
     plan_ref = {"path": target, "sha256": log.cas.put(content.encode("utf-8"))}
     log.append("framing_started_later", actor=api.director.actor, data={
         "part": pid, "run": wctx.run_id, "recipe": recipe_ref, "plan": plan_ref, **({"vendored": vendored} if vendored else {}),
+        **({"bound": _bound(plan)} if plan["bind"] else {}),
     })
     docs.write_records(fctx)
     paths.append(fctx.run_dir)
-    return wctx, {"framing": fctx.run_id, "part": pid, "recipe": recipe_ref, "plan": target, "vendored": vendored}
+    return wctx, {"framing": fctx.run_id, "part": pid, "recipe": recipe_ref, "plan": target, "vendored": vendored,
+                  **({"bound": _bound(plan)} if plan["bind"] else {})}
+
+
+def _bound(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """What a started part bound, for the proposing run's record: ``[{role, paths}]``."""
+    return [{"role": role.role, "paths": [e["info"]["path"] for e in entries]} for role, entries in plan["bind"]]
 
 
 def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[str] | None, paths: list[Any]) -> dict[str, Any]:
@@ -619,11 +667,11 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
     vendored: list[str] = []
     runs: list[dict[str, Any]] = []
     for plan in plans:
-        wctx, ref, changed = start_part(api, ctx.run_id, plan, paths)
+        wctx, ref, changed = start_part(api, ctx.run_id, plan, paths, note=note)
         vendored += changed
         docs.write_records(wctx)
         paths.append(wctx.run_dir)
-        runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": ref})
+        runs.append({"part": plan["part"], "run": wctx.run_id, "recipe": ref, **({"bound": _bound(plan)} if plan["bind"] else {})})
     words = run_words(ctx)
     content = render_plan(api, ctx.run_id, out, {r["part"]: r for r in runs}, {g["part"]: g for g in gaps})
     plan_ref = {"path": plan_target(api.project.config.paths, words or out.get("goal") or ctx.run_id),

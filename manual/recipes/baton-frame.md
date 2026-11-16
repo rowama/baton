@@ -17,9 +17,11 @@ This is the built-in process behind [starting with a goal](user.start-with-a-goa
 
 Once: which pieces to include (**Include these**), or **That's not quite it** if the breakdown is off. Your assistant also confirms the goal with you first, in your own words.
 
+When your project already holds settled documents (a plan, a survey, earlier decisions; see [documents the work uses](user.check-on-your-work#documents)), a piece may suggest building on some of them: its option says so ("building on site/survey.md"), and choosing it is also your yes to those documents. A piece you leave for later asks again, in your words, when you start it.
+
 ## What it produces {#what-it-produces}
 
-A plan of the goal's pieces, kept in your project as a document, and the pieces you chose, each started with the process that fits, or with a [fit check](recipes.fit-check#here-now) when it is not clear one does. A piece you want run is not quietly turned into building a system: making a process is its own piece, and you choose it.
+A plan of the goal's pieces, kept in your project as a document (each piece shows the documents it builds on), and the pieces you chose, each started with the process that fits, or with a [fit check](recipes.fit-check#here-now) when it is not clear one does. A piece you want run is not quietly turned into building a system: making a process is its own piece, and you choose it.
 
 ## What it needs {#what-it-needs}
 
@@ -33,5 +35,5 @@ One helper that can reason and write. If part of the work will need to search th
 
 ## If it goes wrong {#if-it-goes-wrong}
 
-- **A piece cannot start:** because its details do not fit the process, or it would write somewhere the project has not set up. It is reported to you as a gap, never started anyway.
+- **A piece cannot start:** because its details do not fit the process, it would write somewhere the project has not set up, or a document it would build on cannot be used (it is not one of the project's documents, was deleted, or is the wrong kind of file). It is reported to you as a gap, never started anyway, and never started without the document.
 - **The breakdown is not what you meant:** choose **That's not quite it** and say why; it is redone.

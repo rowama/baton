@@ -204,6 +204,12 @@ _PROPOSALS: dict[str, Any] = {
                         "additionalProperties": False,
                     },
                     "reasons": {"type": "array", "items": {"type": "string"}},
+                    "bind": {
+                        "type": "object",
+                        "description": "Project documents the proposed run builds on: {role: [paths]}, checked when the part is chosen",
+                        "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+                        "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                    },
                 },
                 "additionalProperties": False,
             },

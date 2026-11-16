@@ -36,6 +36,21 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "bind": {
+            "additionalProperties": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "description": "Project documents the proposed run builds on: {role: [paths]}, checked when the part is chosen",
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            "type": "object"
+          },
           "description": {
             "description": "What this piece of work is, in the owner's terms",
             "minLength": 1,

@@ -48,9 +48,15 @@ KEEP = ("human_gate_opened", "human_decision", "gate_passed", "gate_failed", "fr
 
 
 @pytest.mark.slow
-def test_framing_records_and_renders_as_before(tmp_path):
+@pytest.mark.parametrize("version", ["baton-frame@1", "baton-frame@2"])
+def test_framing_records_and_renders_as_before(tmp_path, monkeypatch, version):
+    """@1 as an open run started before @2 keeps it; @2 without bindings records and renders the same."""
+    from baton import frame as framing
+
+    monkeypatch.setattr(framing, "FRAME_RECIPE", version)
     cli, project = fresh(tmp_path)
     fr = _frame(cli, project)
+    assert _events(project, fr)[0]["data"]["recipe"] == version
     out = frame_output()
     out["parts"][2]["proposal"]["inputs"]["description"] = "Signs at each site."  # a part that can start later
     out["parts"].append({"id": "web", "label": "A website", "description": "A page saying where the machines are.",
@@ -80,7 +86,7 @@ def test_framing_records_and_renders_as_before(tmp_path):
 
 # -- any step that declares proposes_runs -----------------------------------------------------------------------
 
-from projectkit import git  # noqa: E402
+from projectkit import git, packet_dir, write_result  # noqa: E402
 from runkit import make_recipe  # noqa: E402
 
 GOAL = "Get the lemonade stand open"
@@ -223,3 +229,120 @@ def test_the_loader_checks_proposing_steps(tmp_path):
         raw["steps"][-1].pop(key)
     (root / "recipe.yaml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
     assert "step.proposes_runs_in_group" in _codes(root)
+
+
+# -- Slice 2: proposals carry bindings; baton-frame@2 --------------------------------------------------------------
+
+SURVEY = {"role": "site_survey", "description": "A survey of the site: its ground, access and services", "media_type": "text/markdown"}
+PHOTOS = {"role": "photos", "description": "Photos of the site", "required": False, "many": True}
+
+
+def _builder(root: Path) -> Path:
+    """One step that reads the site survey (required) and photos (optional, many)."""
+    use = {"id": "build", "output_schema": "schemas/out.json", "inputs": [
+        {"name": "survey", "from": "project.site_survey", "required": True}, {"name": "photos", "from": "project.photos", "required": False}]}
+    return make_recipe(root, [use], schemas={"out.json": {"type": "object"}}, id="site-build", project_inputs=[SURVEY, PHOTOS],
+                       run_inputs={"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}}})
+
+
+def _documents_project(tmp_path: Path):
+    cli, project = fresh(tmp_path)
+    cli.run("vendor", str(_builder(tmp_path / "site-build")))
+    (project / "site").mkdir()
+    (project / "site" / "survey.md").write_text("# Survey\n\nFlat ground, power at the fence.\n", encoding="utf-8")
+    (project / "site" / "old.md").write_text("# Old survey\n", encoding="utf-8")
+    (project / "site" / "a.jpg").write_bytes(b"\xff\xd8\xff photo a")
+    (project / "site" / "b.jpg").write_bytes(b"\xff\xd8\xff photo b")
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Site files")
+    for f in ("site/survey.md", "site/old.md", "site/a.jpg", "site/b.jpg"):
+        cli.run("attest", f, "--note", "That's ours.")
+    (project / "site" / "old.md").unlink()
+    git(project, "commit", "-qam", "Drop the old survey")
+    return cli, project
+
+
+def _part(pid: str, bind: dict | None) -> dict:
+    p = {"id": pid, "label": f"Part {pid}", "description": f"The {pid} part.", "kind": "project",
+         "proposal": {"recipe": "site-build", "inputs": {"title": pid.title()}}, "reasons": ["It builds on the survey"]}
+    return {**p, **({"bind": bind} if bind is not None else {})}
+
+
+@pytest.mark.slow
+def test_framing_v2_lists_documents_and_roles_and_selection_binds_or_reports_a_gap(tmp_path):
+    cli, project = _documents_project(tmp_path)
+    fr = _frame(cli, project)
+    assert _events(project, fr)[0]["data"]["recipe"] == "baton-frame@2"
+    d = cli.run("dispatch", fr, "frame", "--worker", "owner")
+    pdir = Path(project / ".baton" / "runs" / fr / "steps" / "frame" / f"attempt-{d['attempt']}" / "packet")
+    docs = json.loads((pdir / "inputs" / "documents.json").read_text(encoding="utf-8"))
+    assert [x["path"] for x in docs] == ["site/a.jpg", "site/b.jpg", "site/survey.md"]  # the deleted one is left out
+    assert set(docs[0]) == {"path", "kind", "media_type", "state"}  # never contents
+    recipes = {r["id"]: r for r in json.loads((pdir / "inputs" / "recipes.json").read_text(encoding="utf-8"))}
+    assert [r["role"] for r in recipes["site-build"]["project_inputs"]] == ["site_survey", "photos"]
+
+    out = frame_output()
+    out["parts"] = [
+        _part("good", {"site_survey": ["site/survey.md"], "photos": ["site/a.jpg", "site/b.jpg"]}),
+        _part("norole", {"budget": ["site/survey.md"]}),
+        _part("notdoc", {"site_survey": ["README.md"]}),
+        _part("media", {"site_survey": ["site/a.jpg"]}),
+        _part("two", {"site_survey": ["site/survey.md", "site/survey.md"]}),
+        _part("deleted", {"site_survey": ["site/old.md"]}),
+        _part("later", {"site_survey": ["site/survey.md"]}),
+    ]
+    write_result(packet_dir(project, fr, "frame", d["attempt"]), out)
+    assert cli("submit", fr, "frame", expect=None).payload["outcome"] == "needs_human"
+    (pd,) = status(cli, fr)["pending_decisions"]
+    nxt = {p["part"]: p["next"] for p in next(o for o in pd["options"] if o["decision"] == "select")["next"]}
+    assert nxt["good"] == "starts site-build, building on site/a.jpg, site/b.jpg, site/survey.md"  # roles in the record's (sorted) order
+    assert nxt["norole"].startswith("can't start yet: the proposed document for budget (site/survey.md) cannot be used: ")
+
+    note = "The good one, and try the others. Yes, building on the survey and photos."
+    sel = cli.run("decide", fr, "frame", "select", "--items", "good,norole,notdoc,media,two,deleted", "--note", note)
+    assert [(r["part"], r["bound"]) for r in sel["runs"]] == [
+        ("good", [{"role": "photos", "paths": ["site/a.jpg", "site/b.jpg"]}, {"role": "site_survey", "paths": ["site/survey.md"]}])]
+    gaps = {g["part"]: g["reason"] for g in sel["gaps"]}
+    assert "declares no project document role 'budget'" in gaps["norole"]
+    assert "README.md is not a project document" in gaps["notdoc"]
+    assert "takes text/markdown" in gaps["media"]
+    assert "takes exactly one document, got 2" in gaps["two"]
+    assert "site/old.md was deleted" in gaps["deleted"]
+    good = sel["runs"][0]["run"]
+    ev = _events(project, good)
+    decisions = [e for e in ev if e["type"] == "human_decision"]
+    assert [(e["data"]["kind"], e["data"]["role"], e["data"]["note"]) for e in decisions] == [("bind", "photos", note), ("bind", "site_survey", note)]
+    bound = [e["data"] for e in ev if e["type"] == "project_input_bound"]
+    assert [(b["role"], [x["path"] for x in b["documents"]]) for b in bound] == [("photos", ["site/a.jpg", "site/b.jpg"]),
+                                                                                ("site_survey", ["site/survey.md"])]
+    # The bound survey reaches the run's step like any input.
+    d2 = cli.run("dispatch", good, "build", "--worker", "owner")
+    survey = packet_dir(project, good, "build", d2["attempt"]) / "inputs"
+    assert any("power at the fence" in f.read_text(encoding="utf-8", errors="replace") for f in survey.iterdir() if f.is_file())
+
+    plan = (project / sel["plan"]).read_text(encoding="utf-8")
+    assert "- **Builds on:** `site/a.jpg`, `site/b.jpg` (photos); `site/survey.md` (site_survey)" in plan
+
+    # A part left in the plan binds as recorded when started later, with the owner's words.
+    assert cli.run("start", "--from-plan", "later", expect=1)["error"] == "bind.note_required"
+    later = cli.run("start", "--from-plan", "later", "--note", "Start the later one on the survey. Yes.", expect=None)
+    assert later["from_plan"]["bound"] == [{"role": "site_survey", "paths": ["site/survey.md"]}]
+    lev = _events(project, later["run_id"])
+    assert [e["data"]["note"] for e in lev if e["type"] == "human_decision"] == ["Start the later one on the survey. Yes."]
+    fev = [e for e in _events(project, fr) if e["type"] == "framing_started_later"]
+    assert fev[0]["data"]["bound"] == [{"role": "site_survey", "paths": ["site/survey.md"]}]
+    runs = f".baton/runs/{fr}", f".baton/runs/{later['run_id']}"  # the good run's dispatch is not a checkpoint
+    assert git(project, "status", "--porcelain", "--", *runs, "docs").strip() == ""
+    assert cli.run("check")["ok"]
+
+
+@pytest.mark.not_slow("loads built-in recipes in process")
+def test_framing_v1_stays_loadable_and_v2_proposes_runs_with_bindings():
+    from baton.frame import FRAME_RECIPE, proposing_step
+    from baton.project import builtin_recipe
+
+    v1, v2 = builtin_recipe("baton-frame@1"), builtin_recipe("baton-frame@2")
+    assert FRAME_RECIPE == "baton-frame@2" and not v1.recipe.steps[0].proposes_runs and v2.recipe.steps[0].proposes_runs
+    assert proposing_step(v1) == proposing_step(v2) == "frame"
+    assert "bind" in v2.schemas["schemas/frame.json"]["properties"]["parts"]["items"]["properties"]
+    assert "bind" not in v1.schemas["schemas/frame.json"]["properties"]["parts"]["items"]["properties"]
