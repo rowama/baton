@@ -1,11 +1,11 @@
 ---
 id: 2026-11-project-review
 title: "An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on"
-status: proposed
+status: in-progress
 level: major
-decisions: ["0150", "0152", "0069", "0044", "0062", "0066", "0068", "0142", "0148"]
+decisions: ["0150", "0152", "0069", "0044", "0062", "0066", "0068", "0142", "0148", "0157"]
 touches: [principles.md, design/recipes.md, design/adoption-and-framing.md, design/runtime.md, design/director-interface.md]
-manual: [recipes/project-review.md, recipes/baton-frame.md, user/start-with-a-goal.md, user/check-on-your-work.md, admin/director-commands.md, reference/commands.md]
+manual: [recipes/baton-frame.md, user/start-with-a-goal.md, user/check-on-your-work.md, admin/director-commands.md, reference/commands.md]
 ---
 
 # An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on
@@ -18,12 +18,12 @@ Framing (§11.6) turns a goal into parts and starts the ones the owner picks. Af
 
 An owner who thinks in project-management terms wants a recurring "where are we, and what's next?" step. Decision [0150](../decisions/0150-project-review-opt-in.md) settles the shape. It is opt-in, never built in by default. Each review is a short, repeatable run, not a process lasting the life of the project. The Director offers it when framing finds several parts. Recommendations may suggest an order only inside a review the owner chose (0069 stands otherwise). Decision 0148 deferred *proposals that carry document bindings* to this change.
 
-Project documents (`2026-11-project-documents`) and tailoring axes (`2026-11-tailoring-axes`) are done. Project policy (`2026-11-project-policy`) is proposed. A review reports its governing recipes when that change exists, and works without it.
+Project documents (`2026-11-project-documents`), tailoring axes (`2026-11-tailoring-axes`) and project policy (`2026-11-project-policy`) are done. A review reads the policy and sees the governing recipes (0157).
 
 ### Acceptance criteria
 
-- **A review reads the project's state.** A new input, `project.summary`, gives a step the project's runs (recipe, title, status, where each is waiting, ratings), its project documents (path, kind, source, state), active runs' bindings and upstream changes, its process plans and their parts not yet started, and the policy once it exists. It is built by the runtime from the records, deterministically: the same records give the same blob.
-- **A review recommends; the owner chooses.** A shipped catalog recipe, `project-review`, has one recommending step. Its output proposes runs, each with a label and description in the owner's terms, a recipe (or a fit check, or a quick run once `2026-11-quick-runs` exists), run inputs, proposed document bindings, reasons, and an optional order with what it waits on. An implicit selection gate lets the owner choose any or none, in conversation and confirmed back. The selected runs start exactly as recorded, with their bindings and the owner's words. Nothing starts without the owner's selection.
+- **A review reads the project's state.** A new input, `project.summary`, gives a step the project's runs (recipe, title, status, where each is waiting, ratings), its project documents (path, kind, source, state), active runs' bindings and upstream changes, its process plans and their parts not yet started, and the policy in force (or that none is recorded). It is built by the runtime from the records, deterministically: the same records give the same blob.
+- **A review recommends; the owner chooses.** A shipped catalog recipe, `project-review`, has one recommending step. Its output proposes runs, each with a label and description in the owner's terms, a recipe or a fit check (a quick run once `2026-11-quick-runs` exists, 0157), run inputs, proposed document bindings, reasons, and an optional order with what it waits on. An implicit selection gate lets the owner choose any or none, in conversation and confirmed back. The selected runs start exactly as recorded, with their bindings and the owner's words. Nothing starts without the owner's selection.
 - **Selection is one mechanism.** Framing's selection (the `select` gate, starting runs, gaps, vendoring on selection, the runtime-rendered process plan, `start --from-plan`) becomes available to any recipe step that declares it proposes runs. `baton-frame@1` behaves, records and renders exactly as before (its tests and goldens unchanged).
 - **Proposals may carry bindings.** A proposal's `bind {role: [paths]}` is checked at selection like `start --bind` (role declared, paths are project documents, media types fit, one or many). A binding that fails makes that part a gap with the reason, never a silent start without it. Framing gains bindings in a new version, `baton-frame@2`. Open `@1` runs keep `@1`.
 - **The plan shows order only where chosen.** A review's process plan lists each recommended part with its reasons and, when the review suggests one, its position and what it waits on. A framing run's plan never shows an order (0069).
@@ -52,6 +52,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 - **The mechanism.** `frame.py`'s selection, planning, gaps, rendering and `start --from-plan` are re-keyed from "the run is `baton-frame@1`" to "the step declares `proposes_runs`". Events keep their names (`framing_selected`, `framing_started_later`, `run_started.framing`) so existing records read unchanged. Their meaning becomes "a proposing step's selection".
 - **`project.summary`** is computed at packet build from the run logs, the project log and `documents()`, then stored in the run's CAS like any input. Its hash makes two reviews of the same state comparable.
 - **Rendering.** The process plan renderer gains `position` and `waits_on` lines. It prints them only when present, which never happens for framing.
+- **Starting a review** (0157). No new command: the Director starts an ordinary run of `project-review` with `baton start`. The owner's yes to the offer is the confirmation to vendor the catalog recipe on first use, recorded with their words. The step reads `project.summary` and `catalog` (the recipe listing, governing recipes marked).
 - **Director skill.** It offers a review after a multi-part framing selection and on "what next?", and relays recommendations with their reasons, never adding its own.
 
 ### Doc edits
@@ -65,7 +66,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 
 ### Manual edits
 
-- `manual/recipes/project-review.md` (new, from `manual/recipe-sources/`): what a review does, what it reads, what you are asked.
+- `manual/recipes/project-review.md` (new, from `manual/recipe-sources/`; added to `manual:` in Slice 4, when it exists): what a review does, what it reads, what you are asked.
 - `manual/recipes/baton-frame.md`: proposals that build on existing documents (`@2`).
 - `manual/user/start-with-a-goal.md`: asking for a review after framing; reading a review's plan.
 - `manual/user/check-on-your-work.md`: "what's next?" through a review.
@@ -78,6 +79,7 @@ For the owner's approval, with the Request (a major change: Request and Design a
 - [0044](../decisions/0044-framing-mature-projects-deferred.md) (accepted): mature-project framing, still deferred (open question 5).
 - [0142](../decisions/0142-project-documents-bound-by-role.md), [0148](../decisions/0148-project-documents-framing-deferred.md) (accepted): bindings, and their deferral to this change.
 - [0152](../decisions/0152-project-review-details.md) (accepted): generalized selection, a catalog recipe, metadata-only summary, `baton-frame@2`, no adoption proposals, `position` and `waits_on`.
+- [0157](../decisions/0157-project-review-starts-as-a-run.md) (accepted): the review reads the policy and governing recipes, proposes recipes or fit checks only, and starts as an ordinary run.
 
 ## Plan
 
@@ -98,7 +100,7 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 ### Slice 3: `project.summary`
 
 - **Outcome:** a step can read the project's state.
-- **Criteria:** contents as listed; deterministic for the same records; no document contents; works before and after project policy exists.
+- **Criteria:** contents as listed; deterministic for the same records; no document contents; the policy in force, or none recorded.
 - **Effort:** M
 
 ### Slice 4: the `project-review` recipe, the Director and the manual
@@ -120,3 +122,9 @@ Slices as proposed; refined, if needed, once the Request and Design are approved
 - **Summary:** The six questions the proposal raised were answered as suggested and recorded as Decision 0152. The Request has no open questions; the Design is ready for approval. No code changed.
 - **Owner decision:** 2026-11-14, "Accept all for B and D." (0152).
 - **Accepted:** Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** Checked the Design against the code (framing in `frame.py`; `catalog` and `project.*` inputs in `packet.py`; policy done). Three refinements, recorded as 0157: the summary carries the policy and the step sees governing recipes; proposals are a recipe or a fit check only; a review starts as an ordinary run, with no new command. No code changed.
+- **Owner decision:** 2026-11-15, "All approved." (0157).
+- **Accepted:** Yes; status in-progress.

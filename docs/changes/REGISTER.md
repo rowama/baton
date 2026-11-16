@@ -4,10 +4,10 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-project-review](2026-11-project-review.md) | An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on | in-progress | major | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
 | [2026-11-person-step-forms](2026-11-person-step-forms.md) | A person's step can show a form built from the step's data, when the Director's questions are not enough | proposed | major | On hold: deferred by the owner (2026-11-15); after 2026-11-tool-steps and the recipe-builder changes of Decision 0155 |
-| [2026-11-project-review](2026-11-project-review.md) | An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on | proposed | major | Awaiting the owner's approval of Request and Design |
 | [2026-11-quick-runs](2026-11-quick-runs.md) | An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document | proposed | major | Deferred by the owner (2026-11-14): open questions 1 and 5 to be discussed first |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |
