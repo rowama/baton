@@ -291,3 +291,6 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0151 Project policy: permissions are the release authority, hand edits wait for confirmation, re-triage takes current policy](decisions/0151-project-policy-details.md) | accepted |
 | [0152 Project review: framing's selection generalized, a catalog recipe, metadata-only summary, bindings in proposals](decisions/0152-project-review-details.md) | accepted |
 | [0153 Project policy: the file is in force until the first record, and floors raise baseline ratings](decisions/0153-policy-upgrade-and-baseline-floors.md) | accepted |
+| [0154 A step may be run by a tool: pinned, with declared dependencies, in three forms, built in three changes](decisions/0154-tool-steps.md) | accepted |
+| [0155 Recipe builder builds software within a budget: one recipe, an owner-set ceiling, software preferred to an AI worker, 0149 narrowed](decisions/0155-recipe-builder-builds-software.md) | accepted |
+| [0156 Tool steps: uv environments from a hash-locked file, Python first, declared network reach, one attempt, readiness checked at start and dispatch](decisions/0156-tool-steps-details.md) | accepted |

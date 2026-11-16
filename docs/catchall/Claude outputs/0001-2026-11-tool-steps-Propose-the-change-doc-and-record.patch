@@ -1,0 +1,241 @@
+From 6159dbef3d66827aebc3fb581cf6334649f940ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 20:27:36 -0600
+Subject: [PATCH] 2026-11-tool-steps: Propose the change doc and record
+ Decision 0154
+
+Docs only: docs/changes/2026-11-tool-steps.md (proposed, major), Decision
+0154 (a tool is a third kind of executor of a step), the register row and
+the decision index. No code changed. tests/test_docs.py passes.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FVav9EfW97AFU4ZvwzNQFK
+---
+ docs/README.md                     |   1 +
+ docs/changes/2026-11-tool-steps.md | 158 +++++++++++++++++++++++++++++
+ docs/changes/REGISTER.md           |   1 +
+ docs/decisions/0154-tool-steps.md  |  26 +++++
+ 4 files changed, 186 insertions(+)
+ create mode 100644 docs/changes/2026-11-tool-steps.md
+ create mode 100644 docs/decisions/0154-tool-steps.md
+
+diff --git a/docs/README.md b/docs/README.md
+index 0b1a4b5..63364f8 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -291,3 +291,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
+ | [0151 Project policy: permissions are the release authority, hand edits wait for confirmation, re-triage takes current policy](decisions/0151-project-policy-details.md) | accepted |
+ | [0152 Project review: framing's selection generalized, a catalog recipe, metadata-only summary, bindings in proposals](decisions/0152-project-review-details.md) | accepted |
+ | [0153 Project policy: the file is in force until the first record, and floors raise baseline ratings](decisions/0153-policy-upgrade-and-baseline-floors.md) | accepted |
++| [0154 A step may be run by a tool: pinned, with declared dependencies, in three forms, built in three changes](decisions/0154-tool-steps.md) | accepted |
+diff --git a/docs/changes/2026-11-tool-steps.md b/docs/changes/2026-11-tool-steps.md
+new file mode 100644
+index 0000000..07955d6
+--- /dev/null
++++ b/docs/changes/2026-11-tool-steps.md
+@@ -0,0 +1,158 @@
++---
++id: 2026-11-tool-steps
++title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
++status: proposed
++level: major
++decisions: ["0154", "0085"]
++touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
++manual: []
++---
++
++# A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran
++
++## Request
++
++### Problem
++
++A recipe can only say what kind of AI worker or person a step needs (`requires`). Work that plain code does better (a calculation, a backtest, a file conversion, a reconciliation) has two homes today, and neither fits:
++
++- **A script gate** (§9.1) runs a command, but a gate judges a step's result. It produces no output that another step takes as an input.
++- **A `command` worker profile** (§6.3) runs any command line as a worker. But:
++  - it is machine-local and hand-written (`~/.baton/workers.yaml`), so a recipe cannot ship it;
++  - it is routed by capabilities and tier, so it must claim AI abilities to be chosen, and the Director may pick another worker;
++  - the command must speak the packet protocol itself, and its instructions are prose written for a model;
++  - nothing states what it needs installed, and no run records which version ran.
++
++So a recipe author who wants a step done by code gives it to an AI worker with `shell`, which costs a model call, varies between runs and ties the step to a harness. The owner's direction (Decision [0154](../decisions/0154-tool-steps.md)): a tool is a third kind of executor, visible to the recipe designer at the same level as AI capabilities, separable from any harness, and more locked down than an AI worker.
++
++This is the first of three changes. It covers scripts a recipe ships. External software and waiting steps come later (see *Out of scope*).
++
++### Acceptance criteria
++
++1. **A step names its tool.** A step has `tool: <id>` instead of `requires` and `prompt`. The tool lives in the recipe package (`tools/<id>/`), so it is vendored, hashed and pinned with the recipe. Having both `tool` and `requires` or `prompt` is a load error.
++2. **A tool declares what it is.** `tools/<id>/tool.yaml` gives the entry command (a list of words; no shell runs it), the runtime it needs, a lock file of exact dependency versions with hashes, and what it may touch (workspace mode, network, named secrets).
++3. **No routing.** `eligible` returns the tool as the step's one executor, or says why it is not ready. The Director still dispatches the step and cannot substitute another executor.
++4. **The tool author never sees the packet protocol.** Baton's runner gives the tool one JSON file of the step's inputs and an output directory. The tool writes `output.json` and any artifacts. The runner checks them, writes `result.json` and echoes the packet hash. Input values never appear on a command line.
++5. **Dependencies are resolved before use.** Baton builds an isolated environment for the tool from its lock file, on the machine, reused while the lock is unchanged. A missing runtime or a failed build is a platform failure with a plain reason, not the step's failure.
++6. **Not ready is said early.** `check`, `doctor` and `start` report each tool of the recipe that is not ready on this machine and why. Dispatch refuses a tool that is not ready.
++7. **Every run records what ran.** `dispatched` records the tool's id and hash, the lock file's hash, the runtime's exact version and the environment's id. The step record shows them.
++8. **A tool gets only what it declares.** Its environment is clean: no secrets except those it names, resolved from machine-level configuration. Its workspace mode is enforced as for any worker (§6.3). Network reach is declared and shown to the owner; it is enforced only where the machine isolates the tool (see open question 3).
++9. **Gates and inputs work as for any step.** A tool step's output and artifacts feed later steps, and its gates (schema, script, review, human) run unchanged. A reviewer of a tool step is always independent of it.
++10. **The owner approves tools with the recipe.** Vendoring a recipe that has tools lists each one in the owner's terms: what it does, what it needs installed and what it may touch. `baton recipe check` rejects a tool with no lock file, an unpinned dependency, or a declared file that is missing.
++11. **Nothing changes for recipes without tools.** Their packets, hashes and events are byte for byte as before.
++
++### Open questions
++
++Each has a suggested answer, assumed until the owner decides.
++
++1. **How is the environment built?** Suggest `uv`, which the launcher already requires (§14.1): `uv venv`, then `uv pip install --require-hashes -r <lock>` **[VERIFY against the installed uv]**. The lock file is a requirements file with hashes. No new dependency.
++2. **Which runtimes in the first version?** Suggest Python only. `tool.yaml` names the runtime kind, so others can be added without a format change.
++3. **Network reach cannot be enforced without OS isolation.** Suggest: declare it, show it to the owner at vendoring, record it, and enforce it only when the tool runs under `isolation: container`. The manual says so plainly. The alternative is to refuse network tools until isolation exists.
++4. **Retries.** A script given the same inputs fails the same way. Suggest tool steps default to one attempt; a failure escalates to the owner with the tool's error output. A recipe may raise the limit for a tool that calls something flaky.
++5. **When is "not ready" a refusal?** Suggest `start` warns (the Director tells the owner what to install) and dispatch refuses. A tool on a step the run's level skips never blocks anything.
++6. **Where do environments live?** Suggest `~/.baton/tools/<lock hash>/`: machine-local, never committed, shared by every project that uses the same lock.
++7. **Format version.** Suggest staying on `baton-recipe/1`. The loader rejects unknown step fields, so an older runtime refuses a recipe with tools instead of misreading it.
++8. **Time limits.** Suggest tool steps use the effort bands (§8.7) like any step, with `S` as their default.
++
++### Out of scope
++
++- **External software and specified interfaces** (Decision 0154, forms 2 and 3): the second change.
++- **Waiting steps and the scheduler helper:** the third change.
++- **`recipe-builder` choosing between a tool, an AI worker and a person,** and writing and testing tools: its own change, after this one.
++- **Tools offered to a model inside a worker** ([2026-11-step-tool-harness](2026-11-step-tool-harness.md), on hold). That change gives an AI worker tools to call; this one runs a tool with no model. The two may later share tool definitions.
++- **A catalog of tools shared between recipes.** A tool lives in its recipe for now.
++- **The `command` adapter** stays as it is, for relaying to other agents and for machine-local tools.
++
++## Design
++
++For the owner's approval, with the Request (a major change: Request and Design are approved before the Plan is final).
++
++### Shape
++
++- **Recipe.**
++  ```yaml
++  - id: backtest
++    title: Test the strategy against past prices
++    depends_on: [parameters]
++    tool: backtest                       # tools/backtest/ in this package
++    workspace: none
++    inputs:
++      - { name: parameters, from: steps.parameters.output, required: true }
++    output_schema: schemas/backtest_out.json
++    artifacts:
++      - { name: trades, required: true, media_type: text/csv }
++    gates: [ { type: schema } ]
++  ```
++- **Tool.**
++  ```
++  <recipe>/tools/backtest/
++  ├── tool.yaml
++  ├── requirements.lock        # exact versions with hashes
++  └── backtest.py
++  ```
++  ```yaml
++  id: backtest
++  description: Runs a strategy over a price history and reports its trades and returns.
++  runtime: { kind: python, version: ">=3.11" }
++  entry: ["python", "backtest.py", "--input", "{input}", "--output", "{output}"]
++  dependencies: { lock: requirements.lock }
++  reach: { network: false, secrets: [] }
++  ```
++  `{input}`, `{output}` and `{workspace}` are the only placeholders. `entry[0]` resolves inside the tool's environment.
++- **Runner.** A new adapter, `tool`, runs `python -m baton.tool_runner` as the child, as `litellm_api` runs `worker_runner` (§6.3). The runner writes the inputs file from the packet, starts the entry command in the tool's environment with the tool's directory as its working directory, and turns `output.json` and the artifacts into `result.json`. Exit 0 with a valid output is `completed`; anything else is `failed` with the last lines of the tool's error output in `notes`. A tool cannot return `blocked` or questions.
++- **Supervision.** Unchanged: the per-dispatch supervisor, running marker, deadline, intake, hooks and checkpoint (§8.7). A tool step is async like any other.
++- **Identity.** A tool's result is recorded with creator `tool` and identity `tool/<recipe>/<id>@<hash>`. Independence rules (§8.4) therefore never match a tool against a model or a person.
++- **Readiness.** One function answers "is this tool ready here, and if not, why": runtime found, environment built for this lock hash, named secrets resolvable. `check`, `doctor`, `start`, `eligible` and dispatch all use it. `baton tools setup` builds the environments for the vendored recipes' tools.
++- **Trust.** Tools are part of the recipe's hash, so the existing rule holds: vendored recipes are trusted code, reviewed before vendoring, and `check` and `doctor` verify their hashes (§15.2). A changed tool file is a changed recipe.
++
++### Doc edits
++
++- `principles.md` §2: **Tool**, a new concept; **Step** now reads "done by one worker or tool per attempt".
++- `design/recipes.md` §5.1 (a tool step in the example), §5.3 (load rules for `tool`), a new section for tools in recipes (`tool.yaml`, the lock file, reach).
++- `design/layouts.md` §4.2 (`tools/` in a recipe package), §4.4 (`~/.baton/tools/`).
++- `design/workers.md` §6.3: the `tool` adapter and its runner; how it differs from `command`.
++- `design/packets.md` §7.1, §7.2: the inputs file and output directory the runner gives a tool; no `INSTRUCTIONS.md` is read by a tool.
++- `design/runtime.md` §8.2 (`dispatched.tool`), §8.4 (no routing for tool steps; tool identity), §8.8 (tool failures and platform failures).
++- `design/platform-and-security.md` §15.2: what a tool may touch, and what is and is not enforced.
++- `design/director-interface.md` §13.1: `eligible` for a tool step; `tools setup`; what `start` reports.
++- `docs/README.md`: the new section and Decision 0154.
++
++### Manual edits
++
++To be listed when the change is accepted. Expected: an administrator topic on tools (what a recipe's tools need, `baton tools setup`, where environments live), the owner's topic on what Baton may do (tools and what they may touch), and the generated command reference.
++
++### Decisions
++
++- [0154](../decisions/0154-tool-steps.md) (accepted): a tool is a third kind of executor; pinned; three forms; three changes.
++- [0085](../decisions/0085-harness-tool-maps.md) (accepted): least privilege for a worker's tooling; this change applies the same rule to tools.
++- The eight open questions above become one record when the owner answers them.
++
++## Plan
++
++Slices as proposed; refined once the Request and Design are approved.
++
++### Slice 1: a recipe declares tools
++
++- **Outcome:** a recipe with `tools/` loads, plans and is checked; nothing runs yet.
++- **Criteria:** `tool` on a step and `tool.yaml` are loaded and validated; load errors for `tool` with `requires` or `prompt`, an unknown tool, a missing file, a lock without hashes; `baton plan` shows a tool step as done by its tool; the recipe hash covers the tool's files; recipes without tools are unchanged.
++- **Effort:** M
++
++### Slice 2: a tool step runs
++
++- **Outcome:** a tool step is dispatched, supervised, taken in and gated like any step, in an environment built from its lock.
++- **Criteria:** the environment is built and reused by lock hash; the runner's inputs file and `result.json`; exit and output failures; platform failures for a missing runtime and a failed build; clean environment with only named secrets; workspace mode enforced; `dispatched` records tool, lock, runtime and environment; the output feeds a later step; a review gate on a tool step.
++- **Effort:** L
++
++### Slice 3: readiness, approval and the manual
++
++- **Outcome:** an owner knows before a run what its tools need, and approves them with the recipe.
++- **Criteria:** readiness in `check`, `doctor`, `start` and `eligible`; `baton tools setup`; the vendoring summary lists each tool in plain words; `baton recipe check` rules; a shipped example recipe with one tool step; manual topics.
++- **Effort:** M
++
++## Log
++
++### Proposal drafted
++
++- **Summary:** Change doc written from the owner's discussion of 2026-11-15 (Decision 0154). Found that the `command` adapter already runs a command line as a worker, so the proposal adds a recipe-shipped, pinned tool beside it and reuses the supervisor, intake and gates. No code changed.
++- **Owner decision:** 2026-11-15, "Yes." (to drafting the tool-steps change doc).
++- **Accepted:** No; proposal only. Eight open questions await the owner.
+diff --git a/docs/changes/REGISTER.md b/docs/changes/REGISTER.md
+index 6e7a8bf..436e99e 100644
+--- a/docs/changes/REGISTER.md
++++ b/docs/changes/REGISTER.md
+@@ -11,6 +11,7 @@ One row per change doc in this folder: the place to see every change's status wi
+ | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
+ | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |
+ | [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | proposed | major | On hold: after 2026-11-capability-confidence and 2026-11-cli-model-routes |
++| [2026-11-tool-steps](2026-11-tool-steps.md) | A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran | proposed | major | Awaiting the owner's answers to eight open questions, then approval of Request and Design |
+ | [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) | Become a Baton director: setup with as little owner effort as possible | proposed | major | On hold (owner, 2026-11-05): not to be designed further or implemented until the owner accepts it |
+ | [2026-11-adopt-recipe-selection](2026-11-adopt-recipe-selection.md) | Adopting an existing project finds or builds its recipe first, using fit-check with project context | done | standard | |
+ | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |
+diff --git a/docs/decisions/0154-tool-steps.md b/docs/decisions/0154-tool-steps.md
+new file mode 100644
+index 0000000..6f72a42
+--- /dev/null
++++ b/docs/decisions/0154-tool-steps.md
+@@ -0,0 +1,26 @@
++---
++id: "0154"
++title: "A step may be run by a tool: pinned, with declared dependencies, in three forms, built in three changes"
++status: accepted
++date: 2026-11-15
++source: "Owner, 2026-11-15: \"I just want to be able to design a process with more than AI capabilities as the variant.\"; \"Three docs\"; \"wait as state: concur\"."
++sections: ["§2", "§5.1", "§6.3", "§8.7"]
++---
++
++# 0154. A step may be run by a tool: pinned, with declared dependencies, in three forms, built in three changes
++
++## Context
++
++The owner wants `recipe-builder` to design processes that use AI only where rules or existing software cannot do the work. A recipe can say only what kind of AI worker or person a step needs (`requires`); code runs as a gate, or through a hand-written machine-local `command` profile that a recipe cannot ship, pin or name. The owner does not want every step tied to an agentic harness: formal tool use must be separable from the harness and visible to the recipe designer at the same level as AI capabilities.
++
++## Decision
++
++1. **A tool is a third kind of executor of a step**, beside an AI worker and a person. Baton runs it itself, with the same packet, result, gates and provenance as any step.
++2. **Tools are more locked down than AI capabilities.** A recipe names the tool; the Director cannot substitute another. The command is fixed, inputs are typed, what the tool may touch is declared, and a tool enters a project only with the owner's approval.
++3. **Three forms**, sharing one model (a requirement stated at design time, a resolution at install time, a record per run):
++   - a script built at design time, with its runtime needs;
++   - a specific piece of external software that must be available;
++   - a specified interface, with the owner pointing to an instance at install time and an adapter between. The design step drafts the specification; the owner approves it.
++4. **A tool run is a step** when its output is handed on, when it needs its own check or record, when it must not depend on the harness in use, or when it spends money or changes something outside the project. Otherwise it stays inside a worker.
++5. **Waiting is held as state**, like a person's step, with no Baton process kept alive. An optional helper run from a scheduler may check waiting steps and wake the process. Baton never requires it.
++6. **Three changes**, in this order: tool steps (design-built scripts, dependencies, checks, records: `2026-11-tool-steps`); external software and binding; waits and the helper. A change to `recipe-builder` (decomposition, traits of each step, choice of executor, audit checks) follows the first.
+-- 
+2.43.0
+
