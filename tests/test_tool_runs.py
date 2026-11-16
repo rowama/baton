@@ -81,7 +81,7 @@ class Setup:
         self.home = make_home(tmp_path / "home")
         self.cli = Cli(self.project, self.home)
         self.cli.run("init", str(self.project), "--bare")
-        self.cli.run("vendor", str(src))
+        self.cli.run("vendor", str(src), "--approved", "--note", "Yes, use the backtest script.")  # tools need the owner (§5.9)
         git(self.project, "add", "-A")
         git(self.project, "commit", "-qm", "Adopt Baton")
         self.run = self.cli.run("start", "tool-demo", "--inputs", json.dumps({"title": "MA test", "goal": "catch short swings"}))["run_id"]

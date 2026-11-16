@@ -21,6 +21,7 @@ commands:
   plan: admin.recipes-and-vendoring
   recipes: admin.recipes-and-vendoring
   recipe: admin.recipes-and-vendoring
+  tools: admin.recipes-and-vendoring
   upgrade: admin.install-and-versions
   migrate: admin.install-and-versions
   check: admin.troubleshooting

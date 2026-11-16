@@ -70,6 +70,7 @@ published:
 - admin.recipes-and-vendoring#here-now
 - admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review
+- admin.recipes-and-vendoring#tools
 - admin.recipes-and-vendoring#versions
 - admin.secrets
 - admin.secrets#here-now
@@ -265,6 +266,8 @@ published:
 - reference.commands#baton-status
 - reference.commands#baton-submit
 - reference.commands#baton-summary
+- reference.commands#baton-tools
+- reference.commands#baton-tools-setup
 - reference.commands#baton-trace
 - reference.commands#baton-ui
 - reference.commands#baton-upgrade
@@ -360,6 +363,7 @@ published:
 - user.what-baton-may-do#changing
 - user.what-baton-may-do#command-line
 - user.what-baton-may-do#here-now
+- user.what-baton-may-do#tools
 - user.what-is-baton
 - user.what-is-baton#here-now
 - user.what-is-baton#what-you-are-asked

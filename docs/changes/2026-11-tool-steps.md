@@ -3,9 +3,9 @@ id: 2026-11-tool-steps
 title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
 status: in-progress
 level: major
-decisions: ["0154", "0156", "0158", "0159", "0085"]
+decisions: ["0154", "0156", "0158", "0159", "0160", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
-manual: []
+manual: [admin/recipes-and-vendoring.md, admin/files-and-paths.md, user/what-baton-may-do.md, reference/commands.md, context.yaml, anchors.yaml]
 ---
 
 # A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran
@@ -121,7 +121,11 @@ Approved by the owner with the Request on 2026-11-16.
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: an administrator topic on tools (what a recipe's tools need, `baton tools setup`, where environments live), the owner's topic on what Baton may do (tools and what they may touch), and the generated command reference.
+- `manual/admin/recipes-and-vendoring.md`: new section *Tools a recipe ships* (`#tools`): what a tool is, approving it at vendoring, what it needs (uv, a Python, never downloaded), `baton tools setup`, where environments live, readiness in `check`, `doctor` and `start`, and what `reach` enforces (network declared, not enforced); *Review before you vendor* names tools. (Slice 3.)
+- `manual/admin/files-and-paths.md`: `~/.baton/tools/`. (Slice 3.)
+- `manual/user/what-baton-may-do.md`: new section *Scripts a process runs* (`#tools`), in the owner's terms. (Slice 3.)
+- `manual/reference/commands.md` (generated): `baton tools setup`; `vendor`'s help. `manual/context.yaml`: `tools` explained by the recipes topic. `manual/anchors.yaml`: the two new anchors. (Slice 3.)
+- The `spreadsheet-reconcile` recipe's topic (`manual/recipe-sources/`, generated into `manual/recipes/`). (Slice 4.)
 
 ### Decisions
 
@@ -130,6 +134,7 @@ To be listed when the change is accepted. Expected: an administrator topic on to
 - [0156](../decisions/0156-tool-steps-details.md) (accepted): the environment builder, runtimes, network reach, retries, readiness, where environments live, the format version, time limits.
 - [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md) (accepted): uv never downloads a Python; a tool runs in a fresh scratch folder.
 - [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md) (accepted): environments named by lock and Python; the inputs file; built at dispatch; undeclared output files fail.
+- [0160](../decisions/0160-tool-steps-ship-spreadsheet-reconcile.md) (accepted): the first shipped recipe with a tool is `spreadsheet-reconcile`.
 - [0155](../decisions/0155-recipe-builder-builds-software.md) (accepted): what `recipe-builder` will do with tools; out of scope here.
 
 ## Plan
@@ -151,7 +156,15 @@ Final: the Request and Design are approved (2026-11-16).
 ### Slice 3: readiness, approval and the manual
 
 - **Outcome:** an owner knows before a run what its tools need, and approves them with the recipe.
-- **Criteria:** readiness in `check`, `doctor`, `start` and `eligible`; `baton tools setup`; the vendoring summary lists each tool in plain words; `baton recipe check` rules; a shipped example recipe with one tool step; manual topics.
+- **Criteria:** readiness in `check`, `doctor`, `start` and `eligible`; `baton tools setup`; the vendoring summary lists each tool in plain words and needs the owner's approval; `baton recipe check` rules (the loader's, Slice 1); the manual topics for administrators and owners.
+- **Effort:** M
+
+### Slice 4: a shipped recipe with a tool
+
+Added on 2026-11-16 when Slice 3 was split (Decision 0160).
+
+- **Outcome:** the catalog has `spreadsheet-reconcile`, whose tool compares two CSV files deterministically.
+- **Criteria:** the recipe loads, plans and vendors with the owner's approval of its tool; its tool reports added, removed and changed rows by key, end to end; its manual topic; the catalog, framing and project review list it like any recipe.
 - **Effort:** M
 
 ## Log
@@ -194,5 +207,13 @@ Final: the Request and Design are approved (2026-11-16).
 - **Design docs:** `design/workers.md` §6.3 (the `tool` adapter); `design/packets.md` §7.1 (tool packets); `design/runtime.md` §8.2 (`run_started.step_max_attempts`, `dispatched.tool`), §8.4 (no routing; independence), §8.7 (effort `S`); `design/recipes.md` §5.9 (`max_attempts`, effort); `design/layouts.md` §4.4 (`~/.baton/tools/`); `design/platform-and-security.md` §15.2 (what a tool may touch, and what is enforced); Decision 0159 and `docs/README.md`.
 - **Manual:** none in this slice: no shipped recipe has a tool yet, and nothing an administrator configures is added (environments are built by Baton); the administrator's topic on tools and `baton tools setup` come with Slice 3.
 - **Tests:** `tests/test_tool_runs.py` (end to end, `slow`): the tool-demo run, the tool's output and artifact feeding the next step, `eligible`, `dispatched.tool`, effort `S`, the environment built; a probe tool sees only its named secret, no `BATON_*` variable, an empty scratch working folder, its inputs as values and none on its command line, and the environment's Python; a failing tool fails with its error output and escalates after one attempt, and `max_attempts: 2` gives a retry; an undeclared output file fails; no fitting Python is a platform failure with an incident and no dispatch; a missing secret refuses the dispatch; a read step's tool that writes the workspace is escalated; the environment is reused by a second run; a worker cannot take the tool step, nor the tool another; runs without tools record no tool limits; a secret printed by a failing tool is masked. Quick: the inputs file, output collection, placeholders, the per-step limit and independence. `tests/test_tool_steps.py`: `max_attempts` rules; review and human gates on a tool step load.
+- **Accepted:** Yes; slice of the in-progress change.
+
+### Slice 3: readiness, approval and the manual
+
+- **Summary:** `tool_env.readiness` is the one answer to "is this tool ready here, and why not": uv found, a Python fitting `runtime.version` found (never downloaded), each named secret stored (`profiles.secret_places`, values never read); an environment not built yet is ready, with a note (Decision 0159, item 3). It feeds `eligible` (`engine.tool_routing`: the tool, or the one exclusion with the reasons), `start` (`tools_not_ready` and a warning each, never a refusal; `engine.tools_not_ready`), `doctor` (`tools`, and a warning each) and `check` (`tool.not_ready` warnings; `check(home=...)`). Dispatch of a tool that is not ready goes on to build, so a missing Python is a platform failure with an incident (Decision 0159) and a missing secret is refused as configuration. Vendoring: `project.tool_flags` asks the owner about each tool not yet approved in this project (new, or with different files), in the owner's terms (`tool_env.describe`: `does`, `needs`, `touches`); the lock entry of a recipe with tools records `tools {id: sha256}`; the CLI prints each tool's flag in plain words. `baton tools setup` (`Api.tools_setup`, CLI only, like `workers setup`) builds or reuses each vendored tool's environment and reports `built`, `reused`, `failed` or `not_ready`. The Director skill tells the owner about tool flags and tools not ready. The Plan's Slice 3 was split: the shipped recipe is Slice 4 (Decision 0160).
+- **Design docs:** `design/recipes.md` §5.9 (approval at vendoring, the lock's `tools`); `design/director-interface.md` §13.1 (`eligible` for a tool step; `tools setup`; readiness in `check`, `doctor`, `start`; the Director skill's text); `docs/README.md` (Decision 0160).
+- **Manual:** `manual/admin/recipes-and-vendoring.md` (*Tools a recipe ships*), `manual/admin/files-and-paths.md` (`~/.baton/tools/`), `manual/user/what-baton-may-do.md` (*Scripts a process runs*), the generated command reference, `manual/context.yaml`, `manual/anchors.yaml`.
+- **Tests:** `tests/test_tool_readiness.py`: vendoring a recipe with a tool needs the owner and says what the tool does, needs and touches, in JSON and plain text, and the approval is recorded in the lock; an unchanged tool is not asked about again and a changed one is; a recipe without tools vendors as before; a tool with no fitting Python is reported by `check`, `doctor`, `start` and `eligible` and refused at dispatch; a missing secret makes a tool not ready until it is stored; `tools setup` builds, then reuses, and `doctor` then shows the environment; `tools setup` reports a tool it cannot build, and a project with no tools. `tests/test_tool_runs.py` vendors with the owner's approval.
 - **Accepted:** Yes; slice of the in-progress change.
 

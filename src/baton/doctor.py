@@ -541,6 +541,8 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
     for rname, line in (readiness(project.home).get("quota") or {}).items() if only is None else []:
         if line.startswith("0 free-model requests left"):
             warnings.append(f"{rname}: {line}; its free routes are skipped until the reset")
+    tools = _tools(project) if only is None else []
+    warnings += [f"tool {t['tool']} of {t['recipe']} is not ready: {'; '.join(t['reasons'])}" for t in tools if not t["ready"]]
     web = _web_advice(project, profiles) if only is None else None
     if web is not None:
         warnings.append(f"steps that search the web have no worker here ({', '.join(web['steps'])}): {web['advice']}")
@@ -567,6 +569,23 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         out["diag_unusual"] = diag_unusual
     if web is not None:
         out["web_advice"] = web
+    if tools:
+        out["tools"] = tools
+    return out
+
+
+def _tools(project: Any) -> list[dict[str, Any]]:
+    """Every vendored recipe's tool, and whether it is ready on this machine (§5.9)."""
+    from . import tool_env
+
+    out = []
+    for ref in project.vendored():
+        try:
+            loaded = project.recipe(ref)
+        except EngineError:  # expected: a recipe that does not load is reported by check
+            continue
+        for tid, tool in sorted(loaded.tools.items()):
+            out.append({"recipe": ref, **tool_env.readiness(tool, project.home).as_dict()})
     return out
 
 

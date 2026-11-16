@@ -49,6 +49,8 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 - When they say there is nothing else, or decline setup, `workers_declare --nothing-more`. Don't ask again on this machine; revisit only when they ask.
 - A live check costs a small model call each: run `workers_setup --verify <profile>` only when they agree to it.
 - When `doctor`, `start` or framing's choice of parts carries `web_advice`, some of the work searches the web and no helper here can. Tell the owner plainly before that work starts, and strongly recommend its fix: install Claude Code or the Codex CLI, log in with their subscription, then `workers_setup`. Say why: those helpers can search the web, and Baton turns that on only for the steps that need it. In onboarding, give the same advice when the work they describe will need the web.
+- When `vendor` returns a `tool` flag, the process brings a program that runs on this computer. Before vendoring, tell the owner in their terms what each one does, what it needs installed and what it may touch (its `does`, `needs`, `touches`), and say plainly that its internet use is not checked. Vendor with `--approved --note "<their words>"` only on their yes.
+- When `start` returns `tools_not_ready`, or `doctor` lists a tool not ready, tell the owner what to install or set (the `reasons`), in their terms, before that part is due. The run can begin; that part waits. Once it is fixed, `baton tools setup` (or the part's first dispatch) prepares it.
 - These calls are the only way you change profiles, each only on the owner's instruction.
 
 ## Pushing and other repo actions

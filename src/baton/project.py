@@ -523,6 +523,26 @@ def signature_flags(lock: dict[str, Any], recipe_id: str, version: int, steps: d
     return flags
 
 
+def tool_flags(lock: dict[str, Any], loaded: LoadedRecipe) -> list[dict[str, Any]]:
+    """Each tool the owner has not approved in this project yet, in the owner's terms (§5.9; criterion 10).
+
+    A tool whose exact files were approved with any vendored version of the
+    same recipe is not asked about again; a new or changed tool is.
+    """
+    from .tool_env import describe
+
+    approved: set[tuple[str, str]] = set()
+    for ref, entry in (lock.get("recipes") or {}).items():
+        if ref.partition("@")[0] == loaded.recipe.id:
+            approved |= {(tid, sha) for tid, sha in (entry.get("tools") or {}).items()}
+    out = []
+    for tid, tool in sorted(loaded.tools.items()):
+        if (tid, tool.sha256) not in approved:
+            changed = any(t == tid for t, _ in approved)
+            out.append({"code": "tool", **describe(tool), "sha256": tool.sha256, "changed": changed})
+    return out
+
+
 def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None = None) -> dict[str, Any]:
     """Copy a recipe package into ``.baton/recipes/<id>@<version>/`` and record it in the lockfile.
 
@@ -548,10 +568,13 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
             f"{ref} is already vendored with different content; publish a new recipe version instead of editing one in place",
         )
     steps = versions.step_signatures(loaded)
-    flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps)
+    flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps) + tool_flags(lock, loaded)
     if flags and decision is None:
+        why = ("it brings tools that run on this machine" if all(f["code"] == "tool" for f in flags)
+               else "it changes step ids this project has used" if not any(f["code"] == "tool" for f in flags)
+               else "it changes step ids this project has used and brings tools that run on this machine")
         return {"recipe": ref, "sha256": loaded.sha256, "changed": False, "flags": flags, "needs_owner": True,
-                "message": f"vendoring {ref} changes step ids this project has used; it needs the owner's decision: "
+                "message": f"vendoring {ref}: {why}; it needs the owner's decision: "
                            "repeat with --approved --note \"<the owner's words>\""}
     tmp = project.recipes_dir / f".vendor-{ref}"
     if tmp.exists():
@@ -566,6 +589,8 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
         "vocab": loaded.recipe.capabilities_vocab,
         "steps": steps,
     }
+    if loaded.tools:  # only a recipe with tools carries the key (criterion 11)
+        lock["recipes"][ref]["tools"] = {tid: t.sha256 for tid, t in sorted(loaded.tools.items())}
     if flags and decision is not None:
         lock["recipes"][ref]["decision"] = {**decision, "flags": flags}
     if loaded.recipe.capabilities_vocab not in lock.setdefault("vocab", []):

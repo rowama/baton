@@ -312,6 +312,8 @@ def establish_baseline(
 
 
 def _flag_text(f: dict) -> str:
+    if f["code"] == "tool":
+        return (f"{'changed ' if f.get('changed') else ''}tool {f['tool']!r}: {f['does']} It needs {f['needs']}; it {f['touches']}.")
     if f["code"] == "signature_changed":
         return f"step id {f['step']!r} keeps its id but changes {', '.join(f['changed'])} (vs version {', '.join(map(str, f['versions']))})"
     return f"step id {f['step']!r} was retired in version {', '.join(map(str, f['retired_in']))} and is reused"
@@ -320,11 +322,11 @@ def _flag_text(f: dict) -> str:
 @app.command()
 def vendor(
     recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory, or the id of a recipe shipped with Baton (needs --note).")],
-    approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes.")] = False,
+    approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes and tools.")] = False,
     note: Annotated[Optional[str], typer.Option("--note", help="With --approved, or a shipped recipe's id: the owner's words, recorded verbatim.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids need the owner: exit 4)."""
+    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new tools, need the owner: exit 4)."""
     out = _call(as_json, lambda: _api().vendor(recipe_dir, approved=approved, note=note))
     if out["needs_owner"]:
         text = "\n".join([out["message"], *(f"  - {_flag_text(f)}" for f in out["flags"])])
@@ -1447,6 +1449,25 @@ def workers_status(as_json: JsonOpt = False) -> None:
     if out["available_not_generated"]:
         lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
     _emit(out, as_json, "\n".join(lines))
+
+
+tools_app = typer.Typer(no_args_is_help=True, help="Tools the vendored recipes ship: scripts run with no model (§5.9).")
+app.add_typer(tools_app, name="tools")
+
+
+@tools_app.command("setup")
+def tools_setup(as_json: JsonOpt = False) -> None:
+    """Build each vendored recipe's tools' environments now, instead of at their first use."""
+    out = _call(as_json, lambda: _api().tools_setup())
+    lines = []
+    for t in out["tools"]:
+        where = f"{t['tool']} ({t['recipe']})"
+        if t["status"] in ("built", "reused"):
+            lines.append(f"{t['status']} {where}: Python {t['python_version']}")
+        else:
+            lines.append(f"{'FAILED' if t['status'] == 'failed' else 'NOT READY'} {where}: {t['reason']}")
+    _emit(out, as_json, "\n".join(lines) or "No vendored recipe has tools.")
+    raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 
 @workers_app.command("setup")

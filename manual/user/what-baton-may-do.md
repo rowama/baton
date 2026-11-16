@@ -19,6 +19,15 @@ Baton never pushes, tags, merges or deploys on its own authority. Your project's
 | Tag a release | asks you |
 | Force-push, merge or deploy | never |
 
+## Scripts a process runs {#tools}
+
+Some processes do part of their work with a small program instead of an AI, for example to compare two spreadsheets the same way every time. Your assistant asks you before a process like that is added to your project, and tells you for each program:
+- what it does;
+- what it needs installed on your computer;
+- what it may touch: your project's files, the internet, any passwords or keys.
+
+It runs only after you say yes. If the process later brings a changed program, you are asked again. A program never gets a password or key it did not name, and it cannot change files it was not allowed to change. Whether it uses the internet is shown to you but not checked by Baton.
+
 ## What "asks you" looks like {#asks-you}
 
 Your assistant tells you what it wants to do and why, and waits. If you approve, it goes ahead and records your approval in your own words. If you do not, nothing happens. Approval never lifts a "never".

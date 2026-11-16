@@ -298,3 +298,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0157 Project review: it reads the policy and governing recipes, proposes recipes or fit checks only, and starts as an ordinary run](decisions/0157-project-review-starts-as-a-run.md) | accepted |
 | [0158 Tool steps: uv never downloads a Python, and a tool runs in a fresh scratch folder](decisions/0158-tool-steps-no-python-download-scratch-cwd.md) | accepted |
 | [0159 Tool runs: environments named by lock and Python, an inputs file of values and file references, built at dispatch, undeclared output files fail](decisions/0159-tool-runs-env-inputs-build-outputs.md) | accepted |
+| [0160 Tool steps: the first shipped recipe with a tool is spreadsheet-reconcile](decisions/0160-tool-steps-ship-spreadsheet-reconcile.md) | accepted |

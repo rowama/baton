@@ -23,7 +23,7 @@ baton plan path/to/recipe
 
 > **Warning:** Recipes are trusted code. A recipe's script checks run commands on the machine. Read them first. `baton check` and `baton doctor` verify the vendored hashes afterwards, so a later edit is reported.
 
-Things to read: every `script` check's command, any `command` adapter a profile would run for it, the files it publishes and where (`publish: to:`), and the capabilities each part requires. Recipes declare the capabilities they need, never a model or vendor, and Baton's loader rejects a recipe that names one.
+Things to read: every `script` check's command, any [tool](#tools) it ships, any `command` adapter a profile would run for it, the files it publishes and where (`publish: to:`), and the capabilities each part requires. Recipes declare the capabilities they need, never a model or vendor, and Baton's loader rejects a recipe that names one.
 
 ## New versions and retired ids {#versions}
 
@@ -32,6 +32,33 @@ A published version is never edited in place; a change is a new version. When a 
 ```baton
 baton vendor path/to/recipe --approved --note "the owner's words"
 ```
+
+## Tools a recipe ships {#tools}
+
+Some work is better done by plain code than by an AI worker: a calculation, a file conversion, a comparison. A recipe can ship a **tool** for such a part: a Python script in `tools/<id>/` with a `tool.yaml` and a lock file of exact dependency versions with their hashes. The part names it with `tool: <id>`, and no worker can do that part instead.
+
+Vendoring a recipe that brings a tool needs the owner's approval. `vendor` exits 4 and says, for each tool, what it does, what it needs installed and what it may touch; the owner's words approve it:
+
+```baton
+baton vendor path/to/recipe --approved --note "the owner's words"
+```
+
+A later version whose tool files are unchanged is not asked about again; a changed tool is.
+
+A tool needs `uv` and a Python that matches its `runtime.version`. Baton never downloads a Python. If none matches, install one. On first use Baton builds the tool's environment from its lock file, installing only the pinned, hash-checked packages, in `~/.baton/tools/<lock hash>-py<x.y>/`. Every project and tool with the same lock and Python reuses that environment. To build it ahead of time, for example before going offline:
+
+```baton
+baton tools setup
+```
+
+`baton check`, `baton doctor` and `baton start` report a tool that cannot run on this machine, and say what to install or set. Such a part is refused when it is dispatched, and the run waits until it is fixed.
+
+What a tool may touch is declared in its `reach`:
+- **Files:** `workspace` is `none`, `read` or `write`, enforced as for any worker. A part that may not change the project and does is stopped for the owner to inspect.
+- **Secrets:** a tool gets none except the ones it names. Each is stored like any other [secret](admin.secrets#here-now); a missing one is reported before the part runs.
+- **Network:** declared and shown at vendoring, but **not enforced**. Baton cannot stop a script from reaching the network unless it runs in an isolated container. Read a tool that says `network: false` as a claim to check, not a guarantee.
+
+A tool runs in an empty scratch folder, never in its own folder, so it cannot change the recipe. Every run records which tool ran, the hashes of its files and lock, the Python version and the environment.
 
 ## Helpers for recipe authors {#authors}
 

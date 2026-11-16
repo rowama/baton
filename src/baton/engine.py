@@ -1306,16 +1306,45 @@ def tool_profile(tool: Any, env: Any) -> WorkerProfile:
     )
 
 
-def tool_routing(loaded: Any, node: Step, step_path: str) -> Any:
-    """A tool step's eligibility: its tool, the one executor (§5.9; criterion 3)."""
+def tool_routing(loaded: Any, node: Step, step_path: str, home: Path) -> Any:
+    """A tool step's eligibility: its tool, the one executor, when it is ready here (§5.9; criteria 3, 6).
+
+    Not ready, it is the one exclusion, with what to install or set; dispatch then refuses.
+    """
+    from . import tool_env
     from .adapters.tool import PROFILE_PREFIX
     from .routing import Eligibility
 
     out = Eligibility(step_path)
-    out.eligible.append({
-        "profile": f"{PROFILE_PREFIX}{node.tool}", "adapter": "tool", "tool": node.tool, "vendor": "tool", "creator": "tool",
-        "reasons": ["the step's own tool, shipped with the recipe: no routing"],
-    })
+    name = f"{PROFILE_PREFIX}{node.tool}"
+    ready = tool_env.readiness(loaded.tools[node.tool], home)
+    if not ready.ready:
+        out.excluded.append({"profile": name, "reasons": ready.reasons})
+        return out
+    reasons = ["the step's own tool, shipped with the recipe: no routing"] + ([ready.note] if ready.note else [])
+    out.eligible.append({"profile": name, "adapter": "tool", "tool": node.tool, "vendor": "tool", "creator": "tool", "reasons": reasons})
+    return out
+
+
+def tools_not_ready(loaded: Any, home: Path) -> list[dict[str, Any]]:
+    """Each tool of a recipe that is not ready on this machine, with the steps that use it and why (criterion 6)."""
+    from . import tool_env
+
+    steps: dict[str, list[str]] = {}
+
+    def visit(nodes: list[Any], prefix: str) -> None:
+        for n in nodes:
+            if isinstance(n, Group):
+                visit(n.steps, f"{prefix}{n.id}/")
+            elif n.tool is not None:
+                steps.setdefault(n.tool, []).append(f"{prefix}{n.id}")
+
+    visit(loaded.recipe.steps, "")
+    out = []
+    for tid, used_by in sorted(steps.items()):
+        r = tool_env.readiness(loaded.tools[tid], home)
+        if not r.ready:
+            out.append({"recipe": loaded.recipe.ref, "tool": tid, "steps": used_by, "reasons": r.reasons})
     return out
 
 
@@ -2541,6 +2570,12 @@ class Api:
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
+        if loaded.tools:  # warn, never refuse: a step the run's rating skips never blocks anything (Decision 0156, item 5)
+            pending = tools_not_ready(loaded, self.project.home)
+            if pending:
+                out["tools_not_ready"] = pending
+                out.setdefault("warnings", []).extend(
+                    f"tool {t['tool']} (for {', '.join(t['steps'])}) is not ready on this machine: {'; '.join(t['reasons'])}" for t in pending)
         return out
 
     def bind(self, run_id: str, role: str, paths: list[str], note: str) -> dict[str, Any]:
@@ -2767,7 +2802,7 @@ class Api:
         if not isinstance(node, Step):
             raise EngineError("engine.unknown_step", f"{step_path} is not a runnable step of {ctx.recipe.recipe.ref}")
         if node.tool is not None:
-            return tool_routing(ctx.recipe, node, step_path), None
+            return tool_routing(ctx.recipe, node, step_path, self.project.home), None
         try:
             prefs = load_preferences(self.project.baton, self.project.home)
         except PreferencesError as e:
@@ -2858,9 +2893,15 @@ class Api:
         tool_info: dict[str, Any] | None = None
         if isinstance(node0, Step) and node0.tool is not None:
             # A tool step's one executor is its tool (§5.9): no machine profile, no routing.
+            from .adapters.tool import PROFILE_PREFIX
+
+            own = f"{PROFILE_PREFIX}{node0.tool}"
+            if worker != own:
+                raise EngineError("routing.ineligible", f"{step_path} is done by its tool: dispatch it to {own} (see `baton eligible {run_id} {step_path}`)")
+            # Not ready here: building the environment says why, as a platform failure with an incident (Decision 0159, item 3);
+            # a missing secret is refused as configuration when the environment is constructed.
             routing, waiver = self._routing(ctx0, step_path)
-            if worker not in routing.names():
-                raise EngineError("routing.ineligible", f"{step_path} is done by its tool: dispatch it to {routing.names()[0]} (see `baton eligible {run_id} {step_path}`)")
+            routing.excluded = []
             profile, tool_info = self._tool_profile(ctx0, node0, step_path, worker)
         else:
             profiles = self.project.profiles()
@@ -5150,10 +5191,34 @@ class Api:
 
         return docs.trace(self.project.store.run(run_id).events(), limit)
 
+    def tools_setup(self) -> dict[str, Any]:
+        """Build every vendored recipe's tools' environments ahead of first use (§5.9; ``baton tools setup``).
+
+        Each tool is ``built``, ``reused`` or ``failed`` with the reason; nothing is recorded in any run.
+        """
+        from . import tool_env
+
+        results: list[dict[str, Any]] = []
+        for ref in self.project.vendored():
+            loaded = self.project.recipe(ref)
+            for tid, tool in sorted(loaded.tools.items()):
+                item: dict[str, Any] = {"recipe": ref, "tool": tid}
+                try:
+                    env = tool_env.ensure(tool, self.project.home)
+                except tool_env.ToolSetupError as e:
+                    item.update(status="failed", code=e.code, reason=str(e))
+                else:
+                    item.update(status="built" if env.built else "reused", env_id=env.id, python_version=env.python_version)
+                ready = tool_env.readiness(tool, self.project.home)
+                if item["status"] != "failed" and not ready.ready:
+                    item.update(status="not_ready", reason="; ".join(ready.reasons))
+                results.append(item)
+        return {"tools": results, "ok": all(r["status"] in ("built", "reused") for r in results)}
+
     def check(self) -> list[Any]:
         from .check import check
 
-        return check(self.project.root)
+        return check(self.project.root, home=self.project.home)
 
 
 class IntegrityError(EngineError):

@@ -187,3 +187,66 @@ def _step(tool: LoadedTool, argv: list[str], what: str) -> None:
     if proc.returncode != 0:
         tail = "\n".join((proc.stderr or proc.stdout).strip().splitlines()[-8:])
         raise ToolSetupError("tool.build_failed", f"could not {what} for tool {tool.id!r}: {tail}")
+
+
+# ---------------------------------------------------------------------------
+# Readiness and the owner's summary (2026-11-tool-steps criteria 6, 10)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Readiness:
+    """Is this tool ready on this machine, and if not, why (one answer for check, doctor, start, eligible)."""
+
+    tool: str
+    ready: bool
+    reasons: list[str]  # why not ready: what to install or set
+    env: ToolEnv | None = None  # the built environment, when there is one
+    note: str = ""  # e.g. that the environment is built at first use
+
+    def as_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"tool": self.tool, "ready": self.ready, "reasons": list(self.reasons)}
+        if self.env is not None:
+            out["env_id"] = self.env.id
+        if self.note:
+            out["note"] = self.note
+        return out
+
+
+def readiness(tool: LoadedTool, home: Path) -> Readiness:
+    """Whether ``tool`` can run here: uv and a fitting Python found, its named secrets stored.
+
+    An environment not built yet does not make a tool not ready: dispatch
+    builds it (Decision 0159, item 3); ``baton tools setup`` builds it ahead.
+    """
+    from .profiles import secret_env_name, secret_places
+
+    reasons: list[str] = []
+    env = None
+    note = ""
+    try:
+        uv = uv_executable()
+        _python, version = find_python(tool, uv)
+        env = existing(tool, home, version)
+        if env is None:
+            note = "its environment is built at first use, or now with `baton tools setup`"
+    except ToolSetupError as e:
+        reasons.append(str(e))
+    for name in tool.spec.reach.secrets:
+        if not secret_places(name, home):
+            reasons.append(f"secret {name!r} is not stored: set {secret_env_name(name)}, or store it with the OS keyring or in {home / 'secrets' / name}")
+    return Readiness(tool.id, not reasons, reasons, env, note)
+
+
+def describe(tool: LoadedTool) -> dict[str, str]:
+    """A tool in the owner's terms: what it does, what it needs installed, what it may touch (criterion 10)."""
+    spec = tool.spec
+    python = f"Python {spec.runtime.version}" if spec.runtime.version else "Python 3"
+    pkgs = [r.name for r in tool.requirements]
+    needs = python + (f" and {len(pkgs)} package{'s' if len(pkgs) != 1 else ''} ({', '.join(pkgs)}), installed by Baton from pinned versions" if pkgs else ", nothing else")
+    ws = {"none": "does not open your project's files", "read": "reads your project's files but may not change them",
+          "write": "may change your project's files"}[spec.reach.workspace]
+    touch = [ws, "uses the internet" if spec.reach.network else "does not use the internet"]
+    if spec.reach.secrets:
+        touch.append(f"is given {', '.join(spec.reach.secrets)}")
+    return {"tool": tool.id, "does": spec.description, "needs": needs, "touches": "; ".join(touch)}

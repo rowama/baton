@@ -675,6 +675,22 @@ Explained in the manual: [Check on your work](user.check-on-your-work#here-now).
 | `run <str>` | Run id. |
 | `--json` | Machine-readable output. |
 
+## baton tools {#baton-tools}
+
+Tools the vendored recipes ship: scripts run with no model.
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+### baton tools setup {#baton-tools-setup}
+
+Build each vendored recipe's tools' environments now, instead of at their first use.
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--json` | Machine-readable output. |
+
 ## baton trace {#baton-trace}
 
 Print the run's recent events, one line each.
@@ -715,14 +731,14 @@ Explained in the manual: [Install, versions and upgrades](admin.install-and-vers
 
 ## baton vendor {#baton-vendor}
 
-Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids need the owner: exit 4).
+Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new tools, need the owner: exit 4).
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `recipe_dir <path>` | Recipe package directory, or the id of a recipe shipped with Baton (needs --note). |
-| `--approved` | The owner approved the flagged step-id changes. |
+| `--approved` | The owner approved the flagged step-id changes and tools. |
 | `--note <str>` | With --approved, or a shipped recipe's id: the owner's words, recorded verbatim. |
 | `--json` | Machine-readable output. |
 
