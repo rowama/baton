@@ -346,3 +346,75 @@ def test_framing_v1_stays_loadable_and_v2_proposes_runs_with_bindings():
     assert proposing_step(v1) == proposing_step(v2) == "frame"
     assert "bind" in v2.schemas["schemas/frame.json"]["properties"]["parts"]["items"]["properties"]
     assert "bind" not in v1.schemas["schemas/frame.json"]["properties"]["parts"]["items"]["properties"]
+
+
+# -- Slice 3: project.summary -----------------------------------------------------------------------------------------
+
+
+def _reviewer(root: Path) -> Path:
+    look = {"id": "look", "output_schema": "schemas/out.json", "inputs": [{"name": "state", "from": "project.summary", "required": True}]}
+    return make_recipe(root, [look], schemas={"out.json": {"type": "object"}}, id="reviewer",
+                       run_inputs={"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}}})
+
+
+@pytest.mark.slow
+def test_project_summary_reports_the_projects_state_from_the_records_without_contents(tmp_path):
+    from baton import summary
+
+    cli, project = _documents_project(tmp_path)
+    fr = _frame(cli, project)
+    out = frame_output()
+    out["parts"] = [_part("good", {"site_survey": ["site/survey.md"]}), _part("later", None), _part("bad", {"budget": ["site/survey.md"]})]
+    manual(cli, project, fr, "frame", out)
+    sel = cli.run("decide", fr, "frame", "select", "--items", "good,bad", "--note", "Good and bad. Yes.")
+    good = sel["runs"][0]["run"]
+    (project / "site" / "survey.md").write_text("# Survey\n\nFlat ground, power moved to the gate.\n", encoding="utf-8")
+    git(project, "commit", "-qam", "Survey revised")
+    cli.run("vendor", str(_reviewer(tmp_path / "reviewer")))
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "Vendor reviewer")
+    rv = cli.run("start", "reviewer", "--inputs", json.dumps({"title": "Where are we?"}), expect=None)["run_id"]
+    d = cli.run("dispatch", rv, "look", "--worker", "owner")
+    blob = (packet_dir(project, rv, "look", d["attempt"]) / "inputs" / "state.json").read_bytes()
+    s = json.loads(blob)
+
+    assert set(s) == {"runs", "documents", "bindings", "upstream_changes", "process_plans", "policy"}
+    runs = {r["run"]: r for r in s["runs"]}
+    assert rv not in runs and set(runs) == {fr, good}
+    assert runs[fr]["recipe"] == "baton-frame@2" and runs[fr]["state"] == "completed" and "steps" not in runs[fr]
+    g = runs[good]
+    assert (g["recipe"], g["title"], g["state"]) == ("site-build@1", "Good", "active")
+    assert g["proposed_by"] == {"run": fr, "part": "good"} and g["steps"] == {"build": "ready"} and g["waiting_on_owner"] == []
+    assert [x["path"] for x in s["documents"]] == [sel["plan"], "site/a.jpg", "site/b.jpg", "site/old.md", "site/survey.md"]
+    by = {x["path"]: x for x in s["documents"]}
+    assert by[sel["plan"]]["kind"] == "deliverable" and by[sel["plan"]]["source"]["run"] == fr  # the plan is a deliverable
+    assert by["site/old.md"]["state"] == "deleted" and by["site/survey.md"]["state"] == "edited" and by["site/a.jpg"]["kind"] == "attested"
+    assert "note" not in json.dumps(s["documents"])  # the owner's words stay in the record
+    assert s["bindings"] == [{"run": good, "role": "site_survey", "documents": [{"path": "site/survey.md", "version": 1}]}]
+    assert [(c["run"], c["path"], c["change"]) for c in s["upstream_changes"]] == [(good, "site/survey.md", "edited")]
+    (plan,) = s["process_plans"]
+    assert plan["run"] == fr and plan["path"] == sel["plan"]
+    assert [(p["id"], p["status"]) for p in plan["parts"]] == [("good", "started"), ("later", "later"), ("bad", "gap")]
+    assert plan["parts"][0]["run"] == good and "budget" in plan["parts"][2]["reason"]
+    started = _events(project, rv)[0]["data"]
+    assert s["policy"]["sha256"] == started["policy_sha256"] and set(s["policy"]) >= {"floors", "governing", "permissions"}
+    for text in ("Flat ground", "power moved", "Old survey", "photo a"):  # metadata only: no document's contents
+        assert text.encode() not in blob
+
+    # Deterministic: the same records give the same blob.
+    from baton.packet import _json_bytes
+    from baton.store import Store
+
+    again = summary.build(Store(project), exclude_run=rv, policy_sha256=started["policy_sha256"])
+    assert _json_bytes(again) == blob
+
+
+@pytest.mark.not_slow("loads a recipe in process")
+def test_summary_is_a_reserved_role_name_and_a_reference_steps_may_take(tmp_path):
+    from baton.recipe import load_recipe
+
+    assert load_recipe(_reviewer(tmp_path / "ok")).recipe.steps[0].inputs[0].from_ == "project.summary"
+    role = {"role": "summary", "description": "A summary of something"}
+    use = {"id": "look", "output_schema": "schemas/out.json"}
+    root = make_recipe(tmp_path / "bad", [use], schemas={"out.json": {"type": "object"}}, project_inputs=[role])
+    assert _codes(root) == {"project_inputs.reserved_role"}

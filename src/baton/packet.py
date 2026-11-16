@@ -361,6 +361,10 @@ def _resolve(
         if not sha:
             raise _Unresolvable("this run was started before the project policy was pinned")
         value = {"sha256": sha, **json.loads(ctx.store.project_cas.read(sha))}
+    elif ref.kind == "summary":  # the project's state, from the records, metadata only (§5.2; Decision 0152)
+        from .summary import build
+
+        value = build(ctx.store, exclude_run=ctx.run_id, policy_sha256=record.started.get("policy_sha256"))
     elif ref.kind == "human_revision":
         from .publish import latest_revision
 
