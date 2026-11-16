@@ -144,7 +144,7 @@ class Step(_Strict):
     requires: Requires
     prompt: str
     inputs: list[Input] = Field(default_factory=list)
-    output_schema: str | None = None  # recipe-relative path, or "baton:findings"
+    output_schema: str | None = None  # recipe-relative path, "baton:findings" or "baton:proposals"
     artifacts: list[Artifact] = Field(default_factory=list)
     gates: list[Gate] = Field(default_factory=list)
     workspace: Literal["none", "read", "write"] = "none"
@@ -153,6 +153,7 @@ class Step(_Strict):
     effort_from: str | None = None
     independence: Independence | None = None
     doc_template: str | None = None
+    proposes_runs: bool = False  # its output proposes runs the owner chooses from (§5.1, §11.6; Decision 0152)
 
     @property
     def is_group(self) -> bool:

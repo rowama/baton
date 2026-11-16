@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assumptions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "about": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "basis": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "value": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "about",
+          "value",
+          "basis"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "goal": {
+      "description": "What the proposals serve, restated plainly, for the Director to confirm",
+      "minLength": 1,
+      "type": "string"
+    },
+    "parts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What this piece of work is, in the owner's terms",
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "project",
+              "operations",
+              "unclear"
+            ]
+          },
+          "label": {
+            "description": "Short name, in the owner's terms",
+            "minLength": 1,
+            "type": "string"
+          },
+          "proposal": {
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "not": {
+                  "required": [
+                    "fit_check"
+                  ]
+                },
+                "required": [
+                  "recipe",
+                  "inputs"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "recipe"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "inputs"
+                      ]
+                    }
+                  ]
+                },
+                "required": [
+                  "fit_check"
+                ]
+              }
+            ],
+            "properties": {
+              "fit_check": {
+                "additionalProperties": false,
+                "properties": {
+                  "idea": {
+                    "description": "The part as an idea, in the owner's terms",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "idea"
+                ],
+                "type": "object"
+              },
+              "inputs": {
+                "description": "Run inputs for that recipe, matching its run_inputs schema",
+                "type": "object"
+              },
+              "recipe": {
+                "description": "A listed recipe's id",
+                "pattern": "^[a-z][a-z0-9-]*(@[0-9]+)?$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description",
+          "proposal",
+          "reasons"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "parts"
+  ],
+  "title": "baton-proposals/1",
+  "type": "object"
+}

@@ -170,6 +170,7 @@ class _Checker:
                 self._check_group(node, place)
             else:
                 self._check_step(node, place)
+        self._check_proposing()
         self._check_sme()
         self._check_complexity()
         self._lint_crosswalks()
@@ -471,8 +472,9 @@ class _Checker:
         return full
 
     def _schema(self, rel: str, where: str) -> dict | None:
-        if rel == FINDINGS_SCHEMA_REF:
-            return versions.findings_json_schema()
+        owned = versions.runtime_schema(rel)
+        if owned is not None:
+            return owned
         if rel in self.schemas:
             return self.schemas[rel]
         full = self._file(rel, where, "schema")
@@ -623,9 +625,7 @@ class _Checker:
                 )
             return
         if ref.path and target.output_schema:
-            schema = self.schemas.get(target.output_schema) or (
-                versions.findings_json_schema() if target.output_schema == FINDINGS_SCHEMA_REF else None
-            )
+            schema = self.schemas.get(target.output_schema) or versions.runtime_schema(target.output_schema)
             if schema is not None:
                 status, key, _ = _subschema(schema, ref.path)
                 if status == "missing":
@@ -696,6 +696,29 @@ class _Checker:
 
         for i, gate in enumerate(step.gates):
             self._check_gate(step, place, gate, f"{w}.gates[{i}]")
+
+    def _check_proposing(self) -> None:
+        """``proposes_runs`` (§5.1; Decision 0152): one top-level step whose output is a ``baton-proposals/1`` list."""
+        found = [(n, place) for n, place in self._walk() if isinstance(n, Step) and n.proposes_runs]
+        for step, place in found:
+            w = self.where(step)
+            if place.chain:
+                self.error("step.proposes_runs_in_group", f"{w}.proposes_runs",
+                           "a step that proposes runs is a top-level step: its selection starts runs for the whole run, not per instance")
+            if not step.output_schema:
+                self.error("step.proposes_runs_needs_schema", f"{w}.proposes_runs",
+                           "a step that proposes runs needs output_schema: baton:proposals, or a schema of its own with a parts list")
+            elif step.output_schema == FINDINGS_SCHEMA_REF:
+                self.error("step.proposes_runs_needs_schema", f"{w}.proposes_runs", "a review step (baton:findings) cannot propose runs")
+            elif versions.runtime_schema(step.output_schema) is None:
+                schema = self.schemas.get(step.output_schema)
+                parts = ((schema or {}).get("properties") or {}).get("parts") if isinstance(schema, dict) else None
+                if schema is not None and not (isinstance(parts, dict) and parts.get("type") == "array"):
+                    self.error("step.proposes_runs_needs_schema", f"{w}.output_schema",
+                               f"{step.output_schema} declares no parts array; a step that proposes runs returns baton-proposals/1")
+        if len(found) > 1:
+            self.error("recipe.several_proposing_steps", "steps",
+                       "only one step may propose runs: " + ", ".join(repr(s.id) for s, _ in found))
 
     def _check_gate(self, step: Step, place: _Place, gate: Any, where: str) -> None:
         if gate.type == "schema" and not step.output_schema:

@@ -199,7 +199,7 @@ def refresh(ctx: RunContext, importer: Importer | None = None) -> list[str]:
         pass
     from .frame import awaiting_selection
 
-    if hold or awaiting_baseline(events, kind="adoption") or awaiting_selection(events):
+    if hold or awaiting_baseline(events, kind="adoption") or awaiting_selection(ctx, events):
         return readied
     view = view_of(ctx)
     if all(view.node_state(n, n.id, None) in SATISFIES_DEPS for n in ctx.recipe.recipe.steps) and not publish.outstanding(ctx):
@@ -1440,8 +1440,10 @@ def decide(
     )
     if gate_index == "triage":  # the implicit approval of a triage result (§5.5)
         return _decide_triage(ctx, step, ref, n, decision, note)
-    if gate_index == "select":  # a framing run's implicit selection (§11.6); select itself goes through frame.select
-        reasons = [f"the owner did not accept the breakdown: {note}" if note else "the owner did not accept the breakdown"]
+    if gate_index == "select":  # a proposing step's implicit selection (§11.6); select itself goes through frame.select
+        from .frame import reject_reasons
+
+        reasons = reject_reasons(ctx, note)
         log.append("gate_failed", step_path=ref, attempt=n, data={"gate": "select", "type": "select", "implicit": True, "reasons": reasons})
         return _failed(ctx, ref, n, reasons)
     if gate_index == "protected":  # the implicit protected gate in warn mode (§9.4)

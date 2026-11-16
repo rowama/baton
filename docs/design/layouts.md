@@ -47,7 +47,7 @@ baton/
 ├── manual/                  # the manual (§13.10): user/, providers/ (generated), recipes/, admin/, reference/ topics, context.yaml, anchors.yaml, terms.yaml, provider-notes.yaml, reference-notes.yaml, recipe-sources/ (hand-written recipe topics, generated into recipes/); shipped as data
 ├── ui/                      # the setup page's front end: plain HTML, CSS, JS; shipped as data (§13.9)
 ├── vocab/baton-capabilities-1.yaml
-├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   # generated from models (§15.3)
+├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   formats/baton-proposals-1.schema.json   # generated (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
 ├── builtin/baton-adopt/     # the built-in adoption recipe (§11.1): research step, baton-research/1 schema
 ├── builtin/baton-frame/     # the built-in framing recipe (§11.6): frame step, baton-frame/1 schema

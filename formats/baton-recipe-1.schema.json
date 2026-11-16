@@ -1112,6 +1112,11 @@
           "title": "Prompt",
           "type": "string"
         },
+        "proposes_runs": {
+          "default": false,
+          "title": "Proposes Runs",
+          "type": "boolean"
+        },
         "protect": {
           "anyOf": [
             {

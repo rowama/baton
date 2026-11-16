@@ -40,7 +40,7 @@ from typing import Any
 from . import groups, refs, reviews, tailoring, versions
 from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile, recorded_questions
-from .recipe import FINDINGS_SCHEMA_REF, LoadedRecipe
+from .recipe import LoadedRecipe
 from .routing import requirement_gaps
 from .state import SATISFIES_DEPS
 from .store import RunLog, Store, StoreError, canonical_json, ensure_dir
@@ -718,8 +718,9 @@ class BuiltPacket:
 
 
 def output_schema_for(loaded: LoadedRecipe, step: Step) -> dict[str, Any]:
-    if step.output_schema == FINDINGS_SCHEMA_REF:
-        return versions.findings_json_schema()
+    owned = versions.runtime_schema(step.output_schema)
+    if owned is not None:
+        return owned
     if step.output_schema:
         return loaded.schemas[step.output_schema]
     return {"$schema": versions.DRAFT_2020_12}

@@ -1,0 +1,389 @@
+{
+  "framing_events": [
+    {
+      "actor": "runtime",
+      "attempt": 1,
+      "data": {
+        "artifacts": [],
+        "gate": "provenance",
+        "implicit": true,
+        "output_schema": "passed",
+        "type": "provenance"
+      },
+      "step_path": "frame",
+      "type": "gate_passed"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 1,
+      "data": {
+        "advisory": false,
+        "gate": 0,
+        "type": "schema"
+      },
+      "step_path": "frame",
+      "type": "gate_passed"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 1,
+      "data": {
+        "advisory": false,
+        "gate": "select",
+        "implicit": true,
+        "parts": [
+          {
+            "id": "setup",
+            "label": "Setting up the business"
+          },
+          {
+            "id": "kiosk",
+            "label": "Building the first machine site"
+          },
+          {
+            "id": "signage",
+            "label": "Signs for the sites"
+          },
+          {
+            "id": "running",
+            "label": "Running the machines day to day"
+          },
+          {
+            "id": "web",
+            "label": "A website"
+          }
+        ],
+        "prompt": "Goal: Start a business selling purified water from a few self-serve machines around town. Parts: Setting up the business; Building the first machine site; Signs for the sites; Running the machines day to day; A website. Which should be included now? Each chosen part starts what its option's next says, usually a first look rather than the work itself. (Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)",
+        "ref": "frame",
+        "type": "select"
+      },
+      "step_path": "frame",
+      "type": "human_gate_opened"
+    },
+    {
+      "actor": "human",
+      "attempt": 1,
+      "data": {
+        "decision": "reject",
+        "gate": "select",
+        "kind": "gate",
+        "note": "Split the signs from the site.",
+        "ref": "frame"
+      },
+      "step_path": "frame",
+      "type": "human_decision"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 1,
+      "data": {
+        "gate": "select",
+        "implicit": true,
+        "reasons": [
+          "the owner did not accept the breakdown: Split the signs from the site."
+        ],
+        "type": "select"
+      },
+      "step_path": "frame",
+      "type": "gate_failed"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 2,
+      "data": {
+        "artifacts": [],
+        "gate": "provenance",
+        "implicit": true,
+        "output_schema": "passed",
+        "type": "provenance"
+      },
+      "step_path": "frame",
+      "type": "gate_passed"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 2,
+      "data": {
+        "advisory": false,
+        "gate": 0,
+        "type": "schema"
+      },
+      "step_path": "frame",
+      "type": "gate_passed"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 2,
+      "data": {
+        "advisory": false,
+        "gate": "select",
+        "implicit": true,
+        "parts": [
+          {
+            "id": "setup",
+            "label": "Setting up the business"
+          },
+          {
+            "id": "kiosk",
+            "label": "Building the first machine site"
+          },
+          {
+            "id": "signage",
+            "label": "Signs for the sites"
+          },
+          {
+            "id": "running",
+            "label": "Running the machines day to day"
+          },
+          {
+            "id": "web",
+            "label": "A website"
+          }
+        ],
+        "prompt": "Goal: Start a business selling purified water from a few self-serve machines around town. Parts: Setting up the business; Building the first machine site; Signs for the sites; Running the machines day to day; A website. Which should be included now? Each chosen part starts what its option's next says, usually a first look rather than the work itself. (Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)",
+        "ref": "frame",
+        "type": "select"
+      },
+      "step_path": "frame",
+      "type": "human_gate_opened"
+    },
+    {
+      "actor": "human",
+      "attempt": 2,
+      "data": {
+        "decision": "select",
+        "decision_id": "d26",
+        "gate": "select",
+        "items": [
+          "setup",
+          "kiosk",
+          "web"
+        ],
+        "kind": "frame",
+        "note": "Those three. Yes.",
+        "ref": "frame"
+      },
+      "step_path": "frame",
+      "type": "human_decision"
+    },
+    {
+      "actor": "runtime",
+      "attempt": 2,
+      "data": {
+        "gate": "select",
+        "implicit": true,
+        "items": [
+          "setup",
+          "kiosk",
+          "web"
+        ],
+        "type": "select"
+      },
+      "step_path": "frame",
+      "type": "gate_passed"
+    },
+    {
+      "actor": "human",
+      "attempt": null,
+      "data": {
+        "decision_id": "d26",
+        "gaps": [
+          {
+            "label": "A website",
+            "part": "web",
+            "reason": "the proposed process 'no-such-recipe' is neither in this project nor shipped with Baton"
+          }
+        ],
+        "plan": {
+          "path": "docs/pure-water-vending-business-self-serve-process-plan.md",
+          "sha256": "<sha256>"
+        },
+        "runs": [
+          {
+            "part": "setup",
+            "recipe": "fit-check@5",
+            "run": "<run1>"
+          },
+          {
+            "part": "kiosk",
+            "recipe": "backyard-project@1",
+            "run": "<run2>"
+          }
+        ],
+        "selected": [
+          "setup",
+          "kiosk",
+          "web"
+        ],
+        "vendored": [
+          "backyard-project@1"
+        ]
+      },
+      "step_path": null,
+      "type": "framing_selected"
+    },
+    {
+      "actor": "runtime",
+      "attempt": null,
+      "data": {
+        "artifact": "process_plan",
+        "attempt": null,
+        "path": "docs/pure-water-vending-business-self-serve-process-plan.md",
+        "sha256": "<sha256>"
+      },
+      "step_path": "frame",
+      "type": "artifact_published"
+    },
+    {
+      "actor": "runtime",
+      "attempt": null,
+      "data": {},
+      "step_path": null,
+      "type": "run_completed"
+    },
+    {
+      "actor": "director:alice@host1",
+      "attempt": null,
+      "data": {
+        "part": "signage",
+        "plan": {
+          "path": "docs/pure-water-vending-business-self-serve-process-plan.md",
+          "sha256": "<sha256>"
+        },
+        "recipe": "backyard-project@1",
+        "run": "<run3>"
+      },
+      "step_path": null,
+      "type": "framing_started_later"
+    },
+    {
+      "actor": "runtime",
+      "attempt": null,
+      "data": {
+        "artifact": "process_plan",
+        "attempt": null,
+        "path": "docs/pure-water-vending-business-self-serve-process-plan.md",
+        "sha256": "<sha256>"
+      },
+      "step_path": "frame",
+      "type": "artifact_published"
+    }
+  ],
+  "from_plan": {
+    "framing": "<run0>",
+    "part": "signage",
+    "plan": "docs/pure-water-vending-business-self-serve-process-plan.md",
+    "recipe": "backyard-project@1",
+    "vendored": []
+  },
+  "pending": [
+    {
+      "attempt": 1,
+      "kind": "gate",
+      "options": [
+        {
+          "decision": "select",
+          "effect": "Each part you choose gets a first look, or starts its process if one fits; the others stay listed in your plan for later.",
+          "label": "Include these",
+          "next": [
+            {
+              "label": "Setting up the business",
+              "next": "a fit check: a few questions and a recommendation, no commitment",
+              "part": "setup"
+            },
+            {
+              "label": "Building the first machine site",
+              "next": "starts backyard-project: Take a backyard project (a flower bed, a raised bed, a shed) from idea to finished, photographed work.",
+              "part": "kiosk"
+            },
+            {
+              "label": "Signs for the sites",
+              "next": "starts backyard-project: Take a backyard project (a flower bed, a raised bed, a shed) from idea to finished, photographed work.",
+              "part": "signage"
+            },
+            {
+              "label": "Running the machines day to day",
+              "next": "a fit check: a few questions and a recommendation, no commitment",
+              "part": "running"
+            },
+            {
+              "label": "A website",
+              "next": "can't start yet: the proposed process 'no-such-recipe' is neither in this project nor shipped with Baton",
+              "part": "web"
+            }
+          ]
+        },
+        {
+          "decision": "reject",
+          "effect": "The breakdown of your goal is redone with what you said.",
+          "label": "That's not quite it",
+          "next": "the breakdown is redone with what you said"
+        }
+      ],
+      "prompt": "Goal: Start a business selling purified water from a few self-serve machines around town. Parts: Setting up the business; Building the first machine site; Signs for the sites; Running the machines day to day; A website. Which should be included now? Each chosen part starts what its option's next says, usually a first look rather than the work itself. (Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)",
+      "ref": "frame",
+      "step_path": "frame"
+    }
+  ],
+  "rejected": {
+    "outcome": "retry",
+    "reasons": [
+      "the owner did not accept the breakdown: Split the signs from the site."
+    ]
+  },
+  "selected": {
+    "gaps": [
+      {
+        "label": "A website",
+        "part": "web",
+        "reason": "the proposed process 'no-such-recipe' is neither in this project nor shipped with Baton"
+      }
+    ],
+    "outcome": "selected",
+    "plan": "docs/pure-water-vending-business-self-serve-process-plan.md",
+    "runs": [
+      {
+        "part": "setup",
+        "recipe": "fit-check@5",
+        "run": "<run1>"
+      },
+      {
+        "part": "kiosk",
+        "recipe": "backyard-project@1",
+        "run": "<run2>"
+      }
+    ],
+    "selected": [
+      "setup",
+      "kiosk",
+      "web"
+    ],
+    "state": "completed",
+    "vendored": [
+      "backyard-project@1"
+    ]
+  },
+  "started_from": [
+    [
+      "<run1>",
+      {
+        "part": "setup",
+        "run": "<run0>"
+      }
+    ],
+    [
+      "<run2>",
+      {
+        "part": "kiosk",
+        "run": "<run0>"
+      }
+    ],
+    [
+      "<run3>",
+      {
+        "part": "signage",
+        "run": "<run0>"
+      }
+    ]
+  ]
+}

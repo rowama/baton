@@ -31,6 +31,7 @@ from typing import Any, Callable
 from . import data
 
 FINDINGS_FORMAT = "baton-findings/1"
+PROPOSALS_FORMAT = "baton-proposals/1"
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
 # ---------------------------------------------------------------------------
@@ -163,6 +164,85 @@ def findings_json_schema() -> dict[str, Any]:
     return _with_header(Findings.model_json_schema(by_alias=True), FINDINGS_FORMAT)
 
 
+#: ``baton-proposals/1``: what a step that proposes runs returns (§5.1, §11.6; Decision 0152). ``baton-frame/1`` is a
+#: subset of it; a step's own output schema may add top-level fields, and every proposing step's output is also checked
+#: against this one when its selection gate opens.
+_PROPOSALS: dict[str, Any] = {
+    "type": "object",
+    "required": ["parts"],
+    "properties": {
+        "goal": {"type": "string", "minLength": 1, "description": "What the proposals serve, restated plainly, for the Director to confirm"},
+        "parts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "label", "description", "proposal", "reasons"],
+                "properties": {
+                    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+                    "label": {"type": "string", "minLength": 1, "description": "Short name, in the owner's terms"},
+                    "description": {"type": "string", "minLength": 1, "description": "What this piece of work is, in the owner's terms"},
+                    "kind": {"enum": ["project", "operations", "unclear"]},
+                    "proposal": {
+                        "type": "object",
+                        "properties": {
+                            "recipe": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(@[0-9]+)?$", "description": "A listed recipe's id"},
+                            "inputs": {"type": "object", "description": "Run inputs for that recipe, matching its run_inputs schema"},
+                            "fit_check": {
+                                "type": "object",
+                                "required": ["idea"],
+                                "properties": {
+                                    "idea": {"type": "string", "minLength": 1, "description": "The part as an idea, in the owner's terms"},
+                                    "title": {"type": "string", "minLength": 1},
+                                },
+                                "additionalProperties": False,
+                            },
+                        },
+                        "oneOf": [
+                            {"required": ["recipe", "inputs"], "not": {"required": ["fit_check"]}},
+                            {"required": ["fit_check"], "not": {"anyOf": [{"required": ["recipe"]}, {"required": ["inputs"]}]}},
+                        ],
+                        "additionalProperties": False,
+                    },
+                    "reasons": {"type": "array", "items": {"type": "string"}},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "assumptions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["about", "value", "basis"],
+                "properties": {
+                    "about": {"type": "string", "minLength": 1},
+                    "value": {"type": "string", "minLength": 1},
+                    "basis": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+}
+
+
+@cache
+def proposals_json_schema() -> dict[str, Any]:
+    """The runtime-owned ``baton:proposals`` schema (``baton-proposals/1``)."""
+    import copy
+
+    return _with_header(copy.deepcopy(_PROPOSALS), PROPOSALS_FORMAT)
+
+
+#: Output schemas the runtime owns, by the ``output_schema`` value that names them.
+RUNTIME_SCHEMAS: dict[str, Callable[[], dict[str, Any]]] = {"baton:findings": findings_json_schema, "baton:proposals": proposals_json_schema}
+
+
+def runtime_schema(ref: str | None) -> dict[str, Any] | None:
+    """A runtime-owned output schema (``baton:findings``, ``baton:proposals``), or ``None`` for a recipe's own."""
+    fn = RUNTIME_SCHEMAS.get(ref or "")
+    return fn() if fn is not None else None
+
+
 @cache
 def crosswalk_json_schema() -> dict[str, Any]:
     """``baton-crosswalk/1`` (§11.3). Rules against the recipe are checked by the loader."""
@@ -177,6 +257,7 @@ def published_schemas() -> dict[str, dict[str, Any]]:
         "baton-recipe-1.schema.json": recipe_json_schema(),
         "baton-findings-1.schema.json": findings_json_schema(),
         "baton-crosswalk-1.schema.json": crosswalk_json_schema(),
+        "baton-proposals-1.schema.json": proposals_json_schema(),
     }
 
 

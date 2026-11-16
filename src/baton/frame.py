@@ -1,5 +1,11 @@
 """Framing new work (§11.6): an owner's goal becomes work items they choose from.
 
+The selection is not framing's alone (Decision 0152): any recipe step that declares
+``proposes_runs`` (output ``baton-proposals/1``) gets the same implicit ``select`` gate,
+starts, gaps, process plan and ``start --from-plan``. Framing is its first user; the
+events keep framing's names (``framing_selected``, ``framing_started_later``,
+``run_started.framing``) and mean "a proposing step's selection".
+
 A **framing run** is a run of the built-in recipe ``baton-frame@1``. Its one step,
 ``frame``, proposes ``parts`` (``baton-frame/1``); once its declared gates pass, an
 implicit human gate ``select`` waits on the owner. ``decide <run> frame select
@@ -25,15 +31,54 @@ FRAME_STEP = "frame"
 SELECT_GATE = "select"
 FRAME_DECISIONS = ("select", "reject")
 FIT_CHECK = "fit-check"
+FRAME_ID = "baton-frame"
+PROPOSALS_REF = "baton:proposals"
+#: Built-in recipes that predate ``proposes_runs``, with their proposing step (a pinned run's recipe hash cannot change).
+LEGACY_PROPOSING: dict[str, str] = {FRAME_RECIPE: FRAME_STEP}
 
 
 def is_framing(events: list[Any]) -> bool:
+    """A run ``baton frame`` started (``work_item.kind: framing``)."""
     return bool(events) and events[0].type == "run_started" and events[0].data.get("kind") == "framing"
 
 
-def awaiting_selection(events: list[Any]) -> bool:
-    """Whether a framing run still waits for the owner's selection to be applied (it completes only then)."""
-    return is_framing(events) and not any(e.type == "framing_selected" for e in events)
+def proposing_step(loaded: Any) -> str | None:
+    """The id of the recipe's step that proposes runs (§5.1; Decision 0152), or ``None``."""
+    r = loaded.recipe
+    for s in r.steps:
+        if not s.is_group and s.proposes_runs:
+            return s.id
+    return LEGACY_PROPOSING.get(r.ref)
+
+
+def proposer(ctx: Any) -> str | None:
+    """The proposing step of the run's recipe, or ``None``."""
+    return proposing_step(ctx.recipe)
+
+
+def selected(events: list[Any]) -> bool:
+    return any(e.type == "framing_selected" for e in events)
+
+
+def awaiting_selection(ctx: Any, events: list[Any]) -> bool:
+    """Whether a run with a proposing step still waits for the owner's selection to be applied (it completes only then)."""
+    step = proposer(ctx)
+    if step is None or selected(events):
+        return False
+    return ctx.log.state().step(step).state != "skipped"
+
+
+def proposal_errors(out: Any) -> list[str]:
+    """Where a proposing step's output does not fit ``baton-proposals/1``; empty when it fits."""
+    from .versions import proposals_json_schema
+
+    v = Draft202012Validator(proposals_json_schema(), format_checker=Draft202012Validator.FORMAT_CHECKER)
+    errors = [f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message}" for e in v.iter_errors(out)]
+    ids = [p.get("id") for p in (out.get("parts") or []) if isinstance(p, dict)] if isinstance(out, dict) else []
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    if dupes:
+        errors.append(f"parts: ids are repeated: {', '.join(map(str, dupes))}")
+    return errors
 
 
 # ---------------------------------------------------------------------------
@@ -123,27 +168,57 @@ def inputs_for(project: Any, words: str) -> dict[str, Any]:
 
 
 def frame_output(ctx: Any, n: int) -> dict[str, Any]:
+    """The proposing step's output at attempt ``n``."""
     import json
 
-    sub = next((e for e in reversed(ctx.record().attempt_events(FRAME_STEP, n)) if e.type == "result_submitted"), None)
+    sub = next((e for e in reversed(ctx.record().attempt_events(proposer(ctx) or FRAME_STEP, n)) if e.type == "result_submitted"), None)
     sha = (sub.data.get("output_sha256") if sub else None)
     return json.loads(ctx.log.cas.read(sha)) if sha else {}
 
 
-def open_select_gate(ctx: Any, step_path: str, n: int) -> Any:
-    """After ``frame``'s declared gates pass: the owner chooses parts (§11.6). ``None`` when not applicable."""
-    from .engine import Outcome
+def _is_frame(ctx: Any) -> bool:
+    """A framing recipe, which keeps its own wording (§11.6)."""
+    return ctx.recipe.recipe.id == FRAME_ID
 
-    if step_path != FRAME_STEP or not is_framing(ctx.log.events()):
+
+def select_prompt(ctx: Any, out: dict[str, Any]) -> str:
+    listing = "; ".join(str(p.get("label")) for p in out.get("parts") or [])
+    if _is_frame(ctx):
+        return (f"Goal: {out.get('goal', '')} Parts: {listing}. Which should be included now? "
+                "Each chosen part starts what its option's next says, usually a first look rather than the work itself. "
+                "(Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)")
+    lead = f"{out['goal']} " if out.get("goal") else ""
+    return (f"{lead}Proposed: {listing}. Which should start now? Each chosen one starts what its option's next says. "
+            "(Select any or none; selecting none starts nothing. Reject: the proposals are redone with your note.)")
+
+
+def reject_next(ctx: Any) -> str:
+    return REJECT_NEXT if _is_frame(ctx) else "the proposals are redone with what you said"
+
+
+def reject_reasons(ctx: Any, note: str) -> list[str]:
+    """Why a ``select`` gate failed when the owner rejected the proposals."""
+    what = "the breakdown" if _is_frame(ctx) else "the proposals"
+    return [f"the owner did not accept {what}: {note}" if note else f"the owner did not accept {what}"]
+
+
+def open_select_gate(ctx: Any, step_path: str, n: int) -> Any:
+    """After a proposing step's declared gates pass: the owner chooses parts (§11.6). ``None`` when not applicable."""
+    from .engine import Outcome, _failed
+
+    if step_path != proposer(ctx):
         return None
     if any(e.type == "gate_passed" and e.data.get("gate") == SELECT_GATE for e in ctx.record().attempt_events(step_path, n)):
         return None
     out = frame_output(ctx, n)
+    errors = proposal_errors(out)
+    if errors:  # deterministic: selection reads ids, labels and proposals (§0 rule 2)
+        reasons = [f"the output is not a baton-proposals/1 list: {e}" for e in errors]
+        ctx.log.append("gate_failed", step_path=step_path, attempt=n,
+                       data={"gate": "proposals", "type": "schema", "implicit": True, "reasons": reasons})
+        return _failed(ctx, step_path, n, reasons)
     parts = out.get("parts") or []
-    listing = "; ".join(str(p.get("label")) for p in parts)
-    prompt = (f"Goal: {out.get('goal', '')} Parts: {listing}. Which should be included now? "
-              "Each chosen part starts what its option's next says, usually a first look rather than the work itself. "
-              "(Select any or all; selecting none ends framing. Reject: the breakdown is redone with your note.)")
+    prompt = select_prompt(ctx, out)
     ctx.log.append("human_gate_opened", step_path=step_path, attempt=n, data={
         "gate": SELECT_GATE, "type": SELECT_GATE, "implicit": True, "advisory": False, "prompt": prompt, "ref": step_path,
         "parts": [{"id": p.get("id"), "label": p.get("label")} for p in parts],
@@ -295,27 +370,29 @@ def render_plan(api: Any, run_id: str, out: dict[str, Any], started: dict[str, d
 
 
 def plan_due(ctx: Any, events: list[Any], done: set[Any]) -> list[Any]:
-    """The framing run's process plan, when its latest rendering is not yet published (§10.4; Decision 0068)."""
+    """A proposing run's process plan, when its latest rendering is not yet published (§10.4; Decision 0068)."""
     from . import publish
 
-    if not is_framing(events):
+    step = proposer(ctx)
+    if step is None:
         return []
     ev = next((e for e in reversed(events) if e.type in ("framing_selected", "framing_started_later") and e.data.get("plan")), None)
-    if ev is None or ev.type != "framing_selected" or (FRAME_STEP, PLAN_ARTIFACT, ev.seq) in done:
+    if ev is None or ev.type != "framing_selected" or (step, PLAN_ARTIFACT, ev.seq) in done:
         return []  # a later rendering belongs to the run that start began (plan_due_started)
     plan = ev.data["plan"]
     try:
         target = publish.check_target(publish.project_root(ctx), plan["path"])
     except EngineError as e:
-        return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True)]
-    return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], target, publish.conflict_reason(ctx, FRAME_STEP, target, plan["sha256"]))]
+        return [publish.Due(step, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True)]
+    return [publish.Due(step, PLAN_ARTIFACT, ev, plan["sha256"], target, publish.conflict_reason(ctx, step, target, plan["sha256"]))]
 
 
 def _framing_ctx(ctx: Any, run_id: str) -> Any:
+    """The context of the run whose plan a later start re-publishes (its own pinned recipe)."""
     from .packet import RunContext
-    from .project import builtin_recipe
+    from .project import Project
 
-    return RunContext(ctx.store, run_id, builtin_recipe(FRAME_RECIPE), ctx.project)
+    return RunContext(ctx.store, run_id, Project.over_store(ctx.store).recipe_for_run(run_id), ctx.project)
 
 
 def plan_due_started(ctx: Any, events: list[Any]) -> list[Any]:
@@ -338,13 +415,14 @@ def plan_due_started(ctx: Any, events: list[Any]) -> list[Any]:
     if any(e.type == "artifact_published" and e.data.get("artifact") == PLAN_ARTIFACT and e.data.get("passed_seq") == ev.seq for e in fevents):
         return []
     octx = _framing_ctx(ctx, fr)
+    step = proposer(octx) or FRAME_STEP
     plan = ev.data["plan"]
     try:
         target = publish.check_target(publish.project_root(ctx), plan["path"])
     except EngineError as e:
-        return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True, owner=octx)]
-    return [publish.Due(FRAME_STEP, PLAN_ARTIFACT, ev, plan["sha256"], target,
-                        publish.conflict_reason(octx, FRAME_STEP, target, plan["sha256"]), owner=octx)]
+        return [publish.Due(step, PLAN_ARTIFACT, ev, plan["sha256"], None, str(e), True, owner=octx)]
+    return [publish.Due(step, PLAN_ARTIFACT, ev, plan["sha256"], target,
+                        publish.conflict_reason(octx, step, target, plan["sha256"]), owner=octx)]
 
 
 FIT_CHECK_NEXT = "a fit check: a few questions and a recommendation, no commitment"
@@ -385,11 +463,12 @@ def _web_advice(api: Any, parts: list[dict[str, Any]], active: int) -> dict[str,
 
 
 def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Give a framing run's select options their ``next``, computed from the record (Decision 0071)."""
-    if not pending or not is_framing(ctx.log.events()):
+    """Give a proposing run's select options their ``next``, computed from the record (Decision 0071)."""
+    step = proposer(ctx) if pending else None
+    if step is None:
         return pending
     for p in pending:
-        if p.get("ref") != FRAME_STEP or p.get("kind") != "gate":
+        if p.get("ref") != step or p.get("kind") != "gate":
             continue
         out = frame_output(ctx, p["attempt"])
         active = _active_others(api, ctx.run_id)
@@ -401,7 +480,7 @@ def annotate_next(api: Any, ctx: Any, pending: list[dict[str, Any]]) -> list[dic
                 o["next"] = [{"part": q.get("id"), "label": q.get("label"), "next": part_next(api, q, active)}
                              for q in out.get("parts") or []]
             elif o["decision"] == "reject":
-                o["next"] = REJECT_NEXT
+                o["next"] = reject_next(ctx)
     return pending
 
 
@@ -428,20 +507,22 @@ def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any
 
 
 def find_part(api: Any, ref: str) -> tuple[Any, dict[str, Any]]:
-    """``<framing run>/<part>`` or a part id unique across finished framing runs: ``(framing run context, part)``."""
+    """``<run>/<part>`` or a part id unique across the process plans of finished selections: ``(that run's context, part)``."""
     store = api.project.store
     fr, _, pid = ref.rpartition("/")
     candidates: list[tuple[str, dict[str, Any]]] = []
     for rid in ([fr] if fr else store.run_ids()):
         if rid not in store.run_ids():
             raise EngineError("frame.unknown_run", f"no run {rid!r}")
-        events = store.run(rid).events()
-        if not is_framing(events) or not any(e.type == "framing_selected" for e in events):
+        if not selected(store.run(rid).events()):  # only a proposing step's selection records it
             if fr:
                 raise EngineError("frame.not_selected", f"run {rid} is not a framing run whose selection was made")
             continue
         fctx = api._ctx(rid)
-        part = next((p for p in frame_output(fctx, fctx.log.state().step(FRAME_STEP).attempt).get("parts") or [] if p.get("id") == pid), None)
+        step = proposer(fctx)
+        if step is None:  # pragma: no cover - framing_selected is recorded only for a proposing step
+            continue
+        part = next((p for p in frame_output(fctx, fctx.log.state().step(step).attempt).get("parts") or [] if p.get("id") == pid), None)
         if part is not None:
             candidates.append((rid, part))
     if not candidates:
@@ -474,7 +555,7 @@ def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str
     wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor)
     started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
     sel = next(e for e in events if e.type == "framing_selected")
-    out = frame_output(fctx, log.state().step(FRAME_STEP).attempt)
+    out = frame_output(fctx, log.state().step(proposer(fctx) or FRAME_STEP).attempt)
     content = render_plan(api, fctx.run_id, out, started, {g["part"]: g for g in sel.data.get("gaps") or []})
     target = (sel.data.get("plan") or {}).get("path") or plan_target(api.project.config.paths, run_words(fctx) or out.get("goal") or fctx.run_id)
     plan_ref = {"path": target, "sha256": log.cas.put(content.encode("utf-8"))}
@@ -487,22 +568,23 @@ def start_from_plan(api: Any, ref: str, paths: list[Any]) -> tuple[Any, dict[str
 
 
 def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[str] | None, paths: list[Any]) -> dict[str, Any]:
-    """``decide <framing run> frame select --items <ids> --note "<owner's words>"`` (§11.6)."""
+    """``decide <run> <proposing step> select --items <ids> --note "<owner's words>"`` (§11.6; Decision 0152)."""
     from . import docs
     from .engine import _registered, refresh
 
     log = ctx.log
-    if not is_framing(log.events()):
-        raise EngineError("frame.not_framing", f"run {ctx.run_id} is not a framing run; select is only for a framing run's {FRAME_STEP} gate")
+    step = proposer(ctx)
+    if step is None:
+        raise EngineError("frame.not_framing", f"run {ctx.run_id} has no step that proposes runs; select is only for such a step's gate")
     if decision != "select":
         raise EngineError("decide.bad_decision", "--items goes with the select decision")
-    if ref != FRAME_STEP:
-        raise EngineError("decide.bad_decision", f"select is decided on {FRAME_STEP!r}, got {ref!r}")
-    st = log.state().step(FRAME_STEP)
+    if ref != step:
+        raise EngineError("decide.bad_decision", f"select is decided on {step!r}, got {ref!r}")
+    st = log.state().step(step)
     n = st.attempt
-    opened = ctx.record().last("human_gate_opened", FRAME_STEP, n) if st.state == "awaiting_human" else None
+    opened = ctx.record().last("human_gate_opened", step, n) if st.state == "awaiting_human" else None
     if opened is None or opened.data.get("gate") != SELECT_GATE:
-        raise EngineError("decide.nothing_pending", f"{FRAME_STEP} is not waiting on the owner's selection (it is {st.state})")
+        raise EngineError("decide.nothing_pending", f"{step} is not waiting on the owner's selection (it is {st.state})")
     if not note.strip():
         raise EngineError("decide.note_required", "--note is required: the owner's words, including their confirmation")
     chosen = list(items or [])
@@ -527,12 +609,12 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
             active += 1
 
     decision_id = f"d{log.state().last_seq + 1}"
-    log.append("human_decision", actor="human", step_path=FRAME_STEP, attempt=n, data={
-        "ref": FRAME_STEP, "kind": "frame", "gate": SELECT_GATE, "decision": "select", "items": chosen, "note": note,
+    log.append("human_decision", actor="human", step_path=step, attempt=n, data={
+        "ref": step, "kind": "frame", "gate": SELECT_GATE, "decision": "select", "items": chosen, "note": note,
         "decision_id": decision_id, "recorded_by": api.director.actor,
     })
-    log.append("gate_passed", step_path=FRAME_STEP, attempt=n, data={"gate": SELECT_GATE, "type": SELECT_GATE, "implicit": True, "items": chosen})
-    log.append("step_passed", step_path=FRAME_STEP, attempt=n, data=_registered(ctx, FRAME_STEP, n))
+    log.append("gate_passed", step_path=step, attempt=n, data={"gate": SELECT_GATE, "type": SELECT_GATE, "implicit": True, "items": chosen})
+    log.append("step_passed", step_path=step, attempt=n, data=_registered(ctx, step, n))
 
     vendored: list[str] = []
     runs: list[dict[str, Any]] = []
@@ -552,11 +634,11 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
     })
     refresh(ctx)  # publishes the process plan, or holds completion on its conflict (§10.4)
     return {"framing": ctx.run_id, "decision_id": decision_id, "selected": chosen, "runs": runs, "gaps": gaps, "vendored": vendored,
-            "plan": plan_ref["path"], "state": log.state().state, "outcome": "selected", "step_path": FRAME_STEP, "attempt": n}
+            "plan": plan_ref["path"], "state": log.state().state, "outcome": "selected", "step_path": step, "attempt": n}
 
 
 def run_words(ctx: Any) -> str | None:
-    """The owner's words a framing run started from."""
+    """The owner's words a framing run (or another proposing run with a ``words`` input) started from."""
     import json
 
     try:
