@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["trades", "return_pct"],
+  "properties": {
+    "trades": {"type": "integer", "minimum": 0},
+    "return_pct": {"type": "number"}
+  },
+  "additionalProperties": false
+}

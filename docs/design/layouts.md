@@ -69,6 +69,7 @@ baton/
 <recipe>/
 ├── recipe.yaml       # id, version, format version, steps (§5)
 ├── schemas/*.json    prompts/*.md    templates/*.md.j2    static/…
+├── tools/<id>/       # optional: a tool a step names (§5.9): tool.yaml, its lock file, its scripts
 └── crosswalks/*.yaml # optional, for adopting projects from a known prior process (§11.3)
 ```
 

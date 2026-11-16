@@ -378,7 +378,7 @@ def _uncovered_steps(project: Any, profiles: dict[str, Any]) -> list[str]:
             for n in nodes:
                 if isinstance(n, Group):
                     visit(n.steps, f"{prefix}{n.id}/")
-                elif isinstance(n, Step):
+                elif isinstance(n, Step) and n.tool is None:  # a tool's readiness is its own check (§5.9)
                     if not any(not requirement_gaps(n.requires, n.workspace, p, loaded.vocab) for p in profiles.values()):
                         out.append(f"{ref}/{prefix}{n.id}")
 

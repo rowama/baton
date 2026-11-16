@@ -1,0 +1,6 @@
+id: backtest
+description: Runs a moving-average strategy over a fixed price history and reports its trades and return.
+runtime: { kind: python, version: ">=3.11" }
+entry: ["python", "{tool}/backtest.py", "--input", "{input}", "--output", "{output}"]
+dependencies: { lock: requirements.lock }
+reach: { workspace: none, network: false, secrets: [] }

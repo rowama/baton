@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
-from . import refs, tailoring, versions
+from . import refs, tailoring, tools, versions
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml, read_text
 from .models import (
@@ -42,6 +42,7 @@ from .models import (
     ReviewGate,
     ScriptGate,
     Step,
+    ToolSpec,
 )
 from .vocab import Vocabulary
 
@@ -51,7 +52,7 @@ FORBIDDEN_KEYS = frozenset({"worker", "model", "adapter", "provider", "profile",
 PUBLISH_VARIABLES = frozenset({"paths", "run", "project"})
 MAX_GROUP_DEPTH = 2  # a group may contain a group, but no deeper (§5.4)
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
-_TEXT_DIRS = ("prompts", "templates", "schemas", "static")
+_TEXT_DIRS = ("prompts", "templates", "schemas", "static", tools.TOOLS_DIR)
 # Ids name roles, never positions (§5.8): "step1", "s2", "phase_3", "step01_design", "review_2".
 AXIS_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 POSITIONAL_ID = re.compile(r"^(?:step|stage|phase|part|task)_?\d+(?:_|$)|^[sp]_?\d+$|_\d+$")
@@ -77,6 +78,7 @@ class LoadedRecipe:
     vocab: Vocabulary
     warnings: list[Issue] = field(default_factory=list)
     schemas: dict[str, dict] = field(default_factory=dict)  # recipe-relative path -> schema
+    tools: dict[str, tools.LoadedTool] = field(default_factory=dict)  # tool id -> checked tool (§5.9)
 
 
 def load_recipe(root: str | Path) -> LoadedRecipe:
@@ -127,6 +129,7 @@ class _Checker:
         self.vocab: Vocabulary
         self.places: dict[str, _Place] = {}
         self.top: _Scope
+        self.tools: dict[str, tools.LoadedTool | None] = {}  # None: named but not loadable
 
     # -- reporting -------------------------------------------------------
 
@@ -171,6 +174,7 @@ class _Checker:
             else:
                 self._check_step(node, place)
         self._check_proposing()
+        self._check_tool_dirs()
         self._check_sme()
         self._check_complexity()
         self._lint_crosswalks()
@@ -184,6 +188,7 @@ class _Checker:
             vocab=self.vocab,
             warnings=[i for i in self.issues if i.severity == "warning"],
             schemas=self.schemas,
+            tools={k: v for k, v in self.tools.items() if v is not None},
         )
 
     def _read(self) -> Any:
@@ -657,12 +662,20 @@ class _Checker:
 
     def _check_step(self, step: Step, place: _Place) -> None:
         w = self.where(step)
-        self._file(step.prompt, f"{w}.prompt", "prompt")
+        if step.tool is not None:
+            self._check_tool_step(step, w)
+        else:
+            for key in ("requires", "prompt"):
+                if getattr(step, key) is None:
+                    self.error("recipe.missing_key", f"{w}.{key}", f"required key {key!r} is missing (or name a tool with 'tool')")
+            if step.prompt is not None:
+                self._file(step.prompt, f"{w}.prompt", "prompt")
+            if step.requires is not None:
+                self._check_requires(step.requires, f"{w}.requires")
         if step.doc_template:
             self._file(step.doc_template, f"{w}.doc_template", "doc template")
         if step.output_schema:
             self._schema(step.output_schema, f"{w}.output_schema")
-        self._check_requires(step.requires, f"{w}.requires")
 
         _dupes(self, [i.name for i in step.inputs], "step.duplicate_input", f"{w}.inputs", "input")
         _dupes(self, [a.name for a in step.artifacts], "step.duplicate_artifact", f"{w}.artifacts", "artifact")
@@ -696,6 +709,150 @@ class _Checker:
 
         for i, gate in enumerate(step.gates):
             self._check_gate(step, place, gate, f"{w}.gates[{i}]")
+
+    # -- tools (§5.9) -----------------------------------------------------
+
+    def _check_tool_step(self, step: Step, w: str) -> None:
+        both = [k for k in ("requires", "prompt") if getattr(step, k) is not None]
+        if both:
+            self.error(
+                "step.tool_and_worker",
+                w,
+                f"a step done by a tool has no {' or '.join(repr(k) for k in both)}: "
+                "the tool is its one executor (remove them, or remove 'tool')",
+            )
+        assert step.tool is not None
+        tool = self._tool(step.tool, f"{w}.tool")
+        if tool is not None and step.workspace != tool.spec.reach.workspace:
+            self.error(
+                "step.tool_workspace_mismatch",
+                f"{w}.workspace",
+                f"the step is workspace: {step.workspace}, but tool {tool.id!r} declares reach.workspace: "
+                f"{tool.spec.reach.workspace}; they must match",
+            )
+
+    def _tool(self, tool_id: str, where: str) -> tools.LoadedTool | None:
+        if tool_id not in self.tools:
+            self.tools[tool_id] = self._load_tool(tool_id, where)
+        return self.tools[tool_id]
+
+    def _load_tool(self, tool_id: str, where: str) -> tools.LoadedTool | None:
+        base = self.root / tools.TOOLS_DIR / tool_id
+        rel = f"{tools.TOOLS_DIR}/{tool_id}/{tools.TOOL_FILE}"
+        if not (base / tools.TOOL_FILE).is_file():
+            self.error("tool.unknown", where, f"no tool {tool_id!r}: {rel} does not exist")
+            return None
+        try:
+            raw = load_yaml(base / tools.TOOL_FILE)
+        except YamlError as e:
+            self.error("yaml.duplicate_key" if "duplicate key" in str(e) else "yaml.invalid", rel, str(e))
+            return None
+        if not isinstance(raw, dict):
+            self.error("yaml.invalid", rel, f"{rel} must be a mapping")
+            return None
+        n_before = len(self.issues)
+        stripped = self._lint_neutrality(raw, rel)
+        try:
+            spec = ToolSpec.model_validate(stripped)
+        except ValidationError as e:
+            for err in e.errors():
+                loc = ".".join(str(x) for x in err["loc"])
+                at = f"{rel}:{loc}" if loc else rel
+                if err["type"] == "extra_forbidden":
+                    self.error("recipe.unknown_key", at, f"unknown key {str(err['loc'][-1])!r}")
+                elif err["type"] == "missing":
+                    self.error("recipe.missing_key", at, f"required key {str(err['loc'][-1])!r} is missing")
+                else:
+                    self.error("recipe.invalid_value", at, err["msg"])
+            return None
+        if spec.id != tool_id:
+            self.error("tool.id_mismatch", f"{rel}:id", f"id {spec.id!r} does not match its folder {tool_id!r}")
+        if spec.runtime.kind not in tools.RUNTIME_KINDS:
+            self.error(
+                "tool.unknown_runtime",
+                f"{rel}:runtime.kind",
+                f"runtime {spec.runtime.kind!r} is not supported (supported: {', '.join(tools.RUNTIME_KINDS)})",
+            )
+        if spec.runtime.version is not None and not tools.valid_version_spec(spec.runtime.version):
+            self.error(
+                "tool.bad_runtime_version",
+                f"{rel}:runtime.version",
+                f"{spec.runtime.version!r} is not a version specifier such as '>=3.11' or '>=3.11,<3.14'",
+            )
+        self._check_entry(spec, base, rel)
+        for i, name in enumerate(spec.reach.secrets):
+            if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", name):
+                self.error("tool.bad_secret_name", f"{rel}:reach.secrets[{i}]", f"{name!r} is not a secret name (letters, digits, _)")
+        lock = self._tool_file(base, spec.dependencies.lock, f"{rel}:dependencies.lock", "lock file")
+        reqs: list[tools.LockedRequirement] = []
+        if lock is not None:
+            try:
+                text = read_text(lock)
+            except (UnicodeDecodeError, OSError) as e:
+                self.error("tool.lock_unreadable", f"{rel}:dependencies.lock", f"{spec.dependencies.lock}: {e}")
+                text = None
+            if text is not None:
+                reqs, problems = tools.parse_lock(text)
+                lock_rel = f"{tools.TOOLS_DIR}/{tool_id}/{spec.dependencies.lock}"
+                for p in problems:
+                    self.error(p.code, f"{lock_rel}:{p.line}", p.message)
+        if any(i.severity == "error" for i in self.issues[n_before:]) or lock is None:
+            return None
+        return tools.LoadedTool(
+            spec=spec,
+            root=base,
+            sha256=package_sha256(base),
+            lock_sha256=tools.file_sha256(lock),
+            requirements=reqs,
+        )
+
+    def _check_entry(self, spec: ToolSpec, base: Path, rel: str) -> None:
+        if not tools.is_bare_command(spec.entry[0]):
+            self.error(
+                "tool.bad_entry_command",
+                f"{rel}:entry[0]",
+                f"{spec.entry[0]!r} must be a bare command name found in the tool's environment (such as 'python')",
+            )
+        seen: set[str] = set()
+        for i, word in enumerate(spec.entry):
+            names = tools.placeholders(word)
+            for name in names:
+                if name not in tools.PLACEHOLDERS:
+                    self.error(
+                        "tool.unknown_placeholder",
+                        f"{rel}:entry[{i}]",
+                        f"{{{name}}} is not a placeholder (known: {', '.join('{' + p + '}' for p in sorted(tools.PLACEHOLDERS))})",
+                    )
+            seen.update(names)
+            if word.startswith("{tool}/"):
+                self._tool_file(base, word[len("{tool}/"):], f"{rel}:entry[{i}]", "entry file")
+        if "output" not in seen:
+            self.error("tool.entry_needs_output", f"{rel}:entry", "the entry command must pass {output}, where the tool writes output.json")
+        if "workspace" in seen and spec.reach.workspace == "none":
+            self.error(
+                "tool.workspace_placeholder",
+                f"{rel}:entry",
+                "{workspace} is passed but reach.workspace is none: declare read or write, or drop {workspace}",
+            )
+
+    def _tool_file(self, base: Path, rel: str, where: str, what: str) -> Path | None:
+        p = PurePosixPath(rel.replace("\\", "/"))
+        if p.is_absolute() or ".." in p.parts or not p.parts:
+            self.error("file.outside_recipe", where, f"{what} {rel!r} must be a path inside the tool's folder")
+            return None
+        full = base / p
+        if not full.is_file():
+            self.error("file.missing", where, f"{what} {rel!r} does not exist in {base.relative_to(self.root).as_posix()}/")
+            return None
+        return full
+
+    def _check_tool_dirs(self) -> None:
+        base = self.root / tools.TOOLS_DIR
+        if not base.is_dir():
+            return
+        for d in sorted(p for p in base.iterdir() if p.is_dir() and p.name != "__pycache__"):
+            if d.name not in self.tools:
+                self.warn("tool.unused", f"{tools.TOOLS_DIR}/{d.name}", f"no step uses tool {d.name!r}")
 
     def _check_proposing(self) -> None:
         """``proposes_runs`` (§5.1; Decision 0152): one top-level step whose output is a ``baton-proposals/1`` list."""
@@ -1384,6 +1541,7 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None, ratings: dict[str
                             included=inc,
                             reason=reason,
                             requires=n.requires,
+                            tool=n.tool,
                             workspace=n.workspace,
                             gates=_plan_gates(n, look, inc, recipe, per_axis=per_axis),
                         )
@@ -1531,6 +1689,8 @@ def render_plan(plan: Plan) -> str:
                 detail = _render_group(r.group or {})
             else:
                 detail = _render_gates(r.gates, "only at some ratings" if per_axis else "not at these ratings" if lv.ratings else "not at this level")
+                if r.tool is not None:
+                    detail = f"by tool {r.tool}; {detail}"
             lines.append(f"  {name.ljust(width)}{status}  {detail}".rstrip())
     for ax in plan.axes or []:
         lines.append("")

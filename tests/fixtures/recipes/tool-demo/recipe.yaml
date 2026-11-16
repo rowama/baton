@@ -1,0 +1,41 @@
+id: tool-demo
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Choose a strategy's parameters, test them against past prices with a script, and report on the result.
+
+run_inputs:
+  schema: schemas/run_inputs.json
+
+steps:
+  - id: parameters
+    title: Choose the parameters
+    requires: { capabilities: [structured_output], tier: standard }
+    prompt: prompts/parameters.md
+    inputs:
+      - { name: goal, from: run.inputs.goal, required: true }
+    output_schema: schemas/parameters.json
+    gates: [ { type: schema } ]
+
+  - id: backtest
+    title: Test the strategy against past prices
+    depends_on: [parameters]
+    tool: backtest
+    workspace: none
+    inputs:
+      - { name: parameters, from: steps.parameters.output, required: true }
+    output_schema: schemas/backtest_out.json
+    artifacts:
+      - { name: trades, required: true, media_type: text/csv }
+    gates: [ { type: schema } ]
+
+  - id: report
+    title: Report on the result
+    depends_on: [backtest]
+    requires: { capabilities: [long_form_writing], tier: standard }
+    prompt: prompts/report.md
+    inputs:
+      - { name: result, from: steps.backtest.output, required: true }
+      - { name: trades, from: steps.backtest.artifacts.trades, required: true }
+    artifacts:
+      - { name: report, required: true, media_type: text/markdown }

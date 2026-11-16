@@ -181,6 +181,8 @@ steps:
       - { type: review, applies_to: { assurance: [high] }, reviewer_requires: { capabilities: [technical_reasoning, workspace_read] }, rubric: prompts/rubric.md }
 ```
 
+A step may be done by a **tool** the recipe ships instead of a worker: it names `tool: <id>` in place of `requires` and `prompt` (§5.9). Additive in `baton-recipe/1`: a recipe without tools loads, plans and hashes exactly as before.
+
 An absent `parent` marks a recipe that predates the field; `null` and a named parent both record where it came from, and all three are roots as far as the runtime goes. The loader rejects any other key under `scope` or `parent` (`recipe.unknown_key`) a missing required key (`recipe.missing_key`) and a malformed value (`recipe.invalid_value`).
 
 ### 5.2 Input references (closed grammar)
@@ -218,7 +220,8 @@ The loader (`recipe.py`) rejects a recipe unless:
 - A recipe being built can be checked by `baton recipe check <package> --ledger <file>` (Decision: [0108](../decisions/0108-recipe-check-command.md)), which a script gate runs. It reads a requirements ledger (a list of `{id, statement, kind, scope, status, basis, owner_words?}`, `scope` being `class` or `instance`, `status` one of `confirmed`, `researched`, `inferred`, `open`, `excluded`) and reports, one `ERROR <path>: <message>` line each: a malformed ledger or entry; an `open` entry; a `confirmed` entry without `owner_words`; and any `instance` entry whose `statement`, `value` or `owner_words` (at least 8 characters after lower-casing and collapsing whitespace) appears in the package's `prompts/` or `static/` files. The ledger file may be an object `{ledger, discovery}`; with `--require-discovery` it must be, and its `discovery` records (recipe-builder@3, §5.7) are checked: each record's fields and vocabulary; a choice that shapes the process is `decided`, with a comparison that lists options, cites dated sources or states its uncertainty and recommends, and a `decision` naming a confirmed `decision` entry that carries the owner's words; and a choice deferred to the recipe names research, decision and consuming steps that exist in `recipe.yaml`, the research step requiring `web_access`, the decision step having a `human` gate and taking the research output as a required input, and each consuming step taking the decision step's output as a required input. Exit 0 when clean, 1 otherwise. It judges nothing else: whether a design meets its goals, or a comparison is relevant and adequate, is a reviewer's work.
 - Project documents: every `project.<role>` names a declared role (`ref.unknown_role`); roles are unique (`project_inputs.duplicate_role`) and none is named `policy` or `summary` (`project_inputs.reserved_role`, as `project.policy` is the project policy and `project.summary` its state, §5.2); a malformed entry is `recipe.missing_key`, `recipe.unknown_key` or `recipe.invalid_value`. A role's name or description may not name another recipe or its steps (`neutrality.role_names_recipe`): a qualified reference (`<recipe>@<n>`, `<recipe>@<n>/<step>`), a step reference (`steps.<id>`, `group.steps.<id>`), or the id of a recipe shipped with or built into the runtime (with `_` read as `-`).
 - Proposing steps: at most one step declares `proposes_runs` (`recipe.several_proposing_steps`), and it is a top-level step (`step.proposes_runs_in_group`), with `output_schema: baton:proposals` or a schema of its own that declares a `parts` array (`step.proposes_runs_needs_schema`; `baton:findings` is refused).
-- **Neutrality:** no keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth`; no values matching the vocabulary's vendor denylist. Prompts and templates are scanned too, with warnings only (prose may mention a vendor).
+- Steps and tools: a step has `requires` and `prompt`, or `tool` and neither (`step.tool_and_worker`; a worker step missing either is `recipe.missing_key`). The tool's rules are in §5.9.
+- **Neutrality:** no keys `worker`, `model`, `adapter`, `provider`, `profile`, `api_key`, `auth`; no values matching the vocabulary's vendor denylist, in `recipe.yaml` and in each `tool.yaml`. Prompts, templates and tools' files are scanned too, with warnings only (prose may mention a vendor).
 
 ### 5.4 Groups (sub-processes)
 
@@ -352,3 +355,42 @@ Ids name **roles, never positions**. Recipes and plans change over time; an id t
 - **Anything aggregated across runs keys on the qualified id** `<recipe_id>@<version>/<step_path>`, never the bare id: review statistics (§9.2), process statistics and lessons (§12.4), crosswalk targets (§11.3). Inside a run, the run's pinned recipe version and hash (§14.2) qualify every id.
 - **`foreach` instance ids are assigned by the runtime**, never by workers. At first expansion each item gets an opaque random token (e.g. `x7f3a9c2`), recorded in `group_expanded`; it is not derived from order or content. Groups without `foreach` get one too. The item stored for an instance (what `item` resolves to) carries its id; change detection compares items without it. The source step's item schema must declare `id` as an *optional* string property and must not require it (`group.foreach_items_need_id`, `group.foreach_id_required`). When the source step is revised, its packet includes the previous items with their ids; the worker echoes the id of every item it keeps (changed or not) and omits `id` on new items. Intake rejects an unknown or duplicated id (an id on the first expansion is unknown). People see item titles; the board shows the title with the id.
 - **Attempts and iterations** (`attempt-1`, `i1`) are ordinal by nature: append-only, never renumbered or reused, so their order is their meaning.
+
+### 5.9 Tools in a recipe
+
+A **tool** is a script the recipe ships that does a step with no model (Decisions: [0154](../decisions/0154-tool-steps.md), [0156](../decisions/0156-tool-steps-details.md), [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md)). A step names it in place of `requires` and `prompt`; its inputs, output schema, artifacts and gates are declared as for any step, and its output and artifacts feed later steps in the same way.
+
+```yaml
+- id: backtest
+  title: Test the strategy against past prices
+  depends_on: [parameters]
+  tool: backtest                       # tools/backtest/ in this package
+  workspace: none                      # must match the tool's reach.workspace
+  inputs:
+    - { name: parameters, from: steps.parameters.output, required: true }
+  output_schema: schemas/backtest_out.json
+  artifacts:
+    - { name: trades, required: true, media_type: text/csv }
+  gates: [ { type: schema } ]
+```
+
+The tool lives in `tools/<id>/` (§4.2), so it is vendored, hashed and pinned with the recipe: a changed tool file is a changed recipe (§15.2). `tools/<id>/tool.yaml` says what it is:
+
+```yaml
+id: backtest                           # the folder's name
+description: Runs a strategy over a price history and reports its trades and returns.
+runtime: { kind: python, version: ">=3.11" }
+entry: ["python", "{tool}/backtest.py", "--input", "{input}", "--output", "{output}"]
+dependencies: { lock: requirements.lock }
+reach: { workspace: none, network: false, secrets: [] }
+```
+
+- **`runtime`**: the kind (only `python` for now) and an optional version specifier (comma-separated clauses such as `>=3.11,<3.14`).
+- **`entry`**: the command, one word per item; no shell runs it. Its first word is a bare command name found in the tool's environment. The only placeholders are `{input}` (the inputs file), `{output}` (the directory the tool writes `output.json` and its artifacts into; required), `{tool}` (the tool's folder; the tool runs in a fresh scratch folder, never in its own, Decision 0158) and `{workspace}` (only when `reach.workspace` is not `none`). A word `{tool}/<path>` must name a file in the tool's folder.
+- **`dependencies.lock`**: a requirements file in the tool's folder with every dependency at one exact version with its hashes, as `uv pip compile --generate-hashes` writes it. Nothing else may appear: no options, no editable or URL requirements. An empty lock is a tool that needs only the standard library.
+- **`reach`**: what the tool may touch: its workspace mode (the step's `workspace` must match it), whether it reaches the network, and the names of the secrets it needs. It is shown to the owner at vendoring and recorded; §15.2 says what is enforced.
+
+The loader rejects: an unknown tool (`tool.unknown`); a `tool.yaml` whose `id` is not its folder (`tool.id_mismatch`); a runtime other than `python` (`tool.unknown_runtime`) or a malformed version (`tool.bad_runtime_version`); an entry whose first word is a path or holds a space (`tool.bad_entry_command`), with an unknown placeholder (`tool.unknown_placeholder`), without `{output}` (`tool.entry_needs_output`), or passing `{workspace}` with no workspace reach (`tool.workspace_placeholder`); a step whose workspace differs from its tool's (`step.tool_workspace_mismatch`); a secret name that is not letters, digits and `_` (`tool.bad_secret_name`); a missing lock or entry file (`file.missing`, or `file.outside_recipe` for a path leaving the tool's folder); and in the lock, a requirement not pinned to one version (`tool.unpinned_dependency`), one with no sha256 hash (`tool.unhashed_dependency`) or an option line (`tool.lock_option`), each located by its line. A malformed `tool.yaml` is `recipe.missing_key`, `recipe.unknown_key` or `recipe.invalid_value`. A folder in `tools/` that no step names is a warning (`tool.unused`).
+
+`baton plan` shows a tool step as done `by tool <id>`. A tool step has no routing: no worker profile can do it, and the Director cannot substitute one. Running tools (the runner, environments built from the lock, readiness and records) is described in §6.3 and §8 as it is built (2026-11-tool-steps).
+

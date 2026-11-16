@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["window", "reason"],
+  "properties": {
+    "window": {"type": "integer", "minimum": 2, "maximum": 20},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

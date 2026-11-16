@@ -1,7 +1,7 @@
 ---
 id: 2026-11-tool-steps
 title: "A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran"
-status: accepted
+status: in-progress
 level: major
 decisions: ["0154", "0156", "0158", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/platform-and-security.md, design/director-interface.md]
@@ -172,3 +172,12 @@ Final: the Request and Design are approved (2026-11-16).
 - **Summary:** Confirmed Decision 0156 item 1 against uv 0.13.7. Two new questions (whether uv may download a Python; a tool's working folder) were answered as suggested and recorded as Decision 0158; the Design now runs a tool in a fresh scratch folder with a `{tool}` placeholder and builds environments with `--no-python-downloads`. Status set to accepted. No code changed.
 - **Owner decision:** 2026-11-16, "No download", "Fresh scratch folder", "Approve" (0158).
 - **Accepted:** Yes; Plan final, Slice 1 next.
+
+### Slice 1: a recipe declares tools
+
+- **Summary:** A step may name `tool: <id>` in place of `requires` and `prompt` (`models.Step`; both now optional, and the loader reports a worker step missing either as `recipe.missing_key`, as before). `tools/<id>/tool.yaml` is `models.ToolSpec` (`runtime`, `entry`, `dependencies.lock`, `reach {workspace, network, secrets}`); the new `tools.py` holds the lock parser (`parse_lock`: `name==version`, extras and markers allowed, at least one sha256 hash each, no options or URLs, checked against real `uv pip compile --generate-hashes` output from uv 0.13.7), the placeholders (`{input}`, `{output}`, `{tool}`, `{workspace}`) and `LoadedTool` (the spec, its folder, its own hash and its lock's hash). The loader checks each named tool once and returns them as `LoadedRecipe.tools`; `tool.yaml` gets the neutrality lint, and tools' files the vendor-mention warning. Two rules the Design left implicit, settled within it: the step's `workspace` must match the tool's `reach.workspace` (criterion 2 has the tool declare its workspace mode, and the example has it on the step), and the entry must pass `{output}`. `baton plan` shows `by tool <id>` (`PlanStep.tool`). No worker can do a tool step: `requirement_gaps` says so, so `eligible` lists no worker and dispatch refuses until Slice 2; `doctor` skips tool steps in its no-worker check; `versions.step_signatures` adds `tool` only for tool steps. The published `formats/baton-recipe-1.schema.json` is regenerated (the format stays `baton-recipe/1`, Decision 0156 item 7).
+- **Design docs:** `principles.md` §2 (**Tool**; **Step**); `design/recipes.md` §5.1 (a pointer), §5.3 (steps and tools; neutrality covers `tool.yaml`), new §5.9 (tools in a recipe); `design/layouts.md` §4.2 (`tools/<id>/`); `docs/README.md` § index.
+- **Manual:** none in this slice: no shipped recipe has a tool yet, and nothing an owner sees or an administrator configures changes; the manual edits come with Slice 3.
+- **Tests:** `tests/test_tool_steps.py`: the `tool-demo` fixture (`tests/fixtures/recipes/tool-demo`: a worker step, a tool step, and a worker step taking the tool's output and artifact) loads, plans and conforms to the published schema; the recipe hash and the tool's hash cover the tool's files; a uv-written lock loads with its markers; an unused tool folder warns; 27 broken cases, each with its code; lock errors name their line; worker steps still need `requires` and `prompt`; recipes without tools have no tools, no `tool` in their step signatures or plans; no worker can do a tool step; the lock parser on its own.
+- **Accepted:** Yes; slice of the in-progress change.
+

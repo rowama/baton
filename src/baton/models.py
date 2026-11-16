@@ -135,14 +135,19 @@ IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected")
 
 
 class Step(_Strict):
-    """A leaf step: one unit of work done by one worker per attempt."""
+    """A leaf step: one unit of work done by one worker or tool per attempt.
+
+    A worker step has ``requires`` and ``prompt``; a tool step has ``tool``
+    instead (§5.9). The loader checks that a step has one or the other.
+    """
 
     id: str = Field(pattern=STEP_ID)
     title: str | None = None
     depends_on: list[str] = Field(default_factory=list)
     applies_to: AppliesTo | None = None
-    requires: Requires
-    prompt: str
+    requires: Requires | None = None
+    prompt: str | None = None
+    tool: str | None = Field(default=None, pattern=STEP_ID)  # tools/<id>/ in the package (§5.9)
     inputs: list[Input] = Field(default_factory=list)
     output_schema: str | None = None  # recipe-relative path, "baton:findings" or "baton:proposals"
     artifacts: list[Artifact] = Field(default_factory=list)
@@ -163,6 +168,37 @@ class Step(_Strict):
         if self.protect is None:
             return []
         return list(self.protect) if isinstance(self.protect, list) else list(self.protect.paths)
+
+
+# --------------------------------------------------------------------------
+# Tools: tools/<id>/tool.yaml in a recipe package (§5.9; Decisions 0154, 0156, 0158)
+# --------------------------------------------------------------------------
+
+
+class ToolRuntime(_Strict):
+    kind: str  # "python" only, for now (Decision 0156, item 2); checked by the loader
+    version: str | None = None  # a version specifier, e.g. ">=3.11"
+
+
+class ToolDependencies(_Strict):
+    lock: str  # tool-relative path of a requirements file with exact versions and hashes
+
+
+class ToolReach(_Strict):
+    """What a tool may touch: shown at vendoring, recorded, enforced where the machine can (§15.2)."""
+
+    workspace: Literal["none", "read", "write"] = "none"
+    network: bool = False
+    secrets: list[str] = Field(default_factory=list)
+
+
+class ToolSpec(_Strict):
+    id: str = Field(pattern=STEP_ID)
+    description: str = Field(min_length=1)
+    runtime: ToolRuntime
+    entry: list[str] = Field(min_length=1)  # one word each; no shell runs it
+    dependencies: ToolDependencies
+    reach: ToolReach = Field(default_factory=ToolReach)
 
 
 class Group(_Strict):
@@ -629,6 +665,7 @@ class PlanStep(BaseModel):
     included: bool
     reason: str = ""  # why skipped
     requires: Requires | None = None
+    tool: str | None = None  # a tool step: the tool that does it (§5.9)
     workspace: str = "none"
     gates: list[PlanGate] = Field(default_factory=list)
     group: dict[str, Any] | None = None  # foreach / repeat details for groups

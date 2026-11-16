@@ -4,8 +4,9 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-tool-steps](2026-11-tool-steps.md) | A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran | accepted | major | |
+| [2026-11-tool-steps](2026-11-tool-steps.md) | A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran | in-progress | major | |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
+| [2026-11-builder-step-design](2026-11-builder-step-design.md) | Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design; starts after 2026-11-tool-steps |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
 | [2026-11-person-step-forms](2026-11-person-step-forms.md) | A person's step can show a form built from the step's data, when the Director's questions are not enough | proposed | major | On hold: deferred by the owner (2026-11-15); after 2026-11-tool-steps and the recipe-builder changes of Decision 0155 |
 | [2026-11-quick-runs](2026-11-quick-runs.md) | An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document | proposed | major | Deferred by the owner (2026-11-14): open questions 1 and 5 to be discussed first |

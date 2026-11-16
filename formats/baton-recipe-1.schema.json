@@ -959,7 +959,7 @@
     },
     "Step": {
       "additionalProperties": false,
-      "description": "A leaf step: one unit of work done by one worker per attempt.",
+      "description": "A leaf step: one unit of work done by one worker or tool per attempt.\n\nA worker step has ``requires`` and ``prompt``; a tool step has ``tool``\ninstead (\u00a75.9). The loader checks that a step has one or the other.",
       "properties": {
         "applies_to": {
           "anyOf": [
@@ -1109,8 +1109,16 @@
           "title": "Output Schema"
         },
         "prompt": {
-          "title": "Prompt",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
         },
         "proposes_runs": {
           "default": false,
@@ -1136,7 +1144,15 @@
           "title": "Protect"
         },
         "requires": {
-          "$ref": "#/$defs/Requires"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Requires"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "title": {
           "anyOf": [
@@ -1150,6 +1166,19 @@
           "default": null,
           "title": "Title"
         },
+        "tool": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        },
         "workspace": {
           "default": "none",
           "enum": [
@@ -1162,9 +1191,7 @@
         }
       },
       "required": [
-        "id",
-        "requires",
-        "prompt"
+        "id"
       ],
       "title": "Step",
       "type": "object"

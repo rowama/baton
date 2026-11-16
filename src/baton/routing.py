@@ -39,8 +39,10 @@ WORKSPACE_CAPABILITY = {"read": "workspace_read", "write": "repo_workspace"}
 PREFERENCES_FILE = "preferences.yaml"
 
 
-def needed_capabilities(requires: Requires, workspace: str) -> list[str]:
-    """The step's required capabilities plus its workspace mode's (§8.4 step 2)."""
+def needed_capabilities(requires: Requires | None, workspace: str) -> list[str]:
+    """The step's required capabilities plus its workspace mode's (§8.4 step 2); none for a tool step."""
+    if requires is None:
+        return []
     needed = list(requires.capabilities)
     ws_cap = WORKSPACE_CAPABILITY.get(workspace)
     if ws_cap and ws_cap not in needed:
@@ -48,11 +50,14 @@ def needed_capabilities(requires: Requires, workspace: str) -> list[str]:
     return needed
 
 
-def requirement_gaps(requires: Requires, workspace: str, profile: WorkerProfile, vocab: Vocabulary) -> list[str]:
+def requirement_gaps(requires: Requires | None, workspace: str, profile: WorkerProfile, vocab: Vocabulary) -> list[str]:
     """Why ``profile`` cannot do a step with these requirements; empty when it can.
 
     A claimed capability whose recorded state is ``absent`` counts as missing (0084).
+    ``requires`` is ``None`` for a tool step (§5.9): no worker profile can do it.
     """
+    if requires is None:
+        return ["this step is done by its tool, not by a worker (§5.9)"]
     gaps: list[str] = []
     needed = needed_capabilities(requires, workspace)
     missing = [c for c in needed if c not in profile.capabilities]
@@ -352,7 +357,7 @@ def eligible_workers(
         if name in kept and name not in ordered:
             ordered.append(name)
             kept[name]["reasons"].append(f"preferred for step {step.id}")
-    for cap in step.requires.capabilities:
+    for cap in step.requires.capabilities if step.requires else []:
         for name in prefs.prefer.by_capability.get(cap, []):
             if name in kept and name not in ordered:
                 ordered.append(name)
@@ -396,7 +401,7 @@ def web_steps(recipe: Any) -> list[str]:
         for n in nodes:
             if isinstance(n, Group):
                 visit(n.steps, f"{prefix}{n.id}/")
-            elif isinstance(n, Step) and "web_access" in n.requires.capabilities:
+            elif isinstance(n, Step) and n.requires is not None and "web_access" in n.requires.capabilities:
                 out.append(f"{prefix}{n.id}")
 
     visit(recipe.steps, "")
