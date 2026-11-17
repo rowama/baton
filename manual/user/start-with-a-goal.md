@@ -4,7 +4,7 @@ title: Start with a goal
 audience: owner
 order: 40
 summary: Tell your assistant what you want to achieve and choose which pieces to start on.
-related: [user.answer-questions-and-decide, user.bring-an-existing-project]
+related: [user.answer-questions-and-decide, user.bring-an-existing-project, recipes.quick-run]
 ---
 
 ## Here, now {#here-now}
@@ -29,6 +29,12 @@ The breakdown is kept in the project as a plan you can read, in the folder your 
 What one piece of work settles, later pieces can use. Once your business plan is done and approved, for example, the marketing work can start from it instead of asking you everything again. When a piece of work could use a document your project already has, your assistant proposes it and asks you to confirm before the work starts: "For the marketing work I'll use your business plan, the version you approved last week. Right?" The work uses exactly the version you confirmed, and the record says which one.
 
 A document can also be one you wrote yourself, such as a plan or a set of policies. Tell your assistant it is settled and it records that you vouch for it, with your words, so later work can use it. See [confirming a document](user.answer-questions-and-decide#documents).
+
+## How much care a piece gets {#how-much-care}
+
+Not every piece of a goal deserves a full process. For a piece that needs one document good enough to start on, such as a lean business plan for the stand or a procedure for opening it each morning, a [quick run](recipes.quick-run#here-now) is often enough: a helper follows a guide for that kind of document and you approve the result. For a piece with money, rules, several people or things that cannot be undone, a full process is worth its extra time: it is researched, designed, checked by a second helper and can be used again.
+
+You decide, piece by piece. When a piece needs a process built for it, [recipe builder](recipes.recipe-builder#full-or-quick) recommends one or the other with its reasons. When one of the guides that come with Baton already fits, your assistant can offer the quick run straight away. Either way, what a quick run produces is one of your project's documents, so later pieces, quick or thorough, can build on it.
 
 ## What to do next {#whats-next}
 

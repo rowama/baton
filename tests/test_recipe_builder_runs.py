@@ -854,3 +854,42 @@ def test_a_quick_rating_with_software_is_refused_by_the_profile_schema(project_w
     res = cli("dispatch", run, "profile", "--worker", "builder", "--wait", expect=None).payload
     rejected = [e for e in run_events(project, run) if e["type"] == "result_rejected" and e["step_path"] == "profile"]
     assert rejected and "ratings" in json.dumps(rejected[0]["data"]), res
+
+
+PLAN_DOC = "# Water stand plan\n\nThe stand sells refills by the market. Break-even: 140 refills a day (assumed price).\n"
+PRODUCED = {"summary": "A two-page plan for the stand", "checklist": [{"point": "The daily numbers add up", "met": True, "how": "Shown."}],
+            "assumptions": [{"about": "price", "value": "0.50 a refill", "basis": "a stated assumption"}]}
+
+
+@pytest.mark.slow
+def test_end_to_end_the_builders_quick_path_then_a_quick_run_whose_plan_a_later_run_builds_on(project_with):
+    """Slice 4: recipe builder takes the quick path, the guide is approved, a quick run produces the plan, and a later run binds it."""
+    cli, project, script = project_with({
+        "profile": quick_profile({"action": "write", "base": None, "why": "No listed guide is for a stand or kiosk"}),
+        "guide": {"output": {"id": "kiosk-plan", "action": "written", "base": None, "summary": "A two-page plan for a stand", "changes": []},
+                  "artifacts": {"guide": NEW_GUIDE}},
+        "produce": [{"output": PRODUCED, "artifacts": {"deliverable": PLAN_DOC}}, {"output": PRODUCED, "artifacts": {"deliverable": "# Marketing\n"}}]})
+    builder = cli.run("start", "recipe-builder", "--inputs", json.dumps(WATER))["run_id"]
+    assert Director(cli, project, builder, route=quick_route).drive()["state"] == "completed"
+    guide_path = f"guides/{WATER_SLUG}.md"
+
+    assert cli.run("vendor", "quick-run", "--note", "Yes, do the quick run.")["recipe"] == "quick-run@1"
+    request = {"title": "Business plan", "request": "A business plan for the water stand, good enough to start"}
+    run = cli.run("start", "quick-run", "--inputs", json.dumps(request), "--bind", f"guide={guide_path}",
+                  "--note", "Use the guide we just made.", expect=None)["run_id"]
+    d = Director(cli, project, run, route=quick_route)
+    st = d.drive()
+    assert st["state"] == "completed" and [s for s, _ in d.dispatches] == ["produce"] and [r for r, _ in d.owner_decisions] == ["produce"]
+    manifest = json.loads((packet_dir(project, run, "produce", 1) / "manifest.json").read_text(encoding="utf-8"))
+    (guide_in,) = [e for e in manifest["inputs"] if e["name"] == "guide"]
+    assert guide_in["source"]["kind"] == "deliverable" and guide_in["source"]["run"] == builder  # the builder's approved guide
+    assert (project / "docs" / "business-plan.md").read_text(encoding="utf-8") == PLAN_DOC
+    plan = {x["path"]: x for x in cli.run("documents")["documents"]}["docs/business-plan.md"]
+    assert plan["kind"] == "deliverable" and plan["source"]["run"] == run
+
+    later = cli.run("start", "quick-run", "--inputs", json.dumps({"title": "Marketing plan", "request": "How people will hear about the stand"}),
+                    "--bind", f"guide={guide_path}", "--bind", "context=docs/business-plan.md", "--note", "Build on the plan.", expect=None)["run_id"]
+    assert Director(cli, project, later, route=quick_route).drive()["state"] == "completed"
+    manifest = json.loads((packet_dir(project, later, "produce", 1) / "manifest.json").read_text(encoding="utf-8"))
+    (ctx,) = [e for e in manifest["inputs"] if e["name"] == "context"]
+    assert ctx["source"]["run"] == run and (packet_dir(project, later, "produce", 1) / ctx["path"]).read_text(encoding="utf-8") == PLAN_DOC

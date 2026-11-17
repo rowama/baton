@@ -313,7 +313,7 @@ def test_director_skill_names_every_call_it_relies_on():
     text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
     for call in ("detect", "doctor", "board", "resume", "status", "eligible", "dispatch", "wait", "submit", "decide", "explain",
                  "ask_sme", "sme-handoff", "sme-followup", "feedback", "push", "permission", "revise", "retriage", "summary", "frame", "note", "start",
-                 "documents", "attest", "bind", "policy"):
+                 "documents", "attest", "bind", "policy", "guides"):
         assert f"`{call}" in text, call
     assert "Follow `.baton/communication.md`" in text and "## Talking to the owner" in text
     assert "## Before you ask the owner anything" in text   # change 2026-11-director-question-check
@@ -352,6 +352,17 @@ def test_director_skill_names_every_call_it_relies_on():
     assert "`waiting_on_binding`" in docs and "don't read the documents' content to choose" in docs
     assert "Never bind silently or on your own judgment" in docs and "never `attest` a file the owner has not vouched for" in docs
     assert "`start <recipe> --bind <role>=<path> --note" in docs and "`upstream_changes`" in docs and "`stale` in the result" in docs
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_the_director_skill_offers_quick_runs_and_leaves_the_choice_to_the_owner():
+    """Change 2026-11-quick-runs, Slice 4: when a quick run is worth offering, how to start one, and attest for outside work."""
+    text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
+    quick = text[text.index("## Quick runs"):]
+    assert "The choice is the owner's, never yours." in quick
+    assert "`guides copy <id> --note \"<owner's words>\"`" in quick and "`vendor quick-run --note" in quick
+    assert "--bind guide=<guide path> --bind context=<path>" in quick
+    assert "Work done entirely outside Baton still enters only through `attest`" in quick
 
 
 @pytest.mark.not_slow("measured under 1 s")
