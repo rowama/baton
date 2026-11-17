@@ -3,7 +3,7 @@ id: 2026-11-waiting-steps
 title: "A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it"
 status: proposed
 level: major
-decisions: ["0154", "0156", "0058", "0059"]
+decisions: ["0165", "0154", "0156", "0058", "0059"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/workers.md, design/director-interface.md, design/platform-and-security.md]
 manual: []
 ---
@@ -37,17 +37,17 @@ The owner's direction (Decision [0154](../decisions/0154-tool-steps.md), item 5)
 
 ### Open questions
 
-Each has a suggested answer, assumed until the owner decides.
+The owner answered all nine on 2026-11-17, each as suggested (Decision [0165](../decisions/0165-waiting-steps-details.md)).
 
-1. **A new state, or reuse `running`?** *Suggested:* a new state, `waiting` (`dispatched → waiting → submitted`, or `→ escalated` at the deadline). *Rationale:* `running` means a supervisor and a work deadline to reconciliation, and the owner should be told the truth. The cost is new edges in the state machine.
-2. **How does a check report?** *Suggested:* the tool writes `output.json` with `met: true|false`; when met, the rest of the output is the step's output and is checked against its schema. A failed check (the tool crashed, the site was down) is not "not met": it is counted, and after three in a row the step waits on the owner. *Rationale:* a broken check must not look like a quiet market.
-3. **May something outside deliver the result?** *Suggested:* yes, `submit` works on a waiting step as it does for a person's step, so a webhook receiver or another program can hand in the result. *Rationale:* it costs nothing, and the delegate interface ([2026-11-ai-delegates](2026-11-ai-delegates.md)) needs the same door.
-4. **How often should checks run?** *Suggested:* the recipe may give `every: <duration>` as advice; `waits schedule` uses the shortest among waiting steps, never under five minutes. Baton does not enforce an interval. *Rationale:* the scheduler belongs to the owner's machine.
-5. **Is there a longest wait?** *Suggested:* `project.yaml` `waits: { max: 30d }`; a recipe asking for longer is cut to it and the owner is told at `start`. *Rationale:* a forgotten run should surface within a month.
-6. **Does `waits schedule` ever install the entry?** *Suggested:* `waits schedule --install` does, after showing it, and `--remove` removes it; plain `waits schedule` only prints. *Rationale:* printing alone leaves a non-technical owner stuck; installing unasked would surprise.
-7. **WSL.** cron in WSL runs only while WSL is running. *Suggested:* `doctor` detects WSL and recommends the Windows Task Scheduler entry that starts the check inside WSL. *Rationale:* otherwise a wait stalls silently on the owner's most common setup.
-8. **May a step other than a tool step wait?** *Suggested:* not in this change. *Rationale:* a check must be cheap and repeatable; an AI worker polling is neither.
-9. **What does "go on without it" mean at the deadline?** *Suggested:* the step may declare `on_expire: escalate` (default) or `skip`; with `skip` the owner's decision can mark the step skipped, which satisfies what depends on it. *Rationale:* some waits are optional (more survey answers), and only the recipe's author knows which.
+1. **A new state, or reuse `running`?** *Decided:* a new state, `waiting` (`dispatched → waiting → submitted`, or `→ escalated` at the deadline).
+2. **How does a check report?** *Decided:* the tool writes `output.json` with `met: true|false`; when met, the rest of the output is the step's output and is checked against its schema. A failed check (the tool crashed, the site was down) is not "not met": it is counted, and after three in a row the step escalates to the owner.
+3. **May something outside deliver the result?** *Decided:* yes, `submit` works on a waiting step as it does for a person's step.
+4. **How often should checks run?** *Decided:* the recipe may give `every: <duration>` as advice; `waits schedule` uses the shortest among waiting steps, never under five minutes. Baton does not enforce an interval.
+5. **Is there a longest wait?** *Decided:* `project.yaml` `waits: { max: 30d }`; a recipe asking for longer is cut to it and the owner is told at `start`.
+6. **Does `waits schedule` ever install the entry?** *Decided:* `waits schedule --install` does, after showing it, and `--remove` removes it; plain `waits schedule` only prints.
+7. **WSL.** *Decided:* `doctor` detects WSL and recommends the Windows Task Scheduler entry that starts the check inside WSL; `--install` on WSL installs that entry.
+8. **May a step other than a tool step wait?** *Decided:* not in this change.
+9. **What does "go on without it" mean at the deadline?** *Decided:* the step may declare `on_expire: escalate` (default) or `skip`; with `skip` the owner's `decide <step> skip` marks the step skipped, which satisfies what depends on it. This adds the edge `escalated → skipped`, legal only for an expired wait that declares `skip` (today an escalated step's decisions are `retry` and `abandon`).
 
 ### Out of scope
 
@@ -82,7 +82,9 @@ For the owner's approval, with the Request.
 - **`baton waits schedule [--install|--remove]`.** Builds the entry for the platform: a crontab line, or a Task Scheduler task (on WSL, one that runs the check inside WSL).
 - **Reconciliation** skips `waiting` steps. A run whose only unfinished steps are waiting is reported as waiting, not stalled.
 - **Wake path.** The existing notice for a Director with no wake path (Decisions 0058, 0059) covers waiting steps, worded for a long wait.
-- **Owner decision at expiry:** `decide <step> retry` starts another period (`wait_started` again, same attempt budget rules as any retry); `skip` where the step allows it; `abandon` as today.
+- **Owner decision at expiry:** `decide <step> retry` starts another period (`wait_started` again, same attempt budget rules as any retry); `skip` where the step declares `on_expire: skip` (the new edge `escalated → skipped`, `step_skipped` with `cause: wait_expired`); `abandon` as today.
+- **Failed checks.** A check that crashes, exits non-zero or writes no valid `met` report is counted in `waits.json`; a good check resets the count; the third in a row escalates the step (`wait_check_failed`, with the last failure's class, §8.8).
+- **Ceiling.** `project.yaml` `waits: { max: 30d }` (default); a longer `until` is cut to it when the run starts, and `start` says so.
 
 ### Doc edits
 
@@ -102,7 +104,7 @@ To be listed when the change is accepted. Expected: an owner's topic on waiting 
 - [0154](../decisions/0154-tool-steps.md) (accepted), item 5: waiting is held as state; the helper is optional.
 - [0156](../decisions/0156-tool-steps-details.md) (accepted): how tools run.
 - [0058](../decisions/0058-detached-director-warned-not-refused.md), [0059](../decisions/0059-warn-owner-before-unwoken-dispatch.md) (accepted): the wake path and its notice.
-- The nine open questions above become one record when the owner answers them.
+- [0165](../decisions/0165-waiting-steps-details.md) (accepted): the answers to the nine open questions.
 
 ## Plan
 
@@ -127,3 +129,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** Change doc written from Decision 0154, item 5, and the owner's discussion of 2026-11-15. A person's step already waits as state with no process; this change gives a tool step the same shape with a check. No code changed.
 - **Owner decision:** 2026-11-16, "Go ahead and write 3 and 4."
 - **Accepted:** No; proposal only. Nine open questions await the owner.
+
+### Open questions answered
+
+- **Summary:** Checked the nine suggested answers against the design: an escalated step's decisions are `retry` and `abandon` today, and `skipped` is reached only by tailoring, so answer 9 adds the edge `escalated → skipped` for an expired wait that declares `skip`. The owner accepted all nine as suggested. Recorded as Decision 0165. Request and Design updated (failed-check count, the 30-day ceiling, the skip edge). No code changed.
+- **Owner decision:** 2026-11-17, "All as suggested." (0165).
+- **Accepted:** No; the Request and Design await the owner's approval.
