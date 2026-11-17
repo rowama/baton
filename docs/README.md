@@ -302,3 +302,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0161 An owner may have an AI delegate act for them: warned and waived where risky, never the Director, recorded as the delegate](decisions/0161-ai-delegates.md) | accepted |
 | [0162 Builder step design: six traits, two rating axes, standard-library simple tools, examples in the tool's folder with file inputs beside them](decisions/0162-builder-step-design-details.md) | accepted |
 | [0163 Quick runs: the quick rating and the builder's one question, one Markdown result, default paths, a starter set of guides, guides copied by attestation, no workspace](decisions/0163-quick-runs-details.md) | accepted |
+| [0164 Engineered tools: three examples per tool, from the owner or drafted and approved, placed by their own step, a bounded loop, mechanical budget rules, every run repeated](decisions/0164-builder-engineered-tools-details.md) | accepted |
