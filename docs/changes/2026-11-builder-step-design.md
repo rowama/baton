@@ -1,7 +1,7 @@
 ---
 id: 2026-11-builder-step-design
 title: "Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot"
-status: accepted
+status: done
 level: major
 decisions: ["0155", "0154", "0156", "0158", "0144", "0147", "0145", "0161", "0162", "0159"]
 touches: [design/recipes.md, design/director-interface.md]
@@ -210,3 +210,9 @@ Approved 2026-11-16. `2026-11-tool-steps` is done.
 - **Design docs:** §5.7 (what `generate` writes for a tool stage), §5.9 (`BATON_HOME` in a gate).
 - **Manual:** `recipe-sources/recipe-builder.md` (what it produces), `recipes/recipe-builder.md` regenerated, `user/what-baton-may-do.md` (programs the builder may write, within the owner's limit).
 - **Tests:** `tests/test_recipe_builder_runs.py`: from description to accepted package with one tool at `software: simple`: the owner approves the ratings and the design, a tool that gets an example wrong fails the `tools test` gate naming the difference and is redone, the package review runs, and vendoring the draft flags the tool in the owner's terms; the simple scenario's gates now include `baton tools test`. `tests/test_recipe_builder.py`: the gate, the prompt's rules and lists, the rubric's checks. `tests/test_tool_examples.py`: a gate passes `BATON_HOME` and no other variable of the caller.
+
+### Finished
+
+- **Summary:** All sixteen acceptance criteria are shown by tests: 1 (`test_recipe_builder.py` v4 and frozen v3; the pinned-v3 scenario), 2 to 7 and 15 (the design schema tests, the rubric and the Slice 3 scenarios), 8 and 14 (the axes, approval and plan tests), 9 (the ceiling-of-none scenario), 10 to 13 (the Slice 4 scenario and the `tools test` tests), 16 (the manual and docs tests).
+- **Full-suite note:** the full runs on `e739e73` and `b27db46` were red in `tests/test_harness_tools.py`, two different tests each time, while two suites ran at once; the file passes alone, and `d160c76` (which contains both) was green. They were re-run one at a time.
+- **Next:** `2026-11-builder-engineered-tools` (the `engineered` value on `software`); `2026-11-quick-runs` adds `quick` to `approach`.
