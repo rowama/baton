@@ -525,7 +525,9 @@ class _Checker:
     def _check_independence(self, node: Step, place: _Place, from_step: str, where: str) -> None:
         if from_step == node.id or from_step in place.scope.ancestors.get(node.id, set()):
             return
-        scope_hint = " in the same group" if place.chain else ""
+        if place.chain and from_step in self._top_ancestors(place, node):
+            return  # a top-level step the enclosing group depends on (Decision 0164): that step's one result
+        scope_hint = " in the same group, or a top-level ancestor of its group" if place.chain else ""
         self.error(
             "independence.bad_from_step",
             where,

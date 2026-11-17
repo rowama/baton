@@ -20,6 +20,31 @@
     },
     "summary": {
       "type": "string"
+    },
+    "engineered_tools": {
+      "type": "array",
+      "description": "Each engineered tool to be built, in build order (the build_tools group's items); give no id",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   },
   "additionalProperties": false

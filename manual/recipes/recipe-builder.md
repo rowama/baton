@@ -73,7 +73,7 @@ The program is built to **your examples**: real files that go in, and the result
 
 Three good examples are the minimum. You may supply fewer, or none, but with fewer the program is more likely to differ from what you expect. If you go ahead, Baton drafts the missing examples, and you approve each one before anything is built.
 
-You then see every example once more: **Build the tools to these examples?** After that, a helper writes each program, it is run on every example (twice, so it must give the same result each time), and a reviewer from a different provider checks it against its description. A program that does not pass is tried again, at most three times; then you decide what happens.
+You then see every example once more: **Build the tools to these examples?** After that, a helper writes each program, it is run on every example (twice, so it must give the same result each time), and a reviewer from a different provider checks it against its description. A program that does not pass is tried again, at most three times. Then you decide: try again with a note, do that part another way (for example by an AI helper, or by you), with what that gives up said plainly, or stop. Before you approve the finished process, you see for each program which of your examples it passed, what it needs installed and what it may touch.
 
 ## What it produces {#what-it-produces}
 
@@ -104,6 +104,9 @@ It never adds the process to your project's set on its own. After you approve it
 | Build the recipe package | when approach is simple or standard or complex | nothing |
 | Choose how each tool's examples will come | when software is engineered | nothing |
 | Place the examples each tool will be built to | when software is engineered | Build the tools to these examples? |
+| Build each tool to its examples | when software is engineered | nothing |
+| ↳ Build the tool to its examples | when software is engineered | nothing |
+| ↳ Review the tool against its contract | when software is engineered | nothing |
 | Owner approves the finished process | when approach is simple or standard or complex | Use this process? |
 
 The work is rated on **approach** (quick, simple, standard, complex), **software** (none, simple, engineered). The first part rates each, with its reason, and you confirm the ratings unless every one is at its lowest (for approach, its lowest too).

@@ -53,6 +53,12 @@ You work in the project; commit your work.
    <tool.does>, "input_schema", "output_schema", "reach": <tool.reach>, "packages",
    "budget_reason"}` and `size_reason` if the design gives one, copied from the design's `contract`.
    The owner's examples are placed next, and the program is built to them by another worker.
+   List each engineered tool to be built in your result's `engineered_tools`, in the order to build
+   them: `{tool, title}` (no `id`). When you built from a base recipe that has engineered tools, copy
+   each tool the design marks `unchanged` exactly, with its program and examples, and list only the
+   `changed` and `new` ones; the gate reruns every tool's examples. When a revision asks you to do a
+   tool's stage another way, remove that tool's folder and step, write the stage as the revision
+   says, with its `executor_choice` record, and leave the tool out of `engineered_tools`.
 6. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
    stage, what they decide, what happens when something fails, and what it covers and does not.
    Say plainly when and how the owner will choose how the work is done (decided now, in what they
@@ -70,4 +76,4 @@ You work in the project; commit your work.
 
 Run `baton plan recipes/drafts/<run slug>` yourself before you finish, and fix what it reports. The
 runtime runs it again, and `baton recipe check`, as gates. Return the commit, the package path, the
-ledger path and a short summary.
+ledger path, `engineered_tools` (empty when there are none) and a short summary.

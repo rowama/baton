@@ -515,7 +515,7 @@ def test_the_owners_examples_are_a_role_and_the_examples_step_is_gated_by_the_ch
     assert {i.name: (i.from_, i.required) for i in ex.inputs}["owner_examples"] == ("project.examples", False)
     assert [g.type for g in ex.gates] == ["schema", "script", "human"]
     assert ex.gates[1].run == "baton tools examples recipes/drafts/{{ run.slug }} --run {{ run.id }}"
-    assert acc.depends_on == ["generate", "examples"]
+    assert acc.depends_on == ["generate", "examples", "build_tools"]
 
 
 ENGINEERED_TOOL = {"id": "match_payments", "kind": "engineered", "does": "Matches the bank's payments to the invoices.",
@@ -575,3 +575,46 @@ def test_the_prompts_patterns_and_rubric_carry_the_engineered_tool_rules():
     readiness = read("static/readiness.md")
     assert "| 28 | An engineered tool appears only at the `software` rating `engineered`" in readiness and "| 29 |" in readiness
     assert "`contract.json` differs from the design's contract" in read("prompts/package_review_rubric.md")
+
+
+# -- the build loop (change 2026-11-builder-engineered-tools, Slice 3) ---------------------------------------
+
+
+def test_each_engineered_tool_is_built_in_a_bounded_loop_reviewed_by_another_vendor(loaded):
+    group = next(s for s in loaded.recipe.steps if s.id == "build_tools")
+    assert group.depends_on == ["examples"] and group.foreach == "steps.generate.output.engineered_tools"
+    assert (group.concurrency, group.max_iterations, group.repeat_from) == (1, 3, "implement")
+    assert group.repeat_until == "group.steps.review.gates.passed" and group.foreach_if_source_skipped == "skip"
+    implement, review = group.steps
+    assert implement.independence.from_step == "examples" and implement.independence.level == "different_vendor"
+    assert implement.protect.paths == ["recipes/drafts/**/tools/*/examples/**"] and implement.protect.on_violation == "fail"
+    assert [g.run for g in implement.gates if g.type == "script"] == [
+        "baton tools test recipes/drafts/{{ run.slug }} --tool {{ item.tool }} --repeat 2 --require-examples",
+        "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json"]
+    assert review.independence.from_step == "implement" and review.workspace == "read"
+    assert {i.name: i.from_ for i in review.inputs}["rubric"] == "static.tool_review_rubric.md"
+    for a in APPROACHES:
+        for sw in SOFTWARE:
+            plan = at(loaded, a, sw)
+            assert plan["build_tools/implement"].included == plan["build_tools/review"].included == (sw == "engineered")
+    accept = next(s for s in loaded.recipe.steps if s.id == "accept")
+    assert accept.depends_on == ["generate", "examples", "build_tools"]
+    assert {i.name: (i.from_, i.required) for i in accept.inputs}["tools"] == ("steps.build_tools.outputs", False)
+
+
+def test_generate_lists_the_tools_to_build_and_the_prompts_carry_the_loop_rules():
+    gen = schema_of("generate_out")
+    base = {"commit_sha": "abc1234", "package_path": "p", "ledger_path": "l", "summary": "s"}
+    assert gen.is_valid({**base, "engineered_tools": [{"tool": "count_plants", "title": "Count"}]})
+    assert not gen.is_valid({**base, "engineered_tools": [{"tool": "Count Plants", "title": "Count"}]})
+    read = lambda rel: " ".join((BUILDER / rel).read_text(encoding="utf-8").split())  # noqa: E731
+    generate = read("prompts/generate.md")
+    assert "`engineered_tools`" in generate and "copy each tool the design marks `unchanged` exactly" in generate
+    assert "remove that tool's folder and step" in generate
+    assert "give `base`: `unchanged`" in read("prompts/design.md")
+    implement = read("prompts/implement.md")
+    assert "You may not change them" in implement and "`uv pip compile --generate-hashes`" in implement
+    assert "never by recognising the example" in implement and "return `blocked`" in implement
+    rubric = read("static/tool_review_rubric.md")
+    assert "by recognising that example" in rubric and "a package the contract does not name" in rubric
+    assert "`tools`" in read("prompts/accept.md")

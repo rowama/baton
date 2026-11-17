@@ -2814,8 +2814,12 @@ class Api:
             parent = reviews.review_target(node)
             if split is not None and parent is not None and node.independence.from_step == parent[0].id:
                 source, own = split[0], True  # the reviewed step's attempt under review
+            elif node.independence.from_step == node.id:
+                source = step_path
+            elif loc.frame is not None and node.independence.from_step not in {c.id for c in loc.frame.group.steps}:
+                source = node.independence.from_step  # a top-level ancestor of the enclosing group (Decision 0164)
             else:
-                source = step_path if node.independence.from_step == node.id else groups.child_path(loc.frame, node.independence.from_step)
+                source = groups.child_path(loc.frame, node.independence.from_step)
         events = ctx.log.events()
         waiver = reviews.pending_waiver(events, step_path, "independence") if node.independence is not None else None
         return eligible_workers(

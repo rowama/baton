@@ -359,6 +359,14 @@
                     }
                   }
                 }
+              },
+              "base": {
+                "enum": [
+                  "unchanged",
+                  "changed",
+                  "new"
+                ],
+                "description": "With a base recipe: whether this engineered tool is the base recipe's unchanged, changed or new (unchanged tools are copied, not rebuilt)"
               }
             },
             "allOf": [

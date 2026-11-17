@@ -173,14 +173,57 @@ steps:
       - { type: human, prompt: "Build the tools to these examples?",
           labels: { approve: "Yes, build to these", reject: "Change an example first" } }
 
+  - id: build_tools
+    title: Build each tool to its examples
+    depends_on: [examples]
+    applies_to: { software: [engineered] }
+    foreach: steps.generate.output.engineered_tools   # one instance per engineered tool, built one at a time
+    foreach_if_source_skipped: skip
+    concurrency: 1
+    repeat_until: group.steps.review.gates.passed
+    repeat_from: implement
+    max_iterations: 3                    # at the limit the owner chooses: retry with a note, simplify (revise generate) or stop
+    steps:
+      - id: implement
+        title: Build the tool to its examples
+        requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: strong }
+        workspace: write
+        independence: { from_step: examples, level: different_vendor }   # not the worker that placed the examples (Decision 0164, item 4)
+        protect: { paths: ["recipes/drafts/**/tools/*/examples/**"], on_violation: fail }   # the examples are never changed to fit the code
+        prompt: prompts/implement.md
+        inputs:
+          - { name: tool,          from: item,                              required: true }
+          - { name: shaped,        from: steps.shape.outputs,               required: true }
+          - { name: generated,     from: steps.generate.output,             required: true }
+          - { name: open_findings, from: group.previous_iteration.findings, required: false }
+        output_schema: schemas/implement_out.json
+        gates:
+          - { type: schema }
+          - { type: script, run: "baton tools test recipes/drafts/{{ run.slug }} --tool {{ item.tool }} --repeat 2 --require-examples", timeout_s: 1200 }
+          - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json", timeout_s: 60 }   # the tool budget
+      - id: review
+        title: Review the tool against its contract
+        depends_on: [implement]
+        requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
+        workspace: read
+        independence: { from_step: implement, level: different_vendor }
+        prompt: prompts/tool_review.md
+        inputs:
+          - { name: tool,   from: item,                          required: true }
+          - { name: built,  from: group.steps.implement.output,  required: true }
+          - { name: rubric, from: static.tool_review_rubric.md,  required: true }
+        output_schema: baton:findings
+        gates: [ { type: findings, block_on: [critical, high] } ]
+
   - id: accept
     title: Owner approves the finished process
-    depends_on: [generate, examples]   # a skipped examples step counts as satisfied
+    depends_on: [generate, examples, build_tools]   # a skipped step or group counts as satisfied
     applies_to: { approach: [simple, standard, complex] }
     requires: { capabilities: [human_judgment] }
     prompt: prompts/accept.md
     inputs:
       - { name: walkthrough, from: steps.generate.artifacts.walkthrough, required: true }
+      - { name: tools,       from: steps.build_tools.outputs,             required: false }   # each engineered tool's result
     output_schema: schemas/accept_out.json
     gates:
       - { type: schema }

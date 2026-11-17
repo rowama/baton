@@ -33,7 +33,9 @@ stage give:
   running and testable from examples; a `size_reason` only if it will be over 600 lines) and
   `examples_needed`: at least three examples the owner should supply, each saying `what` goes in and
   what should come out in their terms, one of them `awkward` (a case the owner finds hard). It is
-  built later, to the owner's examples, by another worker.
+  built later, to the owner's examples, by another worker. When the base recipe already has the
+  tool, give `base`: `unchanged` when neither its contract nor the examples it needs change,
+  `changed` otherwise; a tool the base recipe does not have is `new`.
 - For an `ai` stage that software could do (`rules: complete` and `input: structured`, or
   `repeatable: required`), `executor_choice`: what `could_be` doing it, the `reason` (`ceiling`,
   `owner_choice` with the owner's confirmed entry as `ledger_id`, or `over_budget`), what it

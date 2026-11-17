@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -197,25 +198,61 @@ def _gate_env(ctx: RunContext, step_path: str) -> dict[str, str]:
     return env
 
 
-def render_command(ctx: RunContext, template: str) -> str:
-    """Substitute ``project.*``, ``paths.*`` and ``run.id`` / ``run.slug`` in a gate command. Undefined names raise.
+#: An ``item`` value a gate command may hold: the shell runs the command, so nothing it could read as syntax.
+_SAFE_ITEM_TEXT = re.compile(r"^[A-Za-z0-9._@:+/-]*$")
+
+
+class _UnsafeItemText:
+    """An ``item`` string a gate command must not hold; rendering it fails the render, so the command never runs."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+    def __str__(self) -> str:
+        raise jinja2.TemplateError(f"item value {self.text!r} is not safe in a command (letters, digits and ._@:+/- only)")
+
+
+def _safe_item(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _safe_item(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_safe_item(v) for v in value]
+    if isinstance(value, str) and not _SAFE_ITEM_TEXT.match(value):
+        return _UnsafeItemText(value)
+    return value
+
+
+def render_command(ctx: RunContext, template: str, step_path: str | None = None) -> str:
+    """Substitute ``project.*``, ``paths.*``, ``run.id`` / ``run.slug`` and, for a step in a ``foreach`` instance,
+    ``item.*`` in a gate command. Undefined names raise.
 
     ``run.slug`` is the value ``publish.to`` gets (Decision 0107); a slug is lower-case words joined by hyphens, so it is
-    safe in a shell command.
+    safe in a shell command. ``item`` is the instance's current item (§5.2; Decision 0164): a text value is allowed only
+    when it holds nothing a shell could read as syntax, since an item comes from a step's output.
     """
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False, keep_trailing_newline=False)
-    variables = {
+    variables: dict[str, Any] = {
         "project": ctx.project.get("project", {}),
         "paths": ctx.project.get("paths", {}),
         "run": {"id": ctx.run_id, "slug": ctx.record().started.get("slug") or ctx.run_id},
     }
+    if step_path is not None and "item" in template:
+        from . import groups
+        from .packet import view_of
+
+        loc = groups.locate(ctx.recipe, step_path)
+        if loc is not None and loc.frame is not None:
+            try:
+                variables["item"] = _safe_item(view_of(ctx).item_value(loc))
+            except LookupError:  # expected: no enclosing foreach; `item` stays undefined and the render says so
+                pass
     return env.from_string(template).render(**variables)
 
 
 def run_script_gate(ctx: RunContext, gate: ScriptGate, step_path: str) -> GateOutcome:
     """Run the command in the project root (or ``cwd`` inside it) under a reduced environment."""
     try:
-        command = render_command(ctx, gate.run)
+        command = render_command(ctx, gate.run, step_path)
     except jinja2.TemplateError as e:
         return GateOutcome(False, [f"script gate command {gate.run!r} cannot be rendered: {e}"], {"command": gate.run}, True)
     root = ctx.store.root.resolve()

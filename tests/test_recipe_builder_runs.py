@@ -96,7 +96,7 @@ def route(step_path: str) -> str:
     step = step_path.rsplit("/", 1)[-1]
     if step in ("accept", "example_plan"):
         return "owner"
-    return "checker" if step in ("audit", "generate~review") else "builder"
+    return "checker" if step in ("audit", "generate~review", "implement") else "builder"
 
 
 @pytest.fixture
@@ -925,19 +925,77 @@ def owner_files() -> dict[str, str]:
     return out
 
 
-def generated_engineered(ledger: list[dict]) -> dict:
-    """generate at `software: engineered`: the package with the tool's contract, and no program and no examples."""
+WATER_PY = """import json
+import sys
+from pathlib import Path
+
+bed = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["bed"]
+litres = round(bed["length_m"] * bed["width_m"] * 5, 2)
+(Path(sys.argv[2]) / "output.json").write_text(json.dumps({"litres": litres}), encoding="utf-8")
+"""
+WATER_CONTRACT = {**CONTRACT, "does": "Works out how much water a bed needs each week."}
+WATER_STAGE = {**COUNT_BY_AI, "id": "water", "title": "Work out the water", "done_by": "tool",
+               "tool": {**ENGINEERED_STAGE["tool"], "id": "water_litres", "does": WATER_CONTRACT["does"], "output": "litres a week",
+                        "examples_needed": [{"name": n, "what": f"The {n} bed and its litres", "awkward": n == "narrow"}
+                                            for n in ("three-by-one", "two-by-two", "narrow")]}}
+WATER_STEP = ("  - id: water\n    title: Work out the water\n    depends_on: [count]\n    tool: water_litres\n    workspace: none\n"
+              "    inputs:\n      - { name: bed, from: run.inputs.bed, required: true }\n"
+              "    output_schema: schemas/plant_out.json\n    gates: [ { type: schema } ]\n")
+
+
+def generated_engineered(ledger: list[dict], water: bool = False) -> dict:
+    """generate at `software: engineered`: the package with each tool's contract, and no program and no examples."""
     gen = generated_with_tool(ledger)
     files = {k: v for k, v in gen["commit_files"].items() if not (k.endswith("count_plants.py") or "/examples/" in k)}
     files[f"recipes/drafts/{SLUG}/tools/count_plants/contract.json"] = json.dumps(CONTRACT)
+    tools = [{"tool": "count_plants", "title": "Count the plants"}]
+    if water:
+        base = f"recipes/drafts/{SLUG}/tools/water_litres"
+        files[f"{base}/tool.yaml"] = TOOL_YAML.replace("count_plants", "water_litres").replace(
+            "Works out how many plants fit in a bed from its size and the spacing.", WATER_CONTRACT["does"])
+        files[f"{base}/requirements.lock"] = ""
+        files[f"{base}/contract.json"] = json.dumps(WATER_CONTRACT)
+        recipe = files[f"recipes/drafts/{SLUG}/recipe.yaml"]
+        files[f"recipes/drafts/{SLUG}/recipe.yaml"] = recipe.replace("  - id: plant\n", WATER_STEP + "  - id: plant\n")
+        tools.append({"tool": "water_litres", "title": "Work out the water"})
     gen["commit_files"] = files
+    gen["output"] = {**gen["output"], "engineered_tools": tools}
     return gen
 
 
-def placed(copied: dict[str, str] | None = None, drafted: bool = False, wrong: dict[str, dict] | None = None) -> dict:
-    """The examples step's response: each example written into the tool's folder, with about.json."""
+def built(tool: str, script: str) -> dict:
+    """implement's response: the program, and what it passes in the owner's terms."""
+    return {"commit_files": {f"recipes/drafts/{SLUG}/tools/{tool}/{tool}.py": script},
+            "output": {"tool": tool, "examples": [{"name": n, "says": f"The {n} bed."} for n in OWNER_BEDS],
+                       "needs": "Python, nothing else", "touches": "does not open your files and does not use the internet",
+                       "summary": f"{tool} built"}}
+
+
+SPECIAL_CASE = {"id": "F1", "severity": "high", "title": "The awkward bed is recognised, not handled",
+                "location": "count_plants.py", "detail": "It returns 0 when width is 0.3, the example's value.",
+                "suggested_fix": "Use whole rows of the spacing for both sides."}
+FOUND = {"output": {"findings": [SPECIAL_CASE], "coverage": {"complete": True, "notes": ""}}}
+SPECIAL_PY = COUNT_PY.replace('plants = int(', 'plants = 0 if bed["width_m"] == 0.3 else int(')
+
+
+WATER_LITRES = {"three-by-one": 15, "two-by-two": 20, "narrow": 3.0}
+
+
+def placed(copied: dict[str, str] | None = None, drafted: bool = False, wrong: dict[str, dict] | None = None,
+           water: bool = False) -> dict:
+    """The examples step's response: each example written into the tool's folder, with about.json.
+
+    With ``water``, the second tool's three examples are drafted (the owner chose not to supply them).
+    """
     base = f"recipes/drafts/{SLUG}/tools/count_plants/examples"
     files, says = {}, []
+    water_says = []
+    for name, (bed, _want) in OWNER_BEDS.items() if water else ():
+        wb = f"recipes/drafts/{SLUG}/tools/water_litres/examples/{name}"
+        files[f"{wb}/input.json"] = json.dumps({"bed": bed})
+        files[f"{wb}/expected.json"] = json.dumps({"litres": WATER_LITRES[name]})
+        files[f"{wb}/about.json"] = json.dumps({"source": "drafted", "awkward": name == "narrow"})
+        water_says.append({"name": name, "source": "drafted", "awkward": name == "narrow", "says": f"The {name} bed's water."})
     owner = owner_files()
     for name in OWNER_BEDS:
         src = f"examples/count_plants/{name}"
@@ -953,10 +1011,15 @@ def placed(copied: dict[str, str] | None = None, drafted: bool = False, wrong: d
                      "from": {"inputs/bed.json": f"{src}/bed.json", "expected.json": f"{src}/expected.json"}}
         files[f"{base}/{name}/about.json"] = json.dumps(about)
         says.append({"name": name, "source": about["source"], "awkward": about["awkward"], "says": f"The {name} bed."})
-    return {"commit_files": files, "output": {"tools": [{"tool": "count_plants", "examples": says}], "summary": "Three examples placed"}}
+    tools = [{"tool": "count_plants", "examples": says}] + ([{"tool": "water_litres", "examples": water_says}] if water else [])
+    return {"commit_files": files, "output": {"tools": tools, "summary": "Examples placed"}}
 
 
-def supply_and_bind(d) -> dict:
+WATER_PLAN = {"tool": "water_litres", "supplied": 0, "drafted": 3, "warned": True,
+              "owner_words": "I have no records of the water; draft those and I'll check them."}
+
+
+def supply_and_bind(d, water: bool = False) -> dict:
     """The owner supplies three examples as files; the Director attests and binds them (example_plan's person step)."""
     paths = sorted(owner_files())
     for path, text in owner_files().items():
@@ -967,13 +1030,15 @@ def supply_and_bind(d) -> dict:
     for path in paths:
         d.cli.run("attest", path, "--note", "These are real beds I planted, with the counts I used.")
     d.cli.run("bind", d.run, "examples", *paths, "--note", "Use my three beds as the examples.")
-    return {"tools": [{"tool": "count_plants", "supplied": 3, "drafted": 0}]}
+    return {"tools": [{"tool": "count_plants", "supplied": 3, "drafted": 0}, *([WATER_PLAN] if water else [])]}
 
 
-def engineered_script(ledger, examples) -> dict:
+def engineered_script(ledger, examples, implement=None, review=None, water: bool = False) -> dict:
+    stages = [STAGES[0], ENGINEERED_STAGE, *([WATER_STAGE] if water else []), STAGES[1]]
     return {"profile": profile("simple", ledger, software="engineered"),
-            "design": design_with([STAGES[0], ENGINEERED_STAGE, STAGES[1]], ledger), "audit": CLEAN,
-            "generate": generated_engineered(ledger), "generate~review": CLEAN, "examples": examples}
+            "design": design_with(stages, ledger), "audit": CLEAN,
+            "generate": generated_engineered(ledger, water), "generate~review": CLEAN, "examples": examples,
+            "implement": implement or built("count_plants", COUNT_PY), "review": review or CLEAN}
 
 
 def strip(refs):
@@ -983,35 +1048,61 @@ def strip(refs):
 
 
 @pytest.mark.slow
-def test_the_owners_examples_are_bound_then_copied_exactly_into_the_tool_before_any_code(project_with):
+def test_two_tools_are_built_one_at_a_time_to_the_owners_examples_and_reviewed_by_another_vendor(project_with):
     ledger = [GOAL, BED]
     altered = {"examples/count_plants/narrow/bed.json": json.dumps({"length_m": 2, "width_m": 0.5, "spacing_m": 0.5}) + "\n"}
     # attempt 1 "tidies" the owner's awkward bed: the copy check sends it back; attempt 2 copies it exactly.
-    cli, project, _ = project_with(engineered_script(ledger, [placed(copied=altered), placed()]))
+    cli, project, script = project_with(engineered_script(
+        ledger, [placed(copied=altered, water=True), placed(water=True)],
+        implement=[built("count_plants", COUNT_PY), built("water_litres", WATER_PY)], water=True))
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
-    d = Director(cli, project, run, route=route, person={"example_plan": supply_and_bind})
+    d = Director(cli, project, run, route=route, person={"example_plan": lambda d_: supply_and_bind(d_, water=True)})
     st = d.drive()
     assert st["state"] == "completed" and st["ratings"] == {"approach": "simple", "software": "engineered"}
-    assert [s.rsplit("/", 1)[-1] for s, _ in d.dispatches] == [
-        "profile", "design", "audit", "generate", "generate~review", "example_plan", "examples", "examples", "accept"]
-    # The owner saw the design before anything was built, and approved the examples before any tool is written.
+    steps = [strip([(s_, None)])[0] for s_, _ in d.dispatches]
+    assert steps[:9] == ["profile", "shape/i1/design", "shape/i1/audit", "generate", "generate~review", "example_plan",
+                         "examples", "examples", "build_tools/i1/implement"], steps
+    assert steps[9:] == ["build_tools/i1/review", "build_tools/i1/implement", "build_tools/i1/review", "accept"], steps
+    # The owner saw the design before anything was built, and approved the examples before any tool was written.
     assert strip(d.owner_decisions) == ["profile", "shape/i1/audit", "examples", "accept"]
     evs = run_events(project, run)
     failed = [e for e in evs if e["type"] == "gate_failed" and e["step_path"] == "examples"]
     assert len(failed) == 1 and "inputs/bed.json differs from the bound document examples/count_plants/narrow/bed.json" in json.dumps(failed[0]["data"])
+    # Each tool is built by a vendor other than the one that placed its examples, and reviewed by another than its builder.
+    workers = {strip([(s_, None)])[0].rsplit("/", 1)[-1]: w for s_, w in d.dispatches}
+    assert workers["examples"] == "builder" and workers["implement"] == "checker" and workers["review"] == "builder"
+    tests = [e["data"]["command"] for e in evs if e["type"] == "gate_passed" and e["data"].get("type") == "script"
+             and e["step_path"].endswith("/implement")]
+    assert sorted(c for c in tests if "tools test" in c) == [
+        f"baton tools test recipes/drafts/{SLUG} --tool {t} --repeat 2 --require-examples" for t in ("count_plants", "water_litres")]
     tool = project / "recipes" / "drafts" / SLUG / "tools" / "count_plants"
-    assert (tool / "contract.json").is_file() and not (tool / "count_plants.py").exists()  # the examples come before the code
     for name in OWNER_BEDS:
         assert (tool / "examples" / name / "inputs" / "bed.json").read_bytes() == (project / "examples" / "count_plants" / name / "bed.json").read_bytes()
     loaded = load_recipe(project / "recipes" / "drafts" / SLUG)
-    assert [w.code for w in loaded.warnings] == ["tool.unbuilt"]
+    assert loaded.warnings == [] and all(t.built for t in loaded.tools.values())
+    # Routing itself keeps the examples' worker away from the build: the builder is not eligible to implement.
+    impl = next(s_ for s_, _ in d.dispatches if s_.endswith("/implement"))
+    el = cli("eligible", run, impl, expect=None).payload
+    assert "builder" not in [e["profile"] for e in el["eligible"]]
+    assert any(x["profile"] == "builder" and "independence: different_vendor from examples" in " ".join(x["reasons"]) for x in el["excluded"])
+    # The owner is shown each tool's result at accept.
+    calls = [json.loads(line) for line in (script.parent / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert all(c["profile"] != "builder" or "implement" not in c["step"] for c in calls)
+    manifest = json.loads((packet_dir(project, run, "accept", 1) / "manifest.json").read_text(encoding="utf-8"))
+    assert "tools" in {i["name"] for i in manifest["inputs"]}
+    # The accepted draft vendors once the owner approves its two tools.
+    flags = cli("vendor", str(project / "recipes" / "drafts" / SLUG), expect=4).payload
+    assert sorted(f["tool"] for f in flags["flags"] if f["code"] == "tool") == ["count_plants", "water_litres"]
 
 
 @pytest.mark.slow
-def test_an_owner_who_supplies_no_examples_is_warned_and_approves_the_drafted_ones(project_with):
+def test_drafted_examples_are_approved_and_a_tool_that_special_cases_the_awkward_one_is_built_again(project_with):
     ledger = [GOAL, BED]
     # the first draft gives the narrow bed one plant; the owner sends it back, and the second gives none.
-    cli, project, _ = project_with(engineered_script(ledger, [placed(drafted=True, wrong={"narrow": {"plants": 1}}), placed(drafted=True)]))
+    # The first build special-cases the awkward bed; the review finds it, and the second round fixes it.
+    cli, project, _ = project_with(engineered_script(
+        ledger, [placed(drafted=True, wrong={"narrow": {"plants": 1}}), placed(drafted=True)],
+        implement=[built("count_plants", SPECIAL_PY), built("count_plants", COUNT_PY)], review=[FOUND, CLEAN]))
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
     words = "I understand three of my own would be better; draft them and I'll check each."
     plan = {"tools": [{"tool": "count_plants", "supplied": 0, "drafted": 3, "warned": True, "owner_words": words}]}
@@ -1021,5 +1112,42 @@ def test_an_owner_who_supplies_no_examples_is_warned_and_approves_the_drafted_on
     assert st["state"] == "completed"
     assert strip(d.owner_decisions) == ["profile", "shape/i1/audit", "examples", "examples", "accept"]
     evs = run_events(project, run)
-    accepted = [e for e in evs if e["type"] == "step_passed" and e["step_path"] == "example_plan"]
-    assert accepted and not any(e["type"] == "project_input_bound" for e in evs)
+    assert any(e["type"] == "step_passed" and e["step_path"] == "example_plan" for e in evs)
+    assert not any(e["type"] == "project_input_bound" for e in evs)
+    started = [e for e in evs if e["type"] == "iteration_started" and e["step_path"].startswith("build_tools/")]
+    assert [e["data"]["iteration"] for e in started] == [1, 2]
+    py = project / "recipes" / "drafts" / SLUG / "tools" / "count_plants" / "count_plants.py"
+    assert "0.3" not in py.read_text(encoding="utf-8")
+
+
+@pytest.mark.slow
+def test_a_tool_that_does_not_pass_in_three_rounds_is_simplified_at_the_owners_word(project_with):
+    ledger = [GOAL, BED]
+    simpler = generated_with_tool(ledger)
+    simpler["commit_files"] = {k: v for k, v in generated(ledger)["commit_files"].items()}
+    simpler["output"] = {**simpler["output"], "engineered_tools": []}
+    rounds = [built("count_plants", SPECIAL_PY + f"# round {n}\n") for n in (1, 2, 3)]  # each round changes it, never enough
+    script = engineered_script(ledger, placed(), implement=rounds, review=FOUND)
+    script["generate"] = [generated_engineered(ledger), simpler]
+    cli, project, _ = project_with(script)
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route, person={"example_plan": supply_and_bind})
+    with pytest.raises(AssertionError):
+        d.drive(limit=30)  # stops at the iteration limit, waiting on the owner
+    st = cli("status", run, expect=None).payload
+    [pending] = st["pending_decisions"]
+    assert pending["ref"].startswith("build_tools/") and "/" not in pending["ref"][len("build_tools/"):], pending  # the instance
+    assert {o["decision"] for o in pending["options"]} >= {"retry", "abandon"}
+    # The owner chooses to simplify: the stage is done another way, recorded with their words.
+    out = cli("revise", run, "generate", "--reason", "Leave the counting to a helper; I'll check the count myself.", expect=None).payload
+    assert out["outcome"] == "revised" and out["stale"] == ["example_plan", "examples"]
+    for step, worker in (("generate", "builder"), ("generate~review", "checker")):
+        cli("dispatch", run, step, "--worker", worker, "--wait", expect=None)
+    for step in ("example_plan", "examples"):  # the owner's examples did not change: confirmed, not redone
+        cli("decide", run, step, "confirm", "--note", "Nothing changed there.", expect=None)
+    st = Director(cli, project, run, route=route).drive()
+    assert st["state"] == "completed"
+    evs = run_events(project, run)
+    assert any(e["type"] == "iteration_limit_reached" for e in evs)
+    expanded = [e for e in evs if e["type"] == "group_expanded" and e["step_path"] == "build_tools"]
+    assert expanded[-1]["data"].get("superseded")
