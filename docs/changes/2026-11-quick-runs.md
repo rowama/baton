@@ -1,7 +1,7 @@
 ---
 id: 2026-11-quick-runs
 title: "An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document"
-status: proposed
+status: accepted
 level: major
 decisions: ["0145", "0163", "0162", "0142", "0146", "0144", "0147", "0141"]
 touches: [design/recipes.md, design/director-interface.md, design/layouts.md, design/persistence.md]
@@ -50,7 +50,7 @@ The six questions this change raised were put to the owner with suggested answer
 
 ## Design
 
-Settled by the answers of Decision 0163; awaiting the owner's approval with the Request.
+Settled by the answers of Decision 0163. Approved by the owner with the Request on 2026-11-17.
 
 ### Shape
 
@@ -132,3 +132,9 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** Put questions 1 and 5 to the owner first. Question 1 was mostly settled by Decision 0162 (item 3); the remaining point was that a simple build would ask two questions once `quick` is the lowest rating, so `profile` drops its own gate and the triage gate is its one question. Question 5 was put with three options (copy by attestation, a shipped guide's id taken directly, no path but recipe builder). The owner accepted the suggested answers to all six. Recorded as Decision 0163. Request and Design updated: `recipe-builder@5` (version 4 was taken by `2026-11-builder-step-design`), `guides copy`, the one question at `profile`. No code changed.
 - **Owner decision:** 2026-11-17, "Agree to all." (0163).
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Accepted
+
+- **Summary:** The owner approved the Request and Design as updated with Decision 0163's answers. No code changed.
+- **Owner decision:** 2026-11-17, "Approved. proceed"
+- **Accepted:** Yes.
