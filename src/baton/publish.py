@@ -73,12 +73,23 @@ def path_keys(template: str) -> set[str]:
     return out
 
 
+#: ``paths.*`` keys a publish target may use when ``project.yaml`` does not map them (§10.4): ``documents``, where a
+#: quick run's result goes (Decision 0163, item 3), defaults to ``docs`` as ``process_plans`` does (Decision 0069).
+DEFAULT_PATHS: dict[str, str] = {"documents": "docs"}
+
+
+def with_defaults(paths: dict[str, Any] | None) -> dict[str, Any]:
+    """The project's ``paths`` with ``DEFAULT_PATHS`` for the keys it does not map."""
+    return {**DEFAULT_PATHS, **(paths or {})}
+
+
 def missing_path_keys(recipe: Any, paths: dict[str, Any]) -> list[str]:
-    """``paths.*`` keys the recipe publishes to that ``project.yaml`` does not map (§10.4: a start-time error)."""
+    """``paths.*`` keys the recipe publishes to that ``project.yaml`` does not map and that have no default
+    (§10.4: a start-time error)."""
     keys: set[str] = set()
     for _, art in published_artifacts(recipe):
         keys |= path_keys(art.publish.to)
-    return sorted(k for k in keys if k not in (paths or {}))
+    return sorted(k for k in keys if k not in with_defaults(paths))
 
 
 def _run_vars(ctx: RunContext) -> dict[str, Any]:
@@ -106,7 +117,7 @@ def check_target(root: Path, rel: str) -> str:
 
 
 def render_target(ctx: RunContext, template: str) -> str:
-    variables = {"paths": (ctx.project or {}).get("paths") or {}, "project": (ctx.project or {}).get("project") or {}, "run": _run_vars(ctx)}
+    variables = {"paths": with_defaults((ctx.project or {}).get("paths")), "project": (ctx.project or {}).get("project") or {}, "run": _run_vars(ctx)}
     try:
         text = _env.from_string(template).render(**variables)
     except jinja2.TemplateError as e:

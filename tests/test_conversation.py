@@ -75,7 +75,7 @@ def test_init_bare_vendors_nothing(tmp_path):
 def test_examples_ship_in_the_package():
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert '"examples" = "baton/_data/examples"' in text
-    assert set(catalog()) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "project-review", "spreadsheet-reconcile"}
+    assert set(catalog()) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "project-review", "spreadsheet-reconcile", "quick-run"}
 
 
 # -- structured questions and confirmed answers ----------------------------
@@ -280,7 +280,7 @@ def test_framing_inputs_hold_the_owners_words_and_every_recipe(tmp_path):
     assert words == WORDS
     recipes = json.loads((pdir / "inputs" / "recipes.json").read_text(encoding="utf-8"))
     by_id = {r["id"]: r for r in recipes}
-    assert set(by_id) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "project-review", "spreadsheet-reconcile"}
+    assert set(by_id) == {"fit-check", "software-feature", "backyard-project", "recipe-builder", "project-review", "spreadsheet-reconcile", "quick-run"}
     assert by_id["fit-check"]["vendored"] and not by_id["backyard-project"]["vendored"]
     assert by_id["backyard-project"]["run_inputs"]["required"] == ["title", "description"]
     rubric = json.loads((pdir / "inputs" / "rubric.json").read_text(encoding="utf-8"))

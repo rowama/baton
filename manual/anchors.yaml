@@ -197,6 +197,15 @@ published:
 - recipes.project-review#what-it-produces
 - recipes.project-review#what-it-reads
 - recipes.project-review#what-you-are-asked
+- recipes.quick-run
+- recipes.quick-run#guide
+- recipes.quick-run#here-now
+- recipes.quick-run#if-it-goes-wrong
+- recipes.quick-run#parts
+- recipes.quick-run#what-it-needs
+- recipes.quick-run#what-it-produces
+- recipes.quick-run#what-it-reads
+- recipes.quick-run#what-you-are-asked
 - recipes.recipe-builder
 - recipes.recipe-builder#example
 - recipes.recipe-builder#here-now

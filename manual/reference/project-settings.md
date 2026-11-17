@@ -13,7 +13,7 @@ These are the keys of `.baton/project.yaml`, which is committed and never holds 
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `paths` | mapping | none | Logical folder names a recipe publishes to (`{{ paths.specs }}`), mapped to folders in the project. A name a recipe uses and the project has not mapped is reported as a gap. `init` maps `process_plans` and `notes` to `docs`. |
+| `paths` | mapping | none | Logical folder names a recipe publishes to (`{{ paths.specs }}`), mapped to folders in the project. A name a recipe uses and the project has not mapped is reported as a gap. `init` maps `process_plans` and `notes` to `docs`; `documents`, where a quick run puts its result, is `docs` unless you map it. |
 | `project` | mapping | none | Your own variables, available to recipes as `{{ project.<name> }}`. `test_command` is what a recipe's check runs; `preflight` is the quick command `baton doctor` uses to confirm an assistant's permissions let the tests run. |
 | `run_slug` | text | `{{ run.inputs.title \| slugify }}` | How a piece of work's short name is made from its inputs, used in file names (a template; the default slugifies the title). |
 | `leases.minutes` | whole number | `60` | How long an assistant holds a piece of work without activity. The hold is renewed on activity. |

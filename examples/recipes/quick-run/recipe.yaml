@@ -1,0 +1,48 @@
+id: quick-run
+version: 1
+format: baton-recipe/1
+capabilities_vocab: baton-capabilities/1
+description: Produce one document good enough to use, quickly, by following a guide (a lean business plan, a procedure, a charter), instead of running a full process.
+
+scope:
+  covers: ["one document good enough to start on, following a guide", "a part of the project that does not deserve a full process"]
+  not_for:
+    - { job: "work that needs research, review or several kinds of worker" }
+    - { job: "changing files in the project other than the one document" }
+  varies_by: ["which guide it follows", "what the owner already has written down"]
+parent: null
+
+run_inputs:
+  schema: schemas/run_inputs.json        # title, request (the owner's words)
+
+defaults:
+  max_attempts: 3                        # bounded as for any step; then the owner decides whether to go on
+
+project_inputs:
+  - role: guide
+    description: "The guide to follow: what to produce, what good looks like and what to ask the owner"
+    media_type: text/markdown
+  - role: context
+    description: "Documents the owner wants the result to build on, such as an earlier plan"
+    required: false
+    many: true
+
+steps:
+  - id: produce
+    title: Write the document
+    requires: { capabilities: [structured_output, long_form_writing], tier: standard }
+    workspace: none                        # what the run used is exactly what was bound (Decision 0163, item 6)
+    prompt: prompts/produce.md
+    inputs:
+      - { name: title,   from: run.inputs.title,   required: true }
+      - { name: request, from: run.inputs.request, required: true }
+      - { name: guide,   from: project.guide,      required: true }
+      - { name: context, from: project.context,    required: false }
+    output_schema: schemas/produce_out.json
+    artifacts:
+      - { name: deliverable, required: true, media_type: text/markdown,
+          publish: { to: "{{ paths.documents }}/{{ run.slug }}.md" } }
+    gates:
+      - { type: schema }
+      - { type: human, prompt: "Is this good enough to use?",
+          labels: { approve: "Yes, use it", reject: "Not yet" } }

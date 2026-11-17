@@ -1,7 +1,7 @@
 # The hand-written words behind the generated reference (§13.10; decision 0133). tools/build_manual.py puts them beside what the code
 # itself says (commands, settings, defaults). A setting, variable or diagnostic code in the code with no entry here is a failing test.
 project_settings:
-  paths: "Logical folder names a recipe publishes to (`{{ paths.specs }}`), mapped to folders in the project. A name a recipe uses and the project has not mapped is reported as a gap. `init` maps `process_plans` and `notes` to `docs`."
+  paths: "Logical folder names a recipe publishes to (`{{ paths.specs }}`), mapped to folders in the project. A name a recipe uses and the project has not mapped is reported as a gap. `init` maps `process_plans` and `notes` to `docs`; `documents`, where a quick run puts its result, is `docs` unless you map it."
   project: "Your own variables, available to recipes as `{{ project.<name> }}`. `test_command` is what a recipe's check runs; `preflight` is the quick command `baton doctor` uses to confirm an assistant's permissions let the tests run."
   run_slug: "How a piece of work's short name is made from its inputs, used in file names (a template; the default slugifies the title)."
   leases.minutes: "How long an assistant holds a piece of work without activity. The hold is renewed on activity."

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["summary", "checklist", "assumptions"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1, "description": "What the document says, in two or three sentences in the owner's terms"},
+    "checklist": {
+      "type": "array",
+      "description": "Each point of the guide's 'What good looks like', and how the document meets it",
+      "items": {
+        "type": "object",
+        "required": ["point", "met", "how"],
+        "properties": {
+          "point": {"type": "string", "minLength": 1},
+          "met": {"type": "boolean"},
+          "how": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["about", "value", "basis"],
+        "properties": {
+          "about": {"type": "string", "minLength": 1},
+          "value": {"type": "string", "minLength": 1},
+          "basis": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
