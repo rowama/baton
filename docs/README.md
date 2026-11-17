@@ -299,3 +299,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0158 Tool steps: uv never downloads a Python, and a tool runs in a fresh scratch folder](decisions/0158-tool-steps-no-python-download-scratch-cwd.md) | accepted |
 | [0159 Tool runs: environments named by lock and Python, an inputs file of values and file references, built at dispatch, undeclared output files fail](decisions/0159-tool-runs-env-inputs-build-outputs.md) | accepted |
 | [0160 Tool steps: the first shipped recipe with a tool is spreadsheet-reconcile](decisions/0160-tool-steps-ship-spreadsheet-reconcile.md) | accepted |
+| [0161 An owner may have an AI delegate act for them: warned and waived where risky, never the Director, recorded as the delegate](decisions/0161-ai-delegates.md) | accepted |
+| [0162 Builder step design: six traits, two rating axes, standard-library simple tools, examples in the tool's folder with file inputs beside them](decisions/0162-builder-step-design-details.md) | accepted |

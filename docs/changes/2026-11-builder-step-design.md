@@ -1,11 +1,11 @@
 ---
 id: 2026-11-builder-step-design
 title: "Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot"
-status: proposed
+status: accepted
 level: major
-decisions: ["0155", "0154", "0156", "0158", "0144", "0147", "0145"]
+decisions: ["0155", "0154", "0156", "0158", "0144", "0147", "0145", "0161", "0162", "0159"]
 touches: [design/recipes.md, design/director-interface.md]
-manual: []
+manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, admin/recipes-and-vendoring.md, reference/commands.md, user/what-baton-may-do.md]
 ---
 
 # Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot
@@ -34,7 +34,7 @@ This change covers the design of steps and the building of simple scripts. Engin
 4. **The doer follows from the traits.** A stage is done by a `tool`, an `ai` worker, a `person` or an `automatic_check`. The patterns file gives the rule: the simplest means that can do the work, software before an AI worker.
 5. **Choosing an AI worker over software is recorded.** An `ai` stage whose rules are complete and whose input is structured carries a record: what could have done it, why it was not used (the owner's ceiling, the owner's choice, or the work is over the tool budget), what is given up (the same result every time, no cost per run, no dependence on a harness) and what the software would have cost (building it, and the attention software needs). An owner's choice is a confirmed ledger entry with their words.
 6. **A check says what it establishes.** Each stage's acceptance check names its kind: `format`, `rule`, `source` or `judgment`. A stage with an effect, or with an uncertain result, has a check that establishes more than format.
-7. **The audit enforces it.** The readiness rubric gains checks for criteria 2 to 6 and for the tool budget, at high severity, so the audit sends back a design that fails them.
+7. **The audit enforces it.** The readiness rubric gains checks for criteria 2 to 6, the tool budget and the delegation marks, at high severity, so the audit sends back a design that fails them.
 8. **The owner sets how much software the builder may write.** The builder rates two things at `profile`, each with a reason: `approach` (`simple`, `standard`, `complex`: today's levels, unchanged in what they add) and `software` (`none`, `simple`). `simple` and `none` together apply at once, as a `simple` build does today. Any other ratings wait on the owner.
 9. **A ceiling of `none` is not silent.** When the design finds a stage software could do and the ceiling is `none`, it does the stage another way, records why, and sends one rating signal on `software` (§5.5), so the owner can raise the ceiling or keep it.
 10. **At `software: simple` the builder writes the script.** For each `tool` stage, `generate` writes `tools/<id>/` (the script, `tool.yaml`, the lock, the examples) and a step that names the tool. A simple tool is one file, uses only the standard library, reaches no network and needs no secrets.
@@ -42,11 +42,12 @@ This change covers the design of steps and the building of simple scripts. Engin
 12. **The owner sees software before it is built, and it is reviewed after.** When `software` is above `none`, the owner approves the design, which shows each tool's purpose and examples in plain words, and an independent reviewer checks the finished package: the script does what the design says and touches only what it declares.
 13. **The walkthrough says who does each step.** It lists each tool with what it does, what it needs installed and what it may touch, and lists every step an AI worker does that software could do, with both sides of the trade.
 14. **The quick path has a place.** The `approach` scale is where `2026-11-quick-runs` adds `quick`. Nothing quick ships in this change.
-15. **Manual and design are current.** §5.7 describes `recipe-builder@4`; §5.9 describes tool examples; the manual's recipe-builder topic and command reference are updated.
+15. **A person's stage says whether delegating it is risky.** For each stage a person does and each decision the owner makes, the design records whether handing it to the owner's AI delegate is risky, with the reason in plain words. It is risky when the stage's effect is `irreversible`, or when the owner accepts a risk or waives a check there. The design document and the walkthrough show these marks. They enter the recipe itself when Baton can act on them ([2026-11-ai-delegates](2026-11-ai-delegates.md), on hold; Decision [0161](../decisions/0161-ai-delegates.md)).
+16. **Manual and design are current.** §5.7 describes `recipe-builder@4`; §5.9 describes tool examples; the manual's recipe-builder topic and command reference are updated.
 
 ### Open questions
 
-Each has a suggested answer, assumed until the owner decides.
+The owner accepted every suggested answer on 2026-11-16 (Decision [0162](../decisions/0162-builder-step-design-details.md)).
 
 1. **Are these the right six traits?** *Suggested:* yes, as listed in criterion 3. *Rationale:* each one changes either who does the stage or what its check must establish; a trait that changed neither was left out.
 2. **What about existing software as a doer?** *Suggested:* not yet. Until the external-software change, a stage existing software could do is a discovery record and is done another way. *Rationale:* Baton cannot yet check that a product is installed or bind an instance.
@@ -57,6 +58,7 @@ Each has a suggested answer, assumed until the owner decides.
 7. **What does `profile` recommend for `software`?** *Suggested:* `simple` whenever the idea shows rule-like work (calculating, converting, matching, recording), otherwise `none`; the owner approves either way. *Rationale:* it carries the preference of Decision 0155 into the first question the owner sees.
 8. **Does this apply to a process meant to run elsewhere?** *Suggested:* traits and the recommended doer are recorded for every stage; tools are built only for stages Baton runs. *Rationale:* the analysis is useful to whoever implements the process elsewhere, and Baton builds only what it can run and check.
 9. **Must a `simple` tool's examples come from the owner?** *Suggested:* the builder drafts them from what the owner said, and the owner approves them with the design (criterion 12). Examples the owner supplies as files are required only for `engineered` tools (Decision 0155, item 5). *Rationale:* a simple tool's behaviour fits in an example the owner can read and judge.
+10. **How does an example supply file inputs?** A tool's inputs file names any non-JSON input by path (Decision [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md)), and the shipped `csv_diff` tool takes two CSV files. *Suggested:* JSON inputs stay in `input.json`; each file input sits beside it as `examples/<name>/inputs/<input name>.<ext>`, and `baton tools test` builds the inputs file from both exactly as dispatch does. *Rationale:* an example then exercises the same path as a run.
 
 ### Out of scope
 
@@ -68,7 +70,7 @@ Each has a suggested answer, assumed until the owner decides.
 
 ## Design
 
-For the owner's approval, with the Request.
+Approved by the owner with the Request on 2026-11-16.
 
 ### Shape
 
@@ -97,10 +99,11 @@ For the owner's approval, with the Request.
   The schema requires `traits` and `acceptance` on every stage; `tool` with at least one example when `done_by` is `tool`; and `executor_choice {could_be, reason, gives_up, would_cost, ledger_id?}` when `done_by` is `ai`, `rules` is `complete` and `input` is `structured`. `reason` is `ceiling`, `owner_choice` (then `ledger_id` is required) or `over_budget`.
 - **`static/patterns.md`** gains three shapes: *one kind of work per stage* (the splitting rule and where to stop: when a further split would change neither the doer nor the check); *interpret, then enforce* (an AI worker or a person turns open-ended material into a structured proposal; software or a check validates it and acts); and *the simplest means that can do the work* (the rule from traits to doer, the tool budget, and that an irreversible effect has the owner's decision before it whoever does the stage).
 - **`static/readiness.md`** gains checks 21 to 26, all high: one kind of work per stage; traits given with a basis and the doer following from them; an `ai` stage software could do has its record; a stage that must repeat is not done by an AI worker unless the owner chose so; a check says what it establishes and is more than format where there is an effect or an uncertain result; a tool is within its budget, declares what it touches and has an example.
+- **Delegation mark.** A stage with `done_by: person` or an `owner_decision` carries `delegation {risky, reason}`; the schema requires it, and requires `risky: true` when `traits.effect` is `irreversible`. Rubric check 27 (high): a risky stage is marked, with a reason the owner would understand.
 - **`prompts/profile.md`** asks, in plain words, whether the process may include small programs written for it, saying what they give and need, and returns `ratings`.
 - **`prompts/generate.md`** writes each tool and its step, runs `baton tools test` itself, and adds the two walkthrough lists. `generate` gets the gate `{ type: script, run: "baton tools test recipes/drafts/{{ run.slug }}" }`.
 - **`prompts/package_review_rubric.md`** gains the checks on a script: it does what the design says, uses only the standard library, and touches only what it declares.
-- **`baton tools test <package>`** builds each tool's environment if needed (as `tools setup` does), runs the tool on each example through the tool runner in a scratch folder (Decision 0158), and compares `output.json` to `expected.json` as JSON and each `expected/<artifact>` byte for byte. Exit 0 when all pass; otherwise it names the tool, the example and the first difference. A tool with no example is a failure under `--require-examples`, which the builder's gate passes. The loader treats `examples/` as part of the tool's files, so it is hashed with the recipe.
+- **`baton tools test <package>`** builds each tool's environment if needed (as `tools setup` does), runs the tool on each example through the tool runner in a scratch folder (Decision 0158), and builds the inputs file from the example's `input.json` and `inputs/<name>.<ext>` files as dispatch does (Decision 0159), and compares `output.json` to `expected.json` as JSON and each `expected/<artifact>` byte for byte. Exit 0 when all pass; otherwise it names the tool, the example and the first difference. A tool with no example is a failure under `--require-examples`, which the builder's gate passes. The loader treats `examples/` as part of the tool's files, so it is hashed with the recipe.
 
 ### Doc edits
 
@@ -109,7 +112,9 @@ For the owner's approval, with the Request.
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: `recipes/recipe-builder.md`, `admin/recipes-and-vendoring.md`, `reference/commands.md`, and the owner's topic on what Baton may do.
+- `reference/commands.md`, `admin/recipes-and-vendoring.md`: `baton tools test` and tool examples (Slice 1).
+- `recipe-sources/recipe-builder.md` (and the generated `recipes/recipe-builder.md`): the two ratings, who does each step, the walkthrough lists, the delegation marks (Slices 2 to 4).
+- `user/what-baton-may-do.md`: small programs the builder may write for a process, and the ceiling the owner sets (Slice 4).
 
 ### Decisions
 
@@ -117,16 +122,18 @@ To be listed when the change is accepted. Expected: `recipes/recipe-builder.md`,
 - [0154](../decisions/0154-tool-steps.md), [0156](../decisions/0156-tool-steps-details.md), [0158](../decisions/0158-tool-steps-no-python-download-scratch-cwd.md) (accepted): what a tool is and how it runs.
 - [0144](../decisions/0144-tailoring-axes.md), [0147](../decisions/0147-tailoring-axes-details.md) (accepted): axes, OR across them, rating signals.
 - [0145](../decisions/0145-quick-runs-through-recipe-builder.md) (accepted): the quick path this change leaves room for.
-- The nine open questions above become one record when the owner answers them.
+- [0161](../decisions/0161-ai-delegates.md) (accepted): a recipe's author marks the stages that are risky to delegate.
+- [0162](../decisions/0162-builder-step-design-details.md) (accepted): the answers to the ten open questions.
+- [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md) (accepted): the inputs file an example's inputs are built into.
 
 ## Plan
 
-Slices as proposed; refined once the Request and Design are approved. Starts after `2026-11-tool-steps` is done.
+Approved 2026-11-16. `2026-11-tool-steps` is done.
 
 ### Slice 1: tools ship examples and can be tested
 
 - **Outcome:** `baton tools test <package>` runs each tool on its examples and reports any difference.
-- **Criteria:** `examples/` loaded and hashed with the tool; JSON and artifact comparison; plain report naming tool, example and first difference; `--require-examples`; exit codes; the shipped example recipe's tool has an example that passes.
+- **Criteria:** `examples/` loaded and hashed with the tool; file inputs from `inputs/`; JSON and artifact comparison; plain report naming tool, example and first difference; `--require-examples`; exit codes; `spreadsheet-reconcile`'s `csv_diff` has an example that passes.
 - **Effort:** M
 
 ### Slice 2: recipe-builder@4 is rated on two axes
@@ -154,3 +161,15 @@ Slices as proposed; refined once the Request and Design are approved. Starts aft
 - **Summary:** Change doc written from Decision 0155 and the owner's discussion of 2026-11-15, with the rating that `2026-11-quick-runs` needs folded into the same conversion. No code changed.
 - **Owner decision:** 2026-11-16, "Draft 3 with quick-runs rating folded in."
 - **Accepted:** No; proposal only. Nine open questions await the owner.
+
+### Delegation marks added
+
+- **Summary:** Added criterion 15 (a person's stage says whether delegating it is risky), its schema field and rubric check 27, from Decision 0161. Later criteria renumbered. No code changed.
+- **Owner decision:** 2026-11-16, "I want to address it before we're done with recipe-builder." (0161).
+- **Accepted:** No; proposal only. Nine open questions await the owner.
+
+### Accepted
+
+- **Summary:** The owner accepted all ten suggested answers (nine from the proposal, a tenth on file inputs to examples raised against Decision 0159) and approved the Request and Design, delegation marks included. Recorded as Decision 0162; manual files listed. No code changed.
+- **Owner decision:** 2026-11-16, "Accept all." (0162).
+- **Accepted:** Yes.
