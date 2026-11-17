@@ -86,14 +86,14 @@ def proposal_errors(out: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str, Any]:
+def _summary(loaded: Any, vendored: bool, with_scope: bool = False, with_axes: bool = True) -> dict[str, Any]:
     r = loaded.recipe
     schema = loaded.schemas[r.run_inputs.schema_] if r.run_inputs is not None else None
     out = {
         "id": r.id, "version": r.version, "description": r.description or "",
         "levels": list(r.complexity.levels) if r.complexity and r.complexity.levels else [], "run_inputs": schema, "vendored": vendored,
     }
-    if tailoring.is_multi(r.complexity):  # a recipe that rates work on axes (§5.5)
+    if with_axes and tailoring.is_multi(r.complexity):  # a recipe that rates work on axes (§5.5)
         from .adopt import axes_summary
 
         out["axes"] = axes_summary(r.complexity)
@@ -104,11 +104,13 @@ def _summary(loaded: Any, vendored: bool, with_scope: bool = False) -> dict[str,
     return out
 
 
-def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
+def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[str, str]] | None = None,
+                   with_axes: bool = True) -> list[dict[str, Any]]:
     """Every recipe a part may propose: each vendored recipe (its newest version), then each shipped one not vendored.
 
     Also the ``catalog.summaries`` input of an ordinary step (§5.2; Decision 0106), which adds each recipe's ``scope``,
     and ``governs`` (the kinds of work the project policy's ``governing`` gives it, §13.7) for a recipe that has some.
+    ``with_axes=False`` leaves out a recipe's ``axes``, for ``baton-frame@1``, whose published schema predates them.
     """
     from .project import catalog
 
@@ -125,10 +127,10 @@ def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[
         loaded = project.recipe(ref)
         prev = out.get(loaded.recipe.id)
         if prev is None or loaded.recipe.version > prev["version"]:
-            out[loaded.recipe.id] = _summary(loaded, True, with_scope)
+            out[loaded.recipe.id] = _summary(loaded, True, with_scope, with_axes)
     for rid, loaded in catalog().items():
         if rid not in out:
-            out[rid] = _summary(loaded, False, with_scope)
+            out[rid] = _summary(loaded, False, with_scope, with_axes)
     for g in governing or []:
         if g["recipe"] in out:
             out[g["recipe"]].setdefault("governs", []).append(g["work"])
@@ -164,7 +166,7 @@ def inputs_for(project: Any, words: str, ref: str | None = None) -> dict[str, An
     v2 = (ref or FRAME_RECIPE) != "baton-frame@1"
     out: dict[str, Any] = {
         "title": "Frame: " + (title if len(title) <= 60 else title[:57].rstrip() + "..."),
-        "words": words, "recipes": recipe_listing(project, with_scope=v2),
+        "words": words, "recipes": recipe_listing(project, with_scope=v2, with_axes=v2),
     }
     if v2:
         out["documents"] = document_listing(project)
