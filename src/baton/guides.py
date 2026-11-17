@@ -138,10 +138,9 @@ def _scan(directory: Path, where: str, rel_of) -> tuple[list[Guide], list[dict[s
         c = check_file(f, where=where, path=rel)
         if c.guide is None:
             problems.append({"path": rel, "where": where, "problems": c.problems})
-        elif f.stem != c.guide.id:
-            problems.append({"path": rel, "where": where,
-                             "problems": [f"the file is named {f.name!r} but its id is {c.guide.id!r}"]})
-        else:
+        elif where == "shipped" and f.stem != c.guide.id:  # pragma: no cover - shipped guides are tested
+            problems.append({"path": rel, "where": where, "problems": [f"the file is named {f.name!r} but its id is {c.guide.id!r}"]})
+        else:  # a project guide may be named freely: a builder publishes its guide under its run's name (§5.7)
             guides.append(c.guide)
     return guides, problems
 
@@ -163,13 +162,35 @@ def listing(root: Path | None) -> dict[str, Any]:
     share an id). ``problems`` lists the project's files under ``guides/`` that are not valid guides."""
     own, problems = project_guides(root) if root is not None else ([], [])
     every = own + list(shipped().values())
-    every.sort(key=lambda g: (g.id, 0 if g.where == "project" else 1))
+    every.sort(key=lambda g: (g.id, 0 if g.where == "project" else 1, g.path))
     return {"guides": [g.summary() for g in every], "problems": problems}
 
 
 def catalog_input(root: Path | None) -> list[dict[str, Any]]:
-    """The ``catalog.guides`` input (§5.2): the valid guides only, deterministic."""
-    return listing(root)["guides"]
+    """The ``catalog.guides`` input (§5.2): the valid guides only, each with its ``text`` (so a step can adopt or
+    adapt one), deterministic."""
+    own, _ = project_guides(root) if root is not None else ([], [])
+    every = own + list(shipped().values())
+    every.sort(key=lambda g: (g.id, 0 if g.where == "project" else 1, g.path))
+    return [{**g.summary(), "text": data.read_text(g.file).replace("\r\n", "\n")} for g in every]
+
+
+def check_artifact(root: Path, run_id: str, step_path: str, name: str) -> Checked:
+    """Check the artifact ``name`` that the latest submitted result of ``step_path`` registered, from the run's
+    record: what a script gate runs (``baton guides check --artifact``), before the artifact is published."""
+    from .store import Store, StoreError
+
+    store = Store(root)
+    try:
+        log = store.run(run_id)
+    except (StoreError, ValueError) as e:
+        return Checked(None, [f"no run {run_id!r} in this project: {e}"])
+    sub = next((e for e in reversed(log.events()) if e.type == "result_submitted" and e.step_path == step_path), None)
+    entry = ((sub.data.get("artifacts") or {}).get(name) if sub is not None else None) or {}
+    if not entry.get("sha256"):
+        return Checked(None, [f"{step_path} of run {run_id} has no submitted artifact {name!r}"])
+    text = log.cas.read(entry["sha256"]).decode("utf-8-sig", errors="replace")
+    return check_text(text, path=f"{run_id}/{step_path}.{name}")
 
 
 def copy(store: Any, guide_id: str, note: str, *, recorded_by: str | None = None) -> dict[str, Any]:

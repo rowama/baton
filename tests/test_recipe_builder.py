@@ -1,4 +1,4 @@
-"""The shipped recipe-builder recipe (changes 2026-11-recipe-builder, 2026-11-builder-step-design): it loads, plans at every rating and is wired as designed."""
+"""The shipped recipe-builder recipe (changes 2026-11-recipe-builder, 2026-11-builder-step-design, 2026-11-quick-runs): it loads, plans at every rating and is wired as designed."""
 from __future__ import annotations
 
 import json
@@ -18,7 +18,8 @@ def steps(plan_level):
     return {s.path: s for s in plan_level.steps}
 
 
-APPROACHES = ["simple", "standard", "complex"]
+APPROACHES = ["simple", "standard", "complex"]  # the full process (recipe-builder@4's whole scale)
+SCALE = ["quick", *APPROACHES]                   # recipe-builder@5 (2026-11-quick-runs)
 
 
 def at(loaded, approach, software="none"):
@@ -34,14 +35,15 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@4" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@5" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
 
 def test_it_ships_in_the_catalog():
     cx = catalog()["recipe-builder"].recipe.complexity
-    assert cx.levels is None and {a: s.scale for a, s in cx.axes.items()} == {"approach": APPROACHES, "software": ["none", "simple"]}
+    assert cx.levels is None and {a: s.scale for a, s in cx.axes.items()} == {"approach": SCALE, "software": ["none", "simple"]}
+    assert cx.axes["approach"].confirm_lowest is True and not cx.axes["software"].confirm_lowest
 
 
 def test_the_plan_at_each_approach_with_no_software_is_v3s_plan_at_that_level(loaded):
@@ -82,6 +84,8 @@ def test_generate_runs_the_deterministic_checks_on_its_own_draft(loaded):
 def test_profile_reads_the_catalog_the_plan_directory_and_publishes_the_process_plan(loaded):
     profile = next(s for s in loaded.recipe.steps if s.id == "profile")
     assert {i.name: i.from_ for i in profile.inputs}["recipes"] == "catalog.summaries"
+    assert {i.name: (i.from_, i.required) for i in profile.inputs}["guides"] == ("catalog.guides", False)
+    assert [g.type for g in profile.gates] == ["schema"]  # the ratings' approval is its one owner question (Decision 0163)
     assert profile.workspace == "read"
     plan = next(a for a in profile.artifacts if a.name == "process_plan")
     assert plan.publish.to == "recipes/plans/{{ run.slug }}.md" and not plan.required
@@ -137,7 +141,7 @@ def test_run_inputs_take_an_idea_and_an_optional_base_recipe():
 def test_the_triage_schema_rates_both_axes_with_reasons_and_carries_more():
     schema = json.loads((BUILDER / "schemas" / "profile_out.json").read_text(encoding="utf-8"))
     axes = schema["properties"]["ratings"]["properties"]
-    assert axes["approach"]["properties"]["value"]["enum"] == APPROACHES
+    assert axes["approach"]["properties"]["value"]["enum"] == SCALE
     assert axes["software"]["properties"]["value"]["enum"] == ["none", "simple"]
     assert "level" not in schema["properties"]
     assert {"goal", "rung", "ledger", "existing_recipe", "related_parts", "build_now"} <= set(schema["properties"])
@@ -278,11 +282,68 @@ def test_the_published_v3_still_loads_with_its_levels():
     assert "level" in json.loads((V3 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
 
 
-def test_v4_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@4" and not loaded.warnings
+def test_v5_loads_and_plans_at_every_pair_of_ratings(loaded):
+    assert loaded.recipe.ref == "recipe-builder@5" and not loaded.warnings
     for a in APPROACHES:
         for sw in ("none", "simple"):
-            assert at(loaded, a, sw)["generate"].included
+            plan = at(loaded, a, sw)
+            assert plan["generate"].included and plan["accept"].included and not plan["guide"].included
+
+
+def test_the_quick_path_runs_only_the_profile_and_the_guide(loaded):
+    plan = at(loaded, "quick")
+    assert {p for p, st in plan.items() if st.included} == {"profile", "guide"}
+    guide = next(s for s in loaded.recipe.steps if s.id == "guide")
+    assert guide.depends_on == ["profile"] and guide.workspace == "none"
+    assert {i.name: (i.from_, i.required) for i in guide.inputs} == {
+        "idea": ("run.inputs.idea", True), "profile": ("steps.profile.output", True), "guides": ("catalog.guides", True)}
+    (art,) = guide.artifacts
+    assert (art.name, art.required, art.media_type, art.publish.to) == ("guide", True, "text/markdown", "guides/{{ run.slug }}.md")
+    assert [g.type for g in guide.gates] == ["schema", "script", "human"]
+    assert guide.gates[1].run == "baton guides check --artifact guide" and guide.gates[2].prompt == "Use this guide?"
+
+
+QUICK = {"action": "adapt", "base": "lean-business-plan", "why": "a plan to start on, for a water stand"}
+
+
+def test_a_quick_rating_names_its_guide_and_never_allows_software():
+    v = schema_of("profile_out")
+    q = {**PROFILE, "ratings": rated("quick"), "guide_choice": QUICK}
+    assert v.is_valid(q)
+    assert not v.is_valid({k: x for k, x in q.items() if k != "guide_choice"})  # quick names its guide
+    assert not v.is_valid({**q, "guide_choice": None})
+    assert not v.is_valid({**q, "ratings": rated("quick", "simple")})  # quick requires software: none (Decision 0162, item 3)
+    assert not v.is_valid({**q, "discovery": [BEFORE]})  # a choice that shapes a process is never quick
+    assert v.is_valid({**q, "guide_choice": {"action": "write", "base": None, "why": "none fits"}})
+    assert not v.is_valid({**q, "guide_choice": {"action": "write", "base": "lean-business-plan", "why": "w"}})
+    assert not v.is_valid({**q, "guide_choice": {"action": "adopt", "base": None, "why": "w"}})
+    assert not v.is_valid({**PROFILE, "guide_choice": QUICK})  # the full process names no guide
+    assert v.is_valid({**PROFILE, "guide_choice": None})
+
+
+def test_the_guide_output_says_what_was_done_to_which_guide():
+    v = schema_of("guide_out")
+    base = {"id": "water-stand-plan", "summary": "s", "changes": []}
+    assert v.is_valid({**base, "action": "written", "base": None})
+    assert v.is_valid({**base, "action": "adopted", "base": "lean-business-plan"})
+    assert not v.is_valid({**base, "action": "adapted", "base": "lean-business-plan"})  # an adaptation lists its changes
+    assert v.is_valid({**base, "action": "adapted", "base": "lean-business-plan", "changes": ["a section on water quality"]})
+    assert not v.is_valid({**base, "action": "written", "base": "lean-business-plan"})
+    assert not v.is_valid({**base, "id": "Water Plan", "action": "written", "base": None})
+
+
+def test_the_profile_and_guide_prompts_carry_the_quick_path_rules():
+    def read(*p):
+        return BUILDER.joinpath(*p).read_text(encoding="utf-8")
+
+    profile = read("prompts", "profile.md")
+    assert "## 1a. A full process, or a quick guided run" in profile and "`guide_choice`" in profile
+    assert "| `quick` |" in profile and "A quick run is always `none`." in profile
+    assert "The owner is asked once, here," in profile
+    guide = read("prompts", "guide.md")
+    for section in ("## Purpose", "## What to produce", "## What good looks like", "## What to ask the owner"):
+        assert section in guide
+    assert "format: baton-guide/1" in guide and "Never put this owner's own facts in the guide" in guide
 
 
 def test_software_shows_the_owner_the_design_and_reviews_the_package_at_every_approach(loaded):
@@ -293,13 +354,29 @@ def test_software_shows_the_owner_the_design_and_reviews_the_package_at_every_ap
         assert plan["research"].included == (a != "simple")  # software adds no research
 
 
-def test_simple_with_no_software_applies_at_once_and_anything_else_waits_on_the_owner(loaded):
+def test_every_rating_waits_on_the_owner_in_v5_and_v4_still_applies_its_lowest_at_once(loaded):
     from baton import tailoring
 
     cx = loaded.recipe.complexity
-    assert tailoring.auto_approves(cx, {"approach": "simple", "software": "none"})
-    assert not tailoring.auto_approves(cx, {"approach": "simple", "software": "simple"})
-    assert not tailoring.auto_approves(cx, {"approach": "standard", "software": "none"})
+    for a in SCALE:
+        for sw in ("none", "simple"):
+            assert not tailoring.auto_approves(cx, {"approach": a, "software": sw}), (a, sw)
+    v4 = load_recipe(V4).recipe.complexity
+    assert tailoring.auto_approves(v4, {"approach": "simple", "software": "none"})
+    assert not tailoring.auto_approves(v4, {"approach": "standard", "software": "none"})
+
+
+V4 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v4"
+
+
+def test_the_published_v4_still_loads_with_two_axes_and_its_own_profile_question():
+    """A project's pinned recipe-builder@4 is never edited (§5.8): v5 is a new version, the v4 package is a frozen copy."""
+    old = load_recipe(V4)
+    assert old.recipe.ref == "recipe-builder@4" and not old.warnings
+    assert old.recipe.complexity.axes["approach"].scale == APPROACHES
+    profile = next(s for s in old.recipe.steps if s.id == "profile")
+    assert [g.type for g in profile.gates] == ["schema", "human"]
+    assert "guide" not in {s.id for s in old.recipe.steps}
 
 
 def test_existing_recipes_match_only_when_their_process_does_the_discovery_and_the_walkthrough_says_when_the_owner_chooses():

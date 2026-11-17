@@ -76,7 +76,7 @@ def generated(ledger: list[dict], discovery: list[dict] | None = None) -> dict:
 
 
 def profile(level: str, ledger: list[dict], software: str = "none") -> dict:
-    """A profile result: ``level`` is the approach (recipe-builder@4 rates two axes)."""
+    """A profile result: ``level`` is the approach (recipe-builder@4 and later rate two axes)."""
     return {"output": {
         "ratings": {"approach": {"value": level, "reason": "how much process it needs"},
                     "software": {"value": software, "reason": "no rule-like work" if software == "none" else "it adds up amounts"}},
@@ -193,7 +193,7 @@ def test_a_standard_run_researches_loops_on_the_owners_note_and_fails_a_bad_ledg
     import re
 
     refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]  # the group's instance id is random
-    assert refs == ["profile", "profile", "shape/i1/audit", "shape/i2/audit", "accept"], refs  # profile: the goal, then the ratings
+    assert refs == ["profile", "shape/i1/audit", "shape/i2/audit", "accept"], refs  # profile: the goal and the ratings, one question (@5)
     evs = run_events(project, run)
     # The owner's rejection started iteration 2 at design, carrying their words.
     inst = st["groups"]["shape"]["instances"][0]["id"]
@@ -228,10 +228,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@4")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@4"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@5")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@5"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@4"
+    assert started["recipe"] == "recipe-builder@5"
 
 
 @pytest.mark.slow
@@ -334,7 +334,7 @@ def test_a_choice_that_shapes_the_process_is_researched_and_the_owner_decides_be
     data = json.loads((project / "recipes" / "drafts" / f"{SLUG}.ledger.json").read_text(encoding="utf-8"))
     assert data["discovery"][0]["status"] == "decided"
     refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
-    assert refs[:2] == ["profile", "profile"] and refs[-1] == "accept"
+    assert refs[0] == "profile" and refs.count("profile") == 1 and refs[-1] == "accept"  # the goal and the ratings are one question (@5)
 
 
 @pytest.mark.slow
@@ -564,7 +564,7 @@ def test_software_simple_waits_on_the_owner_and_adds_the_design_approval_and_the
     import re
 
     refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
-    assert refs == ["profile", "profile", "shape/i1/audit", "accept"], refs  # the goal, the ratings, the design, the result
+    assert refs == ["profile", "shape/i1/audit", "accept"], refs  # the goal and the ratings (one question), the design, the result
     evs = run_events(project, run)
     assert any(e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "review" for e in evs)
 
@@ -711,7 +711,7 @@ def test_a_described_process_with_rule_like_work_yields_an_accepted_package_whos
     import re
 
     refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
-    assert refs == ["profile", "profile", "shape/i1/audit", "accept"], refs  # the owner saw the design (with the tool) before it was built
+    assert refs == ["profile", "shape/i1/audit", "accept"], refs  # the owner saw the design (with the tool) before it was built
     evs = run_events(project, run)
     failed = [e for e in evs if e["type"] == "gate_failed" and e["step_path"] == "generate"]
     assert len(failed) == 1 and failed[0]["attempt"] == 1
@@ -723,3 +723,134 @@ def test_a_described_process_with_rule_like_work_yields_an_accepted_package_whos
     flags = cli("vendor", str(project / "recipes" / "drafts" / SLUG), expect=4).payload
     tool_flags = [f for f in flags.get("flags", []) if f["code"] == "tool"]
     assert [f["tool"] for f in tool_flags] == ["count_plants"] and "does not use the internet" in tool_flags[0]["touches"]
+
+
+# -- the quick path (change 2026-11-quick-runs, Slice 3; Decisions 0145, 0163) ------------------------------
+
+@pytest.mark.slow
+def test_a_pinned_builder_v4_still_runs_with_its_own_profile_question(project_with, monkeypatch):
+    """A project that pinned recipe-builder@4 keeps it: its goal question and its ratings question are separate."""
+    import re
+    import sys as _sys
+
+    monkeypatch.setattr(_sys.modules[__name__], "BUILDER", ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v4")
+    ledger = [GOAL, BED]
+    cli, project, _ = project_with({
+        "profile": profile("simple", ledger, software="simple"), "design": design(ledger), "audit": CLEAN, "generate": generated(ledger),
+        "generate~review": CLEAN})
+    run = cli.run("start", "recipe-builder@4", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route)
+    st = d.drive()
+    assert st["recipe"] == "recipe-builder@4" and st["state"] == "completed"
+    assert [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions] == ["profile", "profile", "shape/i1/audit", "accept"]
+
+
+WATER = {"title": "Water stand plan", "idea": "I want a business plan for a water vending stand, just good enough to get started"}
+WATER_SLUG = "water-stand-plan"
+WATER_GOAL = {"id": "G1", "statement": "A plan good enough to start a water stand", "kind": "goal", "scope": "instance", "status": "inferred",
+              "basis": "The owner said 'just good enough to get started'", "value": "a water vending stand"}
+NEW_GUIDE = """---
+format: baton-guide/1
+id: kiosk-plan
+version: 1
+title: Kiosk business plan
+description: A short plan for a small stand or kiosk selling one kind of product.
+produces: a kiosk business plan (Markdown, two pages)
+---
+
+## Purpose
+
+Decide whether a small stand is worth starting.
+
+## What to produce
+
+The offer, the site, the daily numbers and the first month's steps.
+
+## What good looks like
+
+The daily numbers add up and every figure has its basis.
+
+## What to ask the owner
+
+Where the stand would be and what it would sell.
+"""
+
+
+def quick_profile(choice: dict) -> dict:
+    out = profile("simple", [WATER_GOAL])
+    out["output"]["ratings"]["approach"] = {"value": "quick", "reason": "One plan to start on is enough; a quick guided run, not a full process"}
+    out["output"]["guide_choice"] = choice
+    out["output"]["goal"] = {"statement": "A plan to start a water stand", "trigger": "The owner wants to start", "end_state": "A plan",
+                             "success_measure": "The owner can act on it"}
+    return out
+
+
+def quick_route(step_path: str) -> str:
+    return "builder"
+
+
+@pytest.mark.slow
+def test_the_quick_path_writes_a_guide_the_owner_approves_and_a_bad_guide_is_redone(project_with):
+    from baton import guides
+
+    bad = NEW_GUIDE.replace("## What to ask the owner\n\nWhere the stand would be and what it would sell.\n", "")
+    cli, project, script = project_with({
+        "profile": quick_profile({"action": "write", "base": None, "why": "No listed guide is for a stand or kiosk"}),
+        "guide": [{"output": {"id": "kiosk-plan", "action": "written", "base": None, "summary": "A two-page plan for a stand", "changes": []},
+                   "artifacts": {"guide": text}} for text in (bad, NEW_GUIDE)]})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(WATER))["run_id"]
+    d = Director(cli, project, run, route=quick_route)
+    st = d.drive()
+    assert st["state"] == "completed" and st["ratings"] == {"approach": "quick", "software": "none"}
+    for skipped in ("research", "shape", "generate", "accept"):
+        assert st["steps"][skipped]["state"] == "skipped", skipped
+    assert [s for s, _ in d.dispatches] == ["profile", "guide", "guide"]
+    # One question at profile (the goal and the quick approach together), then the guide.
+    assert [r for r, _ in d.owner_decisions] == ["profile", "guide"]
+    evs = run_events(project, run)
+    triage = next(e for e in evs if e["type"] == "human_gate_opened" and e["data"].get("gate") == "triage")
+    assert "quick" in triage["data"]["prompt"] and "a quick guided run" in triage["data"]["prompt"]
+    failed = [e for e in evs if e["type"] == "gate_failed" and e["step_path"] == "guide"]
+    assert len(failed) == 1 and failed[0]["data"]["command"] == "baton guides check --artifact guide"
+    assert "missing the section '## What to ask the owner'" in json.dumps(failed[0]["data"])
+    seen = json.loads((packet_dir(project, run, "guide", 2) / "manifest.json").read_text(encoding="utf-8"))["prior_feedback"]
+    assert any("What to ask the owner" in r for r in seen["reasons"])
+    assert (project / "guides" / f"{WATER_SLUG}.md").read_text(encoding="utf-8") == NEW_GUIDE
+    doc = {x["path"]: x for x in cli.run("documents")["documents"]}[f"guides/{WATER_SLUG}.md"]
+    assert doc["kind"] == "deliverable" and doc["source"]["run"] == run and doc["source"]["step"] == "guide"
+    listed = [g for g in cli.run("guides")["guides"] if g["where"] == "project"]
+    assert listed == [{"id": "kiosk-plan", "version": 1, "title": "Kiosk business plan",
+                       "description": "A short plan for a small stand or kiosk selling one kind of product.",
+                       "produces": "a kiosk business plan (Markdown, two pages)", "where": "project", "path": f"guides/{WATER_SLUG}.md"}]
+    assert guides.check_file(project / "guides" / f"{WATER_SLUG}.md").problems == []
+    assert not (project / "recipes" / "drafts").exists()  # nothing was designed or built
+
+
+@pytest.mark.slow
+def test_the_quick_path_adopts_a_fitting_shipped_guide_from_the_listing(project_with):
+    from baton import guides
+
+    shipped = guides.shipped()["lean-business-plan"].file.read_text(encoding="utf-8")
+    cli, project, script = project_with({
+        "profile": quick_profile({"action": "adopt", "base": "lean-business-plan", "why": "It is the plan the owner asked for"}),
+        "guide": {"output": {"id": "lean-business-plan", "action": "adopted", "base": "lean-business-plan", "summary": "A lean plan", "changes": []},
+                  "artifacts": {"guide": shipped}}})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(WATER))["run_id"]
+    st = Director(cli, project, run, route=quick_route).drive()
+    assert st["state"] == "completed"
+    calls = [json.loads(x) for x in (script.parent / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert "guides" in next(c for c in calls if c["step"] == "profile")["inputs"]  # the profile saw the guides
+    given = json.loads((packet_dir(project, run, "guide", 1) / "inputs" / "guides.json").read_text(encoding="utf-8"))
+    assert next(g for g in given if g["id"] == "lean-business-plan")["text"] == shipped  # the guide step had the text to adopt
+    assert (project / "guides" / f"{WATER_SLUG}.md").read_text(encoding="utf-8") == shipped
+
+
+@pytest.mark.slow
+def test_a_quick_rating_with_software_is_refused_by_the_profile_schema(project_with):
+    out = quick_profile({"action": "adopt", "base": "lean-business-plan", "why": "w"})
+    out["output"]["ratings"]["software"] = {"value": "simple", "reason": "it adds up amounts"}
+    cli, project, _ = project_with({"profile": out})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(WATER))["run_id"]
+    res = cli("dispatch", run, "profile", "--worker", "builder", "--wait", expect=None).payload
+    rejected = [e for e in run_events(project, run) if e["type"] == "result_rejected" and e["step_path"] == "profile"]
+    assert rejected and "ratings" in json.dumps(rejected[0]["data"]), res

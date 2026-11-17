@@ -208,6 +208,7 @@ published:
 - recipes.quick-run#what-you-are-asked
 - recipes.recipe-builder
 - recipes.recipe-builder#example
+- recipes.recipe-builder#full-or-quick
 - recipes.recipe-builder#here-now
 - recipes.recipe-builder#if-it-goes-wrong
 - recipes.recipe-builder#implementation-choices

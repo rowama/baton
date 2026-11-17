@@ -283,13 +283,14 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 
 ### baton guides check {#baton-guides-check}
 
-Gate helper: the file is a valid guide (front matter, the four sections, no vendor names).
+Gate helper: a file, or a step's submitted artifact, is a valid guide (front matter, the four sections, no vendor names).
 
 Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `file <path>` | A guide file to check. |
+| `--artifact <str>` | In a script gate: check this artifact of the step being verified (BATON_RUN_ID, BATON_STEP_PATH). |
 | `--json` | Machine-readable output. |
 
 ### baton guides copy {#baton-guides-copy}

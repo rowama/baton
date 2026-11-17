@@ -1,8 +1,8 @@
 id: recipe-builder
-version: 4
+version: 5
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
-description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch).
+description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
 scope:
   covers: ["a process described in a sentence", "specializing an existing recipe for a narrower or wider set of jobs"]
   not_for:
@@ -19,7 +19,7 @@ defaults:
 
 complexity:
   axes:
-    approach: { scale: [simple, standard, complex] }   # how much process the builder adds (2026-11-quick-runs adds quick)
+    approach: { scale: [quick, simple, standard, complex], confirm_lowest: true }   # how much process the builder adds; quick: a guide, not a process (Decision 0163)
     software: { scale: [none, simple] }                # the most software the builder may write (Decision 0155; engineered comes later)
   triage_step: profile
 
@@ -34,14 +34,32 @@ steps:
       - { name: profile,     from: run.inputs.profile,     required: false }
       - { name: base_recipe, from: run.inputs.base_recipe, required: false }
       - { name: recipes,     from: catalog.summaries,      required: false }
+      - { name: guides,      from: catalog.guides,         required: false }   # for a quick run instead (Decision 0145)
     output_schema: schemas/profile_out.json
     artifacts:
       - { name: process_plan, required: false, media_type: text/markdown,
           publish: { to: "recipes/plans/{{ run.slug }}.md" } }
+    gates: [ { type: schema } ]          # every rating waits on the owner (confirm_lowest), so the ratings' approval is the one question here (Decision 0163)
+
+  - id: guide
+    title: Choose or write the guide for a quick run
+    depends_on: [profile]
+    applies_to: { approach: [quick] }
+    requires: { capabilities: [structured_output, long_form_writing], tier: strong }
+    prompt: prompts/guide.md
+    inputs:
+      - { name: idea,    from: run.inputs.idea,      required: true }
+      - { name: profile, from: steps.profile.output, required: true }
+      - { name: guides,  from: catalog.guides,       required: true }
+    output_schema: schemas/guide_out.json
+    artifacts:
+      - { name: guide, required: true, media_type: text/markdown,
+          publish: { to: "guides/{{ run.slug }}.md" } }
     gates:
       - { type: schema }
-      - { type: human, prompt: "Is this what the process should do?",
-          labels: { approve: "Yes, that's it", reject: "Not quite" } }
+      - { type: script, run: "baton guides check --artifact guide", timeout_s: 60 }
+      - { type: human, prompt: "Use this guide?",
+          labels: { approve: "Yes, use it", reject: "Change something first" } }
 
   - id: research
     title: Learn how this work is usually done and the ways to do it
@@ -57,6 +75,7 @@ steps:
   - id: shape
     title: Design and audit the process
     depends_on: [profile, research]       # a skipped research counts as satisfied
+    applies_to: { approach: [simple, standard, complex] }   # the full process; quick requires software: none (the profile schema)
     repeat_until: group.steps.audit.gates.passed
     repeat_from: design
     max_iterations: 3
@@ -94,6 +113,7 @@ steps:
   - id: generate
     title: Build the recipe package
     depends_on: [shape]
+    applies_to: { approach: [simple, standard, complex] }
     requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: strong }
     workspace: write
     prompt: prompts/generate.md
@@ -119,6 +139,7 @@ steps:
   - id: accept
     title: Owner approves the finished process
     depends_on: [generate]
+    applies_to: { approach: [simple, standard, complex] }
     requires: { capabilities: [human_judgment] }
     prompt: prompts/accept.md
     inputs:

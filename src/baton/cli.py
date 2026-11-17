@@ -1155,16 +1155,29 @@ def guides_copy(
 
 @guides_app.command("check")
 def guides_check(
-    file: Annotated[Path, typer.Argument(help="A guide file to check.")],
+    file: Annotated[Optional[Path], typer.Argument(help="A guide file to check.")] = None,
+    artifact: Annotated[Optional[str], typer.Option("--artifact", help="In a script gate: check this artifact of the step being verified (BATON_RUN_ID, BATON_STEP_PATH).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Gate helper: the file is a valid guide (front matter, the four sections, no vendor names)."""
+    """Gate helper: a file, or a step's submitted artifact, is a valid guide (front matter, the four sections, no vendor names)."""
     from . import guides as guides_mod
+    from .launcher import find_project
 
-    c = guides_mod.check_file(file)
+    if (file is None) == (artifact is None):
+        _fail(as_json, EXIT_USAGE, "guides.check_usage", "give a guide file or --artifact <name>, not both")
+    if artifact is not None:
+        run_id, step_path = os.environ.get("BATON_RUN_ID"), os.environ.get("BATON_STEP_PATH")
+        root = _opts.project or find_project(Path.cwd())
+        if not run_id or not step_path or root is None:
+            _fail(as_json, EXIT_USAGE, "guides.check_usage", "--artifact runs in a script gate, in the project, with BATON_RUN_ID and BATON_STEP_PATH set")
+        c = guides_mod.check_artifact(Path(root), run_id, step_path, artifact)
+        where = f"{step_path}.{artifact}"
+    else:
+        c = guides_mod.check_file(file)
+        where = str(file)
     problems = c.problems
     _emit({"ok": not problems, "problems": problems, **({"guide": c.guide.summary()} if c.guide else {})}, as_json,
-          "".join(f"ERROR {file}: {p}\n" for p in problems) or f"{file}: a valid guide")
+          "".join(f"ERROR {where}: {p}\n" for p in problems) or f"{where}: a valid guide")
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 

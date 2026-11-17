@@ -17,6 +17,26 @@ subject is not enough), set
 process is needed. If `base_recipe` is given, specialize that one instead of starting from nothing.
 Building from nothing is the last resort.
 
+## 1a. A full process, or a quick guided run
+
+If no existing process covers the job, decide what the owner should be offered: a **full process**
+(designed, audited and built here, then used for every job it covers) or a **quick guided run** (a
+helper follows a guide and writes one document that is good enough to use; you choose or write
+the guide, and nothing else is built).
+
+Recommend the quick run when the owner wants one document good enough to start on (a plan, a
+brief, a procedure, a charter), it is a one-off or done rarely, and nothing in it is costly,
+irreversible, regulated or needs several people or kinds of worker. Otherwise recommend the full
+process. The owner decides: your recommendation and its reason are what they are asked to
+approve, with what each choice costs and gives in plain words (a quick run: one document in a few
+minutes, judged by the owner alone; a full process: research, a design checked by a second helper,
+and a process that can be used again, which takes longer).
+
+The `guides` input lists the guides available, each with its `text`. For a quick run, set
+`guide_choice`: `adopt` a listed guide that fits as it is, `adapt` one that nearly fits (`base` is
+its id), or `write` a new one when none fits (`base` null), with `why` in the owner's terms. For
+a full process, `guide_choice` is null. Rate `approach` as `quick` for a quick run (section 8).
+
 ## 2. Infer first, ask little
 
 Fill in from the idea, and from `profile` when one is given, everything you reasonably can. For
@@ -100,12 +120,15 @@ nothing material is open, one `not_needed` record saying so, and why. Keep the e
 a small, plain job gets that one line, not a comparison.
 
 A discovery question that would change the process (`before_design`) means the approach is at
-least `standard`, whatever else you find: the research step cannot be skipped.
+least `standard`, whatever else you find: the research step cannot be skipped. For a quick run,
+return one `not_needed` record: the guide settles how the document is made.
 
 ## 8. Rate the approach and the software
 
-Return `ratings` with two entries, each a `value` and a `reason`. The owner reads the reasons when
-they approve the ratings, so write each one in their terms, in one plain sentence.
+Return `ratings` with two entries, each a `value` and a `reason`. The owner is asked once, here,
+to approve them: what the process should do (your `goal`), and how much of it to build. So write
+each reason in their terms, in one plain sentence, and make the `approach` reason say whether you
+recommend a full process or a quick run, and why.
 
 ### `approach`: how much process to build
 
@@ -114,6 +137,7 @@ process being built, not the owner's experience.
 
 | Value | Typical process | What the builder adds |
 |---|---|---|
+| `quick` | One document good enough to use, not a process (section 1a). A lean business plan. | A guide only: nothing is designed or built, and a quick run writes the document. |
 | `simple` | One person or one kind of worker, nothing costly or irreversible. Planting a flower bed. | Design, independent audit, build, the owner's approval of the result. |
 | `standard` | Several kinds of worker, physical-world steps, or a few decisions. Building a shed. | Research into how the work is usually done, and the owner approves the design before it is built. |
 | `complex` | Money or legal exposure, steps that cannot be undone, regulation, more than one decision-maker. A regulated product launch. | Everything above, and an independent review of the finished package. |
@@ -131,8 +155,8 @@ written and checked first, and someone has to look after it if the work changes.
 | `simple` | Small programs, each one file, that read what they are given and write a result, with nothing to install and no internet. The owner sees each one, with worked examples, before it is built, and it is reviewed independently afterwards. |
 
 Recommend `simple` when the idea shows rule-like work (calculating, converting, matching, recording);
-otherwise `none`. Say in the reason which work it is, or that there is none. This is a ceiling, not a
+otherwise `none`. A quick run is always `none`. Say in the reason which work it is, or that there is none. This is a ceiling, not a
 plan: the design decides part by part, and the owner approves either way.
 
 Return `ratings`, `reasons` (one short line per signal), `goal`, `existing_recipe` (or null), `rung`,
-`related_parts`, `build_now`, `discovery` and the `ledger`.
+`related_parts`, `build_now`, `guide_choice` (or null), `discovery` and the `ledger`.

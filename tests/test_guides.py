@@ -124,15 +124,20 @@ def test_the_listing_puts_the_projects_guides_beside_the_shipped_ones(tmp_path):
     (tmp_path / "guides" / "lean-business-plan.md").write_text(
         GOOD.replace("id: shop-rota", "id: lean-business-plan"), encoding="utf-8")
     (tmp_path / "guides" / "broken.md").write_text("# not a guide\n", encoding="utf-8")
-    (tmp_path / "guides" / "misnamed.md").write_text(GOOD, encoding="utf-8")
+    (tmp_path / "guides" / "rota-for-the-shop.md").write_text(GOOD, encoding="utf-8")  # a project guide may be named freely
     out = guides.listing(tmp_path)
-    assert [(g["id"], g["where"]) for g in out["guides"]] == [
-        ("decision-record", "shipped"), ("lean-business-plan", "project"), ("lean-business-plan", "shipped"),
-        ("marketing-plan", "shipped"), ("project-charter", "shipped"), ("shop-rota", "project"),
-        ("standard-operating-procedure", "shipped")]
-    assert {p["path"] for p in out["problems"]} == {"guides/broken.md", "guides/misnamed.md"}
-    assert "its id is 'shop-rota'" in next(p for p in out["problems"] if p["path"] == "guides/misnamed.md")["problems"][0]
-    assert guides.catalog_input(tmp_path) == out["guides"]
+    assert [(g["id"], g["where"], g["path"]) for g in out["guides"]] == [
+        ("decision-record", "shipped", "examples/guides/decision-record.md"),
+        ("lean-business-plan", "project", "guides/lean-business-plan.md"),
+        ("lean-business-plan", "shipped", "examples/guides/lean-business-plan.md"),
+        ("marketing-plan", "shipped", "examples/guides/marketing-plan.md"),
+        ("project-charter", "shipped", "examples/guides/project-charter.md"),
+        ("shop-rota", "project", "guides/rota-for-the-shop.md"), ("shop-rota", "project", "guides/shop-rota.md"),
+        ("standard-operating-procedure", "shipped", "examples/guides/standard-operating-procedure.md")]
+    assert [p["path"] for p in out["problems"]] == ["guides/broken.md"]
+    given = guides.catalog_input(tmp_path)
+    assert [{k: v for k, v in g.items() if k != "text"} for g in given] == out["guides"]  # the same listing, with each text
+    assert given[-1]["text"] == guides.shipped()["standard-operating-procedure"].file.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +161,7 @@ def test_a_step_receives_catalog_guides_deterministically(tmp_path):
         got = (p.dir / "inputs" / "guides.json").read_bytes()
         assert [g["id"] for g in json.loads(got)] == sorted(STARTERS + ["shop-rota"])
         assert json.loads(got) == guides.catalog_input(store.root)
+        assert next(g for g in json.loads(got) if g["id"] == "shop-rota")["text"] == GOOD
 
 
 def test_a_misspelt_catalog_source_is_a_reference_error(tmp_path):
@@ -234,3 +240,18 @@ def test_mcp_and_api_list_the_same_guides(tmp_path, monkeypatch):
     finally:
         api.close()
     assert via_mcp["guides"] == via_api["guides"] == cli.run("guides")["guides"]
+
+
+@pytest.mark.not_slow("in-process CLI, no commits")
+def test_guides_check_takes_a_file_or_an_artifact_in_a_gate(tmp_path, monkeypatch):
+    project, cli = _project(tmp_path)
+    assert cli("guides", "check", expect=2).payload["error"] == "guides.check_usage"
+    good = tmp_path / "good.md"
+    good.write_text(GOOD, encoding="utf-8")
+    assert cli("guides", "check", str(good), "--artifact", "guide", expect=2).payload["error"] == "guides.check_usage"
+    monkeypatch.delenv("BATON_RUN_ID", raising=False)
+    assert cli("guides", "check", "--artifact", "guide", expect=2).payload["error"] == "guides.check_usage"  # only in a gate
+    monkeypatch.setenv("BATON_RUN_ID", "r_20261117_0000")
+    monkeypatch.setenv("BATON_STEP_PATH", "guide")
+    res = cli("guides", "check", "--artifact", "guide", expect=1).payload
+    assert res["ok"] is False and "no run 'r_20261117_0000'" in res["problems"][0]

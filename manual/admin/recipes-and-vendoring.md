@@ -130,5 +130,5 @@ produces: a weekly rota (Markdown)
 ## What to ask the owner
 ```
 
-The file name is the id. Every field is required, every section must say something, and, as in a recipe, no model or vendor name may appear anywhere: a guide works with any worker. `baton guides check <file>` checks one, for a recipe's own checks to run. A guide in `guides/` becomes something a run can build on once it is a project document: `baton guides copy <id> --note "<words>"` copies one that comes with Baton and records that the owner vouches for it.
+A guide that comes with Baton is named by its id; a project's may be named freely (`guides copy` uses the id, and recipe builder names the guide it writes after its own piece of work). Every field is required, every section must say something, and, as in a recipe, no model or vendor name may appear anywhere: a guide works with any worker. `baton guides check <file>` checks one, for a recipe's own checks to run; in a check that runs on a part's result, `baton guides check --artifact <name>` checks the guide that part returned, before it is published. A guide in `guides/` becomes something a run can build on once it is a project document: `baton guides copy <id> --note "<words>"` copies one that comes with Baton and records that the owner vouches for it.
 

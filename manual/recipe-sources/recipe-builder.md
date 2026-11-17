@@ -12,18 +12,31 @@ step_labels: {}
 
 Use **recipe builder** when you do something repeatedly, or a process you care about, and want Baton to follow it: onboarding a client, launching a product, planting a garden, closing the books. You describe the work in your own words; Baton asks what it needs, looks up how the work is usually done, designs the process, has it independently checked, and shows you a plain-language walkthrough. You decide whether to use it.
 
+Not every part of your work deserves a full process. When you need one document good enough to start on, such as a lean business plan or a procedure for the shop, recipe builder recommends a **quick run** instead: it chooses or writes a guide for that document, you approve the guide, and a [quick run](recipes.quick-run#here-now) writes the document. See [a full process or a quick run](#full-or-quick).
+
 You never need to know how Baton describes processes. Talk about your work. The process it makes can be for work that will be done elsewhere, such as a workflow in another tool, a diagram, or a set of procedures and templates; where it will run is not a reason to refuse it. It builds a Baton process for making that work, not an export for another tool. If you want work run rather than a process made for it, it says so and asks, instead of changing the request.
 
 ## What you will be asked {#what-you-are-asked}
 
 - To describe the process: a title and what you want, in your words, and any process you already have in mind.
-- To confirm what it understood: **Is this what the process should do?**
-- Unless the process is small and needs no programs, to approve two things it judged, each with its reason: how much process to build (small, standard or large), and whether it may write small programs for the process. A program does rule-like work (a calculation, a conversion, matching one list against another) the same way every time, at no cost each time it runs; it has to be written and checked first, and looked after if the work changes. You set this limit; Baton recommends one.
+- Once, to confirm what it understood and approve two things it judged, each with its reason: how much to build (a quick run, or a small, standard or large process), and whether it may write small programs for the process. A program does rule-like work (a calculation, a conversion, matching one list against another) the same way every time, at no cost each time it runs; it has to be written and checked first, and looked after if the work changes. You set this limit; Baton recommends one.
 - If how the work could be done changes what the process must contain, to choose after it has compared the ways: see [choosing how it will be done](#implementation-choices).
 - For larger processes, or when it may write programs, after the design has been checked: **Is this the process you want?** Saying no sends it back with your note.
 - At the end, after reading the walkthrough: **Use this process?**
+- On a quick run instead, after that first question: **Use this guide?** Nothing else is built.
 
 It works out what it can and says what it assumed, so you confirm rather than start from a blank page. It will not promote its own guess to something you said: it records only what you confirmed.
+
+## A full process or a quick run {#full-or-quick}
+
+After checking whether a process you already have covers the work, recipe builder recommends one of two things, with what each costs and gives:
+
+- **A full process:** it looks up how the work is usually done where that matters, designs the process, has it checked by a second helper, and builds it. It takes longer, and you get a process you can use for every job like this one.
+- **A quick run:** one document good enough to use, written in a few minutes by a helper following a guide, and judged by you alone. It suits a plan, a brief or a procedure you need once or rarely, where nothing is costly, irreversible or regulated.
+
+You choose; your first answer settles it. On a quick run, it adopts one of the guides that come with Baton, adapts one to your kind of work, or writes a new one, and shows it to you: **Use this guide?** The guide is kept in your project's `guides/` folder, and your assistant then offers the quick run that uses it. If one of Baton's guides already fits as it is, your assistant can copy it for you without recipe builder at all (`baton guides copy`).
+
+A project that is still using an earlier version of recipe builder keeps it, and asks its questions as before.
 
 ## Choosing how it will be done {#implementation-choices}
 
@@ -55,6 +68,8 @@ If you said no programs, and the design finds parts a program could do, you are 
 - The **process** itself as a draft in your project (`recipes/drafts/`), checked automatically for mistakes.
 - A **walkthrough** in plain language, so you can judge the process without reading it. It lists each small program in the process (what it does, what it needs installed, what it may touch) and each part an AI helper does that a program could have done, with the trade.
 - When you allowed programs, the **programs** themselves, each with its worked examples. Each is run on its examples before you see the result, and an independent reviewer checks it does only what the design says.
+
+On a quick run, it produces only a **guide** in your project (`guides/`), which a quick run then follows.
 
 It never adds the process to your project's set on its own. After you approve it, your assistant asks before making it available.
 

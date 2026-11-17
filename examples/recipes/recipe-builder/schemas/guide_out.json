@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "action", "base", "summary", "changes"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "description": "The guide's id, as in its front matter"},
+    "action": {"enum": ["adopted", "adapted", "written"]},
+    "base": {"type": ["string", "null"], "description": "The listed guide it came from; null for a new one"},
+    "summary": {"type": "string", "minLength": 1, "description": "What the guide asks for and what the run will produce, in the owner's terms"},
+    "changes": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Each change made to the base guide for this owner; empty when adopted as it is or newly written"}
+  },
+  "allOf": [
+    {"if": {"properties": {"action": {"const": "written"}}}, "then": {"properties": {"base": {"type": "null"}}}},
+    {"if": {"properties": {"action": {"enum": ["adopted", "adapted"]}}}, "then": {"properties": {"base": {"type": "string", "minLength": 1}}}},
+    {"if": {"properties": {"action": {"const": "adapted"}}}, "then": {"properties": {"changes": {"minItems": 1}}}}
+  ]
+}

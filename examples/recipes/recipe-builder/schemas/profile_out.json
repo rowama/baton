@@ -29,6 +29,7 @@
           "properties": {
             "value": {
               "enum": [
+                "quick",
                 "simple",
                 "standard",
                 "complex"
@@ -526,6 +527,78 @@
         ]
       },
       "description": "Implementation choices that matter to the goal, their timing and, where discovered, the comparison and the owner's decision (Decision 0141)"
+    },
+    "guide_choice": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "On the quick path: the guide to adopt as it is, to adapt, or a new one to write",
+      "required": [
+        "action",
+        "base",
+        "why"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "adopt",
+            "adapt",
+            "write"
+          ]
+        },
+        "base": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The listed guide adopted or adapted (its id); null when writing a new one"
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why it fits, or why none does, in the owner's terms"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "adopt",
+                  "adapt"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "base": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "write"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "base": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -565,6 +638,51 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ratings": {
+            "properties": {
+              "approach": {
+                "properties": {
+                  "value": {
+                    "const": "quick"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "guide_choice"
+        ],
+        "properties": {
+          "ratings": {
+            "properties": {
+              "software": {
+                "properties": {
+                  "value": {
+                    "const": "none"
+                  }
+                }
+              }
+            }
+          },
+          "guide_choice": {
+            "type": "object"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "guide_choice": {
+            "type": "null"
           }
         }
       }
