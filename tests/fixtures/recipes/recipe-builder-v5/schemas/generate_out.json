@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "commit_sha",
+    "package_path",
+    "ledger_path",
+    "summary"
+  ],
+  "properties": {
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,64}$"
+    },
+    "package_path": {
+      "type": "string"
+    },
+    "ledger_path": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

@@ -44,17 +44,24 @@ You work in the project; commit your work.
      `reach.workspace`, its inputs, an `output_schema` for `output.json`, its artifacts and a
      `schema` gate. A tool that spends money or changes something others depend on runs only after
      a step where the owner approves (a `human` gate before it).
-   Run `baton tools test recipes/drafts/<run slug> --require-examples` yourself and fix the tool
-   (not the example) until every example passes; the runtime runs it again as a gate. An example
-   the owner approved is never changed to fit the code.
+   Run `baton tools test recipes/drafts/<run slug> --require-examples --allow-unbuilt` yourself and
+   fix the tool (not the example) until every example passes; the runtime runs it again as a gate.
+   An example the owner approved is never changed to fit the code.
+   For a tool the design gives as `kind: engineered`, write everything but the program and its
+   examples: `tool.yaml` (its `entry` naming `{tool}/<id>.py`, which you do not write), the empty
+   `requirements.lock`, the step, and `tools/<id>/contract.json`: `{"kind": "engineered", "does":
+   <tool.does>, "input_schema", "output_schema", "reach": <tool.reach>, "packages",
+   "budget_reason"}` and `size_reason` if the design gives one, copied from the design's `contract`.
+   The owner's examples are placed next, and the program is built to them by another worker.
 6. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
    stage, what they decide, what happens when something fails, and what it covers and does not.
    Say plainly when and how the owner will choose how the work is done (decided now, in what they
    approved, or at a stage of the process before the work that depends on it), and what the process
    will do to find the options. Then two lists:
    - **Small programs in this process:** each tool, what it does, what it needs installed (Python,
-     nothing else) and what it may touch (for example "does not open your files and does not use the
-     internet").
+     nothing else, or the packages a program built to your examples needs) and what it may touch
+     (for example "does not open your files and does not use the internet"). Say which programs will
+     be built to examples you supply, and what those examples are.
    - **Parts an AI helper does that a program could do:** each one, what a program would have given
      (the same result every time, no cost each run, no AI service needed), what it would have cost,
      and why it was not used (your limit on programs, your choice, or too big for a small program).

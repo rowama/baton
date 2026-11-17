@@ -107,6 +107,14 @@ worked examples. At `software: simple` it is also one file, uses only the Python
 reaches no network and needs no secrets. Anything bigger is a separate software project: do the stage
 another way and say so.
 
+**Contract, examples, then code** (`software: engineered`). A tool that needs real engineering (a real
+data format, rules with exceptions, a package) is built in that order: the design gives its contract
+(inputs, outputs, what it may touch, every package and why, why it is one tool) and the examples the
+owner should supply; the owner supplies them, or approves drafted ones; another worker builds the
+tool to them, and a reviewer from another vendor checks it against the contract. Examples the builder
+invents prove nothing about what the owner means, so the owner's own are asked for first. Prefer a
+simple tool wherever one will do.
+
 **The check says what it establishes** (`acceptance.kind`): `format` (the output has the right shape),
 `rule` (it obeys stated rules), `source` (it matches a source) or `judgment` (a reviewer or the owner
 judges it). A stage with an effect, or whose result can be wrong about the world, needs more than

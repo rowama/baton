@@ -153,9 +153,11 @@ written and checked first, and someone has to look after it if the work changes.
 |---|---|
 | `none` | No programs: people and AI workers do every part. |
 | `simple` | Small programs, each one file, that read what they are given and write a result, with nothing to install and no internet. The owner sees each one, with worked examples, before it is built, and it is reviewed independently afterwards. |
+| `engineered` | Programs that need real engineering: reading a real export, matching records by rules with exceptions, or a package to install. Each is built to examples the owner supplies (at least three, one of them a case they find awkward), tested and independently reviewed, in up to three rounds. It asks more of the owner: real examples, more decisions, and looking after the program when the work changes. Anything bigger than one program with one job is a separate software project. |
 
 Recommend `simple` when the idea shows rule-like work (calculating, converting, matching, recording);
-otherwise `none`. A quick run is always `none`. Say in the reason which work it is, or that there is none. This is a ceiling, not a
+`engineered` only when that work has exceptions or real data formats (an export from another system,
+matching with special cases), and say in the reason what it will ask of the owner; otherwise `none`. A quick run is always `none`. Say in the reason which work it is, or that there is none. This is a ceiling, not a
 plan: the design decides part by part, and the owner approves either way.
 
 Return `ratings`, `reasons` (one short line per signal), `goal`, `existing_recipe` (or null), `rung`,

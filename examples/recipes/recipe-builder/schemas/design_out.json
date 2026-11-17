@@ -169,14 +169,20 @@
               "does",
               "input",
               "output",
-              "reach",
-              "examples"
+              "reach"
             ],
-            "description": "The script that does a tool stage (\u00a75.9), within the tool budget",
+            "description": "The script that does a tool stage (\u00a75.9), within the tool budget: simple (written in one pass to drafted examples) or engineered (built later to the owner's examples, Decision 0164)",
             "properties": {
               "id": {
                 "type": "string",
                 "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "kind": {
+                "enum": [
+                  "simple",
+                  "engineered"
+                ],
+                "description": "simple when absent; engineered only when the run's software rating is engineered"
               },
               "does": {
                 "type": "string",
@@ -262,8 +268,138 @@
                     }
                   }
                 }
+              },
+              "contract": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "input_schema",
+                  "output_schema",
+                  "packages",
+                  "budget_reason"
+                ],
+                "description": "An engineered tool's contract: what it takes and gives, every package it needs and why, and why it is within the tool budget",
+                "properties": {
+                  "input_schema": {
+                    "type": "object",
+                    "description": "JSON Schema of the inputs file"
+                  },
+                  "output_schema": {
+                    "type": "object",
+                    "description": "JSON Schema of output.json"
+                  },
+                  "packages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "why"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "why": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  "budget_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why it is one tool: one command, inputs in and outputs out, nothing kept running, testable from examples"
+                  },
+                  "size_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only when it will be over 600 lines of code: why it is still one tool"
+                  }
+                }
+              },
+              "examples_needed": {
+                "type": "array",
+                "minItems": 3,
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "awkward": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "awkward"
+                  ]
+                },
+                "description": "The examples the owner should supply for an engineered tool, in plain words: at least three, one a case the owner finds awkward",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "what",
+                    "awkward"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "what": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What files go in and what result is expected, in the owner's terms"
+                    },
+                    "awkward": {
+                      "type": "boolean"
+                    }
+                  }
+                }
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "engineered"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "contract",
+                    "examples_needed"
+                  ]
+                },
+                "else": {
+                  "required": [
+                    "examples"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "contract"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "examples_needed"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
           },
           "executor_choice": {
             "type": "object",

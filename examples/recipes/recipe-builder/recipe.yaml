@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 5
+version: 6
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
@@ -14,13 +14,19 @@ parent: null
 run_inputs:
   schema: schemas/run_inputs.json        # title, idea, profile?, base_recipe?
 
+project_inputs:
+  - role: examples
+    description: "The owner's examples for the tools to be built: for each one, the files it is given and the result expected, one folder per example under examples/ in the project"
+    required: false
+    many: true
+
 defaults:
   max_attempts: 3
 
 complexity:
   axes:
     approach: { scale: [quick, simple, standard, complex], confirm_lowest: true }   # how much process the builder adds; quick: a guide, not a process (Decision 0163)
-    software: { scale: [none, simple] }                # the most software the builder may write (Decision 0155; engineered comes later)
+    software: { scale: [none, simple, engineered] }    # the most software the builder may write (Decisions 0155, 0164)
   triage_step: profile
 
 steps:
@@ -107,7 +113,7 @@ steps:
         output_schema: baton:findings
         gates:
           - { type: findings, block_on: [critical, high] }
-          - { type: human, applies_to: { approach: [standard, complex], software: [simple] },   # the owner sees any software before it is built
+          - { type: human, applies_to: { approach: [standard, complex], software: [simple, engineered] },   # the owner sees any software before it is built
               prompt: "Is this the process you want? Saying no sends it back with your note." }
 
   - id: generate
@@ -128,17 +134,48 @@ steps:
       - { type: schema }
       - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }
       - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json --require-discovery", timeout_s: 60 }
-      - { type: script, run: "baton tools test recipes/drafts/{{ run.slug }} --require-examples", timeout_s: 600 }   # every tool passes its worked examples (Decision 0162)
+      - { type: script, run: "baton tools test recipes/drafts/{{ run.slug }} --require-examples --allow-unbuilt", timeout_s: 600 }   # every simple tool passes its worked examples (Decision 0162); engineered ones are built later
       - type: review
-        applies_to: { approach: [complex], software: [simple] }   # software written for the process is always reviewed
+        applies_to: { approach: [complex], software: [simple, engineered] }   # software written for the process is always reviewed
         block_on: [critical, high]
         reviewer_requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
         independence: { from_step: generate, level: different_vendor }
         rubric: prompts/package_review_rubric.md
 
+  - id: example_plan
+    title: Choose how each tool's examples will come
+    depends_on: [generate]
+    applies_to: { software: [engineered] }
+    requires: { capabilities: [human_judgment] }
+    prompt: prompts/example_plan.md
+    inputs:
+      - { name: shaped,    from: steps.shape.outputs,    required: true }
+      - { name: generated, from: steps.generate.output, required: true }
+    output_schema: schemas/example_plan_out.json
+    gates: [ { type: schema } ]
+
+  - id: examples
+    title: Place the examples each tool will be built to
+    depends_on: [example_plan]
+    applies_to: { software: [engineered] }
+    requires: { capabilities: [structured_output, file_write, repo_workspace], tier: strong }
+    workspace: write
+    prompt: prompts/examples.md
+    inputs:
+      - { name: plan,      from: steps.example_plan.output, required: true }
+      - { name: shaped,    from: steps.shape.outputs,       required: true }
+      - { name: generated, from: steps.generate.output,     required: true }
+      - { name: owner_examples, from: project.examples,     required: false }   # the owner's files, bound by role (Decision 0164, item 1)
+    output_schema: schemas/examples_out.json
+    gates:
+      - { type: schema }
+      - { type: script, run: "baton tools examples recipes/drafts/{{ run.slug }} --run {{ run.id }}", timeout_s: 60 }   # enough examples, the owner's copied exactly
+      - { type: human, prompt: "Build the tools to these examples?",
+          labels: { approve: "Yes, build to these", reject: "Change an example first" } }
+
   - id: accept
     title: Owner approves the finished process
-    depends_on: [generate]
+    depends_on: [generate, examples]   # a skipped examples step counts as satisfied
     applies_to: { approach: [simple, standard, complex] }
     requires: { capabilities: [human_judgment] }
     prompt: prompts/accept.md

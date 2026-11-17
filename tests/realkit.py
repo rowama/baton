@@ -110,10 +110,13 @@ class Director:
     ``acceptance`` is the person's output for an ``accept`` step (or a function of the project root);
     ``decisions`` maps a decision ref's last segment (``triage``, ``plan``, ``accept``, …) to
     a list of ``(decision, note)`` used in order (the last repeats); default approve.
+    ``person`` maps another person's step (its last segment) to a function of this Director
+    returning the step's output; it may act for the owner first (attest, bind).
     """
 
     def __init__(self, cli: Cli, project: Path, run: str, decisions: dict[str, list[tuple[str, str]]] | None = None,
-                 acceptance: Any = None, route: Callable[[str], str] = worker_for):
+                 acceptance: Any = None, route: Callable[[str], str] = worker_for,
+                 person: dict[str, Callable[["Director"], Any]] | None = None):
         self.cli, self.project, self.run = cli, project, run
         self.route = route  # step path -> profile
         self.decisions = decisions or {}
@@ -122,6 +125,7 @@ class Director:
         self.owner_decisions: list[tuple[str, str]] = []
         self.last_acceptance: dict | None = None
         self.dispatches: list[tuple[str, str]] = []
+        self.person = person or {}
 
     def decide(self, p: dict) -> None:
         key = p["ref"].rsplit("/", 1)[-1]
@@ -148,9 +152,12 @@ class Director:
             step = st["ready"][0]
             worker = self.route(step)
             self.dispatches.append((step, worker))
-            if worker == "owner":
+            if worker == "owner" and step.rsplit("/", 1)[-1] in self.person:
+                owner_does(self.cli, self.project, self.run, step, self.person[step.rsplit("/", 1)[-1]](self))
+            elif worker == "owner":
                 self.last_acceptance = self.acceptance(self.project) if callable(self.acceptance) else self.acceptance
                 owner_does(self.cli, self.project, self.run, step, self.last_acceptance)
             else:
                 self.cli("dispatch", self.run, step, "--worker", worker, "--wait", expect=None)
-        raise AssertionError(f"run {self.run} did not finish in {limit} moves")
+        raise AssertionError(f"run {self.run} did not finish in {limit} moves; last moves: {self.dispatches[-6:]}, "
+                             f"decisions: {self.owner_decisions[-6:]}")

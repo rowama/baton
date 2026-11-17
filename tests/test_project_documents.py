@@ -272,12 +272,13 @@ def test_a_project_reference_needs_declared_roles(tmp_path):
 
 @pytest.mark.not_slow("loads recipes in process")
 def test_shipped_recipes_declare_no_roles_and_their_summaries_are_unchanged():
-    """Only project-review (2026-11-project-review), spreadsheet-reconcile (2026-11-tool-steps, new) and quick-run
-    (2026-11-quick-runs, new) declare roles; every other shipped recipe's summary is unchanged."""
+    """Only project-review (2026-11-project-review), spreadsheet-reconcile (2026-11-tool-steps, new), quick-run
+    (2026-11-quick-runs, new) and recipe-builder@6 (`examples`, 2026-11-builder-engineered-tools) declare roles;
+    every other shipped recipe's summary is unchanged."""
     from baton.frame import _summary
     from baton.project import builtin_recipe, catalog
 
-    others = [r for rid, r in catalog().items() if rid not in ("project-review", "spreadsheet-reconcile", "quick-run")]
+    others = [r for rid, r in catalog().items() if rid not in ("project-review", "spreadsheet-reconcile", "quick-run", "recipe-builder")]
     for loaded in [*others, builtin_recipe("baton-frame@1"), builtin_recipe("baton-frame@2"), builtin_recipe("baton-adopt@1")]:
         assert loaded.recipe.project_inputs == []
         assert "project_inputs" not in _summary(loaded, False, with_scope=True)

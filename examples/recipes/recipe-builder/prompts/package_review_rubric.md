@@ -16,6 +16,7 @@ did not write it. Report findings only.
 | A fixed implementation target in a recipe whose agreed scope is not specific to it | high |
 | A step whose instructions cannot say anything specific to the work, so its check is empty | high |
 | A tool that does more or less than the design's `tool.does`, or whose step differs from the design's stage | high |
+| An engineered tool whose `contract.json` differs from the design's contract, or whose `tool.yaml` reach differs from it | high |
 | A tool that is not one file, imports anything outside the Python standard library, reaches the network, reads a secret, or writes anything but `output.json` and its declared artifacts | high |
 | A tool whose `reach` declares less than the script touches (files, network, secrets), or a step whose `workspace` differs from it | high |
 | A tool's examples differ from the ones the owner approved in the design, or were changed to fit the code | high |

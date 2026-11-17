@@ -20,6 +20,7 @@ def steps(plan_level):
 
 APPROACHES = ["simple", "standard", "complex"]  # the full process (recipe-builder@4's whole scale)
 SCALE = ["quick", *APPROACHES]                   # recipe-builder@5 (2026-11-quick-runs)
+SOFTWARE = ["none", "simple", "engineered"]       # recipe-builder@6 (2026-11-builder-engineered-tools)
 
 
 def at(loaded, approach, software="none"):
@@ -35,14 +36,14 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@5" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@6" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
 
 def test_it_ships_in_the_catalog():
     cx = catalog()["recipe-builder"].recipe.complexity
-    assert cx.levels is None and {a: s.scale for a, s in cx.axes.items()} == {"approach": SCALE, "software": ["none", "simple"]}
+    assert cx.levels is None and {a: s.scale for a, s in cx.axes.items()} == {"approach": SCALE, "software": SOFTWARE}
     assert cx.axes["approach"].confirm_lowest is True and not cx.axes["software"].confirm_lowest
 
 
@@ -142,7 +143,7 @@ def test_the_triage_schema_rates_both_axes_with_reasons_and_carries_more():
     schema = json.loads((BUILDER / "schemas" / "profile_out.json").read_text(encoding="utf-8"))
     axes = schema["properties"]["ratings"]["properties"]
     assert axes["approach"]["properties"]["value"]["enum"] == SCALE
-    assert axes["software"]["properties"]["value"]["enum"] == ["none", "simple"]
+    assert axes["software"]["properties"]["value"]["enum"] == SOFTWARE
     assert "level" not in schema["properties"]
     assert {"goal", "rung", "ledger", "existing_recipe", "related_parts", "build_now"} <= set(schema["properties"])
 
@@ -282,10 +283,10 @@ def test_the_published_v3_still_loads_with_its_levels():
     assert "level" in json.loads((V3 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
 
 
-def test_v5_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@5" and not loaded.warnings
+def test_v6_loads_and_plans_at_every_pair_of_ratings(loaded):
+    assert loaded.recipe.ref == "recipe-builder@6" and not loaded.warnings
     for a in APPROACHES:
-        for sw in ("none", "simple"):
+        for sw in SOFTWARE:
             plan = at(loaded, a, sw)
             assert plan["generate"].included and plan["accept"].included and not plan["guide"].included
 
@@ -359,7 +360,7 @@ def test_every_rating_waits_on_the_owner_in_v5_and_v4_still_applies_its_lowest_a
 
     cx = loaded.recipe.complexity
     for a in SCALE:
-        for sw in ("none", "simple"):
+        for sw in SOFTWARE:
             assert not tailoring.auto_approves(cx, {"approach": a, "software": sw}), (a, sw)
     v4 = load_recipe(V4).recipe.complexity
     assert tailoring.auto_approves(v4, {"approach": "simple", "software": "none"})
@@ -471,10 +472,106 @@ def test_the_patterns_rubric_and_prompts_carry_the_step_design_rules():
 
 def test_generate_is_gated_on_every_tool_passing_its_examples_and_writes_the_walkthrough_lists(loaded):
     gen = next(s for s in loaded.recipe.steps if s.id == "generate")
-    assert [g.run for g in gen.gates if g.type == "script"][2] == "baton tools test recipes/drafts/{{ run.slug }} --require-examples"
+    assert [g.run for g in gen.gates if g.type == "script"][2] == "baton tools test recipes/drafts/{{ run.slug }} --require-examples --allow-unbuilt"
     prompt = " ".join((BUILDER / "prompts" / "generate.md").read_text(encoding="utf-8").split())
     assert "the Python standard library only, no network, no secrets" in prompt
     assert "Small programs in this process:" in prompt and "Parts an AI helper does that a program could do:" in prompt
     assert "An example the owner approved is never changed to fit the code." in prompt
     rubric = (BUILDER / "prompts" / "package_review_rubric.md").read_text(encoding="utf-8")
     assert "imports anything outside the Python standard library" in rubric and "were changed to fit the code" in rubric
+
+
+# -- engineered tools (change 2026-11-builder-engineered-tools, Slice 2; Decisions 0155, 0164) --------------
+
+V5 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v5"
+
+
+def test_the_published_v5_still_loads_with_two_software_settings():
+    """A project's pinned recipe-builder@5 is never edited (§5.8): v6 is a new version, the v5 package is a frozen copy."""
+    old = load_recipe(V5)
+    assert old.recipe.ref == "recipe-builder@5" and not old.warnings
+    assert old.recipe.complexity.axes["software"].scale == ["none", "simple"]
+    assert not {"example_plan", "examples"} & {s.id for s in old.recipe.steps}
+
+
+def test_engineered_adds_the_example_steps_the_design_approval_and_the_package_review_at_every_approach(loaded):
+    for a in APPROACHES:
+        for sw in SOFTWARE:
+            plan = at(loaded, a, sw)
+            assert plan["example_plan"].included == plan["examples"].included == (sw == "engineered")
+        plan = at(loaded, a, "engineered")
+        assert [g.included for g in plan["shape/audit"].gates if g.type == "human"] == [True]
+        assert [g.included for g in plan["generate"].gates if g.type == "review"] == [True]
+    assert not at(loaded, "quick")["example_plan"].included
+
+
+def test_the_owners_examples_are_a_role_and_the_examples_step_is_gated_by_the_check_and_the_owner(loaded):
+    [role] = loaded.recipe.project_inputs
+    assert (role.role, role.many, role.required) == ("examples", True, False)
+    by_id = {s.id: s for s in loaded.recipe.steps}
+    plan, ex, acc = by_id["example_plan"], by_id["examples"], by_id["accept"]
+    assert plan.depends_on == ["generate"] and plan.requires.capabilities == ["human_judgment"]
+    assert ex.depends_on == ["example_plan"] and ex.workspace == "write"
+    assert {i.name: (i.from_, i.required) for i in ex.inputs}["owner_examples"] == ("project.examples", False)
+    assert [g.type for g in ex.gates] == ["schema", "script", "human"]
+    assert ex.gates[1].run == "baton tools examples recipes/drafts/{{ run.slug }} --run {{ run.id }}"
+    assert acc.depends_on == ["generate", "examples"]
+
+
+ENGINEERED_TOOL = {"id": "match_payments", "kind": "engineered", "does": "Matches the bank's payments to the invoices.",
+                   "input": "the bank export and the invoice list", "output": "matched and unmatched payments",
+                   "reach": {"workspace": "none", "network": False, "secrets": []},
+                   "contract": {"input_schema": {"type": "object"}, "output_schema": {"type": "object"},
+                                "packages": [{"name": "python-dateutil", "why": "the export writes dates three ways"}],
+                                "budget_reason": "One command: two files in, one report out, nothing kept running."},
+                   "examples_needed": [{"name": "march", "what": "March's export and invoices, and the matches you made", "awkward": False},
+                                       {"name": "april", "what": "April's, the same", "awkward": False},
+                                       {"name": "split", "what": "A payment that covers two invoices", "awkward": True}]}
+
+
+def test_an_engineered_tool_gives_a_contract_and_the_examples_the_owner_should_supply():
+    ok = {**TOOL_STAGE, "tool": ENGINEERED_TOOL}
+    assert design_valid(ok)
+    assert design_valid({**TOOL_STAGE, "tool": {**TOOL, "kind": "simple"}})
+    for broken in ({k: v_ for k, v_ in ENGINEERED_TOOL.items() if k != "contract"},
+                   {**ENGINEERED_TOOL, "examples_needed": ENGINEERED_TOOL["examples_needed"][:2]},
+                   {**ENGINEERED_TOOL, "examples_needed": [{**e, "awkward": False} for e in ENGINEERED_TOOL["examples_needed"]]},
+                   {**ENGINEERED_TOOL, "contract": {**ENGINEERED_TOOL["contract"], "packages": [{"name": "x"}]}},
+                   {**TOOL, "contract": ENGINEERED_TOOL["contract"]}):  # a simple tool has no contract
+        assert not design_valid({**TOOL_STAGE, "tool": broken}), broken
+
+
+def test_a_choice_to_have_examples_drafted_records_the_warning_and_the_owners_words():
+    v = schema_of("example_plan_out")
+    assert v.is_valid({"tools": [{"tool": "match_payments", "supplied": 3, "drafted": 0}]})
+    assert not v.is_valid({"tools": [{"tool": "match_payments", "supplied": 1, "drafted": 2}]})
+    assert not v.is_valid({"tools": [{"tool": "match_payments", "supplied": 1, "drafted": 2, "warned": False, "owner_words": "Draft them."}]})
+    assert v.is_valid({"tools": [{"tool": "match_payments", "supplied": 0, "drafted": 3, "warned": True,
+                                  "owner_words": "I understand; draft them and I'll check each one."}]})
+
+
+def test_the_placed_examples_are_at_least_three_one_awkward_with_their_source():
+    v = schema_of("examples_out")
+    ex = [{"name": n, "source": "owner", "awkward": n == "split", "says": "s"} for n in ("march", "april", "split")]
+    assert v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": ex}], "summary": "s"})
+    assert not v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": ex[:2]}], "summary": "s"})
+    assert not v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": [{**e, "awkward": False} for e in ex]}],
+                           "summary": "s"})
+
+
+def test_the_prompts_patterns_and_rubric_carry_the_engineered_tool_rules():
+    read = lambda rel: " ".join((BUILDER / rel).read_text(encoding="utf-8").split())  # noqa: E731
+    assert "| `engineered` |" in read("prompts/profile.md") and "what it will ask of the owner" in read("prompts/profile.md")
+    design = read("prompts/design.md")
+    assert "`kind: engineered`" in design and "`examples_needed`" in design and "A tool is `engineered` only at `software: engineered`" in design
+    generate = read("prompts/generate.md")
+    assert "`tools/<id>/contract.json`" in generate and "which you do not write" in generate
+    plan = read("prompts/example_plan.md")
+    assert "three good examples are the minimum, and with fewer the tool is more likely to differ from what they expect" in plan
+    assert "`bind <run> examples <paths…>`" in plan
+    examples = read("prompts/examples.md")
+    assert "byte for byte" in examples and "You write no code" in examples
+    assert "**Contract, examples, then code**" in read("static/patterns.md")
+    readiness = read("static/readiness.md")
+    assert "| 28 | An engineered tool appears only at the `software` rating `engineered`" in readiness and "| 29 |" in readiness
+    assert "`contract.json` differs from the design's contract" in read("prompts/package_review_rubric.md")

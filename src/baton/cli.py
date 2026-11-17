@@ -1574,8 +1574,16 @@ def tools_examples(
     run = run or os.environ.get("BATON_RUN_ID") or None
     bound = None
     if run:
-        events = _call(as_json, lambda: _api().project.store.run(run).events())
-        bound = bound_documents(events)
+        from .launcher import find_project
+        from .store import Store, StoreError
+
+        root = _opts.project or find_project(Path.cwd())
+        if root is None:
+            _fail(as_json, EXIT_USAGE, "tools.examples_usage", "--run reads the run's record: run it in the project")
+        try:
+            bound = bound_documents(Store(Path(root)).run(run).events())
+        except (StoreError, ValueError) as e:
+            _fail(as_json, EXIT_USAGE, "tools.examples_usage", f"no run {run!r} in this project: {e}")
     reports = check_examples(loaded.tools, bound, only=tool)
     out = {"package": str(package), "run": run, "ok": all(r.ok for r in reports), "tools": [r.as_dict() for r in reports]}
     lines = []

@@ -5,7 +5,7 @@ status: in-progress
 level: major
 decisions: ["0155", "0164", "0154", "0156", "0158", "0159", "0162", "0034"]
 touches: [design/recipes.md, design/director-interface.md, design/workers.md]
-manual: [admin/recipes-and-vendoring.md, reference/commands.md, anchors.yaml]
+manual: [admin/recipes-and-vendoring.md, reference/commands.md, anchors.yaml, recipe-sources/recipe-builder.md, recipes/recipe-builder.md]
 ---
 
 # Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop
@@ -93,7 +93,7 @@ For the owner's approval, with the Request. It builds on `recipe-builder@5` as `
 ### Manual edits
 
 - Slice 1: `admin/recipes-and-vendoring.md` (`tools test --tool --repeat`, engineered tools' `contract.json` and `about.json`, `tool.unbuilt` and `--allow-unbuilt`, `tools examples`, a tool leaving a process running, the budget rules in `recipe check`); `reference/commands.md` and `anchors.yaml` regenerated (the new options and `baton tools examples`).
-- Still to come: `recipes/recipe-builder.md`, an owner's topic on supplying examples.
+- Slice 2: `recipe-sources/recipe-builder.md` and the generated `recipes/recipe-builder.md` (the `engineered` limit, the new questions, a section "Programs built to your examples" (`#engineered-tools`) on supplying examples and the warning; the parts table gains the two steps); `anchors.yaml`.
 
 ### Decisions
 
@@ -157,4 +157,12 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Modules:** `tools.py`, `recipe.py`, `project.py`, `tool_test.py`, `example_check.py` (new), `tool_runner.py`, `recipe_check.py`, `cli.py`.
 - **Design docs:** `design/recipes.md` §5.3, §5.9; `design/director-interface.md` §13.1; `design/workers.md` (the `tool` adapter).
 - **Tests:** `tests/test_engineered_tool_checks.py`: the contract and `about.json` (valid and malformed); an unbuilt tool loads with a warning, is refused at vendoring, and a simple tool is never unbuilt; the examples check (enough, awkward, drafted listed, owner copies proven against the binding, a changed or unlisted copy, a simple tool not checked unless named, the latest binding of the role); `tools test --tool`, `--repeat` with a tool that changes on its second run, `--allow-unbuilt`; a tool leaving a process running (POSIX); the budget rules and `recipe check` reporting them. The Windows job object is exercised only by the Windows CI.
+- **Accepted:** Yes; the full suite was green on `46f9021`.
+
+### Slice 2: the design carries contracts, and the examples are placed
+
+- **Summary:** `recipe-builder@6` ships; version 5 is frozen as `tests/fixtures/recipes/recipe-builder-v5`. `software` is `[none, simple, engineered]`. A tool stage's `tool` gains `kind`; an engineered tool gives a `contract` and `examples_needed` (at least three, one awkward) instead of drafted examples. `generate` writes its `contract.json` and everything but the program and its examples, and its `tools test` gate passes `--allow-unbuilt`. The recipe declares the role `examples` (`many`, optional) and two steps at `engineered`: `example_plan` (a person's step: supplied and drafted counts, `warned` and the owner's words when any are drafted) and `examples` (copies the owner's files, drafts the rest, writes `about.json`; gated by `baton tools examples --run` and "Build the tools to these examples?"). The design's approval gate and the package review apply at `engineered`. `accept` depends on `examples`. The Director's skill and §13.3 gain "Examples for a tool the builder builds". Found while building: (1) the design schema cannot see the run's ratings, so "engineered only at the engineered rating" is the audit's check 28, as the simple ceiling already is; (2) `baton tools examples` reads the run's record directly (`Store`), as `guides check --artifact` does, so it runs in a gate without opening the project; (3) the generated manual topic comes from `recipe-sources/`, and a role description may not hold angle brackets.
+- **Modules:** `cli.py` (`tools examples` reads the run's record). Recipe package: `recipe.yaml`, `schemas/profile_out.json`, `schemas/design_out.json`, `schemas/example_plan_out.json` (new), `schemas/examples_out.json` (new), `prompts/profile.md`, `prompts/design.md`, `prompts/generate.md`, `prompts/example_plan.md` (new), `prompts/examples.md` (new), `prompts/package_review_rubric.md`, `static/patterns.md`, `static/readiness.md`. Skill: `skills/baton-director/SKILL.md`.
+- **Design docs:** `design/recipes.md` §5.7; `design/director-interface.md` §13.3.
+- **Tests:** `tests/test_project_documents.py`: recipe-builder may declare a role. `tests/test_recipe_builder.py`: v6 loads and plans at every pair of ratings; the frozen v5; the example steps, the design approval and the package review at `engineered`; the role and the examples step's gates; the contract and `examples_needed` schema rules; the owner's choice to have examples drafted records the warning and their words; at least three placed examples, one awkward; the prompts, patterns and rubric. `tests/test_recipe_builder_runs.py`: an engineered run where the owner's files are attested and bound, a changed copy fails the check and the exact copy passes, before any code; an owner who supplies none, is warned, sends a drafted example back and approves the second draft. `tests/realkit.py`: the Director helper can do other person's steps.
 - **Accepted:** Pending the full suite on this commit.

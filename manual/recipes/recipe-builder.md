@@ -21,9 +21,10 @@ You never need to know how Baton describes processes. Talk about your work. The 
 ## What you will be asked {#what-you-are-asked}
 
 - To describe the process: a title and what you want, in your words, and any process you already have in mind.
-- Once, to confirm what it understood and approve two things it judged, each with its reason: how much to build (a quick run, or a small, standard or large process), and whether it may write small programs for the process. A program does rule-like work (a calculation, a conversion, matching one list against another) the same way every time, at no cost each time it runs; it has to be written and checked first, and looked after if the work changes. You set this limit; Baton recommends one.
+- Once, to confirm what it understood and approve two things it judged, each with its reason: how much to build (a quick run, or a small, standard or large process), and whether it may write small programs for the process. A program does rule-like work (a calculation, a conversion, matching one list against another) the same way every time, at no cost each time it runs; it has to be written and checked first, and looked after if the work changes. The limit is none, small programs, or programs built to examples you supply (for work with exceptions or real data formats, such as matching a bank export to invoices). You set this limit; Baton recommends one.
 - If how the work could be done changes what the process must contain, to choose after it has compared the ways: see [choosing how it will be done](#implementation-choices).
 - For larger processes, or when it may write programs, after the design has been checked: **Is this the process you want?** Saying no sends it back with your note.
+- When it builds programs to your examples, after the process is drafted: for your examples, and then **Build the tools to these examples?** See [programs built to your examples](#engineered-tools).
 - At the end, after reading the walkthrough: **Use this process?**
 - On a quick run instead, after that first question: **Use this guide?** Nothing else is built.
 
@@ -64,6 +65,16 @@ The design document shows you, in plain words:
 
 If you said no programs, and the design finds parts a program could do, you are told once, with the parts named, and can raise the limit or keep it.
 
+## Programs built to your examples {#engineered-tools}
+
+Some work needs more than a small program: reading a real export from another system, matching records by rules that have exceptions, or a package that has to be installed. If you allowed it, the design describes such a program in full before anything is built: what it does, what goes in and what comes out, what it may touch, every package it needs and why, and why it is still one program and not a software project of its own. Anything bigger is left as a separate project you may start later, and that part of the process is done another way meanwhile.
+
+The program is built to **your examples**: real files that go in, and the result you expect from each. You will be asked for at least three per program, one of them a case you find awkward. Baton makes a folder for each example in your project, under `examples/`, and says what goes in it; you put your files there and confirm they are yours. Your files are copied exactly, and a check proves they were not changed.
+
+Three good examples are the minimum. You may supply fewer, or none, but with fewer the program is more likely to differ from what you expect. If you go ahead, Baton drafts the missing examples, and you approve each one before anything is built.
+
+You then see every example once more: **Build the tools to these examples?** After that, a helper writes each program, it is run on every example (twice, so it must give the same result each time), and a reviewer from a different provider checks it against its description. A program that does not pass is tried again, at most three times; then you decide what happens.
+
 ## What it produces {#what-it-produces}
 
 - A **plan** of the process, in a document in the project (`recipes/plans/`).
@@ -89,11 +100,19 @@ It never adds the process to your project's set on its own. After you approve it
 | Learn how this work is usually done and the ways to do it | when approach is standard or complex | nothing |
 | Design and audit the process | when approach is simple or standard or complex | nothing |
 | ↳ Design the process | when approach is simple or standard or complex | nothing |
-| ↳ Audit the design | when approach is simple or standard or complex | Is this the process you want? Saying no sends it back with your note. (when approach is standard or complex, or software is simple) |
+| ↳ Audit the design | when approach is simple or standard or complex | Is this the process you want? Saying no sends it back with your note. (when approach is standard or complex, or software is simple or engineered) |
 | Build the recipe package | when approach is simple or standard or complex | nothing |
+| Choose how each tool's examples will come | when software is engineered | nothing |
+| Place the examples each tool will be built to | when software is engineered | Build the tools to these examples? |
 | Owner approves the finished process | when approach is simple or standard or complex | Use this process? |
 
-The work is rated on **approach** (quick, simple, standard, complex), **software** (none, simple). The first part rates each, with its reason, and you confirm the ratings unless every one is at its lowest (for approach, its lowest too).
+The work is rated on **approach** (quick, simple, standard, complex), **software** (none, simple, engineered). The first part rates each, with its reason, and you confirm the ratings unless every one is at its lowest (for approach, its lowest too).
+
+It can build on documents your project already has. Before the work that needs one starts, you are shown the document proposed and asked to confirm it.
+
+| Document | Needed | How many |
+|---|---|---|
+| The owner's examples for the tools to be built: for each one, the files it is given and the result expected, one folder per example under examples/ in the project | if you have one | one or more |
 
 ## Example {#example}
 

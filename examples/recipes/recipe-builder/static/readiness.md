@@ -32,10 +32,12 @@ names.
 | 23 | An AI stage that software could do (complete rules and structured input) carries its `executor_choice`, and the reason holds: the software rating is `none`, the owner chose it (a confirmed ledger entry with their words), or the work is over the tool budget | high |
 | 24 | A stage that must give the same result every time is not done by an AI worker unless the owner chose so, or the software rating is `none` and that is recorded | high |
 | 25 | Each acceptance check names what it establishes, and a stage with an effect or an uncertain result has a check that establishes more than format | high |
-| 26 | A tool is within the tool budget for the software rating, declares everything it touches, and has at least one worked example the owner can read and judge | high |
+| 26 | A tool is within the tool budget for the software rating, declares everything it touches, and, if it is simple, has at least one worked example the owner can read and judge | high |
 | 27 | Each stage a person does and each owner decision says whether delegating it is risky, with a reason the owner would understand; one whose effect cannot be undone, or where the owner accepts a risk or waives a check, is marked risky | high |
+| 28 | An engineered tool appears only at the `software` rating `engineered`, and only where a simple tool would not do; its contract gives input and output schemas, every package with a reason, and a budget reason that holds (one command, inputs in and outputs out, nothing kept running, testable from examples) | high |
+| 29 | An engineered tool's `examples_needed` are at least three, one awkward, each saying in the owner's terms what goes in and what should come out, so the owner can supply them | high |
 
-Judge 23, 24 and 26 against the run's `software` rating (the packet carries the run's ratings).
+Judge 23, 24, 26 and 28 against the run's `software` rating (the packet carries the run's ratings).
 
 Judge 9 and 10 against the rung recorded in the ledger, not against what you think the owner should
 have chosen. The owner decides how general a process is.

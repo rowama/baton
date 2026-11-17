@@ -188,6 +188,13 @@ Judge the shape of the question, not the subject. When the problem is in a worke
 - `guides` lists the guides. When one that comes with Baton fits as it is, offer it instead of a builder run: on the owner's yes, `guides copy <id> --note "<owner's words>"`.
 - Then offer the quick run itself. If `quick-run` is not vendored, `vendor quick-run --note "<owner's words>"` (their yes is the approval). Start it with the guide bound, and any documents the owner wants it to build on as `context`, confirmed as for any binding: `start quick-run --inputs '{"title": "<short name>", "request": "<owner's words>"}' --bind guide=<guide path> --bind context=<path> --note "<owner's words>"`. Its result is a project document once approved, so later work, quick or full, can build on it.
 - Work done entirely outside Baton still enters only through `attest`, with the owner's words.
+
+## Examples for a tool the builder builds
+- When recipe builder rates `software: engineered`, relay what it asks of the owner: real examples, more decisions, and looking after the program when the work changes. It is their choice.
+- At its `example_plan` step (a part for the owner), read out, per tool, the examples the design asks for (`examples_needed`) in their terms. Ask for at least three good examples of their own, one a case they find awkward: the files that go in and the result they expect. Make the folders `examples/<tool>/<example>/` and say what goes in each.
+- If they would rather supply fewer, or none, tell them plainly: three good examples are the minimum, and with fewer the program is more likely to differ from what they expect. They may still go ahead; the builder then drafts the missing ones, and they approve each one before anything is built. Record their words.
+- When their files are in place, `attest` each with their words, then bind them all at once: `bind <run> examples <path> <path> … --note "<owner's words>"`. Then hand in the step: per tool, how many they `supplied` and how many are `drafted`, with `warned: true` and their words when any are drafted.
+- At "Build the tools to these examples?", show each drafted example and each result written from their words (the gate's report lists them). Their rejection, with a note, sends the examples back.
 ```
 
 **`skills/baton-worker/SKILL.md`**: the packet protocol rules (§7); the meaning of `exit_criteria`, `deadline`, `workspace` and `protected_paths`; "stop and report a mismatch instead of improvising"; report friction in `process_feedback`; never contact people, push, tag, merge or deploy.
