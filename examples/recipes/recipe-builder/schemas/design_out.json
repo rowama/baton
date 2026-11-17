@@ -20,6 +20,8 @@
           "id",
           "title",
           "done_by",
+          "traits",
+          "acceptance",
           "needs",
           "hands_on",
           "on_failure"
@@ -33,10 +35,12 @@
           },
           "done_by": {
             "enum": [
+              "tool",
+              "automatic_check",
               "person",
-              "ai",
-              "automatic_check"
-            ]
+              "ai"
+            ],
+            "description": "The simplest means that can do the stage: a tool (a script the recipe ships), an automatic check, a person, or an AI worker"
           },
           "needs": {
             "type": "array",
@@ -67,9 +71,497 @@
           },
           "failure_note": {
             "type": "string"
+          },
+          "traits": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What the stage's work is like; the doer and the check follow from it (Decision 0162, item 1)",
+            "required": [
+              "rules",
+              "input",
+              "repeatable",
+              "effect",
+              "result",
+              "check",
+              "basis"
+            ],
+            "properties": {
+              "rules": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "none"
+                ],
+                "description": "Can complete rules be written for every input in scope?"
+              },
+              "input": {
+                "enum": [
+                  "structured",
+                  "open"
+                ],
+                "description": "The form of its input"
+              },
+              "repeatable": {
+                "enum": [
+                  "required",
+                  "not_required"
+                ],
+                "description": "Must the same input give the same result?"
+              },
+              "effect": {
+                "enum": [
+                  "none",
+                  "reversible",
+                  "irreversible"
+                ],
+                "description": "irreversible: spends money, changes something others depend on, or cannot be undone"
+              },
+              "result": {
+                "enum": [
+                  "certain",
+                  "uncertain"
+                ],
+                "description": "uncertain: a correct result can still be wrong about the world (a forecast, a reading of a scan)"
+              },
+              "check": {
+                "enum": [
+                  "mechanical",
+                  "source",
+                  "judgment"
+                ],
+                "description": "How its output can be checked"
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One line: why these traits"
+              }
+            }
+          },
+          "acceptance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "what"
+            ],
+            "description": "The stage's acceptance check and what it establishes",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "format",
+                  "rule",
+                  "source",
+                  "judgment"
+                ]
+              },
+              "what": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "tool": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "does",
+              "input",
+              "output",
+              "reach",
+              "examples"
+            ],
+            "description": "The script that does a tool stage (\u00a75.9), within the tool budget",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "does": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What it does, in the owner's terms"
+              },
+              "input": {
+                "type": "string",
+                "minLength": 1
+              },
+              "output": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reach": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "workspace"
+                ],
+                "properties": {
+                  "workspace": {
+                    "enum": [
+                      "none",
+                      "read",
+                      "write"
+                    ]
+                  },
+                  "network": {
+                    "type": "boolean"
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "input",
+                    "expected",
+                    "says"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The JSON inputs, by input name (input.json)"
+                    },
+                    "files": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Each file input, as <input name>.<ext> and its exact text (inputs/)"
+                    },
+                    "expected": {
+                      "type": "object",
+                      "description": "What output.json must equal"
+                    },
+                    "artifacts": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Each expected artifact, as <artifact>.<ext> and its exact text (expected/)"
+                    },
+                    "says": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The example in the owner's words, for the design document"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "executor_choice": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "could_be",
+              "reason",
+              "gives_up",
+              "would_cost"
+            ],
+            "description": "Why an AI worker does a stage software could do (Decision 0155, item 3)",
+            "properties": {
+              "could_be": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What could have done it"
+              },
+              "reason": {
+                "enum": [
+                  "ceiling",
+                  "owner_choice",
+                  "over_budget"
+                ],
+                "description": "ceiling: the owner's software rating; owner_choice: the owner chose an AI worker; over_budget: the work exceeds the tool budget"
+              },
+              "gives_up": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The same result every time, no cost per run, no dependence on a harness"
+              },
+              "would_cost": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Building it, and the attention software needs"
+              },
+              "ledger_id": {
+                "type": "string",
+                "description": "The owner's confirmed ledger entry, when the owner chose"
+              }
+            },
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "owner_choice"
+                }
+              },
+              "required": [
+                "reason"
+              ]
+            },
+            "then": {
+              "required": [
+                "ledger_id"
+              ]
+            }
+          },
+          "delegation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "risky",
+              "reason"
+            ],
+            "description": "Whether handing this stage or decision to the owner's AI delegate is risky (Decision 0161)",
+            "properties": {
+              "risky": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why, in the owner's terms"
+              }
+            }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "tool"
+                }
+              },
+              "required": [
+                "done_by"
+              ]
+            },
+            "then": {
+              "required": [
+                "tool"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "tool"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "ai"
+                },
+                "traits": {
+                  "properties": {
+                    "rules": {
+                      "const": "complete"
+                    },
+                    "input": {
+                      "const": "structured"
+                    }
+                  },
+                  "required": [
+                    "rules",
+                    "input"
+                  ]
+                }
+              },
+              "required": [
+                "done_by",
+                "traits"
+              ]
+            },
+            "then": {
+              "required": [
+                "executor_choice"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "ai"
+                },
+                "traits": {
+                  "properties": {
+                    "repeatable": {
+                      "const": "required"
+                    }
+                  },
+                  "required": [
+                    "repeatable"
+                  ]
+                }
+              },
+              "required": [
+                "done_by",
+                "traits"
+              ]
+            },
+            "then": {
+              "required": [
+                "executor_choice"
+              ]
+            }
+          },
+          {
+            "if": {
+              "not": {
+                "properties": {
+                  "done_by": {
+                    "const": "ai"
+                  }
+                },
+                "required": [
+                  "done_by"
+                ]
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "executor_choice"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "done_by": {
+                      "const": "person"
+                    }
+                  },
+                  "required": [
+                    "done_by"
+                  ]
+                },
+                {
+                  "properties": {
+                    "owner_decision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "owner_decision"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "delegation"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "traits": {
+                  "properties": {
+                    "effect": {
+                      "const": "irreversible"
+                    }
+                  },
+                  "required": [
+                    "effect"
+                  ]
+                },
+                "delegation": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "traits",
+                "delegation"
+              ]
+            },
+            "then": {
+              "properties": {
+                "delegation": {
+                  "properties": {
+                    "risky": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "traits": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "effect": {
+                          "enum": [
+                            "reversible",
+                            "irreversible"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "effect"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "result": {
+                          "const": "uncertain"
+                        }
+                      },
+                      "required": [
+                        "result"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "traits"
+              ]
+            },
+            "then": {
+              "properties": {
+                "acceptance": {
+                  "properties": {
+                    "kind": {
+                      "not": {
+                        "const": "format"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "excluded": {

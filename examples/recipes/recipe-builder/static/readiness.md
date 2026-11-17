@@ -27,6 +27,15 @@ names.
 | 18 | A comparison rests on sources actually read, with the date each was read, and says what each option needs from the process; an unsupported claim is not marked researched | high |
 | 19 | A deferred choice has a research stage, an owner decision stage and the stages that use it, in that order, with the decision handed on as an input; the claim that one shape serves every alternative is argued | high |
 | 20 | A recommendation, inference or a worker's claim of approval does not stand in for the owner's choice; a firm constraint the owner named is not compared away, and a fixed target appears only where the agreed scope is specific to it | high |
+| 21 | One kind of work per stage: no stage both interprets open-ended material and applies rules, has two doers, or has outputs that need different checks (patterns 8 and 9) | high |
+| 22 | Every stage's `traits` are given with a basis that fits the work, and its doer follows from them by pattern 10 | high |
+| 23 | An AI stage that software could do (complete rules and structured input) carries its `executor_choice`, and the reason holds: the software rating is `none`, the owner chose it (a confirmed ledger entry with their words), or the work is over the tool budget | high |
+| 24 | A stage that must give the same result every time is not done by an AI worker unless the owner chose so, or the software rating is `none` and that is recorded | high |
+| 25 | Each acceptance check names what it establishes, and a stage with an effect or an uncertain result has a check that establishes more than format | high |
+| 26 | A tool is within the tool budget for the software rating, declares everything it touches, and has at least one worked example the owner can read and judge | high |
+| 27 | Each stage a person does and each owner decision says whether delegating it is risky, with a reason the owner would understand; one whose effect cannot be undone, or where the owner accepts a risk or waives a check, is marked risky | high |
+
+Judge 23, 24 and 26 against the run's `software` rating (the packet carries the run's ratings).
 
 Judge 9 and 10 against the rung recorded in the ledger, not against what you think the owner should
 have chosen. The owner decides how general a process is.

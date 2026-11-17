@@ -66,3 +66,55 @@ that is ongoing operations becomes a process that produces the operating materia
 templates, communication plans, and software where needed) when the owner asked for a process to
 be made; do not change what the owner asked for from running the work to making a process for it.
 The material may be meant to run elsewhere (a workflow tool, a diagram, a checklist).
+
+## 8. One kind of work per stage
+
+Split the process until each stage has one kind of work, one doer and one output that can be checked.
+Stop splitting when a further split would change neither who does the work nor how it is checked.
+Two stages that always run together, by the same doer, with one check, are one stage.
+
+## 9. Interpret, then enforce
+
+A stage that both reads open-ended material (a letter, a photo, what a client said) and applies rules
+(a price list, a limit, a schedule) is two stages. First a person or an AI worker turns the material
+into a structured proposal; then software or an automatic check validates the proposal against the
+rules and acts on it. The rules then hold every time, and only the reading is a judgment.
+
+## 10. The simplest means that can do the work
+
+For each stage, record what its work is like (`traits`), and give it to the first doer on this list
+that can do it:
+
+1. **A tool** (a small program the process ships) when complete rules can be written for every input
+   in scope and the input is structured: a calculation, a conversion, matching one list against
+   another, keeping a record. It gives the same result every time, costs nothing per run and needs no
+   AI service.
+2. **An automatic check** when the stage only checks something mechanically.
+3. **A person** when the work is in the physical world, needs authority, or is the owner's judgment.
+4. **An AI worker** when the input is open-ended or the rules are partial: reading, writing,
+   judging, researching.
+
+Software before an AI worker. When an AI worker does a stage software could do (`rules: complete` and
+`input: structured`, or `repeatable: required`), record why (`executor_choice`): the owner's ceiling
+on software, the owner's own choice (with their words in the ledger), or the work is over the tool
+budget; what is given up (the same result every time, no cost per run, no dependence on an AI
+service); and what the software would cost (building it, and looking after it). Existing software
+the owner already has is not yet a doer: record it as a discovery and do the stage another way.
+
+**The tool budget.** A tool has one entry command, reads its inputs and writes its outputs, keeps no
+service running, holds no state beyond what it declares, fits one effort band, and can be tested from
+worked examples. At `software: simple` it is also one file, uses only the Python standard library,
+reaches no network and needs no secrets. Anything bigger is a separate software project: do the stage
+another way and say so.
+
+**The check says what it establishes** (`acceptance.kind`): `format` (the output has the right shape),
+`rule` (it obeys stated rules), `source` (it matches a source) or `judgment` (a reviewer or the owner
+judges it). A stage with an effect, or whose result can be wrong about the world, needs more than
+`format`.
+
+**A point of no return has the owner's decision before it, whoever does the stage** (shape 4). A
+tool that spends money or changes something others depend on runs only after the owner approves.
+
+**Delegation.** The owner may one day let their own AI assistant act for them. For each stage a person
+does and each owner decision, say whether that would be risky (`delegation`), and why in plain words:
+it is risky when the effect cannot be undone, or when the owner accepts a risk or waives a check there.

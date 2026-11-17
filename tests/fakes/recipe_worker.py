@@ -13,7 +13,7 @@ call (the last one repeats). The key is tried as ``<step id>:<slice title>``
 - ``commit_files``: ``{path: text, ...}``, all written and committed together (a generated package);
 - ``dispose``: ``fixed`` or ``rejected``: a disposition for every open finding
   the packet shows (``open_findings``), with the new commit as ``fixed`` evidence;
-- ``status``, ``questions_for_human``.
+- ``status``, ``questions_for_human``, ``rating_signal``.
 
 Every call is appended to ``calls.jsonl`` beside the script.
 """
@@ -85,6 +85,8 @@ if resp.get("dispose"):
 
 doc = {"protocol": "baton-packet/1", "packet_sha256": manifest["packet_sha256"], "status": resp.get("status", "completed"),
        "output": output, "artifacts": listed, "questions_for_human": resp.get("questions_for_human", []), "dispositions": dispositions}
+if resp.get("rating_signal"):
+    doc["rating_signal"] = resp["rating_signal"]
 tmp = result / "result.json.tmp"
 tmp.write_text(json.dumps(doc), encoding="utf-8")
 tmp.replace(result / "result.json")

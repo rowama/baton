@@ -37,6 +37,18 @@ When it happens depends on the choice:
 
 If you name a product or a method, Baton asks whether it is a must, a preference or only an example. A must is not argued with, though it will tell you if what it finds contradicts it. Baton does not recommend one product over others as a rule, and it does not build exports for other tools or operate them. If it cannot reach current sources, it says so and asks rather than answering from memory.
 
+## Who does each part {#who-does-each-part}
+
+The design gives each part of the process to the simplest kind of doer that can do it: a small program for rule-like work (adding up, converting, matching), an automatic check, a person, or an AI helper for reading, writing and judging. Programs come first because they give the same result every time, cost nothing each time they run and need no AI service. A part that reads something open-ended and also applies rules (a client's email and a price list) is split in two: first someone reads it, then a program or a check applies the rules.
+
+The design document shows you, in plain words:
+
+- each small program: what it does, what it may touch, and worked examples ("two lines of 1 and 2 make a total of 3") you can judge before anything is built;
+- each part an AI helper does that a program could do, what you give up (the same result every time, no cost each run) and what a program would have cost, and why it was not used;
+- the parts where letting your own AI assistant act for you would be risky, such as a payment that cannot be taken back.
+
+If you said no programs, and the design finds parts a program could do, you are told once, with the parts named, and can raise the limit or keep it.
+
 ## What it produces {#what-it-produces}
 
 - A **plan** of the process, in a document in the project (`recipes/plans/`).

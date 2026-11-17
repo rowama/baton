@@ -206,8 +206,7 @@ def test_research_returns_a_shaping_choice_only_once_the_owner_decided_it():
 
 def test_design_carries_decided_and_deferred_choices_with_their_handoff():
     v = schema_of("design_out")
-    stage = {"id": "s", "title": "t", "done_by": "ai", "needs": [], "hands_on": [], "on_failure": "retry"}
-    base = {"summary": "s", "stages": [stage], "ledger": [GOAL]}
+    base = {"summary": "s", "stages": [AI_STAGE], "ledger": [GOAL]}
     assert v.is_valid({**base, "discovery": [DECIDED, DEFERRED]})
     assert not v.is_valid({**base, "discovery": [BEFORE]})
     assert not v.is_valid({**base, "discovery": [{k: x for k, x in DEFERRED.items() if k != "generated"}]})
@@ -308,3 +307,86 @@ def test_existing_recipes_match_only_when_their_process_does_the_discovery_and_t
     assert "its own steps would do any discovery this job needs (a matching subject is not enough)" in profile
     gen = " ".join((BUILDER / "prompts" / "generate.md").read_text(encoding="utf-8").split())
     assert "when and how the owner will choose how the work is done" in gen
+
+
+# -- step design (change 2026-11-builder-step-design, Slice 3; Decisions 0155, 0161, 0162) ----------------
+
+OPEN = {"rules": "none", "input": "open", "repeatable": "not_required", "effect": "none", "result": "certain", "check": "judgment",
+        "basis": "Writing a welcome letter."}
+RULES = {"rules": "complete", "input": "structured", "repeatable": "required", "effect": "none", "result": "certain", "check": "mechanical",
+         "basis": "Totals are sums of the listed amounts."}
+AI_STAGE = {"id": "s", "title": "t", "done_by": "ai", "needs": [], "hands_on": [], "on_failure": "retry", "traits": OPEN,
+            "acceptance": {"kind": "judgment", "what": "The owner reads it."}}
+TOOL = {"id": "total_lines", "does": "Adds up the amounts.", "input": "a list of amounts", "output": "the total",
+        "reach": {"workspace": "none", "network": False, "secrets": []},
+        "examples": [{"name": "two-lines", "input": {"amounts": [1, 2]}, "expected": {"total": 3}, "says": "1 and 2 make 3."}]}
+TOOL_STAGE = {**AI_STAGE, "done_by": "tool", "traits": RULES, "acceptance": {"kind": "rule", "what": "The total equals the sum."}, "tool": TOOL}
+CHOICE = {"could_be": "a small program", "reason": "ceiling", "gives_up": "the same total every time, at no cost per run",
+          "would_cost": "writing and checking a program"}
+PERSON = {**AI_STAGE, "done_by": "person", "delegation": {"risky": False, "reason": "Only notes are taken."}}
+
+
+def design_valid(*stages):
+    return schema_of("design_out").is_valid({"summary": "s", "stages": list(stages), "ledger": [GOAL], "discovery": [NOT_NEEDED]})
+
+
+def test_every_stage_says_what_its_work_is_like_and_what_its_check_establishes():
+    assert design_valid(AI_STAGE)
+    assert not design_valid({k: x for k, x in AI_STAGE.items() if k != "traits"})
+    assert not design_valid({k: x for k, x in AI_STAGE.items() if k != "acceptance"})
+    assert not design_valid({**AI_STAGE, "traits": {**OPEN, "basis": ""}})
+    assert not design_valid({**AI_STAGE, "traits": {k: x for k, x in OPEN.items() if k != "result"}})
+    assert not design_valid({**AI_STAGE, "acceptance": {"kind": "looks_fine", "what": "x"}})
+
+
+def test_a_stage_with_an_effect_or_an_uncertain_result_needs_more_than_a_format_check():
+    fmt = {"kind": "format", "what": "It is valid JSON."}
+    assert design_valid({**AI_STAGE, "acceptance": fmt})
+    assert not design_valid({**AI_STAGE, "acceptance": fmt, "traits": {**OPEN, "effect": "reversible"}})
+    assert not design_valid({**AI_STAGE, "acceptance": fmt, "traits": {**OPEN, "result": "uncertain"}})
+
+
+def test_a_tool_stage_has_its_tool_with_an_example_and_only_a_tool_stage_has_one():
+    assert design_valid(TOOL_STAGE)
+    assert not design_valid({k: x for k, x in TOOL_STAGE.items() if k != "tool"})
+    assert not design_valid({**TOOL_STAGE, "tool": {**TOOL, "examples": []}})
+    assert not design_valid({**TOOL_STAGE, "tool": {**TOOL, "id": "Total Lines"}})
+    assert not design_valid({**AI_STAGE, "tool": TOOL})
+
+
+def test_an_ai_stage_software_could_do_carries_why_and_the_owners_choice_names_their_words():
+    could = {**AI_STAGE, "traits": RULES}
+    assert not design_valid(could)
+    assert design_valid({**could, "executor_choice": CHOICE})
+    assert not design_valid({**could, "executor_choice": {**CHOICE, "reason": "owner_choice"}})
+    assert design_valid({**could, "executor_choice": {**CHOICE, "reason": "owner_choice", "ledger_id": "E4"}})
+    assert not design_valid({**could, "executor_choice": {k: x for k, x in CHOICE.items() if k != "gives_up"}})
+    # A stage that must repeat needs the record even when its rules are only partial.
+    assert not design_valid({**AI_STAGE, "traits": {**OPEN, "repeatable": "required"}})
+    assert not design_valid({**TOOL_STAGE, "executor_choice": CHOICE})  # only an AI stage explains itself
+
+
+def test_a_persons_stage_and_an_owner_decision_say_whether_delegating_them_is_risky():
+    assert design_valid(PERSON)
+    assert not design_valid({k: x for k, x in PERSON.items() if k != "delegation"})
+    assert not design_valid({**AI_STAGE, "owner_decision": "Send it?"})
+    assert design_valid({**AI_STAGE, "owner_decision": "Send it?", "delegation": {"risky": False, "reason": "A draft only."}})
+    gone = {**PERSON, "traits": {**OPEN, "effect": "irreversible"}}
+    assert not design_valid(gone)  # an act that cannot be undone is always marked risky
+    assert design_valid({**gone, "delegation": {"risky": True, "reason": "The payment cannot be taken back."}})
+
+
+def test_the_patterns_rubric_and_prompts_carry_the_step_design_rules():
+    read = lambda *p: " ".join(BUILDER.joinpath(*p).read_text(encoding="utf-8").split())  # noqa: E731
+    patterns, rubric = read("static", "patterns.md"), read("static", "readiness.md")
+    for shape in ("## 8. One kind of work per stage", "## 9. Interpret, then enforce", "## 10. The simplest means that can do the work"):
+        assert shape in patterns
+    assert "The tool budget." in patterns and "Software before an AI worker." in patterns
+    import re
+
+    for n in range(21, 28):
+        assert re.search(rf"\| {n} \| [^|]+ \| high \|", rubric), n  # each new check blocks the design
+    design, audit = read("prompts", "design.md"), read("prompts", "audit.md")
+    assert "`rating_signal`" in design and '{axis: "software", suggested: "simple", reason}' in design
+    assert "executor_choice" in design and "delegation" in design and "plan no tool for it" in design
+    assert "checks 21 to 27" in audit

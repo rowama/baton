@@ -33,11 +33,21 @@ SOIL = {"id": "R1", "statement": "Every bed needs a soil check before planting",
         "status": "researched", "basis": "common gardening guidance", "source": "a gardening handbook"}
 NONE_NEEDED = {"id": "D1", "question": "Is there an implementation choice that matters?", "target_status": "none", "timing": "not_needed",
                "timing_reason": "Planting a bed has one usual way of being done; nothing to choose between.", "status": "closed"}
-STAGES = [
+STAGES_V3 = [
     {"id": "survey", "title": "Survey the site", "done_by": "person", "needs": ["the bed's location"], "hands_on": ["site notes"],
      "owner_decision": None, "on_failure": "escalate", "failure_note": "Ask the owner where the bed goes."},
     {"id": "plant", "title": "Plant the bed", "done_by": "person", "needs": ["site notes"], "hands_on": ["a planted bed"],
      "owner_decision": "Is the bed planted as wanted?", "on_failure": "revise"},
+]
+PHYSICAL = {"rules": "partial", "input": "open", "repeatable": "not_required", "result": "certain", "check": "judgment"}
+#: recipe-builder@4: every stage says what its work is like, what its check establishes, and whether delegating it is risky.
+STAGES = [
+    {**STAGES_V3[0], "traits": {**PHYSICAL, "effect": "none", "basis": "A person looks at the ground; nothing changes yet."},
+     "acceptance": {"kind": "judgment", "what": "The notes say where the bed goes and what the light is."},
+     "delegation": {"risky": False, "reason": "Only notes are taken."}},
+    {**STAGES_V3[1], "traits": {**PHYSICAL, "effect": "reversible", "basis": "Plants can be moved, with some loss."},
+     "acceptance": {"kind": "judgment", "what": "The owner sees the bed planted as the notes say."},
+     "delegation": {"risky": False, "reason": "A planting can be redone."}},
 ]
 
 PACKAGE = {
@@ -392,10 +402,19 @@ def deferred_script(ledger):
     generate["commit_files"] = {**{f"recipes/drafts/{SLUG}/{k}": v for k, v in DEFERRED_PACKAGE.items()},
                                 f"recipes/drafts/{SLUG}.ledger.json": json.dumps({"ledger": ledger, "discovery": [DEFERRED]})}
     generate["artifacts"]["ledger"] = generate["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"]
-    stages = [*STAGES, {"id": "research_options", "title": "Compare the ways", "done_by": "ai", "needs": ["the goal"], "hands_on": ["options"], "on_failure": "retry"},
+    open_work = {"rules": "none", "input": "open", "repeatable": "not_required", "effect": "none", "result": "uncertain", "check": "judgment"}
+    stages = [*STAGES,
+              {"id": "research_options", "title": "Compare the ways", "done_by": "ai", "needs": ["the goal"], "hands_on": ["options"], "on_failure": "retry",
+               "traits": {**open_work, "check": "source", "basis": "Reading current sources about tools."},
+               "acceptance": {"kind": "source", "what": "Each option cites a source read on a date."}},
               {"id": "decide", "title": "The owner chooses", "done_by": "person", "needs": ["options"], "hands_on": ["a choice"],
-               "owner_decision": "Use this way?", "on_failure": "revise"},
-              {"id": "build_plan", "title": "Make the plan", "done_by": "ai", "needs": ["a choice"], "hands_on": ["a plan"], "on_failure": "retry"}]
+               "owner_decision": "Use this way?", "on_failure": "revise",
+               "traits": {**open_work, "result": "certain", "basis": "The owner's choice."},
+               "acceptance": {"kind": "judgment", "what": "The owner's words name one way."},
+               "delegation": {"risky": False, "reason": "The choice can be revisited before work starts."}},
+              {"id": "build_plan", "title": "Make the plan", "done_by": "ai", "needs": ["a choice"], "hands_on": ["a plan"], "on_failure": "retry",
+               "traits": {**open_work, "basis": "Writing a plan for the chosen way."},
+               "acceptance": {"kind": "judgment", "what": "The plan uses the chosen way."}}]
     return {
         "profile": {"output": {**profile("simple", ledger)["output"], "discovery": [NONE_NEEDED, DEFERRED]}},
         "design": {"output": {**design(ledger)["output"], "stages": stages, "discovery": [DEFERRED]}, "artifacts": design(ledger)["artifacts"]},
@@ -500,6 +519,7 @@ def test_a_pinned_builder_v2_still_runs_and_never_asks_for_discovery(project_wit
     p["level"] = "simple"  # v2 rated one scale
     d = design(ledger)["output"]
     d.pop("discovery")
+    d["stages"] = STAGES_V3
     gen = generated(ledger)
     gen["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"] = json.dumps(ledger)  # v2 wrote the ledger as a list
     gen["artifacts"]["ledger"] = json.dumps(ledger)
@@ -520,7 +540,9 @@ def test_a_pinned_builder_v3_still_runs_on_its_one_scale(project_with, monkeypat
     p = profile("simple", ledger)["output"]
     p.pop("ratings")
     p["level"] = "simple"
-    cli, project, _ = project_with({"profile": {"output": p}, "design": design(ledger), "audit": CLEAN, "generate": generated(ledger)})
+    v3_design = design(ledger)
+    v3_design["output"]["stages"] = STAGES_V3
+    cli, project, _ = project_with({"profile": {"output": p}, "design": v3_design, "audit": CLEAN, "generate": generated(ledger)})
     run = cli.run("start", "recipe-builder@3", "--inputs", json.dumps(INPUTS))["run_id"]
     d = Director(cli, project, run, route=route)
     st = d.drive()
@@ -545,3 +567,71 @@ def test_software_simple_waits_on_the_owner_and_adds_the_design_approval_and_the
     assert refs == ["profile", "profile", "shape/i1/audit", "accept"], refs  # the goal, the ratings, the design, the result
     evs = run_events(project, run)
     assert any(e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "review" for e in evs)
+
+
+# -- step design (change 2026-11-builder-step-design, Slice 3) ---------------------------------------------
+
+RULES = {"rules": "complete", "input": "structured", "repeatable": "required", "effect": "none", "result": "certain", "check": "mechanical",
+         "basis": "Seed counts are the bed's area times the spacing rule."}
+COUNT_BY_AI = {"id": "count", "title": "Work out how many plants", "done_by": "ai", "needs": ["site notes"], "hands_on": ["a plant count"],
+               "owner_decision": None, "on_failure": "retry", "traits": RULES,
+               "acceptance": {"kind": "rule", "what": "The count matches the area and spacing."}}
+CEILING = {"could_be": "a small program that multiplies the area by the spacing", "reason": "ceiling",
+           "gives_up": "the same count every time, at no cost per run and with no AI service",
+           "would_cost": "writing and checking a small program, and keeping it up to date"}
+
+
+def design_with(stages: list[dict], ledger: list[dict]) -> dict:
+    d = design(ledger)
+    return {**d, "output": {**d["output"], "stages": stages}}
+
+
+@pytest.mark.slow
+def test_an_ai_stage_with_no_record_and_a_format_only_check_on_an_effect_are_sent_back_to_design(project_with):
+    ledger = [GOAL, BED]
+    no_record = design_with([STAGES[0], COUNT_BY_AI, STAGES[1]], ledger)
+    format_only = design_with([STAGES[0], {**COUNT_BY_AI, "executor_choice": CEILING},
+                               {**STAGES[1], "acceptance": {"kind": "format", "what": "A photo was attached."}}], ledger)
+    good = design_with([STAGES[0], {**COUNT_BY_AI, "executor_choice": CEILING}, STAGES[1]], ledger)
+    cli, project, _ = project_with({"profile": profile("simple", ledger), "design": [no_record, format_only, good],
+                                    "audit": CLEAN, "generate": generated(ledger)})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    st = Director(cli, project, run, route=route).drive()
+    assert st["state"] == "completed"
+    failed = [e for e in run_events(project, run) if e["type"] == "result_rejected" and e["step_path"].endswith("/design")]
+    assert [e["attempt"] for e in failed] == [1, 2]
+    assert "executor_choice" in json.dumps(failed[0]["data"])  # the AI stage software could do had no record
+    assert "format" in json.dumps(failed[1]["data"])  # a stage with an effect was checked for format only
+
+
+@pytest.mark.slow
+def test_a_stage_that_must_be_split_is_found_by_the_audit_and_redesigned(project_with):
+    ledger = [GOAL, BED]
+    both = design_with([{**STAGES[0], "id": "survey_and_count", "title": "Survey the site and work out the plants"}, STAGES[1]], ledger)
+    split = design_with([STAGES[0], {**COUNT_BY_AI, "executor_choice": CEILING}, STAGES[1]], ledger)
+    finding = {"id": "F1", "severity": "high", "title": "Two kinds of work in one stage (check 21)", "location": "survey_and_count",
+               "detail": "Reading the site is judgment; counting plants is a rule.", "suggested_fix": "Interpret, then enforce: split it."}
+    cli, project, _ = project_with({"profile": profile("simple", ledger), "design": [both, split],
+                                    "audit": [{"output": {"findings": [finding], "coverage": {"complete": True, "notes": ""}}}, CLEAN],
+                                    "generate": generated(ledger)})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    st = Director(cli, project, run, route=route).drive()
+    assert st["state"] == "completed"
+    inst = st["groups"]["shape"]["instances"][0]["id"]
+    i2 = packet_dir(project, run, f"shape/{inst}/i2/design", 1)
+    assert "check 21" in (i2 / "inputs" / "open_findings.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.slow
+def test_at_a_ceiling_of_none_the_owner_is_told_once_that_software_could_do_part_of_it(project_with):
+    ledger = [GOAL, BED]
+    signal = {"axis": "software", "suggested": "simple", "reason": "A small program could work out how many plants each bed needs."}
+    designed = {**design_with([STAGES[0], {**COUNT_BY_AI, "executor_choice": CEILING}, STAGES[1]], ledger), "rating_signal": signal}
+    cli, project, _ = project_with({"profile": profile("simple", ledger), "design": designed, "audit": CLEAN, "generate": generated(ledger)})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route, decisions={"rating:software": [("dismiss", "Keep it without programs.")]})
+    st = d.drive()
+    assert st["state"] == "completed" and st["ratings"]["software"] == "none"
+    assert [r for r, _ in d.owner_decisions if r.startswith("rating:")] == ["rating:software"]
+    recorded = [e for e in run_events(project, run) if e["type"] == "rating_signal_recorded"]
+    assert [(e["data"]["axis"], e["data"]["suggested"], e["data"]["rating"]) for e in recorded] == [("software", "simple", "none")]
