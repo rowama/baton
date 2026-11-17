@@ -49,6 +49,7 @@ class ToolOutcome:
     tool: str
     examples: list[ExampleOutcome] = field(default_factory=list)
     problem: str = ""  # the tool could not be tested at all (its environment, or no examples when required)
+    unbuilt: bool = False  # an engineered tool not built yet, skipped with --allow-unbuilt (Decision 0164)
 
     @property
     def ok(self) -> bool:
@@ -58,16 +59,34 @@ class ToolOutcome:
         out: dict[str, Any] = {"tool": self.tool, "ok": self.ok, "examples": [e.as_dict() for e in self.examples]}
         if self.problem:
             out["problem"] = self.problem
+        if self.unbuilt:
+            out["unbuilt"] = True
         return out
 
 
-def run_tool_examples(tools: dict[str, LoadedTool], home: Path, *, require_examples: bool = False) -> list[ToolOutcome]:
+def run_tool_examples(tools: dict[str, LoadedTool], home: Path, *, require_examples: bool = False,
+                      only: str | None = None, repeat: int = 1, allow_unbuilt: bool = False) -> list[ToolOutcome]:
+    """Each tool's outcome on its examples: every tool, or ``only`` that one.
+
+    ``repeat`` runs each example that many times, and every run must give the
+    expected result, so the runs agree with each other (Decision 0164, item 10). An engineered tool not built yet fails, or with
+    ``allow_unbuilt`` is listed as not built and skipped.
+    """
     from . import tool_env
 
+    if only is not None and only not in tools:
+        raise KeyError(only)
     out: list[ToolOutcome] = []
     for tid, tool in sorted(tools.items()):
+        if only is not None and tid != only:
+            continue
         result = ToolOutcome(tid)
         out.append(result)
+        if not tool.built:
+            result.unbuilt = True
+            if not allow_unbuilt:
+                result.problem = f"tool {tid!r} is not built yet: its entry file is not written"
+            continue
         if not tool.examples:
             if require_examples:
                 result.problem = f"tool {tid!r} has no examples (add tools/{tid}/examples/<name>/ with input.json and expected.json)"
@@ -78,11 +97,26 @@ def run_tool_examples(tools: dict[str, LoadedTool], home: Path, *, require_examp
             result.problem = str(e)
             continue
         for ex in tool.examples:
-            result.examples.append(run_example(tool, ex, env, home))
+            result.examples.append(run_example(tool, ex, env, home, repeat=repeat))
     return out
 
 
-def run_example(tool: LoadedTool, example: Example, env: Any, home: Path) -> ExampleOutcome:
+def run_example(tool: LoadedTool, example: Example, env: Any, home: Path, *, repeat: int = 1) -> ExampleOutcome:
+    """Run one example ``repeat`` times; the first failure, naming the run when it is not the first.
+
+    Every run is compared with the expected result, so runs that pass agree
+    with each other: ``output.json`` as JSON, artifacts byte for byte.
+    """
+    for n in range(1, max(1, repeat) + 1):
+        outcome = _run_once(tool, example, env, home)
+        if not outcome.ok:
+            if n > 1:
+                outcome.difference = f"run {n} of {repeat} gave a different result: {outcome.difference}"
+            return outcome
+    return ExampleOutcome(example.name, True)
+
+
+def _run_once(tool: LoadedTool, example: Example, env: Any, home: Path) -> ExampleOutcome:
     from .adapters.tool import ToolAdapter
     from .engine import tool_profile
     from .profiles import SetupError, build_env

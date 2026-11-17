@@ -567,6 +567,10 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
             "vendor.version_exists",
             f"{ref} is already vendored with different content; publish a new recipe version instead of editing one in place",
         )
+    unbuilt = sorted(tid for tid, t in loaded.tools.items() if not t.built)
+    if unbuilt:
+        raise EngineError("vendor.tool_unbuilt", f"{ref} has tools that are not built yet ({', '.join(unbuilt)}); "
+                          "an engineered tool is vendored only once it is built and passes its examples")
     steps = versions.step_signatures(loaded)
     flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps) + tool_flags(lock, loaded)
     if flags and decision is None:

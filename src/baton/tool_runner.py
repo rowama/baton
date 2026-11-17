@@ -20,6 +20,9 @@ protocol. This runner:
    lines of the tool's error output in ``notes`` (the values of the secrets
    it names masked, since notes enter the record). A tool cannot return
    ``blocked`` or ask questions. Intake and the gates judge the result.
+5. ends anything the tool left running once it has exited, and fails the
+   result naming it (``run_contained``; Decision 0164, item 6): a tool
+   keeps no service running (Decision 0155, item 4).
 
 A problem that is not the step's (the command is not in the environment)
 writes no result: one line ``baton-worker: failure=platform code=<code>
@@ -139,12 +142,17 @@ def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry
         env = {k: v for k, v in os.environ.items() if not k.startswith("BATON_") and k not in ("PYTHONHOME", "PYTHONPATH")}
         env["PATH"] = os.pathsep.join([str(bin_dir), env.get("PATH", "")]).rstrip(os.pathsep)
         env["VIRTUAL_ENV"] = str(bin_dir.parent)
-        proc = subprocess.run(argv, cwd=str(scratch), env=env, capture_output=True, text=True, errors="replace")
-        sys.stdout.write(proc.stdout)  # into the attempt's log
-        sys.stderr.write(proc.stderr)
-        if proc.returncode != 0:
-            tail = _tail(proc.stderr, [os.environ[n] for n in secret_names or [] if os.environ.get(n)])
-            write(result_dir, envelope(manifest, "failed", None, [], f"the tool exited with code {proc.returncode}" + (f":\n{tail}" if tail else "")))
+        returncode, stdout, stderr, left = run_contained(argv, scratch, env, base)
+        sys.stdout.write(stdout)  # into the attempt's log
+        sys.stderr.write(stderr)
+        if left:
+            write(result_dir, envelope(manifest, "failed", None, [],
+                                       f"the tool left a process running after it finished ({', '.join(left)}); it was stopped. "
+                                       "A tool keeps no service running: everything it starts must end before it does"))
+            return 0
+        if returncode != 0:
+            tail = _tail(stderr, [os.environ[n] for n in secret_names or [] if os.environ.get(n)])
+            write(result_dir, envelope(manifest, "failed", None, [], f"the tool exited with code {returncode}" + (f":\n{tail}" if tail else "")))
             return 0
         try:
             output = json.loads((out_dir / "output.json").read_text(encoding="utf-8"))
@@ -167,6 +175,132 @@ def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def run_contained(argv: list[str], cwd: Path, env: dict[str, str], base: Path) -> tuple[int, str, str, list[str]]:
+    """Run the tool and wait for it; then end anything it left running (Decision 0164, item 6).
+
+    Returns the exit code, its output and error output, and a description of
+    each process still running when the tool itself had exited (empty when
+    none). The tool runs in its own process group on POSIX and in a job object
+    on Windows, so what it starts can be found and ended. Its output goes to
+    files, not pipes, so a process left holding them cannot stall the runner.
+    A process that leaves the group on purpose (``setsid``) is not found.
+    """
+    out_path, err_path = base / "stdout.txt", base / "stderr.txt"
+    with open(out_path, "wb") as out_f, open(err_path, "wb") as err_f:
+        if os.name == "posix":
+            proc = subprocess.Popen(argv, cwd=str(cwd), env=env, stdout=out_f, stderr=err_f, stdin=subprocess.DEVNULL,
+                                    start_new_session=True)
+            proc.wait()
+            left = _posix_leftovers(proc.pid)
+        else:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
+            job = _WinJob()
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | 0x00000004  # CREATE_SUSPENDED: in the job before it runs
+            proc = subprocess.Popen(argv, cwd=str(cwd), env=env, stdout=out_f, stderr=err_f, stdin=subprocess.DEVNULL,
+                                    creationflags=flags)
+            job.assign_and_resume(proc)
+            proc.wait()
+            left = job.leftovers()
+            job.close()
+    read = lambda p: p.read_bytes().decode("utf-8", errors="replace")  # noqa: E731
+    return proc.returncode, read(out_path), read(err_path), left
+
+
+def _posix_leftovers(pgid: int) -> list[str]:
+    """Processes still in the tool's group, named where the system says (Linux ``/proc``), then killed."""
+    import signal
+
+    try:
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError):  # expected: the group is empty, so nothing was left
+        return []
+    left = []
+    proc_dir = Path("/proc")
+    if proc_dir.is_dir():
+        for d in proc_dir.iterdir():
+            if not d.name.isdigit():
+                continue
+            try:
+                stat = (d / "stat").read_text()
+            except OSError:  # expected: the process ended while we looked
+                continue
+            name, rest = stat[stat.index("(") + 1:stat.rindex(")")], stat[stat.rindex(")") + 2:].split()
+            if len(rest) > 2 and rest[0] != "Z" and int(rest[2]) == pgid:
+                left.append(f"{name} (pid {d.name})")
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):  # expected: it ended on its own meanwhile
+        pass
+    if proc_dir.is_dir():
+        return sorted(left)  # only zombies awaiting their reaper: nothing is running
+    return [f"process group {pgid}"]
+
+
+class _WinJob:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
+    """A Windows job object holding the tool and everything it starts."""
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self._k = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._k.CreateJobObjectW.restype = wintypes.HANDLE
+        self._k.OpenThread.restype = wintypes.HANDLE
+        self.handle = self._k.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+
+    def assign_and_resume(self, proc: subprocess.Popen) -> None:
+        import ctypes
+
+        if not self._k.AssignProcessToJobObject(self.handle, int(proc._handle)):  # type: ignore[attr-defined]
+            raise OSError(ctypes.get_last_error(), "AssignProcessToJobObject failed")
+        self._resume(proc.pid)
+
+    def _resume(self, pid: int) -> None:
+        """Resume the suspended main thread of ``pid`` (a Toolhelp snapshot of threads)."""
+        import ctypes
+        from ctypes import wintypes
+
+        class THREADENTRY32(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD),
+                        ("th32OwnerProcessID", wintypes.DWORD), ("tpBasePri", wintypes.LONG),
+                        ("tpDeltaPri", wintypes.LONG), ("dwFlags", wintypes.DWORD)]
+
+        self._k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        snap = self._k.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+        entry = THREADENTRY32()
+        entry.dwSize = ctypes.sizeof(THREADENTRY32)
+        ok = self._k.Thread32First(snap, ctypes.byref(entry))
+        while ok:
+            if entry.th32OwnerProcessID == pid:
+                th = self._k.OpenThread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
+                if th:
+                    self._k.ResumeThread(th)
+                    self._k.CloseHandle(th)
+            ok = self._k.Thread32Next(snap, ctypes.byref(entry))
+        self._k.CloseHandle(snap)
+
+    def leftovers(self) -> list[str]:
+        import ctypes
+        from ctypes import wintypes
+
+        class BASIC(ctypes.Structure):
+            _fields_ = [("TotalUserTime", ctypes.c_int64), ("TotalKernelTime", ctypes.c_int64),
+                        ("ThisPeriodTotalUserTime", ctypes.c_int64), ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                        ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+                        ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD)]
+
+        info = BASIC()
+        self._k.QueryInformationJobObject(self.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None)
+        if info.ActiveProcesses == 0:
+            return []
+        self._k.TerminateJobObject(self.handle, 1)
+        return [f"{info.ActiveProcesses} process{'es' if info.ActiveProcesses != 1 else ''} it started"]
+
+    def close(self) -> None:
+        self._k.CloseHandle(self.handle)
 
 
 def main(argv: list[str] | None = None) -> int:

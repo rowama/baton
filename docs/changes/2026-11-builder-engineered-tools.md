@@ -1,11 +1,11 @@
 ---
 id: 2026-11-builder-engineered-tools
 title: "Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop"
-status: proposed
+status: in-progress
 level: major
 decisions: ["0155", "0164", "0154", "0156", "0158", "0159", "0162", "0034"]
 touches: [design/recipes.md, design/director-interface.md, design/workers.md]
-manual: []
+manual: [admin/recipes-and-vendoring.md, reference/commands.md, anchors.yaml]
 ---
 
 # Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop
@@ -68,7 +68,7 @@ For the owner's approval, with the Request. It builds on `recipe-builder@5` as `
 - **Rating.** `software: { scale: [none, simple, engineered] }` in `recipe-builder@6`. Every rating already waits on the owner at `profile` (`confirm_lowest` on `approach`, Decision 0163), so `engineered` does too. `profile` recommends `engineered` only when the idea shows work with exceptions or real data formats, and says what it asks of the owner. The profile schema keeps requiring `software: none` with `approach: quick`.
 - **Design output.** A stage with `done_by: tool` gains `tool.kind` (`simple` | `engineered`). An engineered tool carries `contract {input_schema, output_schema, reach, packages [{name, why}], budget_reason, size_reason?}` and `examples_needed` (what the owner should supply, in plain words, including the awkward case). The schema allows `engineered` only when the run's rating is `engineered`.
 - **The design's approval gate** (on `audit`) applies at `software: [simple, engineered]`, so at `engineered` the owner sees every contract and package before anything is built, at any `approach`.
-- **`generate`** writes, for an engineered tool: `tools/<id>/tool.yaml`, the schemas, an empty `requirements.lock`, an empty `examples/` folder, and the step that names the tool; no implementation. Its output gains `engineered_tools [{id?, tool, title}]` (the `foreach` source below). Its `baton tools test` gate gains `--allow-unbuilt`: a tool with no implementation yet is listed as not built and skipped, so the gate still checks every simple tool.
+- **`generate`** writes, for an engineered tool: `tools/<id>/tool.yaml`, `tools/<id>/contract.json` (the design's contract, so the checks and the reviewer read it beside the tool), the schemas, an empty `requirements.lock`, an empty `examples/` folder, and the step that names the tool; no implementation. Its output gains `engineered_tools [{id?, tool, title}]` (the `foreach` source below). Its `baton tools test` gate gains `--allow-unbuilt`: a tool with no implementation yet is listed as not built and skipped, so the gate still checks every simple tool.
 - **The role.** `recipe-builder@6` declares a project input role `examples` (`many`, optional).
 - **`example_plan`** (new, `applies_to: {software: [engineered]}`, after `generate`, a person's step like `accept`): for each engineered tool the owner chooses to supply its examples or to have some or all drafted. The Director shows `examples_needed`, warns an owner who would supply fewer than three that the tool is then more likely to differ from what they expect, makes the folders `examples/<tool>/<example>/`, and helps the owner attest and bind the files (§13.3). Choosing to have examples drafted is recorded with the owner's words. Output: `{tools: [{tool, supplied, drafted, owner_words?}]}`, where `supplied + drafted >= 3`.
 - **`examples`** (new, `applies_to: {software: [engineered]}`, after `example_plan`): workspace write. Its inputs are `project.examples`, the plan and `generate`'s output. For each tool it copies supplied files byte for byte into `tools/<id>/examples/<name>/` (inputs to `inputs/`, an expected artifact to `expected/`), writes `expected.json` only from results the owner stated, drafts the missing examples (the awkward case first if it is missing), and writes `about.json` per example: `{source: owner | drafted, awkward, from: [paths]}`. It writes no code. Gates: schema; `baton tools examples <package> --run {{ run.id }}` (every engineered tool has at least three examples, one awkward; every `owner` file is byte-identical to the document bound to `examples` it names); then a human gate, "Build the tools to these examples?", that shows each drafted example and each `expected.json` written from the owner's words.
@@ -77,7 +77,7 @@ For the owner's approval, with the Request. It builds on `recipe-builder@5` as `
   - `review`: `different_vendor` from `implement`, with `static/tool_review_rubric.md`: the contract, reach, named packages only, and the awkward case handled for the right reason. Findings gate blocks on critical and high.
   - At the limit: retry with the owner's note; simplify, by revising `generate` with the owner's words (Decision 0164, item 7); or stop (abandon the instance and the run's result waits on the owner).
 - **`baton tools test`** gains `--tool <id>`, `--repeat <n>` (run each example n times; the results must match each other as well as the expected one) and `--allow-unbuilt`.
-- **`baton tools examples`** (new): the check above. Its `--run` reads the run's `project_input_bound` record for `examples`.
+- **`baton tools examples`** (new): the check above. Its `--run` (default `BATON_RUN_ID`, which a script gate's environment carries) reads the run's `project_input_bound` record for `examples`.
 - **The tool runner** ends the tool's process tree after each run (a process group on POSIX, a job object on Windows) and fails the attempt, naming the process, when one was still running.
 - **`baton recipe check`** gains the budget rules: one entry command; reach as declared; a tool over 600 lines across its files needs `size_reason` in the design (`tool.over_size`).
 - **`accept`** depends on `build_tools`; its inputs gain `steps.build_tools.outputs`, so the owner is shown each tool's result (examples passed in the owner's terms, what it needs installed, what it may touch) with the walkthrough.
@@ -92,7 +92,8 @@ For the owner's approval, with the Request. It builds on `recipe-builder@5` as `
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: `recipes/recipe-builder.md`, an owner's topic on supplying examples, `reference/commands.md`.
+- Slice 1: `admin/recipes-and-vendoring.md` (`tools test --tool --repeat`, engineered tools' `contract.json` and `about.json`, `tool.unbuilt` and `--allow-unbuilt`, `tools examples`, a tool leaving a process running, the budget rules in `recipe check`); `reference/commands.md` and `anchors.yaml` regenerated (the new options and `baton tools examples`).
+- Still to come: `recipes/recipe-builder.md`, an owner's topic on supplying examples.
 
 ### Decisions
 
@@ -143,3 +144,17 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** The record first read question 2 as a hard minimum with no warning. The owner meant the opposite: warn an owner who supplies fewer than three that the tool is then more likely to differ from what they expect, and let them go ahead. Decision 0164 item 2, criterion 3, question 2 and `example_plan` corrected. Drafted examples still fill each tool up to three, approved by the owner. No code changed.
 - **Owner decision:** 2026-11-17, "I meant warn the user that 3 good examples are a minimum, without which there is a higher risk of deviation from expectations."
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** The owner approved the Request and Design as they stood after Decision 0164 and its clarification. Status set to `in-progress`.
+- **Owner decision:** 2026-11-17, "Approved. Start."
+- **Accepted:** Yes.
+
+### Slice 1: the checks an engineered tool must pass
+
+- **Summary:** An engineered tool is recognised by `tools/<id>/contract.json` (the design's contract, written by `generate`; the loader checks its shape, `tool.bad_contract`), and each of its examples may carry `about.json` (`source`, `awkward`, `from`; `tool.bad_example`). An engineered tool whose entry file is not written yet loads with a warning (`tool.unbuilt`) and `vendor` refuses it (`vendor.tool_unbuilt`); a simple tool's missing entry file stays `file.missing`. `baton tools test` gains `--tool`, `--repeat` (each run compared with the expected result, the failing run named) and `--allow-unbuilt`. New `baton tools examples` (`example_check.py`): at least three examples, one awkward, each with `about.json`; an owner's files listed in `from` and byte-identical to the documents the run bound to `examples`; drafted and stated examples listed for the owner. The tool runner runs a tool in its own process group (a job object on Windows), writes its output to files, and fails the result naming any process left running, which it ends. `baton recipe check` gains the budget rules: reach as the contract declares, named packages pinned, 600 lines of code unless `size_reason`. Design choice made while building: the run-against-run comparison of `--repeat` is the comparison of every run with the expected result, since passing runs then agree with each other.
+- **Modules:** `tools.py`, `recipe.py`, `project.py`, `tool_test.py`, `example_check.py` (new), `tool_runner.py`, `recipe_check.py`, `cli.py`.
+- **Design docs:** `design/recipes.md` §5.3, §5.9; `design/director-interface.md` §13.1; `design/workers.md` (the `tool` adapter).
+- **Tests:** `tests/test_engineered_tool_checks.py`: the contract and `about.json` (valid and malformed); an unbuilt tool loads with a warning, is refused at vendoring, and a simple tool is never unbuilt; the examples check (enough, awkward, drafted listed, owner copies proven against the binding, a changed or unlisted copy, a simple tool not checked unless named, the latest binding of the role); `tools test --tool`, `--repeat` with a tool that changes on its second run, `--allow-unbuilt`; a tool leaving a process running (POSIX); the budget rules and `recipe check` reporting them. The Windows job object is exercised only by the Windows CI.
+- **Accepted:** Pending the full suite on this commit.

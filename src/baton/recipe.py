@@ -782,7 +782,10 @@ class _Checker:
                 f"{rel}:runtime.version",
                 f"{spec.runtime.version!r} is not a version specifier such as '>=3.11' or '>=3.11,<3.14'",
             )
-        self._check_entry(spec, base, rel)
+        contract, contract_problems = tools.load_contract(base)
+        for code, c_where, message in contract_problems:
+            self.error(code, f"{tools.TOOLS_DIR}/{tool_id}/{c_where}", message)
+        built = self._check_entry(spec, base, rel, engineered=contract is not None or bool(contract_problems))
         for i, name in enumerate(spec.reach.secrets):
             if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", name):
                 self.error("tool.bad_secret_name", f"{rel}:reach.secrets[{i}]", f"{name!r} is not a secret name (letters, digits, _)")
@@ -811,9 +814,17 @@ class _Checker:
             lock_sha256=tools.file_sha256(lock),
             requirements=reqs,
             examples=examples,
+            contract=contract,
+            built=built,
         )
 
-    def _check_entry(self, spec: ToolSpec, base: Path, rel: str) -> None:
+    def _check_entry(self, spec: ToolSpec, base: Path, rel: str, *, engineered: bool = False) -> bool:
+        """Check the entry command; ``False`` when an engineered tool's entry file is not written yet.
+
+        An engineered tool is placed by recipe builder before it is built
+        (Decision 0164): its missing entry file is a warning (``tool.unbuilt``),
+        and vendoring refuses it. For any other tool it is ``file.missing``.
+        """
         if not tools.is_bare_command(spec.entry[0]):
             self.error(
                 "tool.bad_entry_command",
@@ -821,6 +832,7 @@ class _Checker:
                 f"{spec.entry[0]!r} must be a bare command name found in the tool's environment (such as 'python')",
             )
         seen: set[str] = set()
+        built = True
         for i, word in enumerate(spec.entry):
             names = tools.placeholders(word)
             for name in names:
@@ -832,7 +844,13 @@ class _Checker:
                     )
             seen.update(names)
             if word.startswith("{tool}/"):
-                self._tool_file(base, word[len("{tool}/"):], f"{rel}:entry[{i}]", "entry file")
+                entry_rel = word[len("{tool}/"):]
+                if engineered and self._inside(entry_rel) and not (base / entry_rel).exists():
+                    self.warn("tool.unbuilt", f"{rel}:entry[{i}]",
+                              f"entry file {entry_rel!r} is not written yet: the tool is not built (it cannot be vendored or run)")
+                    built = False
+                else:
+                    self._tool_file(base, entry_rel, f"{rel}:entry[{i}]", "entry file")
         if "output" not in seen:
             self.error("tool.entry_needs_output", f"{rel}:entry", "the entry command must pass {output}, where the tool writes output.json")
         if "workspace" in seen and spec.reach.workspace == "none":
@@ -841,6 +859,12 @@ class _Checker:
                 f"{rel}:entry",
                 "{workspace} is passed but reach.workspace is none: declare read or write, or drop {workspace}",
             )
+        return built
+
+    @staticmethod
+    def _inside(rel: str) -> bool:
+        p = PurePosixPath(rel.replace("\\", "/"))
+        return bool(p.parts) and not p.is_absolute() and ".." not in p.parts
 
     def _tool_file(self, base: Path, rel: str, where: str, what: str) -> Path | None:
         p = PurePosixPath(rel.replace("\\", "/"))

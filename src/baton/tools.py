@@ -3,8 +3,9 @@
 A tool is a script in ``tools/<id>/`` of a recipe package, described by
 ``tool.yaml``, with its dependencies pinned in a lock file. This module holds
 what the loader needs to check a tool without running it: the lock-file parser,
-the entry placeholders, the runtime-version check and the tool's worked
-examples (``examples/<name>/``; Decision 0162). Environments are built in
+the entry placeholders, the runtime-version check, the tool's worked
+examples (``examples/<name>/``; Decision 0162) and an engineered tool's
+contract (``contract.json``; Decision 0164). Environments are built in
 ``tool_env``, tools run in ``tool_runner`` and examples are run by ``tool_test``.
 """
 
@@ -14,7 +15,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .models import ToolSpec
@@ -25,6 +26,13 @@ EXAMPLES_DIR = "examples"
 #: An example's files (Decision 0162, items 5 and 10).
 EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE = (
     "input.json", "inputs", "expected.json", "expected", "workspace")
+#: Where an engineered tool's example came from (Decision 0164, item 4).
+EXAMPLE_ABOUT = "about.json"
+EXAMPLE_SOURCES = ("owner", "drafted")
+#: An engineered tool's contract, written by recipe builder's ``generate`` (Decision 0164).
+CONTRACT_FILE = "contract.json"
+_CONTRACT_KEYS = {"kind": True, "does": True, "input_schema": True, "output_schema": True, "reach": True,
+                  "packages": True, "budget_reason": True, "size_reason": False}
 _EXAMPLE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 RUNTIME_KINDS = ("python",)  # Decision 0156, item 2
 #: The only words Baton fills into an entry command: the inputs file, the
@@ -67,6 +75,7 @@ class Example:
     expected: dict[str, Any]  # expected.json: output.json must equal it
     artifacts: dict[str, Path]  # expected/<artifact>.<ext>: compared byte for byte
     workspace: Path | None = None  # workspace/: copied as the workspace of a tool that reaches it
+    about: dict[str, Any] | None = None  # about.json: {source, awkward, from} (Decision 0164)
 
 
 @dataclass
@@ -79,6 +88,12 @@ class LoadedTool:
     lock_sha256: str
     requirements: list[LockedRequirement] = field(default_factory=list)
     examples: list[Example] = field(default_factory=list)
+    contract: dict[str, Any] | None = None  # contract.json: an engineered tool (Decision 0164)
+    built: bool = True  # False: an engineered tool whose entry file is not written yet
+
+    @property
+    def engineered(self) -> bool:
+        return self.contract is not None
 
     @property
     def id(self) -> str:
@@ -201,9 +216,10 @@ def load_examples(tool_root: Path) -> tuple[list[Example], list[tuple[str, str, 
             bad(where, f"{d.name!r} is not an example name (lower-case letters, digits, '-' and '_')")
             continue
         n_before = len(problems)
-        known = {EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE}
+        known = {EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE, EXAMPLE_ABOUT}
         for extra in sorted(p.name for p in d.iterdir() if p.name not in known):
-            bad(f"{where}/{extra}", "not part of an example (input.json, inputs/, expected.json, expected/, workspace/)")
+            bad(f"{where}/{extra}", "not part of an example (input.json, inputs/, expected.json, expected/, workspace/, about.json)")
+        about = _about(d / EXAMPLE_ABOUT, f"{where}/{EXAMPLE_ABOUT}", bad)
         values = _json_object(d / EXAMPLE_INPUT, f"{where}/{EXAMPLE_INPUT}", bad, required=False)
         expected = _json_object(d / EXAMPLE_EXPECTED, f"{where}/{EXAMPLE_EXPECTED}", bad, required=True)
         files = _named_files(d / EXAMPLE_INPUTS, f"{where}/{EXAMPLE_INPUTS}", "input", bad)
@@ -214,7 +230,7 @@ def load_examples(tool_root: Path) -> tuple[list[Example], list[tuple[str, str, 
         if ws.exists() and not ws.is_dir():
             bad(f"{where}/{EXAMPLE_WORKSPACE}", "workspace/ must be a folder")
         if len(problems) == n_before and values is not None and expected is not None:
-            examples.append(Example(d.name, d, values, files, expected, artifacts, ws if ws.is_dir() else None))
+            examples.append(Example(d.name, d, values, files, expected, artifacts, ws if ws.is_dir() else None, about))
     return examples, problems
 
 
@@ -252,3 +268,73 @@ def _named_files(folder: Path, where: str, what: str, bad: Any) -> dict[str, Pat
         else:
             out[name] = p
     return out
+
+
+def _about(path: Path, where: str, bad: Any) -> dict[str, Any] | None:
+    """An example's ``about.json``: ``{source: owner | drafted, awkward: bool, from: {<file in the example>: <project path>}}``.
+
+    ``from`` names, for each file copied from the owner's documents, the
+    project document it was copied from, so ``baton tools examples`` can prove
+    the copy (Decision 0164, item 4). No file is no record, not a problem.
+    """
+    if not path.exists():
+        return None
+    value = _json_object(path, where, bad, required=True)
+    if value is None:
+        return None
+    for key in sorted(set(value) - {"source", "awkward", "from"}):
+        bad(where, f"unknown key {key!r} (source, awkward, from)")
+    if value.get("source") not in EXAMPLE_SOURCES:
+        bad(where, f"`source` must be one of {list(EXAMPLE_SOURCES)}")
+    if not isinstance(value.get("awkward", False), bool):
+        bad(where, "`awkward` must be true or false")
+    copied = value.get("from", {})
+    if not isinstance(copied, dict) or not all(isinstance(k, str) and isinstance(v, str) and v for k, v in copied.items()):
+        bad(where, "`from` must map each copied file (such as inputs/export.csv) to the project path it was copied from")
+    else:
+        for rel in copied:
+            parts = PurePosixPath(rel).parts
+            if not (rel == EXAMPLE_EXPECTED or (len(parts) == 2 and parts[0] in (EXAMPLE_INPUTS, EXAMPLE_ARTIFACTS))) or ".." in parts:
+                bad(where, f"`from` key {rel!r} must be expected.json, inputs/<file> or expected/<file>")
+            elif not (path.parent / rel).is_file():
+                bad(where, f"`from` names {rel!r}, which is not in the example")
+    return value
+
+
+def load_contract(tool_root: Path) -> tuple[dict[str, Any] | None, list[tuple[str, str, str]]]:
+    """An engineered tool's ``contract.json`` and the problems with it as ``(code, where, message)``.
+
+    No file is a simple tool (Decision 0162), not a problem. The contract is
+    the design's: what the tool does, its schemas, what it may touch, every
+    package it needs with the reason, and why it is within the tool budget
+    (Decision 0155, item 4); ``size_reason`` when it is over the size cap.
+    """
+    path = tool_root / CONTRACT_FILE
+    if not path.exists():
+        return None, []
+    problems: list[tuple[str, str, str]] = []
+
+    def bad(where: str, message: str) -> None:
+        problems.append(("tool.bad_contract", where, message))
+
+    value = _json_object(path, CONTRACT_FILE, bad, required=True)
+    if value is None:
+        return None, problems
+    for key in sorted(set(value) - set(_CONTRACT_KEYS)):
+        bad(f"{CONTRACT_FILE}:{key}", f"unknown key {key!r}")
+    for key in sorted(k for k, req in _CONTRACT_KEYS.items() if req and k not in value):
+        bad(f"{CONTRACT_FILE}:{key}", f"required key {key!r} is missing")
+    if "kind" in value and value["kind"] != "engineered":
+        bad(f"{CONTRACT_FILE}:kind", "`kind` must be 'engineered' (a simple tool has no contract file)")
+    for key in ("does", "budget_reason", "size_reason"):
+        if key in value and not (isinstance(value[key], str) and value[key].strip()):
+            bad(f"{CONTRACT_FILE}:{key}", f"`{key}` must be a non-empty string")
+    for key in ("input_schema", "output_schema", "reach"):
+        if key in value and not isinstance(value[key], dict):
+            bad(f"{CONTRACT_FILE}:{key}", f"`{key}` must be an object")
+    pkgs = value.get("packages", [])
+    if not isinstance(pkgs, list) or not all(
+        isinstance(p, dict) and set(p) == {"name", "why"} and all(isinstance(p[k], str) and p[k].strip() for k in p) for p in pkgs
+    ):
+        bad(f"{CONTRACT_FILE}:packages", "`packages` must list each package as {name, why}")
+    return (None if problems else value), problems

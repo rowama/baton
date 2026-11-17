@@ -255,8 +255,88 @@ def _takes(step: dict[str, Any], source: Any, required: bool) -> bool:
     return False
 
 
+#: Lines of code across an engineered tool's files above which the design must say why it is still one tool (Decision 0164, item 6).
+TOOL_SIZE_CAP = 600
+#: What does not count toward a tool's size: its examples, its own tests and its declarations.
+_NOT_CODE_DIRS = ("examples", "tests", "__pycache__")
+
+
+def _canon_pkg(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def tool_lines(tool_dir: Path, skip: set[str]) -> int:
+    """Lines across a tool's text files, leaving out its examples, its tests and the files named in ``skip``."""
+    n = 0
+    for f in sorted(p for p in tool_dir.rglob("*") if p.is_file()):
+        rel = f.relative_to(tool_dir)
+        if rel.parts[0] in _NOT_CODE_DIRS or rel.as_posix() in skip:
+            continue
+        try:
+            n += len(f.read_text(encoding="utf-8").splitlines())
+        except (UnicodeDecodeError, OSError):  # expected: a binary file is not code to count
+            continue
+    return n
+
+
+def budget_problems(package: Path) -> list[str]:
+    """The tool budget's mechanical rules for each engineered tool (one with ``contract.json``; Decisions 0155, 0164).
+
+    Reach as the contract declares it; every package the contract names is
+    pinned in the lock; at most ``TOOL_SIZE_CAP`` lines of code unless the
+    contract says why it is still one tool (``size_reason``). One entry command
+    and inputs in, outputs out are the shape of ``tool.yaml`` itself (§5.9),
+    and a process left running is caught by the tool runner. Whether the tool
+    is within the budget otherwise is the audit's judgment.
+    """
+    import yaml
+
+    from . import tools as tools_mod
+
+    base = package / tools_mod.TOOLS_DIR
+    if not base.is_dir():
+        return []
+    out: list[str] = []
+    for d in sorted(p for p in base.iterdir() if p.is_dir() and (p / tools_mod.CONTRACT_FILE).exists()):
+        where = f"{tools_mod.TOOLS_DIR}/{d.name}"
+        contract, problems = tools_mod.load_contract(d)
+        if problems:
+            out += [f"{where}/{w}: {m}" for _c, w, m in problems]
+            continue
+        assert contract is not None
+        try:
+            spec = yaml.safe_load((d / tools_mod.TOOL_FILE).read_text(encoding="utf-8-sig"))
+        except (OSError, yaml.YAMLError) as e:
+            out.append(f"{where}/{tools_mod.TOOL_FILE}: cannot be read: {e}")
+            continue
+        spec = spec if isinstance(spec, dict) else {}
+        declared = spec.get("reach") or {}
+        reach = {"workspace": declared.get("workspace", "none"), "network": declared.get("network", False),
+                 "secrets": sorted(declared.get("secrets") or [])}
+        want = contract["reach"]
+        want = {"workspace": want.get("workspace", "none"), "network": want.get("network", False),
+                "secrets": sorted(want.get("secrets") or [])}
+        for key in ("workspace", "network", "secrets"):
+            if reach[key] != want[key]:
+                out.append(f"{where}: tool.yaml reach.{key} is {reach[key]!r}, but the contract declares {want[key]!r}")
+        lock_name = (spec.get("dependencies") or {}).get("lock", "requirements.lock")
+        try:
+            reqs, _ = tools_mod.parse_lock((d / lock_name).read_text(encoding="utf-8-sig"))
+        except OSError:  # expected: a missing lock is the loader's file.missing
+            reqs = []
+        pinned = {_canon_pkg(r.name) for r in reqs}
+        for pkg in contract["packages"]:
+            if _canon_pkg(pkg["name"]) not in pinned:
+                out.append(f"{where}: the contract names package {pkg['name']!r}, which is not pinned in {lock_name}")
+        lines = tool_lines(d, {tools_mod.TOOL_FILE, tools_mod.CONTRACT_FILE, lock_name})
+        if lines > TOOL_SIZE_CAP and not contract.get("size_reason"):
+            out.append(f"{where}: {lines} lines of code, over the {TOOL_SIZE_CAP}-line cap for one tool; the design must say "
+                       "why it is still one tool (contract size_reason), or the work is a separate software project")
+    return out
+
+
 def check(package: Path, ledger_file: Path, require_discovery: bool = False) -> list[str]:
-    """Every problem, in order: the package folder, the ledger file, the ledger rules, discovery, then instance leaks."""
+    """Every problem, in order: the package folder, the ledger file, the ledger rules, discovery, instance leaks, then the tool budget."""
     if not package.is_dir():
         return [f"{package}: is not a recipe folder"]
     try:
@@ -269,4 +349,5 @@ def check(package: Path, ledger_file: Path, require_discovery: bool = False) -> 
     if _entries(raw) is not None:
         problems += discovery_problems(raw, package, require_discovery)
         problems += leak_problems(raw, package)
+    problems += budget_problems(package)
     return problems

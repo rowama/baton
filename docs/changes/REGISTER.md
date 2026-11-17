@@ -4,9 +4,9 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-builder-engineered-tools](2026-11-builder-engineered-tools.md) | Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | On hold: recorded 2026-11-16 (Decision 0161); to be designed after the recipe-builder changes of Decision 0155 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
-| [2026-11-builder-engineered-tools](2026-11-builder-engineered-tools.md) | Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop | proposed | major | Open questions answered (Decision 0164); awaiting approval of Request and Design |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
 | [2026-11-person-step-forms](2026-11-person-step-forms.md) | A person's step can show a form built from the step's data, when the Director's questions are not enough | proposed | major | On hold: deferred by the owner (2026-11-15); after 2026-11-tool-steps and the recipe-builder changes of Decision 0155 |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |

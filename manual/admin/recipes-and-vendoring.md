@@ -68,9 +68,25 @@ baton tools test path/to/recipe
 
 Each example passes or fails, and a failure names the first difference, for example `artifact 'differences': line 4: expected '…', the tool wrote '…'`. The command exits 0 only when every example passes. With `--require-examples`, a tool that has no examples also fails; the recipe builder checks the tools it writes this way. Keep git from changing line endings in example files: this repository's `.gitattributes` has `**/tools/*/examples/** -text`, and Baton already protects vendored recipes in `.baton/`.
 
+Two more options serve larger tools. `--tool <id>` tests only that tool. `--repeat <n>` runs each example `n` times, and every run must give the expected result, so a tool whose result changes from one run to the next fails, and the report says which run differed:
+
+```baton
+baton tools test path/to/recipe --tool reconcile --repeat 2
+```
+
+An **engineered tool**, which the recipe builder builds from the owner's own examples, carries a `contract.json` beside its `tool.yaml`. The contract says what the tool does, its inputs and outputs, what it may touch, every package it needs and why, and why it is still one tool. Each of its examples has an `about.json` that says whether the owner supplied it or the builder drafted it, and which of its files were copied from the owner's documents. Until the tool is written, the recipe loads with a warning, `tool.unbuilt`. `baton tools test --allow-unbuilt` lists such a tool and skips it, and `vendor` refuses the recipe until the tool is built. To check that an engineered tool has enough examples, and that the owner's files were copied exactly:
+
+```baton
+baton tools examples path/to/recipe --run <run>
+```
+
+Each engineered tool needs at least three examples, one of them marked as the awkward case. Every file copied from the owner must be byte for byte the document the run bound to the role `examples`. The report lists the examples the builder drafted, and those whose expected result was written from the owner's words, so the owner can approve them.
+
+Whatever a tool starts must end before the tool does. A tool that leaves a process running fails, and the process is stopped. On Windows Baton holds the tool in a job object to do this, and elsewhere in a process group, so a process that deliberately detaches itself is not found.
+
 ## Helpers for recipe authors {#authors}
 
-`baton recipe check <package> --ledger <file>` is a helper that a recipe's own checks run: it verifies that no requirement is open and that every confirmed one carries the owner's words. The recipe format is published as JSON Schema in the runtime's `formats/` data, so an assistant can pre-check what it writes. Writing recipes is covered by the design documents; a guided path is the [recipe builder](recipes.recipe-builder#here-now).
+`baton recipe check <package> --ledger <file>` is a helper that a recipe's own checks run: it verifies that no requirement is open and that every confirmed one carries the owner's words. For an engineered tool it also enforces the parts of the tool budget that can be checked mechanically: the tool's `reach` is as its contract declares, every package the contract names is pinned in the lock, and the tool has at most 600 lines of code (its examples and its own tests not counted) unless the contract says why it is still one tool. The recipe format is published as JSON Schema in the runtime's `formats/` data, so an assistant can pre-check what it writes. Writing recipes is covered by the design documents; a guided path is the [recipe builder](recipes.recipe-builder#here-now).
 
 ## Documents a recipe builds on {#project-inputs}
 

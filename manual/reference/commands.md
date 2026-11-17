@@ -715,6 +715,19 @@ Tools the vendored recipes ship: scripts run with no model.
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
+### baton tools examples {#baton-tools-examples}
+
+Check each engineered tool's examples: enough of them, one awkward, and the owner's files copied exactly (exit 0 when all pass).
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `package <path>` | A recipe package folder (its recipe.yaml and tools/). |
+| `--run <str>` | The run whose binding of 'examples' the owner's files are checked against (default: $BATON_RUN_ID). |
+| `--tool <str>` | Check only this tool. |
+| `--json` | Machine-readable output. |
+
 ### baton tools setup {#baton-tools-setup}
 
 Build each vendored recipe's tools' environments now, instead of at their first use.
@@ -735,6 +748,9 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 |---|---|
 | `package <path>` | A recipe package folder (its recipe.yaml and tools/). |
 | `--require-examples` | A tool with no examples fails. |
+| `--tool <str>` | Test only this tool. |
+| `--repeat <int range>` | Run each example this many times; the runs must give the same result. |
+| `--allow-unbuilt` | An engineered tool not built yet is listed and skipped, not failed. |
 | `--json` | Machine-readable output. |
 
 ## baton trace {#baton-trace}
