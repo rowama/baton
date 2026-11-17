@@ -1,4 +1,4 @@
-"""The shipped recipe-builder recipe (change 2026-11-recipe-builder): it loads, plans at every level and is wired as designed."""
+"""The shipped recipe-builder recipe (changes 2026-11-recipe-builder, 2026-11-builder-step-design): it loads, plans at every rating and is wired as designed."""
 from __future__ import annotations
 
 import json
@@ -18,6 +18,15 @@ def steps(plan_level):
     return {s.path: s for s in plan_level.steps}
 
 
+APPROACHES = ["simple", "standard", "complex"]
+
+
+def at(loaded, approach, software="none"):
+    """The plan at one pair of ratings, as {path: step}."""
+    [lv] = build_plan(loaded, ratings={"approach": approach, "software": software}).levels
+    return steps(lv)
+
+
 @pytest.fixture(scope="module")
 def loaded():
     return load_recipe(BUILDER)
@@ -25,18 +34,19 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@3" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@4" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
 
 def test_it_ships_in_the_catalog():
-    assert catalog()["recipe-builder"].recipe.complexity.levels == ["simple", "standard", "complex"]
+    cx = catalog()["recipe-builder"].recipe.complexity
+    assert cx.levels is None and {a: s.scale for a, s in cx.axes.items()} == {"approach": APPROACHES, "software": ["none", "simple"]}
 
 
-def test_the_plan_at_each_level(loaded):
+def test_the_plan_at_each_approach_with_no_software_is_v3s_plan_at_that_level(loaded):
 
-    by_level = {lv.level: steps(lv) for lv in build_plan(loaded).levels}
+    by_level = {a: at(loaded, a) for a in APPROACHES}
     assert not by_level["simple"]["research"].included
     assert by_level["standard"]["research"].included and by_level["complex"]["research"].included
 
@@ -124,9 +134,12 @@ def test_run_inputs_take_an_idea_and_an_optional_base_recipe():
     assert not v.is_valid({"title": "t"})
 
 
-def test_the_triage_schema_may_carry_more_than_the_level():
+def test_the_triage_schema_rates_both_axes_with_reasons_and_carries_more():
     schema = json.loads((BUILDER / "schemas" / "profile_out.json").read_text(encoding="utf-8"))
-    assert schema["properties"]["level"]["enum"] == ["simple", "standard", "complex"]
+    axes = schema["properties"]["ratings"]["properties"]
+    assert axes["approach"]["properties"]["value"]["enum"] == APPROACHES
+    assert axes["software"]["properties"]["value"]["enum"] == ["none", "simple"]
+    assert "level" not in schema["properties"]
     assert {"goal", "rung", "ledger", "existing_recipe", "related_parts", "build_now"} <= set(schema["properties"])
 
 
@@ -156,7 +169,11 @@ DEFERRED = {"id": "D2", "question": "Which tool does a job use?", "target_status
             "timing_reason": "One shape serves every tool", "status": "deferred",
             "generated": {"research_step": "research_options", "decision_step": "decide", "consumers": ["build"]}}
 GOAL = {"id": "G1", "statement": "s", "kind": "goal", "scope": "class", "status": "confirmed", "basis": "b", "owner_words": "w"}
-PROFILE = {"level": "standard", "reasons": ["r"], "goal": {"statement": "s", "trigger": "t", "end_state": "e", "success_measure": "m"},
+def rated(approach, software="none"):
+    return {"approach": {"value": approach, "reason": "r"}, "software": {"value": software, "reason": "r"}}
+
+
+PROFILE = {"ratings": rated("standard"), "reasons": ["r"], "goal": {"statement": "s", "trigger": "t", "end_state": "e", "success_measure": "m"},
            "existing_recipe": None, "rung": {"label": "l", "covers": ["c"], "next_rung": None}, "ledger": [GOAL], "discovery": [NOT_NEEDED]}
 
 
@@ -166,8 +183,11 @@ def test_the_profile_must_record_discovery_and_a_shaping_choice_makes_the_work_a
     assert not v.is_valid({k: x for k, x in PROFILE.items() if k != "discovery"})  # never silently dropped
     assert not v.is_valid({**PROFILE, "discovery": []})
     assert v.is_valid({**PROFILE, "discovery": [BEFORE]})
-    assert not v.is_valid({**PROFILE, "level": "simple", "discovery": [BEFORE]})  # an early choice cannot hide behind a simple rating
-    assert v.is_valid({**PROFILE, "level": "simple", "discovery": [NOT_NEEDED, DEFERRED]})  # a deferred one stays proportionate
+    assert not v.is_valid({**PROFILE, "ratings": rated("simple"), "discovery": [BEFORE]})  # an early choice cannot hide behind a simple approach
+    assert not v.is_valid({**PROFILE, "ratings": rated("simple", "simple"), "discovery": [BEFORE]})  # nor behind software
+    assert v.is_valid({**PROFILE, "ratings": rated("simple"), "discovery": [NOT_NEEDED, DEFERRED]})
+    assert not v.is_valid({**PROFILE, "ratings": {"approach": {"value": "simple", "reason": ""}, "software": {"value": "none", "reason": "r"}}})
+    assert not v.is_valid({**PROFILE, "ratings": {"approach": {"value": "simple", "reason": "r"}}})  # both axes, always  # a deferred one stays proportionate
     assert not v.is_valid({**PROFILE, "discovery": [{**BEFORE, "status": "decided"}]})  # the profile cannot claim a decision
     assert not v.is_valid({**PROFILE, "discovery": [{**NOT_NEEDED, "target_status": "keyword"}]})
 
@@ -218,7 +238,7 @@ def test_generate_requires_discovery_and_research_is_reachable_when_it_is_needed
     assert [g.run for g in gen.gates if g.type == "script"][1].endswith("--require-discovery")
     research = next(s for s in loaded.recipe.steps if s.id == "research")
     assert "web_access" in research.requires.capabilities  # current external claims need a research-capable worker
-    assert research.applies_to == ["standard", "complex"]  # the profile schema keeps a shaping choice out of `simple`
+    assert research.applies_to == {"approach": ["standard", "complex"]}  # the profile schema keeps a shaping choice out of a `simple` approach
 
 
 def test_the_prompts_patterns_and_rubric_carry_the_discovery_rules():
@@ -248,9 +268,39 @@ def test_the_published_v2_still_loads_and_keeps_its_behavior():
     assert [lv.level for lv in build_plan(old).levels] == ["simple", "standard", "complex"]
 
 
-def test_v3_loads_and_plans_at_every_level(loaded):
-    assert loaded.recipe.ref == "recipe-builder@3" and not loaded.warnings
-    assert [lv.level for lv in build_plan(loaded).levels] == ["simple", "standard", "complex"]
+V3 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v3"
+
+
+def test_the_published_v3_still_loads_with_its_levels():
+    """A project's pinned recipe-builder@3 is never edited (§5.8): v4 is a new version, the v3 package is a frozen copy."""
+    old = load_recipe(V3)
+    assert old.recipe.ref == "recipe-builder@3" and not old.warnings
+    assert [lv.level for lv in build_plan(old).levels] == APPROACHES
+    assert "level" in json.loads((V3 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
+
+
+def test_v4_loads_and_plans_at_every_pair_of_ratings(loaded):
+    assert loaded.recipe.ref == "recipe-builder@4" and not loaded.warnings
+    for a in APPROACHES:
+        for sw in ("none", "simple"):
+            assert at(loaded, a, sw)["generate"].included
+
+
+def test_software_shows_the_owner_the_design_and_reviews_the_package_at_every_approach(loaded):
+    for a in APPROACHES:
+        plan = at(loaded, a, "simple")
+        assert [g.included for g in plan["shape/audit"].gates if g.type == "human"] == [True]
+        assert [g.included for g in plan["generate"].gates if g.type == "review"] == [True]
+        assert plan["research"].included == (a != "simple")  # software adds no research
+
+
+def test_simple_with_no_software_applies_at_once_and_anything_else_waits_on_the_owner(loaded):
+    from baton import tailoring
+
+    cx = loaded.recipe.complexity
+    assert tailoring.auto_approves(cx, {"approach": "simple", "software": "none"})
+    assert not tailoring.auto_approves(cx, {"approach": "simple", "software": "simple"})
+    assert not tailoring.auto_approves(cx, {"approach": "standard", "software": "none"})
 
 
 def test_existing_recipes_match_only_when_their_process_does_the_discovery_and_the_walkthrough_says_when_the_owner_chooses():

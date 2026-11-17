@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 3
+version: 4
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch).
@@ -18,7 +18,9 @@ defaults:
   max_attempts: 3
 
 complexity:
-  levels: [simple, standard, complex]
+  axes:
+    approach: { scale: [simple, standard, complex] }   # how much process the builder adds (2026-11-quick-runs adds quick)
+    software: { scale: [none, simple] }                # the most software the builder may write (Decision 0155; engineered comes later)
   triage_step: profile
 
 steps:
@@ -44,7 +46,7 @@ steps:
   - id: research
     title: Learn how this work is usually done and the ways to do it
     depends_on: [profile]
-    applies_to: [standard, complex]   # a choice that shapes the process makes the work at least standard (the profile schema enforces it)
+    applies_to: { approach: [standard, complex] }   # a choice that shapes the process makes the approach at least standard (the profile schema enforces it)
     requires: { capabilities: [structured_output, long_form_writing, web_access], tier: strong }
     prompt: prompts/research.md
     inputs:
@@ -86,7 +88,7 @@ steps:
         output_schema: baton:findings
         gates:
           - { type: findings, block_on: [critical, high] }
-          - { type: human, applies_to: [standard, complex],
+          - { type: human, applies_to: { approach: [standard, complex], software: [simple] },   # the owner sees any software before it is built
               prompt: "Is this the process you want? Saying no sends it back with your note." }
 
   - id: generate
@@ -107,7 +109,7 @@ steps:
       - { type: script, run: "baton plan recipes/drafts/{{ run.slug }}", timeout_s: 120 }
       - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json --require-discovery", timeout_s: 60 }
       - type: review
-        applies_to: [complex]
+        applies_to: { approach: [complex], software: [simple] }   # software written for the process is always reviewed
         block_on: [critical, high]
         reviewer_requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }
         independence: { from_step: generate, level: different_vendor }

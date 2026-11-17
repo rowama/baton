@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "required": [
-    "level",
+    "ratings",
     "reasons",
     "goal",
     "rung",
@@ -10,12 +10,57 @@
     "discovery"
   ],
   "properties": {
-    "level": {
-      "enum": [
-        "simple",
-        "standard",
-        "complex"
-      ]
+    "ratings": {
+      "type": "object",
+      "required": [
+        "approach",
+        "software"
+      ],
+      "additionalProperties": false,
+      "description": "The two ratings, each with a reason the owner can read (\u00a75.5)",
+      "properties": {
+        "approach": {
+          "type": "object",
+          "required": [
+            "value",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "software": {
+          "type": "object",
+          "required": [
+            "value",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "enum": [
+                "none",
+                "simple"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     },
     "reasons": {
       "type": "array",
@@ -507,11 +552,19 @@
       },
       "then": {
         "properties": {
-          "level": {
-            "enum": [
-              "standard",
-              "complex"
-            ]
+          "ratings": {
+            "properties": {
+              "approach": {
+                "properties": {
+                  "value": {
+                    "enum": [
+                      "standard",
+                      "complex"
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       }

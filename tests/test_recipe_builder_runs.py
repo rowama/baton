@@ -65,9 +65,12 @@ def generated(ledger: list[dict], discovery: list[dict] | None = None) -> dict:
     }
 
 
-def profile(level: str, ledger: list[dict]) -> dict:
+def profile(level: str, ledger: list[dict], software: str = "none") -> dict:
+    """A profile result: ``level`` is the approach (recipe-builder@4 rates two axes)."""
     return {"output": {
-        "level": level, "reasons": ["one kind of worker, nothing irreversible" if level == "simple" else "several kinds of worker"],
+        "ratings": {"approach": {"value": level, "reason": "how much process it needs"},
+                    "software": {"value": software, "reason": "no rule-like work" if software == "none" else "it adds up amounts"}},
+        "reasons": ["one kind of worker, nothing irreversible" if level == "simple" else "several kinds of worker"],
         "goal": {"statement": "Plant a flower bed", "trigger": "The owner wants a bed", "end_state": "A planted bed", "success_measure": "Plants are in and watered"},
         "existing_recipe": None,
         "rung": {"label": "Just flower beds", "covers": ["a flower bed"], "next_rung": "any garden bed"},
@@ -141,7 +144,7 @@ def test_a_simple_run_builds_a_package_behind_two_owner_touchpoints(project_with
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
     d = Director(cli, project, run, route=route)
     st = d.drive()
-    assert st["level"] == "simple" and st["steps"]["research"]["state"] == "skipped"
+    assert st["ratings"] == {"approach": "simple", "software": "none"} and st["steps"]["research"]["state"] == "skipped"
     assert [s.rsplit("/", 1)[-1] for s, _ in d.dispatches] == ["profile", "design", "audit", "generate", "accept"]
     # The owner confirms the goal and approves the finished process: nothing else at the lowest level.
     assert [r.rsplit("/", 1)[-1] for r, _ in d.owner_decisions] == ["profile", "accept"]
@@ -175,12 +178,12 @@ def test_a_standard_run_researches_loops_on_the_owners_note_and_fails_a_bad_ledg
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
     d = Director(cli, project, run, route=route, decisions={"audit": [("reject", "Add a soil test before planting."), ("approve", "That is it.")]})
     st = d.drive()
-    assert st["level"] == "standard" and st["steps"]["research"]["state"] == "passed"
+    assert st["ratings"]["approach"] == "standard" and st["steps"]["research"]["state"] == "passed"
     # Owner touchpoints: the level, the goal, the design (twice: the first is sent back), the finished process.
     import re
 
     refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]  # the group's instance id is random
-    assert refs == ["profile", "profile", "shape/i1/audit", "shape/i2/audit", "accept"], refs  # profile: the goal, then the level
+    assert refs == ["profile", "profile", "shape/i1/audit", "shape/i2/audit", "accept"], refs  # profile: the goal, then the ratings
     evs = run_events(project, run)
     # The owner's rejection started iteration 2 at design, carrying their words.
     inst = st["groups"]["shape"]["instances"][0]["id"]
@@ -215,10 +218,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@3")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@3"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@4")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@4"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@3"
+    assert started["recipe"] == "recipe-builder@4"
 
 
 @pytest.mark.slow
@@ -301,7 +304,7 @@ def test_a_choice_that_shapes_the_process_is_researched_and_the_owner_decides_be
     ledger = [GOAL, BED]
     cli, project, run, d = start_discovery_run(project_with, discovery_script(ledger))
     st = d.drive()
-    assert st["level"] == "standard" and st["steps"]["research"]["state"] == "passed"
+    assert st["ratings"]["approach"] == "standard" and st["steps"]["research"]["state"] == "passed"
     assert d.answered == ["research"]  # the owner was asked once, about the one choice
     order = [s.rsplit("/", 1)[-1] for s, _ in d.dispatches]
     assert order.index("research") < order.index("design") and order.count("research") == 2
@@ -493,6 +496,8 @@ def test_a_pinned_builder_v2_still_runs_and_never_asks_for_discovery(project_wit
     ledger = [GOAL, BED]
     p = profile("simple", ledger)["output"]
     p.pop("discovery")
+    p.pop("ratings")
+    p["level"] = "simple"  # v2 rated one scale
     d = design(ledger)["output"]
     d.pop("discovery")
     gen = generated(ledger)
@@ -503,3 +508,40 @@ def test_a_pinned_builder_v2_still_runs_and_never_asks_for_discovery(project_wit
     st = Director(cli, project, run, route=route).drive()
     assert st["recipe"] == "recipe-builder@2" and st["state"] == "completed"
     assert recipe_check.check(project / "recipes" / "drafts" / SLUG, project / "recipes" / "drafts" / f"{SLUG}.ledger.json") == []
+
+
+@pytest.mark.slow
+def test_a_pinned_builder_v3_still_runs_on_its_one_scale(project_with, monkeypatch):
+    """A project that pinned recipe-builder@3 keeps it (2026-11-builder-step-design criterion 1)."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys.modules[__name__], "BUILDER", ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v3")
+    ledger = [GOAL, BED]
+    p = profile("simple", ledger)["output"]
+    p.pop("ratings")
+    p["level"] = "simple"
+    cli, project, _ = project_with({"profile": {"output": p}, "design": design(ledger), "audit": CLEAN, "generate": generated(ledger)})
+    run = cli.run("start", "recipe-builder@3", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route)
+    st = d.drive()
+    assert st["recipe"] == "recipe-builder@3" and st["state"] == "completed" and st["level"] == "simple"
+    assert [r.rsplit("/", 1)[-1] for r, _ in d.owner_decisions] == ["profile", "accept"]
+
+
+@pytest.mark.slow
+def test_software_simple_waits_on_the_owner_and_adds_the_design_approval_and_the_package_review(project_with):
+    """At software: simple the owner approves the ratings and sees the design, and the package is reviewed, even at a simple approach."""
+    ledger = [GOAL, BED]
+    cli, project, _ = project_with({
+        "profile": profile("simple", ledger, software="simple"), "design": design(ledger), "audit": CLEAN, "generate": generated(ledger),
+        "generate~review": CLEAN})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route)
+    st = d.drive()
+    assert st["ratings"] == {"approach": "simple", "software": "simple"} and st["steps"]["research"]["state"] == "skipped"
+    import re
+
+    refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
+    assert refs == ["profile", "profile", "shape/i1/audit", "accept"], refs  # the goal, the ratings, the design, the result
+    evs = run_events(project, run)
+    assert any(e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "review" for e in evs)
