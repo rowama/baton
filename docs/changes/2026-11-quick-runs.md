@@ -1,7 +1,7 @@
 ---
 id: 2026-11-quick-runs
 title: "An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document"
-status: in-progress
+status: done
 level: major
 decisions: ["0145", "0163", "0162", "0142", "0146", "0144", "0147", "0141"]
 touches: [design/recipes.md, design/director-interface.md, design/layouts.md, design/persistence.md, design/gates-and-reviews.md]
@@ -171,3 +171,8 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Design docs:** §13.3 (the skill's copy).
 - **Manual:** `user/start-with-a-goal.md` (how much care a piece gets; related to the quick-run topic); `anchors.yaml` (`how-much-care`).
 - **Tests:** `tests/test_recipe_builder_runs.py`: end to end, recipe builder takes the quick path and the owner approves a new guide, `quick-run` is vendored by id with the owner's words and started with the builder's guide bound, it produces the plan, which is published and listed as a deliverable, and a later quick run binds that plan as `context` and receives it with its source. `tests/test_director_surface.py`: the skill names `guides`, and its quick-run section leaves the choice to the owner and names `guides copy`, the vendoring, the bindings and `attest`.
+
+### Finished
+
+- **Summary:** All nine acceptance criteria are shown by tests: the guide format and its check (`test_guides.py`); the shipped catalog and `guides()` (`test_guides.py`, CLI, MCP and API); `catalog.guides` and recipe builder reading it (`test_guides.py`, `test_recipe_builder.py`, the adoption scenario); the choice in `recipe-builder@5`, the one question, the quick path and pinned `@4` (`test_recipe_builder.py`, `test_recipe_builder_runs.py`); a shipped guide used directly (`guides copy` tests); `quick-run` following a guide to a published deliverable (`test_quick_run.py`); its one dispatch, one approval and bounded attempts (`test_quick_run.py`); the Director's quick-run advice (`test_director_surface.py`) and the end-to-end scenario; the design and manual (`test_docs.py`, `test_manual.py`, `test_manual_gen.py`).
+- **Next:** none required. Media other than Markdown for quick-run results, and more shipped guides, wait for real use (Decision 0163, items 2 and 4).

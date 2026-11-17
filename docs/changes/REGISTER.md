@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-quick-runs](2026-11-quick-runs.md) | An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | On hold: recorded 2026-11-16 (Decision 0161); to be designed after the recipe-builder changes of Decision 0155 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-builder-engineered-tools](2026-11-builder-engineered-tools.md) | Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
@@ -32,6 +31,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-project-documents](2026-11-project-documents.md) | Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled | done | major | |
 | [2026-11-project-policy](2026-11-project-policy.md) | A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work | done | major | |
 | [2026-11-project-review](2026-11-project-review.md) | An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on | done | major | |
+| [2026-11-quick-runs](2026-11-quick-runs.md) | An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document | done | major | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | done | major | |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | done | standard |  |
 | [2026-11-setup-ui](2026-11-setup-ui.md) | A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file | done | major | |
