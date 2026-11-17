@@ -3,21 +3,29 @@
 A tool is a script in ``tools/<id>/`` of a recipe package, described by
 ``tool.yaml``, with its dependencies pinned in a lock file. This module holds
 what the loader needs to check a tool without running it: the lock-file parser,
-the entry placeholders and the runtime-version check. Building environments
-and running tools come later (2026-11-tool-steps, Slices 2 and 3).
+the entry placeholders, the runtime-version check and the tool's worked
+examples (``examples/<name>/``; Decision 0162). Environments are built in
+``tool_env``, tools run in ``tool_runner`` and examples are run by ``tool_test``.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .models import ToolSpec
 
 TOOLS_DIR = "tools"
 TOOL_FILE = "tool.yaml"
+EXAMPLES_DIR = "examples"
+#: An example's files (Decision 0162, items 5 and 10).
+EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE = (
+    "input.json", "inputs", "expected.json", "expected", "workspace")
+_EXAMPLE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 RUNTIME_KINDS = ("python",)  # Decision 0156, item 2
 #: The only words Baton fills into an entry command: the inputs file, the
 #: output directory, the tool's own folder (Decision 0158) and the workspace.
@@ -49,6 +57,19 @@ class LockProblem:
 
 
 @dataclass
+class Example:
+    """One worked example of a tool: the inputs it is given and the result it must give (Decision 0162)."""
+
+    name: str
+    root: Path  # tools/<id>/examples/<name>/
+    values: dict[str, Any]  # input.json: the JSON inputs
+    files: dict[str, Path]  # inputs/<input name>.<ext>: the file inputs
+    expected: dict[str, Any]  # expected.json: output.json must equal it
+    artifacts: dict[str, Path]  # expected/<artifact>.<ext>: compared byte for byte
+    workspace: Path | None = None  # workspace/: copied as the workspace of a tool that reaches it
+
+
+@dataclass
 class LoadedTool:
     """A checked tool: its declaration, its folder and the hashes that pin it."""
 
@@ -57,6 +78,7 @@ class LoadedTool:
     sha256: str  # over every file in the tool's folder, as the recipe hash is (§5.9)
     lock_sha256: str
     requirements: list[LockedRequirement] = field(default_factory=list)
+    examples: list[Example] = field(default_factory=list)
 
     @property
     def id(self) -> str:
@@ -148,3 +170,85 @@ def _strip_comment(line: str) -> str:
     # pip's rule: '#' starts a comment at the start of a line or after whitespace.
     m = re.search(r"(^|\s)#", line)
     return line[: m.start()] if m else line
+
+
+def artifact_name(filename: str) -> str:
+    """The artifact a file is for: ``differences.csv`` and ``differences`` are both ``differences``."""
+    return filename.split(".", 1)[0]
+
+
+def load_examples(tool_root: Path) -> tuple[list[Example], list[tuple[str, str, str]]]:
+    """A tool's examples, and the problems with them as ``(code, where, message)``.
+
+    ``where`` is relative to the tool's folder. No ``examples/`` folder is no
+    examples, not a problem (``baton tools test --require-examples`` says so).
+    """
+    base = tool_root / EXAMPLES_DIR
+    if not base.is_dir():
+        return [], []
+    examples: list[Example] = []
+    problems: list[tuple[str, str, str]] = []
+
+    def bad(where: str, message: str) -> None:
+        problems.append(("tool.bad_example", where, message))
+
+    for d in sorted(base.iterdir()):
+        where = f"{EXAMPLES_DIR}/{d.name}"
+        if not d.is_dir():
+            bad(where, "an example is a folder (examples/<name>/ holding input.json and expected.json)")
+            continue
+        if not _EXAMPLE_NAME.match(d.name):
+            bad(where, f"{d.name!r} is not an example name (lower-case letters, digits, '-' and '_')")
+            continue
+        n_before = len(problems)
+        known = {EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE}
+        for extra in sorted(p.name for p in d.iterdir() if p.name not in known):
+            bad(f"{where}/{extra}", "not part of an example (input.json, inputs/, expected.json, expected/, workspace/)")
+        values = _json_object(d / EXAMPLE_INPUT, f"{where}/{EXAMPLE_INPUT}", bad, required=False)
+        expected = _json_object(d / EXAMPLE_EXPECTED, f"{where}/{EXAMPLE_EXPECTED}", bad, required=True)
+        files = _named_files(d / EXAMPLE_INPUTS, f"{where}/{EXAMPLE_INPUTS}", "input", bad)
+        for name in sorted(set(files) & set(values or {})):
+            bad(f"{where}/{EXAMPLE_INPUTS}/{files[name].name}", f"input {name!r} is given both here and in {EXAMPLE_INPUT}")
+        artifacts = _named_files(d / EXAMPLE_ARTIFACTS, f"{where}/{EXAMPLE_ARTIFACTS}", "artifact", bad)
+        ws = d / EXAMPLE_WORKSPACE
+        if ws.exists() and not ws.is_dir():
+            bad(f"{where}/{EXAMPLE_WORKSPACE}", "workspace/ must be a folder")
+        if len(problems) == n_before and values is not None and expected is not None:
+            examples.append(Example(d.name, d, values, files, expected, artifacts, ws if ws.is_dir() else None))
+    return examples, problems
+
+
+def _json_object(path: Path, where: str, bad: Any, *, required: bool) -> dict[str, Any] | None:
+    if not path.is_file():
+        if required:
+            bad(where, f"missing: the example needs {path.name}")
+            return None
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError, OSError) as e:
+        bad(where, f"not valid JSON ({e})")
+        return None
+    if not isinstance(value, dict):
+        bad(where, "must hold a JSON object")
+        return None
+    return value
+
+
+def _named_files(folder: Path, where: str, what: str, bad: Any) -> dict[str, Path]:
+    """Files named ``<name>`` or ``<name>.<ext>``, one per name."""
+    out: dict[str, Path] = {}
+    if not folder.exists():
+        return out
+    if not folder.is_dir():
+        bad(where, f"{folder.name}/ must be a folder")
+        return out
+    for p in sorted(folder.iterdir()):
+        name = artifact_name(p.name)
+        if p.is_dir():
+            bad(f"{where}/{p.name}", f"one file per {what}, named {what} or {what}.<ext>; not a folder")
+        elif name in out:
+            bad(f"{where}/{p.name}", f"two files for {what} {name!r}: {out[name].name!r} and {p.name!r}")
+        else:
+            out[name] = p
+    return out

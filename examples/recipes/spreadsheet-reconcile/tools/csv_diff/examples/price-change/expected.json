@@ -1,0 +1,12 @@
+{
+  "key": "id",
+  "rows_before": 3,
+  "rows_after": 3,
+  "added": 1,
+  "removed": 1,
+  "changed": 1,
+  "unchanged": 1,
+  "columns_added": ["stock"],
+  "columns_removed": [],
+  "changed_by_column": { "price": 1 }
+}

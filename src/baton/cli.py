@@ -1470,6 +1470,32 @@ def tools_setup(as_json: JsonOpt = False) -> None:
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 
+@tools_app.command("test")
+def tools_test(
+    package: Annotated[Path, typer.Argument(help="A recipe package folder (its recipe.yaml and tools/).")],
+    require_examples: Annotated[bool, typer.Option("--require-examples", help="A tool with no examples fails.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Run each of a recipe's tools on its worked examples and report any difference (exit 0 when all pass)."""
+    from .project import machine_home
+    from .recipe import load_recipe
+    from .tool_test import run_tool_examples
+
+    loaded = _call(as_json, lambda: load_recipe(package.resolve()))
+    results = run_tool_examples(loaded.tools, machine_home(), require_examples=require_examples)
+    out = {"package": str(package), "ok": all(r.ok for r in results), "tools": [r.as_dict() for r in results]}
+    lines = []
+    for r in results:
+        if r.problem:
+            lines.append(f"FAILED {r.tool}: {r.problem}")
+        elif not r.examples:
+            lines.append(f"{r.tool}: no examples")
+        for e in r.examples:
+            lines.append(f"passed {r.tool} / {e.example}" if e.ok else f"FAILED {r.tool} / {e.example}: {e.difference}")
+    _emit(out, as_json, "\n".join(lines) or "This recipe has no tools.")
+    raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
+
+
 @workers_app.command("setup")
 def workers_setup(
     verify: Annotated[Optional[list[str]], typer.Option("--verify", help="Live-check this profile (repeatable; costs one small model call each).")] = None,

@@ -3,3 +3,5 @@
 * text=auto eol=lf
 *.png binary
 *.jpg binary
+# A tool's worked examples are compared byte for byte (§5.9): never convert them.
+**/tools/*/examples/** -text

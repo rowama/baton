@@ -691,6 +691,18 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 |---|---|
 | `--json` | Machine-readable output. |
 
+### baton tools test {#baton-tools-test}
+
+Run each of a recipe's tools on its worked examples and report any difference (exit 0 when all pass).
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `package <path>` | A recipe package folder (its recipe.yaml and tools/). |
+| `--require-examples` | A tool with no examples fails. |
+| `--json` | Machine-readable output. |
+
 ## baton trace {#baton-trace}
 
 Print the run's recent events, one line each.

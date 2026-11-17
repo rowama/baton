@@ -799,6 +799,9 @@ class _Checker:
                 lock_rel = f"{tools.TOOLS_DIR}/{tool_id}/{spec.dependencies.lock}"
                 for p in problems:
                     self.error(p.code, f"{lock_rel}:{p.line}", p.message)
+        examples, example_problems = tools.load_examples(base)
+        for code, ex_where, message in example_problems:
+            self.error(code, f"{tools.TOOLS_DIR}/{tool_id}/{ex_where}", message)
         if any(i.severity == "error" for i in self.issues[n_before:]) or lock is None:
             return None
         return tools.LoadedTool(
@@ -807,6 +810,7 @@ class _Checker:
             sha256=package_sha256(base),
             lock_sha256=tools.file_sha256(lock),
             requirements=reqs,
+            examples=examples,
         )
 
     def _check_entry(self, spec: ToolSpec, base: Path, rel: str) -> None:

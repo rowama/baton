@@ -276,6 +276,7 @@ published:
 - reference.commands#baton-summary
 - reference.commands#baton-tools
 - reference.commands#baton-tools-setup
+- reference.commands#baton-tools-test
 - reference.commands#baton-trace
 - reference.commands#baton-ui
 - reference.commands#baton-upgrade

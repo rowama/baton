@@ -60,6 +60,14 @@ What a tool may touch is declared in its `reach`:
 
 A tool runs in an empty scratch folder, never in its own folder, so it cannot change the recipe. Every run records which tool ran, the hashes of its files and lock, the Python version and the environment.
 
+A tool can ship **worked examples**: inputs, and the result it must give for them. Each example is a folder `tools/<id>/examples/<name>/`. It holds `input.json` for the plain values, `inputs/<input name>.<ext>` for each file the tool reads, `expected.json` for what the tool's `output.json` must equal, and `expected/<artifact>.<ext>` for each file it must write, compared byte for byte. To run every tool of a recipe on its examples, on this machine:
+
+```baton
+baton tools test path/to/recipe
+```
+
+Each example passes or fails, and a failure names the first difference, for example `artifact 'differences': line 4: expected '…', the tool wrote '…'`. The command exits 0 only when every example passes. With `--require-examples`, a tool that has no examples also fails; the recipe builder checks the tools it writes this way. Keep git from changing line endings in example files: this repository's `.gitattributes` has `**/tools/*/examples/** -text`, and Baton already protects vendored recipes in `.baton/`.
+
 ## Helpers for recipe authors {#authors}
 
 `baton recipe check <package> --ledger <file>` is a helper that a recipe's own checks run: it verifies that no requirement is open and that every confirmed one carries the owner's words. The recipe format is published as JSON Schema in the runtime's `formats/` data, so an assistant can pre-check what it writes. Writing recipes is covered by the design documents; a guided path is the [recipe builder](recipes.recipe-builder#here-now).

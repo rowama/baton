@@ -5,7 +5,7 @@ status: accepted
 level: major
 decisions: ["0155", "0154", "0156", "0158", "0144", "0147", "0145", "0161", "0162", "0159"]
 touches: [design/recipes.md, design/director-interface.md]
-manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, admin/recipes-and-vendoring.md, reference/commands.md, user/what-baton-may-do.md]
+manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, admin/recipes-and-vendoring.md, reference/commands.md, anchors.yaml, user/what-baton-may-do.md]
 ---
 
 # Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot
@@ -112,7 +112,7 @@ Approved by the owner with the Request on 2026-11-16.
 
 ### Manual edits
 
-- `reference/commands.md`, `admin/recipes-and-vendoring.md`: `baton tools test` and tool examples (Slice 1).
+- `reference/commands.md` (generated), `anchors.yaml`, `admin/recipes-and-vendoring.md`: `baton tools test`, tool examples and keeping git from converting them (Slice 1).
 - `recipe-sources/recipe-builder.md` (and the generated `recipes/recipe-builder.md`): the two ratings, who does each step, the walkthrough lists, the delegation marks (Slices 2 to 4).
 - `user/what-baton-may-do.md`: small programs the builder may write for a process, and the ceiling the owner sets (Slice 4).
 
@@ -173,3 +173,12 @@ Approved 2026-11-16. `2026-11-tool-steps` is done.
 - **Summary:** The owner accepted all ten suggested answers (nine from the proposal, a tenth on file inputs to examples raised against Decision 0159) and approved the Request and Design, delegation marks included. Recorded as Decision 0162; manual files listed. No code changed.
 - **Owner decision:** 2026-11-16, "Accept all." (0162).
 - **Accepted:** Yes.
+
+### Slice 1: tools ship examples and can be tested
+
+- **Summary:** A tool's worked examples live in `tools/<id>/examples/<name>/` (`input.json`, `inputs/<input>.<ext>`, `expected.json`, `expected/<artifact>.<ext>`, and `workspace/` for a tool that reaches one). The loader checks them (`tool.bad_example`) and hashes them with the recipe. `baton tools test <package> [--require-examples]` runs each example as a dispatch would: the tool's environment, `engine.tool_profile`'s constructed environment variables, and `baton.tool_runner` on a packet built from the example, declaring only the expected artifacts. It names the tool, the example and the first difference (JSON path, or line), and exits 0 only when all pass. `spreadsheet-reconcile`'s `csv_diff` ships the example `price-change`, which passes.
+- **Found on the way:** the repository's `* text=auto eol=lf` would have converted the CRLF endings `csv` writes in expected artifacts and broken the byte comparison on checkout. `.gitattributes` now has `**/tools/*/examples/** -text`; projects' vendored recipes were already covered by `.baton/.gitattributes`. Drafts the builder writes outside `.baton/` are tested on the machine that wrote them (Slice 4).
+- **Modules:** `tools.py` (`Example`, `load_examples`), `recipe.py` (examples loaded with the tool), new `tool_test.py`, `cli.py` (`tools test`).
+- **Design docs:** §5.9 (tool examples, `tools test`), §13.1 (`tools test`).
+- **Manual:** `admin/recipes-and-vendoring.md`; `reference/commands.md` regenerated; `anchors.yaml` (`baton-tools-test`).
+- **Tests:** `tests/test_tool_examples.py`: the shipped example loads with file inputs and an artifact; examples change the tool's and the recipe's hash; nine malformed examples refused where they are; JSON and byte differences in plain words; `tools test` passes the shipped tool, fails a changed artifact or output naming the difference, fails a failing tool and an undeclared file, fails a tool with no examples only under `--require-examples`, and refuses a package that does not load.

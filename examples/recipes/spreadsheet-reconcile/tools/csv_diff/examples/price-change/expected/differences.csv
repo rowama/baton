@@ -1,0 +1,4 @@
+change,key,column,before,after
+added,4,,,
+removed,2,,,
+changed,1,price,1.00,1.10
