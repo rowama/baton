@@ -53,7 +53,8 @@ If you said no programs, and the design finds parts a program could do, you are 
 
 - A **plan** of the process, in a document in the project (`recipes/plans/`).
 - The **process** itself as a draft in your project (`recipes/drafts/`), checked automatically for mistakes.
-- A **walkthrough** in plain language, so you can judge the process without reading it.
+- A **walkthrough** in plain language, so you can judge the process without reading it. It lists each small program in the process (what it does, what it needs installed, what it may touch) and each part an AI helper does that a program could have done, with the trade.
+- When you allowed programs, the **programs** themselves, each with its worked examples. Each is run on its examples before you see the result, and an independent reviewer checks it does only what the design says.
 
 It never adds the process to your project's set on its own. After you approve it, your assistant asks before making it available.
 

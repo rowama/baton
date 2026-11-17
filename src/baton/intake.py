@@ -43,7 +43,8 @@ from .supervisor import kill_tree
 
 #: Variables a script gate's command keeps from the runtime's environment.
 #: Gates run under the runtime's own reduced environment, never a worker profile's.
-GATE_ENV_ALLOW = ("PATH", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TERM", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR")
+#: BATON_HOME: a `baton` command a gate runs (`tools test`) uses the runtime's home, not the default one.
+GATE_ENV_ALLOW = ("PATH", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TERM", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "BATON_HOME")
 FEEDBACK_TAIL_LINES = 40
 DEFAULT_SCRIPT_TIMEOUT_S = 900
 

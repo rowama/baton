@@ -162,3 +162,16 @@ def test_a_package_that_does_not_load_is_refused(tmp_path):
     home.mkdir()
     res = CliRunner(env={"BATON_HOME": str(home)}).invoke(app, ["tools", "test", str(root)])
     assert res.exit_code != 0 and "tool.bad_example" in res.output
+
+
+@pytest.mark.not_slow("builds an environment dict")
+def test_a_gate_runs_baton_against_the_runtimes_home(monkeypatch, tmp_path):
+    """`baton tools test` in a script gate builds environments in the runtime's Baton home, not the default one."""
+    from types import SimpleNamespace
+
+    from baton.intake import _gate_env
+
+    monkeypatch.setenv("BATON_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("SOME_SECRET", "x")
+    env = _gate_env(SimpleNamespace(run_id="r1"), "generate")
+    assert env["BATON_HOME"] == str(tmp_path / "home") and "SOME_SECRET" not in env

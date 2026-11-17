@@ -58,7 +58,7 @@ def test_the_plan_at_each_approach_with_no_software_is_v3s_plan_at_that_level(lo
     assert not gate("standard", "generate", "review")[0].included  # a package review only at complex
     assert gate("complex", "generate", "review")[0].included
     for lv in by_level.values():
-        assert [g.type for g in lv["generate"].gates if g.type == "script"] == ["script", "script"]
+        assert [g.type for g in lv["generate"].gates if g.type == "script"] == ["script", "script", "script"]
 
 
 def test_the_loop_is_bounded_and_audited_by_another_vendor(loaded):
@@ -390,3 +390,14 @@ def test_the_patterns_rubric_and_prompts_carry_the_step_design_rules():
     assert "`rating_signal`" in design and '{axis: "software", suggested: "simple", reason}' in design
     assert "executor_choice" in design and "delegation" in design and "plan no tool for it" in design
     assert "checks 21 to 27" in audit
+
+
+def test_generate_is_gated_on_every_tool_passing_its_examples_and_writes_the_walkthrough_lists(loaded):
+    gen = next(s for s in loaded.recipe.steps if s.id == "generate")
+    assert [g.run for g in gen.gates if g.type == "script"][2] == "baton tools test recipes/drafts/{{ run.slug }} --require-examples"
+    prompt = " ".join((BUILDER / "prompts" / "generate.md").read_text(encoding="utf-8").split())
+    assert "the Python standard library only, no network, no secrets" in prompt
+    assert "Small programs in this process:" in prompt and "Parts an AI helper does that a program could do:" in prompt
+    assert "An example the owner approved is never changed to fit the code." in prompt
+    rubric = (BUILDER / "prompts" / "package_review_rubric.md").read_text(encoding="utf-8")
+    assert "imports anything outside the Python standard library" in rubric and "were changed to fit the code" in rubric

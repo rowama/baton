@@ -28,6 +28,8 @@ Some processes do part of their work with a small program instead of an AI, for 
 
 It runs only after you say yes. If the process later brings a changed program, you are asked again. A program never gets a password or key it did not name, and it cannot change files it was not allowed to change. Whether it uses the internet is shown to you but not checked by Baton.
 
+The [recipe builder](recipes.recipe-builder#who-does-each-part) can write such programs for a process it makes, but only if you allow it: when it first understands your process it asks whether it may write small programs, and you set the limit. The programs it writes are small, each one file, with nothing to install and no internet. You see each one, with worked examples, before it is written; each is tested on those examples and checked by an independent reviewer; and you approve it again before the process is added to your project.
+
 ## What "asks you" looks like {#asks-you}
 
 Your assistant tells you what it wants to do and why, and waits. If you approve, it goes ahead and records your approval in your own words. If you do not, nothing happens. Approval never lifts a "never".

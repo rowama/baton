@@ -163,7 +163,7 @@ def test_a_simple_run_builds_a_package_behind_two_owner_touchpoints(project_with
     assert_package_is_ready(cli, project)
     evs = run_events(project, run)
     scripts = [e for e in evs if e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "script"]
-    assert [e["data"]["command"].split(" ")[:2] for e in scripts] == [["baton", "plan"], ["baton", "recipe"]]
+    assert [e["data"]["command"].split(" ")[:2] for e in scripts] == [["baton", "plan"], ["baton", "recipe"], ["baton", "tools"]]
     assert all(e["data"]["exit_code"] == 0 for e in scripts)
     assert not (project / "recipes" / "plans").exists()  # one process: no process plan was written
     from test_real_use import assert_clean_record
@@ -635,3 +635,91 @@ def test_at_a_ceiling_of_none_the_owner_is_told_once_that_software_could_do_part
     assert [r for r, _ in d.owner_decisions if r.startswith("rating:")] == ["rating:software"]
     recorded = [e for e in run_events(project, run) if e["type"] == "rating_signal_recorded"]
     assert [(e["data"]["axis"], e["data"]["suggested"], e["data"]["rating"]) for e in recorded] == [("software", "simple", "none")]
+
+
+# -- the builder writes simple tools (change 2026-11-builder-step-design, Slice 4) -------------------------
+
+COUNT_PY = """import json
+import sys
+from pathlib import Path
+
+bed = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["bed"]
+if bed["spacing_m"] <= 0:
+    print("count_plants: the spacing must be more than zero", file=sys.stderr)
+    sys.exit(1)
+plants = int(bed["length_m"] // bed["spacing_m"]) * int(bed["width_m"] // bed["spacing_m"])
+(Path(sys.argv[2]) / "output.json").write_text(json.dumps({"plants": plants}), encoding="utf-8")
+"""
+TOOL_YAML = ("id: count_plants\ndescription: Works out how many plants fit in a bed from its size and the spacing.\n"
+             "runtime: { kind: python, version: \">=3.10\" }\nentry: [\"python\", \"{tool}/count_plants.py\", \"{input}\", \"{output}\"]\n"
+             "dependencies: { lock: requirements.lock }\nreach: { workspace: none, network: false, secrets: [] }\n")
+TOOL_PACKAGE = {
+    "recipe.yaml": (
+        "id: flower-bed\nversion: 1\nformat: baton-recipe/1\ncapabilities_vocab: baton-capabilities/1\n"
+        "description: Plant a flower bed.\nscope:\n  covers: [a flower bed]\n  not_for: []\n  varies_by: [size]\nparent: null\n"
+        "run_inputs:\n  schema: schemas/run_inputs.json\nsteps:\n"
+        "  - id: count\n    title: Work out how many plants\n    tool: count_plants\n    workspace: none\n"
+        "    inputs:\n      - { name: bed, from: run.inputs.bed, required: true }\n"
+        "    output_schema: schemas/count_out.json\n    gates: [ { type: schema } ]\n"
+        "  - id: plant\n    title: Plant the bed\n    depends_on: [count]\n    requires: { capabilities: [human_judgment] }\n"
+        "    prompt: prompts/plant.md\n    inputs:\n      - { name: count, from: steps.count.output, required: true }\n"
+        "    output_schema: schemas/plant_out.json\n    gates: [ { type: schema } ]\n"
+    ),
+    "prompts/plant.md": "# Plant the bed\n\nPlant the number of plants worked out, and report what you did.\n",
+    "schemas/run_inputs.json": json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+                                           "properties": {"bed": {"type": "object"}}}),
+    "schemas/count_out.json": json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+                                          "required": ["plants"], "properties": {"plants": {"type": "integer"}}}),
+    "schemas/plant_out.json": json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"}),
+    "tools/count_plants/count_plants.py": COUNT_PY,
+    "tools/count_plants/tool.yaml": TOOL_YAML,
+    "tools/count_plants/requirements.lock": "",
+    "tools/count_plants/examples/three-by-one/input.json": json.dumps({"bed": {"length_m": 3, "width_m": 1, "spacing_m": 0.5}}),
+    "tools/count_plants/examples/three-by-one/expected.json": json.dumps({"plants": 12}),
+}
+COUNT_TOOL_STAGE = {**COUNT_BY_AI, "done_by": "tool",
+                    "tool": {"id": "count_plants", "does": "Works out how many plants fit in a bed from its size and the spacing.",
+                             "input": "the bed's length, width and spacing", "output": "the number of plants",
+                             "reach": {"workspace": "none", "network": False, "secrets": []},
+                             "examples": [{"name": "three-by-one", "input": {"bed": {"length_m": 3, "width_m": 1, "spacing_m": 0.5}},
+                                           "expected": {"plants": 12}, "says": "A 3 m by 1 m bed at 50 cm spacing takes 12 plants."}]}}
+
+
+def generated_with_tool(ledger: list[dict], script: str = COUNT_PY) -> dict:
+    gen = generated(ledger)
+    files = {f"recipes/drafts/{SLUG}/{k}": (script if k.endswith("count_plants.py") else v) for k, v in TOOL_PACKAGE.items()}
+    gen["commit_files"] = {**files, f"recipes/drafts/{SLUG}.ledger.json": gen["commit_files"][f"recipes/drafts/{SLUG}.ledger.json"]}
+    gen["artifacts"]["walkthrough"] = ("# Planting a flower bed\n\nYou survey the site; a small program works out how many plants fit; you plant them.\n\n"
+                                       "**Small programs in this process:** working out how many plants fit (needs Python, nothing else; "
+                                       "does not open your files and does not use the internet).\n")
+    return gen
+
+
+@pytest.mark.slow
+def test_a_described_process_with_rule_like_work_yields_an_accepted_package_whose_tool_passes_its_examples(project_with):
+    ledger = [GOAL, BED]
+    wrong = COUNT_PY.replace("int(bed[\"width_m\"] // bed[\"spacing_m\"])", "int(bed[\"width_m\"] / bed[\"spacing_m\"] + 1)")
+    cli, project, _ = project_with({
+        "profile": profile("simple", ledger, software="simple"),
+        "design": design_with([STAGES[0], COUNT_TOOL_STAGE, STAGES[1]], ledger), "audit": CLEAN,
+        # attempt 1's tool gets 18 for the example: the `tools test` gate sends it back; attempt 2 is right.
+        "generate": [generated_with_tool(ledger, wrong), generated_with_tool(ledger)], "generate~review": CLEAN})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=route)
+    st = d.drive()
+    assert st["state"] == "completed" and st["ratings"] == {"approach": "simple", "software": "simple"}
+    import re
+
+    refs = [re.sub(r"/x[0-9a-f]+/", "/", r) for r, _ in d.owner_decisions]
+    assert refs == ["profile", "profile", "shape/i1/audit", "accept"], refs  # the owner saw the design (with the tool) before it was built
+    evs = run_events(project, run)
+    failed = [e for e in evs if e["type"] == "gate_failed" and e["step_path"] == "generate"]
+    assert len(failed) == 1 and failed[0]["attempt"] == 1
+    assert "FAILED count_plants / three-by-one: output.plants: expected 12, the tool gave 18" in json.dumps(failed[0]["data"])
+    passed = [e["data"]["command"] for e in evs if e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "script"]
+    assert passed[-1] == f"baton tools test recipes/drafts/{SLUG} --require-examples"
+    assert any(e["type"] == "gate_passed" and e["step_path"] == "generate" and e["data"].get("type") == "review" for e in evs)
+    # The accepted draft is a recipe with a tool step: vendoring it asks the owner about the tool, in their terms.
+    flags = cli("vendor", str(project / "recipes" / "drafts" / SLUG), expect=4).payload
+    tool_flags = [f for f in flags.get("flags", []) if f["code"] == "tool"]
+    assert [f["tool"] for f in tool_flags] == ["count_plants"] and "does not use the internet" in tool_flags[0]["touches"]
