@@ -3,7 +3,7 @@ id: 2026-11-quick-runs
 title: "An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document"
 status: proposed
 level: major
-decisions: ["0145", "0142", "0146", "0144", "0147", "0141"]
+decisions: ["0145", "0163", "0162", "0142", "0146", "0144", "0147", "0141"]
 touches: [design/recipes.md, design/director-interface.md, design/layouts.md, design/persistence.md]
 manual: [recipes/recipe-builder.md, recipes/quick-run.md, user/start-with-a-goal.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md]
 ---
@@ -30,31 +30,33 @@ Because the result is a deliverable, it is a project document (`2026-11-project-
 - **Guidance documents have a format.** A guidance document is Markdown with front matter (`format: baton-guide/1`, `id`, `version`, `title`, `description`, `produces`: what the run returns). The body covers purpose, what to produce, what good looks like, and what to ask the owner. A check refuses missing fields and vendor names (the recipe neutrality lint, §5.3).
 - **A catalog of guides ships.** The package ships a starter set of guides. `guides()` (CLI `baton guides`, MCP, API) lists the shipped guides and the project's own, each with id, version, title, description, `produces` and where it lives.
 - **Recipe builder sees the guides.** A new input, `catalog.guides`, gives a step the same listing. Recipe builder's first step reads it beside `catalog.summaries`.
-- **Recipe builder offers the choice.** In a new version, `recipe-builder@4`, the `profile` step checks existing recipes first, as today. It then recommends a full process or a quick guided run, saying in the owner's terms what each costs and gives. The owner chooses; the choice is never applied without them. On the quick path, the builder skips research, design, audit and generation. It adopts a fitting guide or writes one, publishes it into the project as a deliverable, and asks the owner to approve it. Projects with `recipe-builder@3` pinned keep it.
+- **Recipe builder offers the choice.** In a new version, `recipe-builder@5`, the `profile` step checks existing recipes first, as today. It then recommends a full process or a quick guided run, saying in the owner's terms what each costs and gives. The owner chooses; the choice is never applied without them. The owner is still asked once at `profile`: one question confirms what the process should do and the approach together. On the quick path, the builder skips research, design, audit and generation. It adopts a fitting guide or writes one, publishes it into the project as a deliverable, and asks the owner to approve it. Projects with `recipe-builder@4` pinned keep it.
+- **A shipped guide can be used directly.** `guides copy <id> --note "<owner's words>"` copies a shipped guide into the project's `guides/` and records the owner's attestation of the copy, so `quick-run` can bind it without a recipe builder run.
 - **A quick run follows a guide.** A shipped recipe, `quick-run`, takes a title and the owner's request as run inputs and the guide as a required project document (role `guide`), plus optional context documents (role `context`, `many`). Its one step dispatches them to a worker. The worker returns the deliverable, which the owner approves or sends back with a note. On approval it is published and listed by `documents()` as a deliverable, needing no attestation.
 - **It stays quick.** `quick-run` has no triage, no research and no review gate: one dispatch, one owner approval, and attempts bounded as for any step.
 - **The Director knows both paths.** The Director skill says when a quick run is worth offering, how to start one from a builder run's guide (binding the guide by role), and that work done entirely outside Baton still enters through `attest`.
 - **Manual and design are current.** §5.7 describes the guides and both recipes; the manual has a topic for `quick-run`, an updated recipe-builder topic, and an owner's guide to choosing.
 
-### Open questions
+### Open questions (decided)
 
-New questions this change raises, each with a suggested answer, to be put to the owner in one batch before Design.
+The six questions this change raised were put to the owner with suggested answers. The owner discussed 1 and 5 first and accepted all six (Decision [0163](../decisions/0163-quick-runs-details.md), 2026-11-17).
 
-1. **How does recipe builder skip the full path when the owner chooses quick?** A run skips steps only by its ratings (§5.5), and recipe builder rates one scale (`simple`, `standard`, `complex`) at `profile`. *Suggested:* `recipe-builder@4` rates one axis, `approach`, with scale `[quick, simple, standard, complex]` and `confirm_lowest: true`. `quick` then always waits on the owner, and the full-path steps apply from `simple` up. *Rationale:* it uses tailoring as built (0144, 0147) and makes the choice the owner's, recorded with a reason. The cost: a `simple` build, which applies at once today, will ask the owner once to approve the rating. Design should fold that into the profile's existing question so the owner still answers once.
-2. **What may a quick run produce?** *Suggested:* one Markdown document in this change, the guide's `produces` naming it. Other media later, if guides need them. *Rationale:* recipes declare artifacts statically. Most "good enough" parts (a plan, a brief, a procedure) are documents, and one artifact keeps `quick-run` one step.
-3. **Where are quick-run results and project guides published?** A publish target must be a `paths.*` key that `project.yaml` maps, or `start` is refused. *Suggested:* results to `paths.documents`, defaulting to `docs` when unmapped, as `paths.process_plans` does (0069). Project guides to `guides/<slug>.md`, beside `recipes/plans/`. *Rationale:* no setup step before the first quick run, and project guides sit where `guides()` looks.
-4. **Which guides ship first?** *Suggested:* a small, general set: a lean business plan, a marketing plan, a standard operating procedure, a project charter and a decision record. More are added from real use. *Rationale:* they cover the owner's water-vending example end to end and are useful in most projects. A larger catalog is cheap to grow once the format has proved itself.
-5. **May an owner start `quick-run` with a catalog guide directly, without recipe builder?** *Suggested:* yes. `guides()` can copy a shipped guide into the project's `guides/` as an owner-attested project document (`guides copy <id> --note`), and `quick-run` then binds it. Recipe builder remains the path for choosing or writing one. *Rationale:* when a fitting guide exists, a builder run only to copy it is friction (principle 2). Attesting the copy keeps the rule that a guide is a project document.
-6. **Does the quick run's worker see the workspace?** *Suggested:* no (`workspace: none`). Context arrives only through the `context` role. *Rationale:* quick, bounded and reproducible. What the run used is exactly what was bound.
+1. **How does recipe builder skip the full path when the owner chooses quick?** `recipe-builder@5` rates `approach: [quick, simple, standard, complex]` with `confirm_lowest: true`; `quick` requires `software: none` (Decision [0162](../decisions/0162-builder-step-design-details.md), item 3), and the full-path steps apply from `simple` up. Because every set of ratings now waits on the owner, `profile` drops its own human gate and the triage gate is its one question: what the process should do and the recommended approach, together.
+2. **What may a quick run produce?** One Markdown document, named by the guide's `produces`. Other media later, if guides need them.
+3. **Where are quick-run results and project guides published?** Results to `paths.documents`, defaulting to `docs` when unmapped, as `paths.process_plans` does (0069). Project guides to `guides/<slug>.md`.
+4. **Which guides ship first?** A lean business plan, a marketing plan, a standard operating procedure, a project charter and a decision record.
+5. **May an owner start `quick-run` with a catalog guide directly, without recipe builder?** Yes: `guides copy <id> --note` copies the shipped guide into `guides/` as an owner-attested project document, which `quick-run` binds by role. `quick-run` has one way to get its guide. Recipe builder remains the path for choosing or writing one.
+6. **Does the quick run's worker see the workspace?** No (`workspace: none`); context arrives only through the `context` role.
 
 ## Design
 
-Provisional, for review with the Request; settled once the open questions are answered.
+Settled by the answers of Decision 0163; awaiting the owner's approval with the Request.
 
 ### Shape
 
 - **Guides.** Shipped under `examples/guides/` (packaged like the recipe catalog). The project's own live under `guides/`. `guides.py` loads and checks both. `catalog.guides` resolves to `[{id, version, title, description, produces, where}]`, sorted by id.
-- **`recipe-builder@4`.** `profile` gains the `catalog.guides` input, an `approach` rating with its reason, and, when `quick`, the chosen or new guide. A new step, `guide` (`applies_to: {approach: [quick]}`), writes or adapts the guide and publishes it to `guides/{{ run.slug }}.md` behind a human gate ("Use this guide?"). Research, shape, generate and accept apply at `simple` and above.
+- **`recipe-builder@5`.** `approach` gains `quick` below `simple`, with `confirm_lowest: true`; the profile schema requires `software: none` with `quick`. `profile` gains the `catalog.guides` input and, when `quick`, the chosen shipped guide or the brief for a new one. `profile` drops its declared human gate: the implicit triage gate, which now always opens, is its one owner question, and the Director presents it with the profile's summary and the recommended approach in the owner's terms. A new step, `guide` (`applies_to: {approach: [quick]}`), writes or adapts the guide and publishes it to `guides/{{ run.slug }}.md` behind a human gate ("Use this guide?"). Research, shape, generate and accept apply at `simple` and above. Version 4 is frozen as `tests/fixtures/recipes/recipe-builder-v4`, as versions 2 and 3 were.
+- **`guides copy`.** `baton guides copy <id> --note "<owner's words>"` (CLI, MCP, API) copies a shipped guide to `guides/<id>.md` and attests it (§10.4), refusing to overwrite an existing file.
 - **`quick-run@1`.** `run_inputs {title, request}`, `project_inputs [{role: guide, media_type: text/markdown}, {role: context, many: true, required: false}]`, one step `produce` (`workspace: none`, structured output plus long-form writing) whose artifact `deliverable` publishes to `{{ paths.documents }}/{{ run.slug }}.md`, with a human gate.
 - **Director.** It offers `quick-run` on the builder's quick path, binding the guide the builder published (`start quick-run --bind guide=guides/<slug>.md`). It offers `guides copy` when a shipped guide fits as is.
 
@@ -77,10 +79,11 @@ Provisional, for review with the Request; settled once the open questions are an
 ### Decisions
 
 - [0145](../decisions/0145-quick-runs-through-recipe-builder.md) (accepted): the choice in recipe builder, harness-neutral guides, the catalog, the one-step recipe, no new concept.
+- [0163](../decisions/0163-quick-runs-details.md) (accepted): the answers to this change's six open questions.
+- [0162](../decisions/0162-builder-step-design-details.md) (accepted): the `approach` axis that `quick` joins, and `software: none` with `quick`.
 - [0142](../decisions/0142-project-documents-bound-by-role.md), [0146](../decisions/0146-project-document-details.md) (accepted): guides and results are project documents, bound by role.
 - [0144](../decisions/0144-tailoring-axes.md), [0147](../decisions/0147-tailoring-axes-details.md) (accepted): the `approach` axis and `confirm_lowest`.
 - [0141](../decisions/0141-implementation-discovery-timing.md) (accepted): recipe builder's discovery, unchanged on the full path.
-- The open questions above become records when decided.
 
 ## Plan
 
@@ -101,7 +104,7 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 ### Slice 3: `recipe-builder@4`'s quick path
 
 - **Outcome:** recipe builder recommends full or quick, the owner chooses, and the quick path ends with an approved guide in the project.
-- **Criteria:** the `approach` rating always waits on the owner at `quick`; the full path unchanged from `@3` at `simple` and above (its scenario tests pass); a fitting shipped guide adopted; a new guide written; `@3` runs keep `@3`.
+- **Criteria:** the `approach` rating always waits on the owner at `quick`; one owner question at `profile` at every rating; `quick` refused with `software: simple`; the full path unchanged from `@4` at `simple` and above (its scenario tests pass); a fitting shipped guide adopted; a new guide written; `@4` runs keep `@4`.
 - **Effort:** L
 
 ### Slice 4: the Director and the manual
@@ -123,3 +126,9 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** The owner deferred this change's open questions to discuss questions 1 (how recipe builder skips the full path) and 5 (starting a quick run from a catalog guide without recipe builder) first. All six remain open. No code changed.
 - **Owner decision:** 2026-11-14, "Defer for E and F until later. I have to discuss E1 and E5 first."
 - **Accepted:** No; proposal only.
+
+### Open questions answered
+
+- **Summary:** Put questions 1 and 5 to the owner first. Question 1 was mostly settled by Decision 0162 (item 3); the remaining point was that a simple build would ask two questions once `quick` is the lowest rating, so `profile` drops its own gate and the triage gate is its one question. Question 5 was put with three options (copy by attestation, a shipped guide's id taken directly, no path but recipe builder). The owner accepted the suggested answers to all six. Recorded as Decision 0163. Request and Design updated: `recipe-builder@5` (version 4 was taken by `2026-11-builder-step-design`), `guides copy`, the one question at `profile`. No code changed.
+- **Owner decision:** 2026-11-17, "Agree to all." (0163).
+- **Accepted:** No; the Request and Design await the owner's approval.
