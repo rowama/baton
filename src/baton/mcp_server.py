@@ -361,6 +361,16 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.attest(path, note))
 
     @tool
+    def guides() -> dict[str, Any]:
+        """The guidance documents a quick run may follow: the project's own and the shipped ones."""
+        return t.call(lambda api: api.guides())
+
+    @tool
+    def guides_copy(guide_id: str, note: str) -> dict[str, Any]:
+        """Copy a shipped guide into the project's guides/ as the owner attested it (note = their words)."""
+        return t.call(lambda api: api.guides_copy(guide_id, note))
+
+    @tool
     def feedback(kind: str, text: str, run: str | None = None, step: str | None = None, gate: str | None = None,
                  informed_owner: bool = False) -> dict[str, Any]:
         """Record process feedback (friction | skipped_step | waste | confusing)."""

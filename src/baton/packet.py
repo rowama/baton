@@ -338,6 +338,10 @@ def _resolve(
         if not facts.is_file():
             raise _Unresolvable("the project has no platform facts")
         return _Resolved(name, raw, "file", f"{name}.md", facts.read_bytes(), "text/markdown")
+    elif ref.kind == "catalog" and ref.name == "guides":  # the guides a quick run may follow (§5.2; Decision 0163)
+        from . import guides
+
+        value = guides.catalog_input(ctx.store.root)
     elif ref.kind == "catalog":
         from .frame import recipe_listing
         from .project import Project

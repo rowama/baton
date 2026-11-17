@@ -1128,6 +1128,46 @@ def attest(
     _done(out, as_json, f"Attested {_document_line(out['document'])}")
 
 
+guides_app = typer.Typer(invoke_without_command=True, help="Guidance documents a quick run follows: shipped and the project's own (§5.7).")
+app.add_typer(guides_app, name="guides")
+
+
+@guides_app.callback()
+def guides(ctx: typer.Context, as_json: JsonOpt = False) -> None:
+    """List the guides a quick run may follow: the project's own (guides/) and the shipped ones."""
+    if ctx.invoked_subcommand is None:
+        out = _call(as_json, lambda: _api().guides())
+        lines = [f"{g['id']}@{g['version']} ({g['where']}): {g['title']}. Produces {g['produces']}" for g in out["guides"]]
+        lines += [f"NOT A GUIDE {p['path']}: {'; '.join(p['problems'])}" for p in out["problems"]]
+        _done(out, as_json, "\n".join(lines) or "No guides.")
+
+
+@guides_app.command("copy")
+def guides_copy(
+    guide_id: Annotated[str, typer.Argument(help="A shipped guide's id, as `baton guides` lists it.")],
+    note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Copy a shipped guide into the project's guides/ and record the owner's attestation of it (owner-approved)."""
+    out = _call(as_json, lambda: _api().guides_copy(guide_id, note))
+    _done(out, as_json, f"Copied {guide_id} to {out['guide']['path']}; attested {_document_line(out['document'])}")
+
+
+@guides_app.command("check")
+def guides_check(
+    file: Annotated[Path, typer.Argument(help="A guide file to check.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Gate helper: the file is a valid guide (front matter, the four sections, no vendor names)."""
+    from . import guides as guides_mod
+
+    c = guides_mod.check_file(file)
+    problems = c.problems
+    _emit({"ok": not problems, "problems": problems, **({"guide": c.guide.summary()} if c.guide else {})}, as_json,
+          "".join(f"ERROR {file}: {p}\n" for p in problems) or f"{file}: a valid guide")
+    raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
+
+
 @app.command()
 def feedback(
     kind: Annotated[str, typer.Argument(help="friction | skipped_step | waste | confusing")],

@@ -271,6 +271,39 @@ Explained in the manual: [Start with a goal](user.start-with-a-goal#here-now).
 | `--note <str>` | The owner's goal, in their own words (recorded verbatim). |
 | `--json` | Machine-readable output. |
 
+## baton guides {#baton-guides}
+
+Guidance documents a quick run follows: shipped and the project's own.
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--json` | Machine-readable output. |
+
+### baton guides check {#baton-guides-check}
+
+Gate helper: the file is a valid guide (front matter, the four sections, no vendor names).
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `file <path>` | A guide file to check. |
+| `--json` | Machine-readable output. |
+
+### baton guides copy {#baton-guides-copy}
+
+Copy a shipped guide into the project's guides/ and record the owner's attestation of it (owner-approved).
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `guide_id <str>` | A shipped guide's id, as `baton guides` lists it. |
+| `--note <str>` | The owner's words, recorded verbatim. |
+| `--json` | Machine-readable output. |
+
 ## baton help {#baton-help}
 
 The manual: list its topics, print one, or search it. Reads the manual that ships with this version.

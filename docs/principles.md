@@ -100,6 +100,8 @@ Adoption (§11) adds no concept: an *adoption run* is a run of a built-in recipe
 
 A project review (§5.7) adds none either: it is a run of a catalog recipe whose step proposes runs, its choice is framing's selection, generalized (§11.6), and `project.summary` is an input (§5.2) (Decision: [0152](decisions/0152-project-review-details.md)).
 
+Quick runs (§5.7) add none either: a *guide* is a recipe input, used as a project document, and `guides` and `guides copy` list and copy them (Decisions: [0145](decisions/0145-quick-runs-through-recipe-builder.md), [0163](decisions/0163-quick-runs-details.md)).
+
 Framing (§11.6) adds none either: a *framing run* is a run of a built-in recipe whose one step proposes work items, and choosing among them is one owner decision; its *process plan* is a rendering of that run's record (Decision: [0068](decisions/0068-breakdown-rendered-by-runtime.md)); the *catalog* is simply the recipes shipped with the runtime, and the *starter recipes* the ones `init` vendors.
 
 The local setup page (§13.9) adds none: it is an interface, like the CLI and MCP (Decision: [0125](decisions/0125-ui-adds-no-concept.md)). The manual and `baton help` (§13.10) add none either: they are documentation and an interface onto it (Decisions: [0126](decisions/0126-manual-one-corpus.md), [0129](decisions/0129-ui-serves-the-whole-manual.md)).

@@ -67,6 +67,7 @@ published:
 - admin.recipes-and-vendoring
 - admin.recipes-and-vendoring#authors
 - admin.recipes-and-vendoring#axes
+- admin.recipes-and-vendoring#guides
 - admin.recipes-and-vendoring#here-now
 - admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review
@@ -243,6 +244,9 @@ published:
 - reference.commands#baton-explain
 - reference.commands#baton-feedback
 - reference.commands#baton-frame
+- reference.commands#baton-guides
+- reference.commands#baton-guides-check
+- reference.commands#baton-guides-copy
 - reference.commands#baton-help
 - reference.commands#baton-ingest-revision
 - reference.commands#baton-init

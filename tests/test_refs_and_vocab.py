@@ -53,8 +53,11 @@ def test_vocabulary():
         vocab.load("baton-capabilities/2")
 
 
-def test_catalog_summaries_reference_parses():
-    from baton.refs import parse
+def test_catalog_references_parse():
+    from baton.refs import RefSyntaxError, parse
 
-    r = parse("catalog.summaries")
-    assert (r.kind, r.step, r.name, r.path) == ("catalog", None, None, ())
+    for name in ("summaries", "guides"):  # catalog.guides: change 2026-11-quick-runs
+        r = parse(f"catalog.{name}")
+        assert (r.kind, r.step, r.name, r.path) == ("catalog", None, name, ())
+    with pytest.raises(RefSyntaxError):
+        parse("catalog.recipes")

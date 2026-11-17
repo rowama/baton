@@ -41,6 +41,7 @@ commands:
   note: admin.director-commands
   documents: admin.director-commands
   attest: admin.director-commands
+  guides: admin.director-commands
   bind: admin.director-commands
   platform-fact: admin.director-commands
   platform-incident: admin.director-commands

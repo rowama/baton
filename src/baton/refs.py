@@ -28,7 +28,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("human_revision", re.compile(rf"^human_revision\.({_ID})\.({_SEG})$")),
     ("research", re.compile(r"^research\.findings$")),
     ("platform", re.compile(r"^platform\.facts$")),
-    ("catalog", re.compile(r"^catalog\.summaries$")),
+    ("catalog", re.compile(r"^catalog\.(summaries|guides)$")),
     ("policy", re.compile(r"^project\.policy$")),  # before project.<role>: `policy` is not a role name (§5.2)
     ("summary", re.compile(r"^project\.summary$")),  # nor is `summary`: the project's state (§5.2; Decision 0152)
     ("project", re.compile(rf"^project\.({_ID})$")),
@@ -67,7 +67,7 @@ def parse(raw: str) -> Ref:
             return Ref(kind, raw, step=g[0])
         if kind == "item":
             return Ref(kind, raw, path=_split(g[0]))
-        if kind in ("static", "human", "project"):
+        if kind in ("static", "human", "project", "catalog"):
             return Ref(kind, raw, name=g[0])
         return Ref(kind, raw)
     raise RefSyntaxError(f"{raw!r} is not a valid reference (see §5.2 for the grammar)")

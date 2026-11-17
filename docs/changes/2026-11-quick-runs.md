@@ -1,11 +1,11 @@
 ---
 id: 2026-11-quick-runs
 title: "An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document"
-status: accepted
+status: in-progress
 level: major
 decisions: ["0145", "0163", "0162", "0142", "0146", "0144", "0147", "0141"]
 touches: [design/recipes.md, design/director-interface.md, design/layouts.md, design/persistence.md]
-manual: [recipes/recipe-builder.md, recipes/quick-run.md, user/start-with-a-goal.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md]
+manual: [recipes/recipe-builder.md, user/start-with-a-goal.md, admin/recipes-and-vendoring.md, admin/director-commands.md, reference/commands.md]
 ---
 
 # An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document
@@ -138,3 +138,11 @@ Provisional slices, refined once the Request and Design are approved. Each slice
 - **Summary:** The owner approved the Request and Design as updated with Decision 0163's answers. No code changed.
 - **Owner decision:** 2026-11-17, "Approved. proceed"
 - **Accepted:** Yes.
+
+### Slice 1: guidance documents and the catalog
+
+- **Summary:** A guide is Markdown with front matter (`format: baton-guide/1`, `id`, `version`, `title`, `description`, `produces`) and four sections (purpose, what to produce, what good looks like, what to ask the owner). `guides.py` checks it, refusing a missing or unknown field, a bad id or version, an empty section and any vendor string (an error: a guide is all instruction). Five starter guides ship in `examples/guides/`: `lean-business-plan`, `marketing-plan`, `standard-operating-procedure`, `project-charter`, `decision-record`. `guides()` (CLI `baton guides`, MCP, API) lists the project's `guides/` and the shipped guides, sorted by id with a project guide first, and names project files that are not valid guides (or whose name is not their id). `catalog.guides` gives a step the same listing, valid guides only. `guides copy <id> --note` copies a shipped guide to `guides/<id>.md`, attests it with the owner's words and commits it; it never overwrites (`guide.exists`) and refuses an unknown id (`guide.unknown`). `baton guides check <file>` is a CLI-only gate helper, for the builder's `guide` step in Slice 3.
+- **Modules:** new `guides.py`; `refs.py` (`catalog.guides`), `packet.py` (resolves it), `engine.py` (`Api.guides`, `Api.guides_copy`), `mcp_server.py` (`guides`, `guides_copy`), `cli.py` (`guides`, `guides copy`, `guides check`).
+- **Design docs:** §5.2 (`catalog.guides`), §5.3 (the guide check), §5.7 (guidance documents), §13.1 (`guides`, `guides_copy`), §13.2 (`guides check` is CLI-only), §4.1 and §4.3 (`examples/guides/`, the project's `guides/`), §2 in `principles.md` (quick runs add no concept; rule 8 asks for it for a new command).
+- **Manual:** `admin/recipes-and-vendoring.md` (guidance documents, their format and where they live), `admin/director-commands.md` (`guides`, `guides copy`), `context.yaml` (`guides` maps to the commands topic), `reference/commands.md` regenerated, `anchors.yaml`. `recipes/quick-run.md` leaves the change's `manual:` list until Slice 2 writes it (the list may name only files that exist).
+- **Tests:** `tests/test_guides.py`: a good guide and its summary; CRLF read the same; each missing field, bad front matter (format, id, version, empty text, unknown key), no front matter, each missing or empty section, and a vendor name in front matter or body refused; the five starters ship and pass; the listing orders project and shipped guides and names invalid or misnamed files; `catalog.guides` in a packet equals the listing; a misspelt source is `ref.invalid`; `guides copy` copies, attests, commits, lists the copy, and refuses again, an unknown id and an empty note; `guides check` passes and fails; MCP, API and CLI list the same guides. `tests/test_director_surface.py`: the MCP tools include `guides` and `guides_copy`. `tests/test_refs_and_vocab.py`: `catalog.summaries` and `catalog.guides` parse with their name; another `catalog.*` does not.

@@ -416,7 +416,7 @@ API_CALLS = {
     "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
     "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame", "note",
     "workers_status", "workers_setup", "workers_declare", "diag", "ui", "help", "documents", "attest", "bind", "policy", "policy_set",
-    "policy_confirm",
+    "policy_confirm", "guides", "guides_copy",
 }
 
 

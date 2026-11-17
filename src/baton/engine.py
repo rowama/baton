@@ -3950,6 +3950,27 @@ class Api:
             out["checkpoint"] = cp.as_dict()
         return out
 
+    # -- guides (§5.7; Decisions 0145, 0163) -------------------------------------------
+
+    def guides(self) -> dict[str, Any]:
+        """Every guidance document a quick run may follow: the project's own (``guides/``) and the shipped ones,
+        each with id, version, title, description, produces, where and path; ``problems`` names the project's
+        files under ``guides/`` that are not valid guides."""
+        from . import guides
+
+        return guides.listing(self.project.root)
+
+    def guides_copy(self, guide_id: str, note: str) -> dict[str, Any]:
+        """Copy a shipped guide into the project's ``guides/`` and record the owner's attestation of the copy
+        (their words in ``note``), so a quick run can bind it. Refuses to overwrite an existing file."""
+        from . import guides
+
+        out = guides.copy(self.project.store, guide_id, note, recorded_by=self.director.actor)
+        cp = self._project_checkpoint(f"copied guide {guide_id}", extra=[self.project.root / out["guide"]["path"]])
+        if cp is not None:
+            out["checkpoint"] = cp.as_dict()
+        return out
+
     def _project_checkpoint(self, phrase: str, extra: list[Path] | None = None) -> Any:
         """Commit project-level records after a call that touches no run (§10.1)."""
         from . import gitops

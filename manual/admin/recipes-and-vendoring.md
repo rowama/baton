@@ -107,3 +107,28 @@ A part applies when any axis it lists is rated at one of its values; a part with
 ```baton
 baton plan path/to/recipe --rating discovery=low --rating assurance=high
 ```
+
+## Guidance documents {#guides}
+
+A guide tells a worker how to produce one document well enough to use, without a full process: a lean business plan, a marketing plan, a standard operating procedure, a project charter, a decision record. Baton comes with these five; a project keeps its own in `guides/<id>.md`, beside its other files. `baton guides` lists both.
+
+A guide is Markdown with front matter and four sections:
+
+```markdown
+---
+format: baton-guide/1
+id: shop-rota
+version: 1
+title: Shop rota
+description: Who works which shift, week by week.
+produces: a weekly rota (Markdown)
+---
+
+## Purpose
+## What to produce
+## What good looks like
+## What to ask the owner
+```
+
+The file name is the id. Every field is required, every section must say something, and, as in a recipe, no model or vendor name may appear anywhere: a guide works with any worker. `baton guides check <file>` checks one, for a recipe's own checks to run. A guide in `guides/` becomes something a run can build on once it is a project document: `baton guides copy <id> --note "<words>"` copies one that comes with Baton and records that the owner vouches for it.
+
