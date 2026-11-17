@@ -1099,10 +1099,18 @@ def test_two_tools_are_built_one_at_a_time_to_the_owners_examples_and_reviewed_b
 def test_drafted_examples_are_approved_and_a_tool_that_special_cases_the_awkward_one_is_built_again(project_with):
     ledger = [GOAL, BED]
     # the first draft gives the narrow bed one plant; the owner sends it back, and the second gives none.
-    # The first build special-cases the awkward bed; the review finds it, and the second round fixes it.
+    # The first attempt "fixes" the awkward example to fit its code: the protected examples fail it. The next
+    # special-cases the awkward bed; the review finds it, and the second round fixes it.
+    narrow = f"recipes/drafts/{SLUG}/tools/count_plants/examples/narrow/expected.json"
+    tampered = built("count_plants", COUNT_PY.replace("plants = int(", "plants = 1 + int("))
+    tampered["commit_files"][narrow] = json.dumps({"plants": 1})
+    restore = {narrow: json.dumps({"plants": 0})}
+    special = built("count_plants", SPECIAL_PY)
+    special["commit_files"].update(restore)
     cli, project, _ = project_with(engineered_script(
         ledger, [placed(drafted=True, wrong={"narrow": {"plants": 1}}), placed(drafted=True)],
-        implement=[built("count_plants", SPECIAL_PY), built("count_plants", COUNT_PY)], review=[FOUND, CLEAN]))
+        implement=[tampered, special, built("count_plants", SPECIAL_PY + "# kept as it was\n"), built("count_plants", COUNT_PY)],
+        review=[FOUND, CLEAN]))
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
     words = "I understand three of my own would be better; draft them and I'll check each."
     plan = {"tools": [{"tool": "count_plants", "supplied": 0, "drafted": 3, "warned": True, "owner_words": words}]}
@@ -1118,6 +1126,12 @@ def test_drafted_examples_are_approved_and_a_tool_that_special_cases_the_awkward
     assert [e["data"]["iteration"] for e in started] == [1, 2]
     py = project / "recipes" / "drafts" / SLUG / "tools" / "count_plants" / "count_plants.py"
     assert "0.3" not in py.read_text(encoding="utf-8")
+    # Changing an example fails the attempt; so does changing it back, which is also a change to a protected file
+    # during an attempt (the check compares each attempt's start and end).
+    protected = [e["attempt"] for e in evs if e["type"] == "gate_failed" and e["step_path"].endswith("/implement")
+                 and e["data"].get("type") == "protected"]
+    assert protected == [1, 2]
+    assert (project / narrow).read_text(encoding="utf-8") == json.dumps({"plants": 0})
 
 
 @pytest.mark.slow

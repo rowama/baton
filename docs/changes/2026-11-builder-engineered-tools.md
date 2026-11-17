@@ -1,7 +1,7 @@
 ---
 id: 2026-11-builder-engineered-tools
 title: "Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop"
-status: in-progress
+status: done
 level: major
 decisions: ["0155", "0164", "0154", "0156", "0158", "0159", "0162", "0034"]
 touches: [design/recipes.md, design/director-interface.md, design/workers.md, design/runtime.md, design/gates-and-reviews.md]
@@ -174,4 +174,10 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Modules:** `intake.py` (`item` in gate commands), `recipe.py` (independence from a top-level ancestor of the group), `engine.py` (its routing source). Recipe package: `recipe.yaml`, `schemas/generate_out.json`, `schemas/implement_out.json` (new), `schemas/design_out.json` (`base`), `prompts/implement.md` (new), `prompts/tool_review.md` (new), `prompts/generate.md`, `prompts/design.md`, `prompts/accept.md`, `static/tool_review_rubric.md` (new). Skill: `skills/baton-director/SKILL.md` (the limit's three choices).
 - **Design docs:** `design/recipes.md` §5.3, §5.7; `design/runtime.md` §8.4 (independence in a group); `design/gates-and-reviews.md` §9.1 (`item` in a script gate); `design/director-interface.md` §13.3.
 - **Tests:** `tests/test_engineered_tool_engine.py`: independence from a top-level ancestor of the group, and from a step that is not one refused; `item` rendered in a gate command, unsafe text refused, undefined outside a group. `tests/test_recipe_builder.py`: the group's shape, gates, independence and protection, at `engineered` only; `accept`'s input; `engineered_tools`; the prompts and rubric. `tests/test_recipe_builder_runs.py`: two tools built one at a time to the owner's examples (one set supplied and a changed copy sent back, one drafted), each built by a vendor other than the examples' and reviewed by another than its builder, routing excluding the examples' worker, both vendored; a tool that special-cases the awkward example found by the review and fixed in a second round; a tool that does not pass in three rounds simplified at the owner's word, the group re-expanded without it.
-- **Accepted:** Pending the full suite on this commit.
+- **Accepted:** Yes; the full suite on `6e95fc2` is checked before the finish commit.
+
+### Done
+
+- **Summary:** Every acceptance criterion is shown by tests. 1: `recipe-builder@6`, the frozen v5, every rating waits on the owner (`test_recipe_builder.py`). 2: the contract (`test_recipe_builder.py`, `test_engineered_tool_checks.py`). 3: three examples, one awkward, supplied or drafted and approved, the warning and the owner's words (schemas; two run scenarios). 4: examples placed by another vendor before any code, copies proven byte for byte, a changed example fails the attempt (run scenarios). 5: the bounded loop, a second round, simplify at the limit (run scenarios; retry and abandon are the engine's iteration-limit options). 6: every example run twice (`--repeat 2`, `test_engineered_tool_checks.py`). 7: review by another vendor against the contract (rubric; routing excludes the builder). 8: packages named in the contract, shown at the design approval, pinned with hashes (loader, `recipe check`). 9: the budget (audit checks 26, 28; `recipe check`; the tool runner's process check). 10: one tool at a time, each tool's result at `accept`. 11: simple tools unchanged (existing tests). 12: design docs and manual. Added with this entry: a scenario where an attempt changes an example and fails. Observed and not changed: in `protect` fail mode, an attempt that changes a protected file back is itself a change during that attempt and fails too, so an implementer that edits an example uses two attempts recovering; worth a look in a later change.
+- **Tests:** `tests/test_recipe_builder_runs.py`: the second-round scenario now starts with an attempt that changes an example.
+- **Accepted:** Pending the full suite on the finish commit.

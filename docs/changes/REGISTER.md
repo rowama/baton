@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-builder-engineered-tools](2026-11-builder-engineered-tools.md) | Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | On hold: recorded 2026-11-16 (Decision 0161); to be designed after the recipe-builder changes of Decision 0155 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
@@ -15,6 +14,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-waiting-steps](2026-11-waiting-steps.md) | A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-zero-friction-setup](2026-11-zero-friction-setup.md) | Become a Baton director: setup with as little owner effort as possible | proposed | major | On hold (owner, 2026-11-05): not to be designed further or implemented until the owner accepts it |
 | [2026-11-adopt-recipe-selection](2026-11-adopt-recipe-selection.md) | Adopting an existing project finds or builds its recipe first, using fit-check with project context | done | standard | |
+| [2026-11-builder-engineered-tools](2026-11-builder-engineered-tools.md) | Recipe builder can build a tool that needs real engineering: tests from the owner's examples first, then a bounded build and review loop | done | major | |
 | [2026-11-builder-step-design](2026-11-builder-step-design.md) | Recipe builder designs each step for the simplest means that can do it, and uses an AI worker only where software or a rule cannot | done | major | |
 | [2026-11-capability-confidence](2026-11-capability-confidence.md) | Capabilities are likely until used; harness tooling is turned on per step and verified by use | done | standard | |
 | [2026-11-change-register](2026-11-change-register.md) | Change statuses are tracked in one register that every agent keeps up to date | done | minor | |
