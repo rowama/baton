@@ -2359,6 +2359,21 @@ class Api:
         self.project = project
         self.director = director
         self._sched: dict[str, Any] | None = None  # whether a scheduler checks waiting steps, looked up once (§8.7)
+        #: While the owner's own answer is recorded (a renderer other than conversation): its ``via`` (Decision 0171, item 7).
+        self._owner_via: str | None = None
+
+    @property
+    def recorder(self) -> str:
+        """Who records an owner decision: the Director, or the owner themselves through a renderer (Decision 0171, item 7)."""
+        return "owner" if self._owner_via is not None else self.director.actor
+
+    def _hold(self, ctx: RunContext) -> Any:
+        """The run's leases, held for this call: claimed or renewed, or refused when held elsewhere. The owner's own answer
+        neither needs nor touches a Director's lease; the run lock still orders it (Decision 0171, item 7)."""
+        leases = self._leases(ctx)
+        if self._owner_via is None:
+            leases.ensure()
+        return leases
 
     @classmethod
     def open(
@@ -2413,8 +2428,7 @@ class Api:
             ctx = self._ctx(run_id)
             if not allow_closed and ctx.log.state().state != "active":
                 raise EngineError("run.closed", f"run {run_id} is {ctx.log.state().state}")
-            leases = self._leases(ctx)
-            leases.ensure()
+            leases = self._hold(ctx)
             before = ctx.log.state().last_seq
             out = body(ctx) or {}
             self._after(ctx, leases, before, out, extra)
@@ -4119,14 +4133,22 @@ class Api:
         except manual.NoTopic as e:
             raise EngineError("help.no_topic", str(e)) from e
 
-    def ui(self, detach: bool = True, idle_timeout: float | None = None) -> dict[str, Any]:
-        """The optional local setup page (§13.9): start it detached, or find the running one; returns its URL."""
+    def ui(self, detach: bool = True, idle_timeout: float | None = None, request: str | None = None) -> dict[str, Any]:
+        """The optional local page (§13.9): start it detached, or find the running one, never restarting it. Returns the
+        setup page's ``url`` and this project's ``requests_url``; with ``request``, ``url`` is that open request's page."""
         from . import ui as ui_mod
 
+        if request is not None:
+            self.interaction(request)  # a request that is not open is refused before any page is started
         try:
-            return ui_mod.start_detached(self.project.home, idle_timeout=idle_timeout or ui_mod.DEFAULT_IDLE, restart=False)  # the Director always sets a timeout
+            out = ui_mod.start_detached(self.project.home, idle_timeout=idle_timeout or ui_mod.DEFAULT_IDLE, restart=False)  # the Director always sets a timeout
         except RuntimeError as e:
             raise EngineError("ui.not_started", str(e)) from e
+        name = ui_mod.register_project(self.project.home, self.project.root)
+        out = {**out, "project": name, "requests_url": ui_mod.request_url(out["url"], name)}
+        if request is not None:
+            out["url"] = ui_mod.request_url(out["url"], name, request)
+        return out
 
     def workers_status(self) -> dict[str, Any]:
         from . import resources
@@ -4225,7 +4247,7 @@ class Api:
                 from . import frame as framing
 
                 return {"run_id": ctx.run_id, **framing.select(self, ctx, ref, decision, note, items, extra)}
-            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.director.actor, path=path,
+            outcome = decide(ctx, ref, decision, note, actor="human", recorded_by=self.recorder, path=path,
                              answers=answers, partial=partial)
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
@@ -4296,6 +4318,12 @@ class Api:
 
         ans = ia.parse_answer(answer)
         via = via or ans.get("via") or ia.DEFAULT_VIA
+        if via != ia.DEFAULT_VIA and self._owner_via is None:  # the owner's own answer, outside the Director's conversation
+            self._owner_via = via
+            try:
+                return self.answer(request_id, answer, note, via=via, run_id=run_id)
+            finally:
+                self._owner_via = None
         rid, req, p = self._find_request(request_id, run_id)
         values = ans.get("values") or {}
         partial = bool(ans.get("partial"))
@@ -4390,7 +4418,7 @@ class Api:
         from . import publish
 
         def body(ctx: RunContext) -> dict[str, Any]:
-            res = publish.ingest_drift(ctx, step_path, artifact, note, feed, "human", {"recorded_by": self.director.actor})
+            res = publish.ingest_drift(ctx, step_path, artifact, note, feed, "human", {"recorded_by": self.recorder})
             refresh(ctx)
             return {"run_id": ctx.run_id, **res}
 
@@ -5641,12 +5669,12 @@ class Api:
             if problems:
                 raise EngineError("baseline.invalid", "the baseline cannot be applied: " + "; ".join(problems))
             for wctx in runs.values():
-                self._leases(wctx).ensure()  # before anything is recorded: a run held elsewhere refuses the whole baseline
+                self._hold(wctx)  # before anything is recorded: a run held elsewhere refuses the whole baseline
             bsha = actx.log.cas.put(bp.read_bytes())
             decision_id = f"d{actx.log.state().last_seq + 1}"
             actx.log.append("human_decision", actor="human", data={
                 "ref": "baseline", "kind": "baseline", "decision": "establish", "note": note, "decision_id": decision_id,
-                "baseline_sha256": bsha, "recorded_by": self.director.actor,
+                "baseline_sha256": bsha, "recorded_by": self.recorder,
             })
             applied: dict[str, Any] = {}
             for key, wctx in runs.items():

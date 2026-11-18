@@ -52,6 +52,7 @@ Commit what the process **is** and what it has **produced**; never commit who ru
 | `~/.baton/logs/` | Unredacted raw worker output |
 | `~/.baton/ui-token` | The setup page's access token, kept so a bookmark keeps working (0600) |
 | `~/.baton/ui.json` | The running `baton ui`: URL, pid, start time (0600; removed on exit) |
+| `~/.baton/ui-projects.yaml` | The projects the local page serves, each name and its folder, kept so a project's address keeps working (0600) |
 
 `BATON_HOME` moves `~/.baton`. The full list of settings is in the [project settings reference](reference.project-settings#here-now).
 

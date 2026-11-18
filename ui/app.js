@@ -212,4 +212,4 @@ $("quit").addEventListener("click", async () => {
   document.body.replaceChildren(h("p", { class: "muted" }, "Closed. You can close this tab."));
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state) load(); });
-if (!window.BatonManual.inManual()) load();
+if (!window.BatonManual.inManual() && !(window.BatonRequests && window.BatonRequests.inRequests())) load();

@@ -1517,22 +1517,38 @@ def ui_command(
     idle_timeout: Annotated[Optional[float], typer.Option("--idle-timeout", help="Seconds without a request before the page closes itself (default: none; a running page is only ever extended).")] = None,
     detach: Annotated[bool, typer.Option("--detach", help="Start it in the background and print the link (what a Director does).")] = False,
     stop: Annotated[bool, typer.Option("--stop", help="Close the setup page that is running (for one started with --detach).")] = False,
+    request: Annotated[Optional[str], typer.Option("--request", help="Open this project's page for one open request (an id from interactions), to answer it there.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Open the local setup page: connect accounts and choose the models Baton may use (§13.9). Stays on one address you can bookmark; running it again restarts it."""
+    """Open the local page: connect accounts and choose the models Baton may use, and, run in a project, answer its open requests (§13.9). Stays on one address you can bookmark; running it again restarts it."""
     from . import ui as ui_mod
-    from .project import machine_home
+    from .project import find_root, machine_home
 
     home = machine_home()
     if stop:
         out = ui_mod.stop(home)
         _emit(out, as_json, "Setup page closed." if out["stopped"] else out["reason"].capitalize() + ".")
         return
+    try:  # run in a project (or with --project), the page also serves its requests (Decision 0171)
+        root: Path | None = find_root(_opts.project)
+    except EngineError:
+        root = None
+        if request is not None:
+            _fail(as_json, EXIT_USAGE, "project.not_found", "--request needs a project: run it in the project's folder, or give --project")
+    if request is not None:
+        _call(as_json, lambda: _api().interaction(request))  # refused here if it is not open
+    name = ui_mod.register_project(home, root) if root is not None else None
+
+    def page(url: str) -> str:
+        return ui_mod.request_url(url, name, request) if request is not None and name is not None else url
+
     if detach:
         try:
             out = ui_mod.start_detached(home, idle_timeout=idle_timeout, restart=True)
         except RuntimeError as e:
             _fail(as_json, EXIT_PROBLEM, "ui.not_started", str(e))
+        if name is not None:
+            out = {**out, "project": name, "requests_url": ui_mod.request_url(out["url"], name), "url": page(out["url"])}
         _emit(out, as_json, f"Open this link: {out['url']}" + (f"\n{out['note']}" if out.get("note") else ""))
         return
     old = ui_mod.replace_running(home)  # a page already running is closed, so this one is the current version
@@ -1546,9 +1562,12 @@ def ui_command(
         _fail(as_json, EXIT_PROBLEM, "ui.no_front_end", "this install has no page files (baton/_data/ui)")
 
     def announce(launch: ui_mod.Launch) -> None:
-        opened = False if no_open else ui_mod.open_browser(launch.url)
-        _emit({"ok": True, "url": launch.url, "port": launch.port, "idle_timeout": idle_timeout, **({"note": note} if note else {})}, as_json,
-              ("Opened the setup page in your browser. " if opened else "Open this link in your browser: ") + launch.url
+        url = page(launch.url)
+        opened = False if no_open else ui_mod.open_browser(url)
+        extra = {"project": name, "requests_url": ui_mod.request_url(launch.url, name)} if name is not None else {}
+        _emit({"ok": True, "url": url, "port": launch.port, "idle_timeout": idle_timeout, **extra, **({"note": note} if note else {})}, as_json,
+              ("Opened the page in your browser. " if opened else "Open this link in your browser: ") + url
+              + (f"\nThis project's requests: {extra['requests_url'].split('?')[0]}" if extra else "")
               + (f"\nIt closes by itself after {idle_timeout / 60:.0f} minutes without use; Ctrl-C closes it now." if idle_timeout > 0
                else "\nIt stays up until you close it (Ctrl-C, or Quit on the page). Bookmark: " + launch.url.split("?")[0])
               + (f"\n{note}" if note else ""))

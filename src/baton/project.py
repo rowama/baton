@@ -15,6 +15,7 @@ Machine-local files live in ``$BATON_HOME`` (default ``~/.baton``, §4.4):
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -52,7 +53,7 @@ GITATTRIBUTES = f"# Written by baton init: stored bytes are hashed; never conver
 DEFAULT_PROJECT_YAML = """\
 # Baton project configuration (§4.3). Commit this file; never put secrets here.
 paths: { process_plans: docs, notes: docs }   # logical path keys (folders) for publishing, e.g. specs: docs/specs
-project: {}                   # project variables, e.g. test_command: "pytest -q"
+project: { name: __NAME__ }   # project variables, e.g. test_command: "pytest -q"; name: its lasting name (the local page's address)
 run_slug: "{{ run.inputs.title | slugify }}"
 leases: { minutes: 60 }       # renewed on activity
 checkpoints: { commit: true } # commit the run's record at checkpoints, on the current branch
@@ -128,6 +129,14 @@ def machine_home() -> Path:
 def slugify(value: Any, max_len: int = 60) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
     return s[:max_len].rstrip("-") or "run"
+
+
+def project_name(root: Path, config: Any = None) -> str:
+    """``project.name`` (slugified), else the folder's name: what the project is called on this machine's local page."""
+    if config is None:
+        config, _ = load_config(Path(root) / BATON_DIR / PROJECT_FILE)
+    given = (config.project.get("name") if config is not None else None) or Path(root).name
+    return slugify(given, 40) if str(given).strip() else "project"
 
 
 def find_root(start: str | Path | None = None) -> Path:
@@ -277,6 +286,12 @@ class Project:
 
     def context(self, run_id: str) -> RunContext:
         return RunContext(self.store, run_id, self.recipe_for_run(run_id), self.variables())
+
+    @property
+    def name(self) -> str:
+        """The project's lasting name: ``project.name`` in ``project.yaml``, else its folder's name, as a slug
+        (the local page's address, §13.9; Decision 0171, item 2)."""
+        return project_name(self.root, self.config)
 
     def variables(self) -> dict[str, Any]:
         """Non-secret configuration for templates (``project.*``, ``paths.*``)."""
@@ -439,7 +454,7 @@ def init(root: str | Path, *, agents_md: bool = True, bare: bool = False) -> dic
             atomic_write(p, content.encode("utf-8"))
             created.append(rel)
 
-    create(f"{BATON_DIR}/{PROJECT_FILE}", DEFAULT_PROJECT_YAML)
+    create(f"{BATON_DIR}/{PROJECT_FILE}", DEFAULT_PROJECT_YAML.replace("__NAME__", json.dumps(r.name)))
     if f"{BATON_DIR}/{PROJECT_FILE}" in created:
         _record_initial_policy(r)
     create(f"{BATON_DIR}/{COMM_FILE}", read_text(data.path("defaults") / COMM_FILE))

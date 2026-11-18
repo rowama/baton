@@ -18,6 +18,7 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -40,12 +41,19 @@ DEFAULT_IDLE = 900.0
 DEFAULT_PORT = 47474  # the page's usual address, so it can be bookmarked (`baton ui --port N` changes it)
 TOKEN_FILE = "ui-token"
 UI_FILE = "ui.json"
+#: Which folder each project name on this page is (Decision 0171, item 2): kept across restarts so a bookmark works.
+PROJECTS_FILE = "ui-projects.yaml"
+#: How a request's answer names its renderer (Decision 0170, item 1).
+VIA = "local_page"
 #: The files the front end may serve, by URL path: nothing else on disk is ever reachable.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/app.css": ("app.css", "text/css; charset=utf-8"), "/render.js": ("render.js", "text/javascript; charset=utf-8"),
-          "/manual.js": ("manual.js", "text/javascript; charset=utf-8"), "/help.js": ("help.js", "text/javascript; charset=utf-8")}
+          "/manual.js": ("manual.js", "text/javascript; charset=utf-8"), "/help.js": ("help.js", "text/javascript; charset=utf-8"),
+          "/requests.js": ("requests.js", "text/javascript; charset=utf-8")}
 #: The manual reader's pages are one shell; the script reads the path (`/manual/<part>/<slug>#anchor`).
 MANUAL_PAGES = "/manual"
+#: A project's request pages are the same shell: `/p/<name>/requests` and `/p/<name>/requests/<id>`.
+PROJECT_PAGES = "/p/"
 MAX_BODY = 64 * 1024
 
 
@@ -282,6 +290,162 @@ def _manual_search(_home: Path, _body: dict[str, Any], args: dict[str, str]) -> 
 
 
 #: (method, path) -> route.
+# --------------------------------------------------------------------------
+# Projects and their interaction requests (Decisions 0169, 0170, 0171)
+# --------------------------------------------------------------------------
+
+
+def _is_project(folder: Path) -> bool:
+    from .project import BATON_DIR, PROJECT_FILE
+
+    return (folder / BATON_DIR / PROJECT_FILE).is_file()
+
+
+def _read_projects(home: Path) -> dict[str, str]:
+    from .data import YamlError, load_yaml
+
+    try:
+        doc = load_yaml(Path(home) / PROJECTS_FILE) or {}
+    except (OSError, YamlError):  # expected: no project registered yet, or a file being rewritten
+        return {}
+    got = doc.get("projects") if isinstance(doc, dict) else None
+    return {str(k): str(v) for k, v in got.items() if isinstance(v, str)} if isinstance(got, dict) else {}
+
+
+def _write_projects(home: Path, projects: dict[str, str]) -> None:
+    import yaml
+
+    path = Path(home) / PROJECTS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(PROJECTS_FILE + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("# The projects this machine's local page serves: name -> folder (Decision 0171). Written by baton ui.\n")
+        f.write(yaml.safe_dump({"projects": dict(sorted(projects.items()))}, sort_keys=False, allow_unicode=True))
+    os.replace(tmp, path)
+
+
+def register_project(home: Path, root: Path) -> str:
+    """Make a project known to this machine's page and return its name in the page's addresses (``/p/<name>/``).
+
+    The name is the project's own (``project.name``, else its folder's), kept while the folder is a project with that
+    name; a folder that moved takes its name back from the gone one; a second live project of the same name gets ``-2``.
+    """
+    from .locks import file_lock
+    from .project import project_name
+
+    root = Path(root).resolve()
+    base = project_name(root)
+    home = Path(home)
+    home.mkdir(parents=True, exist_ok=True)
+    with file_lock(home / (PROJECTS_FILE + ".lock")):
+        projects = _read_projects(home)
+
+        def holds(name: str, folder: str) -> bool:
+            """Whether ``folder`` still claims ``name``: it is a project, and the name was made from its own."""
+            f = Path(folder)
+            return _is_project(f) and (name == (b := project_name(f)) or re.fullmatch(re.escape(b) + r"-\d+", name) is not None)
+
+        mine = [n for n, f in projects.items() if Path(f) == root]
+        for n in mine:
+            if n == base or re.fullmatch(re.escape(base) + r"-\d+", n):
+                return n
+            del projects[n]  # the project was renamed: its old name is let go
+        k = 1
+        while True:
+            name = base if k == 1 else f"{base}-{k}"
+            holder = projects.get(name)
+            if holder is None or not holds(name, holder):
+                projects[name] = str(root)
+                _write_projects(home, projects)
+                return name
+            k += 1
+
+
+def project_root(home: Path, name: str) -> Path:
+    """The folder a page address names, never a path from the browser."""
+    folder = _read_projects(home).get(name)
+    if folder is None:
+        raise UiError(HTTPStatus.NOT_FOUND, "ui.unknown_project",
+                      f"This page does not know a project called {name!r}. Run `baton ui` in the project's folder once.")
+    if not _is_project(Path(folder)):
+        raise UiError(HTTPStatus.GONE, "ui.project_gone", f"The project {name!r} is no longer at {folder}.")
+    return Path(folder)
+
+
+def _engine_call(home: Path, name: str, fn: Callable[[Any], Any]) -> Any:
+    """Open the project as the page (identity ``baton-ui@<host>``, harness ``local_page``), run one core call, close it."""
+    import socket
+
+    from .engine import Api
+    from .locks import LeaseHeld
+    from .packet import EngineError
+
+    root = project_root(home, name)
+    try:
+        api = Api.open(root, director_id=f"baton-ui@{socket.gethostname()}", harness=VIA, home=home)
+    except EngineError as e:
+        raise UiError(HTTPStatus.CONFLICT, e.code, str(e)) from e
+    try:
+        return fn(api)
+    except LeaseHeld as e:  # pragma: no cover - the owner's answer needs no lease (Decision 0171, item 7)
+        raise UiError(HTTPStatus.CONFLICT, e.code, str(e)) from e
+    except EngineError as e:
+        status = HTTPStatus.CONFLICT if e.code in ("interaction.stale", "run.closed") else HTTPStatus.UNPROCESSABLE_ENTITY
+        raise UiError(status, e.code, str(e)) from e
+    finally:
+        api.close()
+
+
+def _projects(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
+    out = []
+    for name, folder in sorted(_read_projects(home).items()):
+        row: dict[str, Any] = {"name": name, "folder": folder, "gone": not _is_project(Path(folder))}
+        if not row["gone"]:
+            try:
+                row["open"] = len(_engine_call(home, name, lambda api: api.interactions())["requests"])
+            except UiError as e:
+                row["problem"] = e.message
+        out.append(row)
+    return {"projects": out}
+
+
+def _requests(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    return {"project": args["name"], **_engine_call(home, args["name"], lambda api: api.interactions())}
+
+
+def _request(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    return {"project": args["name"], **_engine_call(home, args["name"], lambda api: api.interaction(args["id"]))}
+
+
+def _context_item(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    """One context item's material by the request's and the item's ids; its path on disk never leaves the server."""
+    out = _engine_call(home, args["name"], lambda api: api.interaction(args["id"], item=args["item"]))
+    return {k: v for k, v in out.items() if k != "path"}
+
+
+def _answer(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    """``baton answer <id> --via local_page``: the owner confirmed it on the page, with an optional note."""
+    allowed = {"choice", "values", "words", "partial", "note"}
+    extra = sorted(set(body) - allowed)
+    if extra:
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", f"unexpected fields: {', '.join(extra)}")
+    note = body.get("note") or ""
+    if not isinstance(note, str):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "note must be text")
+    answer = {k: body[k] for k in ("choice", "values", "words", "partial") if body.get(k) is not None}
+    return _engine_call(home, args["name"], lambda api: api.answer(args["id"], answer, note, via=VIA))
+
+
+def request_url(base_url: str, name: str, request: str | None = None) -> str:
+    """The page address of a project's requests (or one request), with the launch token so it opens signed in."""
+    parts = urlsplit(base_url)
+    token = parse_qs(parts.query).get("t", [""])[0]
+    path = f"/p/{name}/requests" + (f"/{request}" if request else "")
+    return f"{parts.scheme}://{parts.netloc}{path}" + (f"?t={token}" if token else "")
+
+
+
 ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/state"): _state,
     ("POST", "/api/accounts"): _connect,
@@ -296,6 +460,11 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/manual/search"): _manual_search,
     ("GET", "/api/manual/context"): _manual_context,
     ("GET", "/api/manual/topic/<id>"): _manual_topic,
+    ("GET", "/api/projects"): _projects,
+    ("GET", "/api/p/<name>/interactions"): _requests,
+    ("GET", "/api/p/<name>/interactions/<id>"): _request,
+    ("GET", "/api/p/<name>/interactions/<id>/context/<item>"): _context_item,
+    ("POST", "/api/p/<name>/interactions/<id>/answer"): _answer,
 }
 
 
@@ -488,12 +657,12 @@ class Server:
                     return self._refuse(HTTPStatus.METHOD_NOT_ALLOWED, "ui.method", "No cross-origin access.")
                 url = urlsplit(self.path)
                 query = parse_qs(url.query)
-                if method == "GET" and url.path == "/" and "t" in query:
+                if method == "GET" and (url.path == "/" or _is_page(url.path)) and "t" in query:
                     if not secrets.compare_digest(query["t"][0].encode(), server.token.encode()):
                         return self._refuse(HTTPStatus.UNAUTHORIZED, "ui.token", "That link is not valid. Start the page again.")
                     server.touch()
                     return self._send(HTTPStatus.FOUND, b"", "text/plain", {
-                        "Location": "/", "Set-Cookie": f"{COOKIE}={server.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000"})
+                        "Location": url.path, "Set-Cookie": f"{COOKIE}={server.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000"})
                 if not self._token_ok():
                     return self._refuse(HTTPStatus.UNAUTHORIZED, "ui.token", "Open the page with the link Baton gave you.")
                 server.touch()
@@ -502,7 +671,7 @@ class Server:
                         return self._refuse(HTTPStatus.BAD_REQUEST, "ui.header", "Changes must come from the page itself.")
                 if method == "GET" and url.path in STATIC:
                     return self._static(url.path)
-                if method == "GET" and (url.path == MANUAL_PAGES or url.path.startswith(MANUAL_PAGES + "/")):
+                if method == "GET" and _is_page(url.path):
                     return self._static("/")
                 return self._route(method, url.path, query)
 
@@ -562,6 +731,13 @@ class Server:
                 self._handle("OPTIONS")
 
         return Handler
+
+
+def _is_page(path: str) -> bool:
+    """A path the one page shell serves (its script reads the path): the manual reader, a project's request pages."""
+    if path == MANUAL_PAGES or path.startswith(MANUAL_PAGES + "/"):
+        return True
+    return _match("/p/<name>/requests", path) is not None or _match("/p/<name>/requests/<id>", path) is not None
 
 
 def _match(pattern: str, path: str) -> dict[str, str] | None:

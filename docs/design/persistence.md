@@ -11,7 +11,7 @@ After `step_passed` (with publishing), `human_decision`, `step_escalated`, `iter
 
 ### 10.2 Leases
 
-A lease is an event `lease_claimed {director_id, harness, host, branch, expires_at}`. Mutating calls on a run require its lease: a free or expired lease is claimed automatically, the holder's lease is renewed (`lease_renewed`) once half its term has passed, and an unexpired lease held by another Director (or by the same Director on another branch) refuses with exit code 3. The term is `project.yaml` `leases.minutes` (default 60; §18 #5). `take_over(reason)` records a takeover (`lease_taken_over`, with the previous holder and the reason); the director skill requires owner approval first, the runtime only requires the reason. The runtime releases the lease when a run completes or is abandoned. The Director identity is `--director` / `BATON_DIRECTOR` (default `<user>@<host>`); the harness name is `BATON_HARNESS`. Leases travel through git, so they coordinate *sequential* handoff. **A run lives on one branch at a time**: continuing it on another branch requires releasing it on the first. Divergent hash chains (two Directors on unsynced clones) are caught by `resume` and `check`, and need owner resolution.
+A lease is an event `lease_claimed {director_id, harness, host, branch, expires_at}`. Mutating calls on a run require its lease: a free or expired lease is claimed automatically, the holder's lease is renewed (`lease_renewed`) once half its term has passed, and an unexpired lease held by another Director (or by the same Director on another branch) refuses with exit code 3. The term is `project.yaml` `leases.minutes` (default 60; §18 #5). `take_over(reason)` records a takeover (`lease_taken_over`, with the previous holder and the reason); the director skill requires owner approval first, the runtime only requires the reason. The runtime releases the lease when a run completes or is abandoned. The Director identity is `--director` / `BATON_DIRECTOR` (default `<user>@<host>`); the harness name is `BATON_HARNESS`. The owner's own answer to a request, given outside the Director's conversation (the local page, the answer file), is not a Director's call: it is recorded under the run lock with `recorded_by: owner` and neither needs, claims nor renews the lease (§13.1; Decision: [0171](../decisions/0171-interaction-ui-details.md), item 7). Leases travel through git, so they coordinate *sequential* handoff. **A run lives on one branch at a time**: continuing it on another branch requires releasing it on the first. Divergent hash chains (two Directors on unsynced clones) are caught by `resume` and `check`, and need owner resolution.
 
 ### 10.3 Resume
 
@@ -30,9 +30,11 @@ Artifacts may declare `publish.to` using **logical** path keys mapped in `projec
 
 ```yaml
 paths: { specs: docs/specs, designs: docs/design, plans: docs/plans, drawings: cad/drawings }
-project: { test_command: "pytest -q", preflight: "pytest -q --collect-only" }
+project: { name: "Garden shed", test_command: "pytest -q", preflight: "pytest -q --collect-only" }
 run_slug: "{{ run.inputs.title | slugify }}"
 ```
+
+`project:` holds the project's variables, which templates read as `project.*`. `project.name` is the project's lasting name: `baton init` writes the folder's name, the owner may change it, and a project without one is called by its folder's name. The local page's addresses use it (§13.9; Decision: [0171](../decisions/0171-interaction-ui-details.md)).
 
 Publishing is for artifacts a worker returns in `result/artifacts/` (documents, drawings, photos), plus one document the runtime renders itself: a framing run's process plan (§11.6), published as the `frame` step's `process_plan` under the same rules. **Workspace steps' output *is* the project tree** (code a coding agent writes and commits in place, recorded by `commit_sha`) and does not use `publish`.
 

@@ -159,7 +159,8 @@
 
   // ---- start -------------------------------------------------------------------
   const tabs = document.querySelectorAll("[data-tab]");
-  for (const t of tabs) if ((t.dataset.tab === "manual") === inManual()) t.setAttribute("aria-current", "page");
+  const where = inManual() ? "manual" : (/^\/p\/[^/]+\/requests/.test(here()) ? "requests" : "setup");
+  for (const t of tabs) if (t.dataset.tab === where) t.setAttribute("aria-current", "page");
   window.BatonManual = { inManual };
   if (inManual()) {
     $("view-setup").hidden = true; $("view-manual").hidden = false; if (!STATIC) $("quit").hidden = false;

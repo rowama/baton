@@ -585,7 +585,7 @@ def start_part(api: Any, framing_run: str, plan: dict[str, Any], paths: list[Any
     )
     for role, entries in plan.get("bind") or []:  # checked when planned; the role is re-read from the recipe vendored now
         role = loaded.recipe.role(role.role) or role
-        record_binding(wctx, role, entries, note, recorded_by=api.director.actor)
+        record_binding(wctx, role, entries, note, recorded_by=api.recorder)
     return wctx, loaded.recipe.ref, vendored
 
 
@@ -653,14 +653,14 @@ def start_from_plan(api: Any, ref: str, paths: list[Any], note: str = "") -> tup
     if program_flags_for(api, plan) and not (note or "").strip():
         raise EngineError("vendor.note", f"{part.get('label') or pid} brings a program that runs on this computer; approving it is the "
                           "owner's decision: give their words with --note")
-    wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.director.actor, note=note)
+    wctx, recipe_ref, vendored = start_part(api, fctx.run_id, plan, paths, actor=api.recorder, note=note)
     started[pid] = {"part": pid, "run": wctx.run_id, "recipe": recipe_ref}
     sel = next(e for e in events if e.type == "framing_selected")
     out = frame_output(fctx, log.state().step(proposer(fctx) or FRAME_STEP).attempt)
     content = render_plan(api, fctx.run_id, out, started, {g["part"]: g for g in sel.data.get("gaps") or []}, framing=_is_frame(fctx))
     target = (sel.data.get("plan") or {}).get("path") or plan_path(fctx, api.project.config.paths, out)
     plan_ref = {"path": target, "sha256": log.cas.put(content.encode("utf-8"))}
-    log.append("framing_started_later", actor=api.director.actor, data={
+    log.append("framing_started_later", actor=api.recorder, data={
         "part": pid, "run": wctx.run_id, "recipe": recipe_ref, "plan": plan_ref, **({"vendored": vendored} if vendored else {}),
         **({"bound": _bound(plan)} if plan["bind"] else {}),
     })
@@ -719,7 +719,7 @@ def select(api: Any, ctx: Any, ref: str, decision: str, note: str, items: list[s
     decision_id = f"d{log.state().last_seq + 1}"
     log.append("human_decision", actor="human", step_path=step, attempt=n, data={
         "ref": step, "kind": "frame", "gate": SELECT_GATE, "decision": "select", "items": chosen, "note": note,
-        "decision_id": decision_id, "recorded_by": api.director.actor,
+        "decision_id": decision_id, "recorded_by": api.recorder,
     })
     log.append("gate_passed", step_path=step, attempt=n, data={"gate": SELECT_GATE, "type": SELECT_GATE, "implicit": True, "items": chosen})
     log.append("step_passed", step_path=step, attempt=n, data=_registered(ctx, step, n))

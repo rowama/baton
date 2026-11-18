@@ -1,11 +1,11 @@
 ---
 id: 2026-11-interaction-ui
 title: "The owner can answer any of Baton's requests in a page of the local UI, the first graphical renderer"
-status: proposed
+status: in-progress
 level: major
 decisions: ["0169", "0170", "0171", "0121", "0122", "0125"]
 touches: [design/director-interface.md, design/platform-and-security.md, design/layouts.md, design/persistence.md]
-manual: [user/answer-questions-and-decide.md, admin/director-commands.md, reference/commands.md, reference/project-settings.md]
+manual: [user/answer-questions-and-decide.md, admin/director-commands.md, admin/files-and-paths.md, admin/network-and-security.md, reference/commands.md]
 ---
 
 # The owner can answer any of Baton's requests in a page of the local UI, the first graphical renderer
@@ -53,6 +53,7 @@ All answered by the owner, 2026-11-18 (Decision [0171](../decisions/0171-interac
 3. **What may `extensions.local_page` hold?** Nothing in this change: the slot stays reserved by the format, and the way for a recipe to fill it waits for a recipe that needs it.
 4. **Is a desktop window part of this change?** No; a later `baton ui --window`.
 5. **Files for a person's step** (raised while refining): uploaded through the page to a private temporary folder, at most 100 MiB a file, and attached to the answer.
+6. **The lease** (raised in Slice 1): the owner's own answer, given outside the Director's conversation, needs no Director's lease; it is recorded under the run lock with `recorded_by: owner` (item 7 of the decision).
 
 ### Out of scope
 
@@ -83,21 +84,23 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 - **Confirmation.** Confirm shows the summary (the `summary` hint's fields, or all), the chosen effect, and an optional note; `answer` records `via: local_page` (0170, item 1).
 - **Context served by reference.** Text and tables inline. A `document` or `image` item is fetched by request and item id only; every response has a fixed content type and `X-Content-Type-Options: nosniff`. PNG, JPEG, GIF and WebP show inline; text and Markdown show as plain text; anything else, SVG included, is a download.
 - **Uploads.** Each file is kept under a private temporary folder (0700) named by the request, removed after the answer is recorded or refused, or when the server exits; only the request's declared file names are accepted.
-- **Director.** `ui(request?)` returns `{url}` for the request's page (the project's list without one), never restarting a running server; the skill offers it for a request with a table, more than a few fields, files to give, or an image to look at.
+- **The owner's answer needs no lease.** `answer` with any `via` but `conversation` records under the run lock with `recorded_by: owner`, and neither needs, claims nor renews a Director's lease (0171, item 7); the answer file gains this too.
+- **Director.** `ui(request?)` returns the setup page's `url` as today and this project's `requests_url`; with a request, `url` is that request's page. It never restarts a running server, and refuses a request that is not open. `baton ui --request <id>` does the same from a terminal. The skill offers the page for a request with a table, more than a few fields, files to give, or an image to look at.
 
 ### Doc edits
 
 - `design/director-interface.md` §13.9 (projects, the request pages, routes, uploads), §13.1 (`ui(request?)`), §13.3 (when the Director offers the page).
 - `design/platform-and-security.md`: context items served by reference; uploads.
 - `design/layouts.md` §4.4: `~/.baton/ui-projects.yaml`; the front end's new files.
-- `design/persistence.md` §10: `project.name`.
+- `design/persistence.md` §10.4: `project.name`; §10.2: the owner's own answer and the lease.
 
 ### Manual edits
 
-- `user/answer-questions-and-decide.md`: answering in the page; the project's lasting address; files.
-- `admin/director-commands.md`: `ui(request?)`.
-- `reference/commands.md`: `baton ui` in a project (regenerated).
-- `reference/project-settings.md`: `project.name` (regenerated if it appears there).
+- `user/answer-questions-and-decide.md`: *Answering on a page* (the link, the checks, Confirm with a note, the project's lasting address, `baton ui` in the project's folder, what the page cannot show); a changed question on the page. Slice 2 adds files and the list's refresh.
+- `admin/director-commands.md`: `ui --request`, the project's requests at `/p/<name>/requests`; an answer with any `--via` but `conversation` is the owner's own.
+- `admin/files-and-paths.md`: `~/.baton/ui-projects.yaml`.
+- `admin/network-and-security.md`: the request pages name projects and items, never paths.
+- `reference/commands.md`: `baton ui --request` (regenerated).
 
 ### Decisions
 
@@ -110,13 +113,13 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 ### Slice 1: answering one request
 
 - **Outcome:** the Director gives the owner a link, and the owner answers a decision or a form in the page.
-- **Criteria:** `project.name` and its fallback; projects registered and kept across restarts; the list, request and answer routes; the generic renderer for fields and choices; hints; Confirm with summary and note; `answer` with `via: local_page`; stale requests; a non-renderable request offers the file; `ui(request?)`; the safety checks on the new routes.
+- **Criteria:** `project.name` and its fallback; projects registered and kept across restarts; the list, request and answer routes; the generic renderer for fields and choices; hints; Confirm with summary and note; `answer` with `via: local_page`, needing no lease; stale requests; a non-renderable request offers the file; `ui(request?)`; the safety checks on the new routes.
 - **Effort:** M
 
 ### Slice 2: tables, context, files and the list page
 
 - **Outcome:** the owner answers a table-per-row request with images in view, gives a person's step its files, and sees every open request.
-- **Criteria:** tables with fixed and added rows; context items served by reference with fixed types; uploads and their cleanup; the list page and its polling; the Director skill; the manual.
+- **Criteria:** context items served by reference with fixed types; uploads and their cleanup; the list page, newest first, and its polling; the Director skill; the rest of the manual. (Tables came with the generic renderer in Slice 1.)
 - **Effort:** M
 
 ## Log
@@ -131,3 +134,11 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 
 - **Summary:** The owner answered the five open questions (Decision 0171). Three suggested answers changed when the draft was checked against `2026-11-interaction-requests` as built: one server serving several projects (a restart would break §13.9's no-restart rule for the Director), no `extensions.local_page` (nothing fills it yet), and file uploads (new). The owner chose a project name in `project.yaml`, falling back to the folder's name, for a lasting address. Design and Plan refined. No code changed.
 - **Accepted:** Not yet; awaiting the owner's approval of Request and Design.
+
+### Slice 1: answering one request
+
+- **Summary:** The owner answers a decision or a form on the local page, from a link the Director gives. `project.name` (written by `init` from the folder's name; else the folder's name) names the project in the page's addresses; `~/.baton/ui-projects.yaml` keeps name to folder across restarts (a moved folder takes its name back, a renamed project lets its old one go, a second of the same name gets `-2`). New routes `GET /api/projects`, `GET /api/p/<name>/interactions[/<id>[/context/<item>]]`, `POST …/answer` call the CLI's functions; the launch link keeps the page's path. `requests.js` is the generic renderer of the subset (fields, choices, groups, hints, tables with fixed or added rows), checks values before Confirm in plain words, and confirms with a summary and a note. The owner's own answer (any `via` but `conversation`) is recorded with `recorded_by: owner` and needs no Director's lease (Decision 0171, item 7, asked and decided during this slice: the page would otherwise be refused while the Director holds the run). `ui(request?)` (MCP, engine) and `baton ui --request` give the request's page; a request that is not open is refused.
+- **Modules:** `ui.py` (registry, routes, page paths), `engine.py` (`ui(request)`, owner answers without the lease: `_owner_via`, `recorder`, `_hold`), `frame.py` (recorder), `project.py` (`project.name`, `project_name`, init), `cli.py` (`ui --request`, registration), `mcp_server.py`; front end `ui/requests.js`, `index.html`, `app.js`, `manual.js`, `app.css`.
+- **Docs:** `director-interface.md` §13.1 (`ui`, `answer`), §13.9 (*Requests*); `persistence.md` §10.2, §10.4; `platform-and-security.md` §15.2; `layouts.md` §4.4; Decision 0171 item 7.
+- **Tests:** `test_ui_requests.py` (name and fallback, registry, routes, owner answer and stale refusal, page paths and launch link, context items without paths, the Director's `ui(request)`); `test_ui_requests_js.py` under node (order, labels, groups, controls per field, validation messages, empty fields, summary rows, fixed table rows); `test_interactions.py` (the owner's answer needs no lease; conversation still does). Also driven by hand in jsdom against a live server (in a scratch folder, not a dependency): a gate, a blocked step's questions and a person's table, each recorded with `via: local_page`.
+- **Not yet:** files (a person's step with files offers the answer file), images and documents as more than text, the list's refresh and order, the Director skill.

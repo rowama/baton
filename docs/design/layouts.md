@@ -45,7 +45,7 @@ baton/
 │   ├── adapters/            # base, litellm_api, subprocess_harness, claude_code, codex, command, manual
 │   ├── cli.py   mcp_server.py   check.py   doctor.py
 ├── manual/                  # the manual (§13.10): user/, providers/ (generated), recipes/, admin/, reference/ topics, context.yaml, anchors.yaml, terms.yaml, provider-notes.yaml, reference-notes.yaml, recipe-sources/ (hand-written recipe topics, generated into recipes/); shipped as data
-├── ui/                      # the setup page's front end: plain HTML, CSS, JS; shipped as data (§13.9)
+├── ui/                      # the local page's front end (setup, manual, requests.js for requests): plain HTML, CSS, JS; shipped as data (§13.9)
 ├── vocab/baton-capabilities-1.yaml
 ├── formats/baton-recipe-1.schema.json   formats/baton-findings-1.schema.json   formats/baton-crosswalk-1.schema.json   formats/baton-proposals-1.schema.json   # generated (§15.3)
 ├── classify/rules-1.yaml    # failure signal patterns
@@ -120,6 +120,7 @@ baton/
 ├── workers/          # generated profiles, one <name>.yaml each, written only by `baton workers setup` (§6.4)
 ├── preferences.yaml  # machine-level routing preferences, the project file's format; a project's overrides (§8.4)
 ├── ui.json           # the running `baton ui`: URL, pid, started; 0600, removed on exit (§13.9)
+├── ui-projects.yaml  # the projects the local page serves: name -> folder; 0600, kept across restarts (§13.9; Decision 0171)
 ├── resources.yaml    # the owner's resource declarations and setup state (baton-resources/1, §6.4)
 ├── listings/         # cached provider model lists, <provider or resource>.json (baton-listing/1, §6.4)
 ├── quota.yaml        # routes whose quota is used up, until when (baton-quota/1, §8.8)

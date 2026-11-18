@@ -14,6 +14,7 @@
   <nav class="tabs" aria-label="Sections">
     <a href="/" data-tab="setup">Setup</a>
     <a href="/manual" data-tab="manual">Manual</a>
+    <a href="/" data-tab="requests" hidden>Waiting for you</a>
   </nav>
   <div class="search">
     <input id="q" type="search" placeholder="Search the manual" aria-label="Search the manual" autocomplete="off" spellcheck="false" aria-controls="hits" aria-expanded="false">
@@ -33,6 +34,10 @@
   </main>
 </div>
 
+<div id="view-requests" hidden>
+  <main id="req" tabindex="-1"></main>
+</div>
+
 <div id="view-manual" hidden>
   <button id="nav-toggle" class="quiet nav-toggle" aria-expanded="false" aria-controls="nav">Contents</button>
   <div class="reader">
@@ -45,6 +50,7 @@
 <script src="/render.js"></script>
 <script src="/manual.js"></script>
 <script src="/help.js"></script>
+<script src="/requests.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

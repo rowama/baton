@@ -109,6 +109,25 @@ def test_conversation_needs_the_owners_words_and_another_renderer_may_record_a_f
     assert dec["data"]["note"] == "confirmed in local page" and dec["data"]["via"] == "local page"
 
 
+def test_the_owners_own_answer_needs_no_directors_lease(tmp_path):
+    """Decision 0171, item 7: an answer through a renderer other than conversation is the owner's, recorded under the
+    run lock without taking or renewing the Director's lease; in conversation the lease still rules."""
+    from projectkit import Cli as _Cli
+
+    cli, project = fresh(tmp_path)
+    run = _gate(cli, project)  # alice@host1 holds the run's lease
+    rid = status(cli, run)["pending_decisions"][0]["request_id"]
+    page = _Cli(project, cli.home, director="baton-ui@host1")
+    assert page.run("answer", rid, "--choice", "approve", "--note", "Yes.", expect=3)["error"].startswith("lease")
+    out = page.run("answer", rid, "--choice", "approve", "--via", "local_page")
+    assert out["via"] == "local_page"
+    evs = events(project, run)
+    dec = [e for e in evs if e["type"] == "human_decision"][-1]
+    assert dec["data"]["recorded_by"] == "owner" and dec["data"]["note"] == "confirmed in local_page"
+    claims = [e["data"]["director_id"] for e in evs if e["type"] in ("lease_claimed", "lease_renewed", "lease_taken_over")]
+    assert set(claims) == {"alice@host1"}
+
+
 def test_a_blocked_steps_questions_are_the_fields_of_its_retry(tmp_path):
     cli, project = fresh(tmp_path)
     run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]

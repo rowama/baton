@@ -809,7 +809,7 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 
 ## baton ui {#baton-ui}
 
-Open the local setup page: connect accounts and choose the models Baton may use. Stays on one address you can bookmark; running it again restarts it.
+Open the local page: connect accounts and choose the models Baton may use, and, run in a project, answer its open requests. Stays on one address you can bookmark; running it again restarts it.
 
 Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
 
@@ -820,6 +820,7 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 | `--idle-timeout <float>` | Seconds without a request before the page closes itself (default: none; a running page is only ever extended). |
 | `--detach` | Start it in the background and print the link (what a Director does). |
 | `--stop` | Close the setup page that is running (for one started with --detach). |
+| `--request <str>` | Open this project's page for one open request (an id from interactions), to answer it there. |
 | `--json` | Machine-readable output. |
 
 ## baton upgrade {#baton-upgrade}

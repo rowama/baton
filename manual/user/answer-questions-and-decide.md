@@ -44,9 +44,21 @@ Some things are easier to fill in than to talk through, such as matching twenty 
 
 If you do a part of the work yourself, it can be answered the same way: what it asks for becomes the fields of the file. You can also do it in conversation: for a table, such as receipt lines, your assistant goes through it with you one row at a time, then reads the whole set back before recording it.
 
+## Answering on a page {#answer-on-a-page}
+
+For a long form, a table or something to look at, your assistant may give you a link instead. It opens a page on your own computer, in your browser, showing the question, what to look at, and the choices or fields to fill in. The page checks what you filled in and says plainly what is missing. Then it shows what will be recorded, with a box for anything you want to add, and records it only when you press **Confirm**. You do not need your assistant to be part of this: it sees your answer the next time it looks.
+
+Each project has its own address on the page, such as `http://127.0.0.1:47474/p/garden-shed/requests`, which lists everything waiting for you in that project. The address stays the same for as long as the project exists, so you can bookmark it. Its name is the project's name, which starts as the project folder's name; to change it, tell your assistant. To see a project's page yourself, run this in the project's folder:
+
+```baton
+baton ui
+```
+
+If the page cannot show a question, it says so and shows how to answer it with an answer file instead. Closing the page loses nothing: the question waits until you answer it.
+
 ## If a question changed before you answered {#changed}
 
-While you think, the work can move on: another part may add a reason to a question, or a part that was tried again may come back with new questions. Your answer always goes to the question as you saw it. If that question has changed since, nothing is recorded; your assistant shows you the question as it is now, and you answer that one.
+While you think, the work can move on: another part may add a reason to a question, or a part that was tried again may come back with new questions. Your answer always goes to the question as you saw it. If that question has changed since, nothing is recorded; your assistant shows you the question as it is now, and you answer that one. On the page, you are told the question changed, with a link to what is waiting now.
 
 ## Sizing the work {#sizing}
 
