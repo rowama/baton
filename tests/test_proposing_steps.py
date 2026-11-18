@@ -63,7 +63,8 @@ def test_framing_records_and_renders_as_before(tmp_path, monkeypatch, version):
                          "kind": "project", "proposal": {"recipe": "no-such-recipe", "inputs": {"title": "Site"}},
                          "reasons": ["Customers look online"]})  # a gap
     manual(cli, project, fr, "frame", out)
-    pd = status(cli, fr)["pending_decisions"]
+    # A request id hashes the (random) run id: tested in test_interactions, left out of the golden record.
+    pd = [{k: v for k, v in p.items() if k != "request_id"} for p in status(cli, fr)["pending_decisions"]]
     rejected = cli.run("decide", fr, "frame", "reject", "--note", "Split the signs from the site.", expect=None)
     manual(cli, project, fr, "frame", out)
     sel = cli.run("decide", fr, "frame", "select", "--items", "setup,kiosk,web", "--note", "Those three. Yes.")
