@@ -194,7 +194,7 @@ class RunState:
     run_id: str
     state: str | None = None  # None until run_started
     max_attempts: int | None = None
-    step_max_attempts: dict[str, int] = field(default_factory=dict)  # by step id: tool steps (§5.9)
+    step_max_attempts: dict[str, int] = field(default_factory=dict)  # by step id: program steps (§5.9)
     last_seq: int = 0
     last_sha256: str | None = None
     steps: dict[str, StepState] = field(default_factory=dict)
@@ -203,7 +203,7 @@ class RunState:
         return self.steps.get(path, StepState())
 
     def limit_for(self, path: str) -> int | None:
-        """The attempt limit of the step at ``path``: its own (a tool step's) or the run's."""
+        """The attempt limit of the step at ``path``: its own (a program step's) or the run's."""
         last = path.rsplit("/", 1)[-1]
         if "~" in last:
             return self.max_attempts  # a review keeps the run's limit

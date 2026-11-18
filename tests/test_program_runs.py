@@ -1,6 +1,6 @@
-"""2026-11-tool-steps Slice 2: a tool step runs (§5.9, §6.3; Decisions 0156, 0158, 0159).
+"""2026-11-tool-steps Slice 2: a program step runs (§5.9, §6.3; Decisions 0156, 0158, 0159).
 
-A tool step is dispatched to its tool (no routing), runs in an environment
+A program step is dispatched to its program (no routing), runs in an environment
 built by uv from its lock, under the supervisor like any process worker, and
 its result is taken in and gated like any step's. The end-to-end tests run
 real processes and are ``slow``; the runner's and the state's own rules are quick.
@@ -18,12 +18,12 @@ import yaml
 from baton.engine import Api
 from baton.routing import WorkerIdentity, same_at
 from baton.state import RunState
-from baton.tool_runner import collect, fill, inputs_document
+from baton.program_runner import collect, fill, inputs_document
 
 from conftest import ROOT
 from projectkit import Cli, git, make_git_project, make_home, packet_dir, write_result
 
-TOOL_DEMO = ROOT / "tests" / "fixtures" / "recipes" / "tool-demo"
+PROGRAM_DEMO = ROOT / "tests" / "fixtures" / "recipes" / "program-demo"
 PARAMS = {"window": 3, "reason": "short swings"}
 
 PROBE = r'''
@@ -59,17 +59,17 @@ out = Path(sys.argv[sys.argv.index("--output") + 1])
 
 
 class Setup:
-    """A git project with a (possibly edited) tool-demo vendored, and the owner as a manual worker."""
+    """A git project with a (possibly edited) program-demo vendored, and the owner as a manual worker."""
 
-    def __init__(self, tmp_path: Path, *, script: str | None = None, tool: dict | None = None, step: dict | None = None):
-        src = tmp_path / "src" / "tool-demo"
-        shutil.copytree(TOOL_DEMO, src)
+    def __init__(self, tmp_path: Path, *, script: str | None = None, program: dict | None = None, step: dict | None = None):
+        src = tmp_path / "src" / "program-demo"
+        shutil.copytree(PROGRAM_DEMO, src)
         if script is not None:
-            (src / "tools" / "backtest" / "backtest.py").write_text(script, encoding="utf-8")
-        if tool:
-            p = src / "tools" / "backtest" / "tool.yaml"
+            (src / "programs" / "backtest" / "backtest.py").write_text(script, encoding="utf-8")
+        if program:
+            p = src / "programs" / "backtest" / "program.yaml"
             data = yaml.safe_load(p.read_text(encoding="utf-8"))
-            for k, v in tool.items():
+            for k, v in program.items():
                 data[k] = {**data[k], **v} if isinstance(v, dict) else v
             p.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         if step:
@@ -81,10 +81,10 @@ class Setup:
         self.home = make_home(tmp_path / "home")
         self.cli = Cli(self.project, self.home)
         self.cli.run("init", str(self.project), "--bare")
-        self.cli.run("vendor", str(src), "--approved", "--note", "Yes, use the backtest script.")  # tools need the owner (§5.9)
+        self.cli.run("vendor", str(src), "--approved", "--note", "Yes, use the backtest script.")  # programs need the owner (§5.9)
         git(self.project, "add", "-A")
         git(self.project, "commit", "-qm", "Adopt Baton")
-        self.run = self.cli.run("start", "tool-demo", "--inputs", json.dumps({"title": "MA test", "goal": "catch short swings"}))["run_id"]
+        self.run = self.cli.run("start", "program-demo", "--inputs", json.dumps({"title": "MA test", "goal": "catch short swings"}))["run_id"]
 
     def parameters(self) -> None:
         self.cli.run("dispatch", self.run, "parameters", "--worker", "owner")
@@ -92,7 +92,7 @@ class Setup:
         self.cli.run("submit", self.run, "parameters")
 
     def backtest(self, expect: int | None = None):  # an escalation exits 4 (the owner is needed)
-        return self.cli("dispatch", self.run, "backtest", "--worker", "tool:backtest", "--wait", expect=expect)
+        return self.cli("dispatch", self.run, "backtest", "--worker", "program:backtest", "--wait", expect=expect)
 
     def events(self) -> list[dict]:
         p = self.project / ".baton" / "runs" / self.run / "events.jsonl"
@@ -115,56 +115,56 @@ class Setup:
 
 
 @pytest.mark.slow
-def test_a_tool_step_runs_and_feeds_the_next_step(tmp_path):
+def test_a_program_step_runs_and_feeds_the_next_step(tmp_path):
     s = Setup(tmp_path)
     s.parameters()
     eligible = s.cli.run("eligible", s.run, "backtest")
-    assert [e["profile"] for e in eligible["eligible"]] == ["tool:backtest"] and eligible["excluded"] == []
+    assert [e["profile"] for e in eligible["eligible"]] == ["program:backtest"] and eligible["excluded"] == []
 
     out = s.backtest().payload
-    assert out["outcome"] == "passed" and out["adapter"] == "tool"
+    assert out["outcome"] == "passed" and out["adapter"] == "program"
 
     d = s.last("dispatched")["data"]
-    tool = d["tool"]
-    assert tool["id"] == "backtest" and tool["runtime"] == {"kind": "python", "version": ">=3.11"}
-    assert len(tool["sha256"]) == 64 and len(tool["lock_sha256"]) == 64 and tool["python_version"].startswith("3.")
-    assert tool["env_id"] == f"{tool['lock_sha256']}-py{'.'.join(tool['python_version'].split('.')[:2])}"
-    assert tool["reach"] == {"workspace": "none", "network": False, "secrets": []}
-    assert d["effort"] == "S" and d["effort_source"] == "tool default"
-    assert (s.home / "tools" / tool["env_id"] / "env.json").is_file()
+    program = d["program"]
+    assert program["id"] == "backtest" and program["runtime"] == {"kind": "python", "version": ">=3.11"}
+    assert len(program["sha256"]) == 64 and len(program["lock_sha256"]) == 64 and program["python_version"].startswith("3.")
+    assert program["env_id"] == f"{program['lock_sha256']}-py{'.'.join(program['python_version'].split('.')[:2])}"
+    assert program["reach"] == {"workspace": "none", "network": False, "secrets": []}
+    assert d["effort"] == "S" and d["effort_source"] == "program default"
+    assert (s.home / "programs" / program["env_id"] / "env.json").is_file()
 
     passed = s.last("step_passed")
     assert passed["type"] == "step_passed"
     assert s.artifact("trades").startswith("day,side,price")
 
-    # The next step's packet holds the tool's output and artifact.
+    # The next step's packet holds the program's output and artifact.
     s.cli.run("dispatch", s.run, "report", "--worker", "owner")
     manifest = json.loads((packet_dir(s.project, s.run, "report", 1) / "manifest.json").read_text(encoding="utf-8"))
     assert {i["name"] for i in manifest["inputs"]} == {"result", "trades"}
-    assert "tool" not in manifest  # only tool packets carry the key
+    assert "program" not in manifest  # only program packets carry the key
 
 
 @pytest.mark.slow
-def test_a_tool_gets_only_what_it_declares(tmp_path, monkeypatch):
+def test_a_program_gets_only_what_it_declares(tmp_path, monkeypatch):
     monkeypatch.setenv("BATON_SECRET_PRICE_FEED_TOKEN", "s3cret-value")
     monkeypatch.setenv("UNRELATED_SECRET", "leak")
-    s = Setup(tmp_path, script=PROBE, tool={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
+    s = Setup(tmp_path, script=PROBE, program={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
     s.parameters()
     assert s.backtest().payload["outcome"] == "passed"
     probe = json.loads(s.artifact("trades"))
     assert probe["secret"] == "s3cret-value"
     assert "UNRELATED_SECRET" not in probe["env"] and not [n for n in probe["env"] if n.startswith("BATON_")]
     assert probe["cwd_entries"] == []  # a fresh, empty scratch folder (Decision 0158)
-    assert Path(probe["cwd"]).resolve() != (s.project / ".baton").resolve() and "tools" not in Path(probe["cwd"]).parts[-2:]
+    assert Path(probe["cwd"]).resolve() != (s.project / ".baton").resolve() and "programs" not in Path(probe["cwd"]).parts[-2:]
     assert probe["inputs"] == {"parameters": PARAMS}  # values, never on the command line (Decision 0159)
     assert not any("short swings" in a for a in probe["argv"])
-    assert Path(probe["python"]).is_relative_to(s.home / "tools")
+    assert Path(probe["python"]).is_relative_to(s.home / "programs")
     d = s.last("dispatched")["data"]
     assert d["env"]["secret_names"] == ["PRICE_FEED_TOKEN"] and "s3cret-value" not in json.dumps(s.events())
 
 
 @pytest.mark.slow
-def test_a_failing_tool_fails_with_its_error_and_escalates_after_one_attempt(tmp_path):
+def test_a_failing_program_fails_with_its_error_and_escalates_after_one_attempt(tmp_path):
     s = Setup(tmp_path, script=FAILS)
     s.parameters()
     out = s.backtest().payload
@@ -175,7 +175,7 @@ def test_a_failing_tool_fails_with_its_error_and_escalates_after_one_attempt(tmp
 
 
 @pytest.mark.slow
-def test_a_recipe_may_raise_a_tools_attempts(tmp_path):
+def test_a_recipe_may_raise_a_programs_attempts(tmp_path):
     s = Setup(tmp_path, script=FAILS, step={"max_attempts": 2})
     s.parameters()
     assert s.backtest().payload["outcome"] == "retry"
@@ -192,10 +192,10 @@ def test_an_undeclared_output_file_fails_the_attempt(tmp_path):
 
 @pytest.mark.slow
 def test_no_fitting_python_is_a_platform_failure_and_nothing_is_dispatched(tmp_path):
-    s = Setup(tmp_path, tool={"runtime": {"version": ">=3.99"}})
+    s = Setup(tmp_path, program={"runtime": {"version": ">=3.99"}})
     s.parameters()
     res = s.backtest(expect=None)
-    assert res.exit_code != 0 and res.payload["error"] == "tool.no_runtime", res.payload
+    assert res.exit_code != 0 and res.payload["error"] == "program.no_runtime", res.payload
     assert "never downloads" in res.payload["message"]
     assert not [e for e in s.events() if e["type"] == "dispatched" and e["step_path"] == "backtest"]
     assert s.cli.run("status", s.run)  # the run is still readable
@@ -206,7 +206,7 @@ def test_no_fitting_python_is_a_platform_failure_and_nothing_is_dispatched(tmp_p
 @pytest.mark.slow
 def test_a_missing_secret_refuses_the_dispatch(tmp_path, monkeypatch):
     monkeypatch.delenv("BATON_SECRET_PRICE_FEED_TOKEN", raising=False)
-    s = Setup(tmp_path, tool={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
+    s = Setup(tmp_path, program={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
     s.parameters()
     res = s.backtest(expect=None)
     assert res.exit_code != 0 and "PRICE_FEED_TOKEN" in res.payload["message"]
@@ -214,10 +214,10 @@ def test_a_missing_secret_refuses_the_dispatch(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
-def test_a_tool_that_changes_the_workspace_beyond_its_reach_is_caught(tmp_path):
+def test_a_program_that_changes_the_workspace_beyond_its_reach_is_caught(tmp_path):
     s = Setup(
         tmp_path, script=PROBE, step={"workspace": "read"},
-        tool={"reach": {"workspace": "read"}, "entry": ["python", "{tool}/backtest.py", "--input", "{input}", "--output", "{output}", "--repo", "{workspace}"]},
+        program={"reach": {"workspace": "read"}, "entry": ["python", "{program}/backtest.py", "--input", "{input}", "--output", "{output}", "--repo", "{workspace}"]},
     )
     s.parameters()
     assert s.backtest().payload["outcome"] == "escalated"
@@ -229,29 +229,29 @@ def test_the_environment_is_reused_while_the_lock_is_unchanged(tmp_path):
     a = Setup(tmp_path / "a")
     a.parameters()
     a.backtest()
-    env_id = a.last("dispatched")["data"]["tool"]["env_id"]
-    built = (a.home / "tools" / env_id / "env.json").stat().st_mtime_ns
+    env_id = a.last("dispatched")["data"]["program"]["env_id"]
+    built = (a.home / "programs" / env_id / "env.json").stat().st_mtime_ns
     b = Cli(a.project, a.home)
-    run2 = b.run("start", "tool-demo", "--inputs", json.dumps({"title": "again", "goal": "again"}))["run_id"]
+    run2 = b.run("start", "program-demo", "--inputs", json.dumps({"title": "again", "goal": "again"}))["run_id"]
     b.run("dispatch", run2, "parameters", "--worker", "owner")
     write_result(packet_dir(a.project, run2, "parameters", 1), PARAMS)
     b.run("submit", run2, "parameters")
-    b.run("dispatch", run2, "backtest", "--worker", "tool:backtest", "--wait")
-    assert (a.home / "tools" / env_id / "env.json").stat().st_mtime_ns == built
+    b.run("dispatch", run2, "backtest", "--worker", "program:backtest", "--wait")
+    assert (a.home / "programs" / env_id / "env.json").stat().st_mtime_ns == built
 
 
 @pytest.mark.slow
-def test_a_worker_cannot_take_a_tool_step_nor_a_tool_a_worker_step(tmp_path):
+def test_a_worker_cannot_take_a_program_step_nor_a_program_a_worker_step(tmp_path):
     s = Setup(tmp_path)
     s.parameters()
     res = s.cli("dispatch", s.run, "backtest", "--worker", "owner", expect=None)
-    assert res.exit_code != 0 and res.payload["error"] == "routing.ineligible" and "tool:backtest" in res.payload["message"]
-    res = s.cli("dispatch", s.run, "report", "--worker", "tool:backtest", expect=None)
+    assert res.exit_code != 0 and res.payload["error"] == "routing.ineligible" and "program:backtest" in res.payload["message"]
+    res = s.cli("dispatch", s.run, "report", "--worker", "program:backtest", expect=None)
     assert res.exit_code != 0 and res.payload["error"] == "configuration.unknown_profile"
 
 
 @pytest.mark.slow
-def test_runs_without_tools_record_no_tool_limits(tmp_path):
+def test_runs_without_programs_record_no_program_limits(tmp_path):
     from projectkit import setup_fit_check
 
     cli, project = setup_fit_check(tmp_path)
@@ -298,11 +298,11 @@ def test_collect_takes_declared_artifacts_and_names_anything_else(tmp_path):
 
 @pytest.mark.not_slow("string work")
 def test_fill_replaces_only_the_placeholders():
-    assert fill(["{tool}/a.py", "--x", "{input}", "{nope}"], {"tool": "/t", "input": "/i"}) == ["/t/a.py", "--x", "/i", "{nope}"]
+    assert fill(["{program}/a.py", "--x", "{input}", "{nope}"], {"program": "/t", "input": "/i"}) == ["/t/a.py", "--x", "/i", "{nope}"]
 
 
 @pytest.mark.not_slow("folds three events")
-def test_a_tool_step_has_its_own_attempt_limit():
+def test_a_program_step_has_its_own_attempt_limit():
     rs = RunState("r")
     rs.apply({"type": "run_started", "data": {"max_attempts": 3, "step_max_attempts": {"backtest": 1}}})
     assert rs.limit_for("backtest") == 1 and rs.limit_for("report") == 3
@@ -310,12 +310,12 @@ def test_a_tool_step_has_its_own_attempt_limit():
 
 
 @pytest.mark.not_slow("compares two records")
-def test_a_tool_and_a_worker_are_always_independent():
-    tool = WorkerIdentity("tool:backtest", "tool", adapter="tool")
-    worker = WorkerIdentity("bot", "tool", adapter="command")  # even a worker whose creator is called "tool"
+def test_a_program_and_a_worker_are_always_independent():
+    program = WorkerIdentity("program:backtest", "program", adapter="program")
+    worker = WorkerIdentity("bot", "program", adapter="command")  # even a worker whose creator is called "program"
     for level in ("different_profile", "different_vendor", "different_model"):
-        assert not same_at(level, tool, worker) and not same_at(level, worker, tool)
-    assert same_at("different_vendor", tool, WorkerIdentity("tool:other", "tool", adapter="tool"))
+        assert not same_at(level, program, worker) and not same_at(level, worker, program)
+    assert same_at("different_vendor", program, WorkerIdentity("program:other", "program", adapter="program"))
 
 
 LEAKS = r'''
@@ -326,9 +326,9 @@ sys.exit(1)
 
 
 @pytest.mark.slow
-def test_a_secret_in_a_tools_error_output_is_never_recorded(tmp_path, monkeypatch):
+def test_a_secret_in_a_programs_error_output_is_never_recorded(tmp_path, monkeypatch):
     monkeypatch.setenv("BATON_SECRET_PRICE_FEED_TOKEN", "s3cret-value")
-    s = Setup(tmp_path, script=LEAKS, tool={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
+    s = Setup(tmp_path, script=LEAKS, program={"reach": {"secrets": ["PRICE_FEED_TOKEN"]}})
     s.parameters()
     assert s.backtest().payload["outcome"] == "escalated"
     recorded = json.dumps(s.events())
@@ -337,23 +337,23 @@ def test_a_secret_in_a_tools_error_output_is_never_recorded(tmp_path, monkeypatc
 
 @pytest.mark.slow
 def test_a_failed_build_is_a_platform_failure_and_leaves_no_environment(tmp_path, monkeypatch):
-    from baton import tool_env
+    from baton import program_env
     from baton.recipe import load_recipe
 
-    src = tmp_path / "tool-demo"
-    shutil.copytree(TOOL_DEMO, src)
-    (src / "tools" / "backtest" / "requirements.lock").write_text(
+    src = tmp_path / "program-demo"
+    shutil.copytree(PROGRAM_DEMO, src)
+    (src / "programs" / "backtest" / "requirements.lock").write_text(
         "no-such-package-for-baton==1.0.0 --hash=sha256:" + "0" * 64 + "\n", encoding="utf-8")
     monkeypatch.setenv("UV_OFFLINE", "1")  # nothing can be fetched: the install fails quickly
-    tool = load_recipe(src).tools["backtest"]
-    with pytest.raises(tool_env.ToolSetupError) as e:
-        tool_env.ensure(tool, tmp_path / "home")
-    assert e.value.code == "tool.build_failed" and e.value.failure_class == "platform" and "install its dependencies" in str(e.value)
-    assert not list((tmp_path / "home" / "tools").glob("*/env.json"))  # an unfinished build is never reused
+    program = load_recipe(src).programs["backtest"]
+    with pytest.raises(program_env.ProgramSetupError) as e:
+        program_env.ensure(program, tmp_path / "home")
+    assert e.value.code == "program.build_failed" and e.value.failure_class == "platform" and "install its dependencies" in str(e.value)
+    assert not list((tmp_path / "home" / "programs").glob("*/env.json"))  # an unfinished build is never reused
 
 
 @pytest.mark.slow
-def test_a_tool_steps_human_gate_waits_for_the_owner(tmp_path):
+def test_a_program_steps_human_gate_waits_for_the_owner(tmp_path):
     s = Setup(tmp_path, step={"gates": [{"type": "schema"}, {"type": "human", "prompt": "Accept these results?"}]})
     s.parameters()
     assert s.backtest().payload["outcome"] == "needs_human"

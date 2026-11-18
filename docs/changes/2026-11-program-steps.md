@@ -5,7 +5,7 @@ status: accepted
 level: standard
 decisions: ["0166", "0167", "0154", "0155", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/director-interface.md, design/platform-and-security.md, design/adoption-and-framing.md]
-manual: [user/getting-started.md, user/what-baton-may-do.md, user/when-something-is-wrong.md, admin/director-commands.md, admin/directors.md, admin/files-and-paths.md, admin/install-and-versions.md, admin/recipes-and-vendoring.md, admin/scheduling-checks.md, recipes/recipe-builder.md, recipes/spreadsheet-reconcile.md, recipe-sources/recipe-builder.md, recipe-sources/spreadsheet-reconcile.md, reference/commands.md, reference/diagnostics.md]
+manual: [user/what-baton-may-do.md, admin/files-and-paths.md, admin/recipes-and-vendoring.md, admin/scheduling-checks.md, recipes/recipe-builder.md, recipes/spreadsheet-reconcile.md, recipe-sources/recipe-builder.md, recipe-sources/spreadsheet-reconcile.md, reference/commands.md, context.yaml, reference-notes.yaml, anchors.yaml]
 ---
 
 # A recipe's tool is renamed a program, so "tool" means only what a model or a harness calls
@@ -29,9 +29,9 @@ The owner's decision (Decision [0166](../decisions/0166-tools-renamed-programs.m
 
 ### Acceptance criteria
 
-1. **The recipe format uses the new names.** A step names its program with `program: <id>`. The package keeps it in `programs/<id>/` with `program.yaml`. A waiting step's check is a program. The format stays `baton-recipe/1` (Decision [0167](../decisions/0167-program-steps-details.md) item 1).
+1. **The recipe format uses the new names.** A step names its program with `program: <id>`. The package keeps it in `programs/<id>/` with `program.yaml`. An entry command names the program's folder as `{program}`. A waiting step's check is a program. The format stays `baton-recipe/1` (Decision [0167](../decisions/0167-program-steps-details.md) item 1).
 2. **The old spelling fails plainly.** A step with `tool:`, or a package with a `tools/` folder holding `tool.yaml`, is a load error naming the new key or folder. It is not accepted as a synonym.
-3. **Commands use the new names.** `baton programs setup`, `baton programs test` and `baton programs examples`, in the CLI and MCP. `baton tools …` no longer exists.
+3. **Commands use the new names.** `baton programs setup`, `baton programs test` (with `--program <id>`) and `baton programs examples`, CLI only, as their predecessors were. `baton tools …` no longer exists.
 4. **Records use the new names.** `dispatched.program`, `wait_started.program`, profile `program:<id>`, adapter, creator and vendor `program`, `effort_source: program default`, the vendor flag `program`, `programs_not_ready` from `start`, and error codes `program.*`. `step.tool_workspace_mismatch` becomes `step.program_workspace_mismatch`, and `tool_command_missing` becomes `program_command_missing`.
 5. **Environments live under `~/.baton/programs/`.** Programs' environments are built there, as before, named by lock and Python.
 6. **The shipped recipes use the new names.** `spreadsheet-reconcile`, `recipe-builder` (its schemas, prompts, patterns and rubric: `done_by: program`, the program budget, simple and engineered programs) and the test fixtures.
@@ -66,10 +66,16 @@ All five were answered as suggested (Decision [0167](../decisions/0167-program-s
 
 ### Manual edits
 
-- `user/getting-started.md`, `user/what-baton-may-do.md`, `user/when-something-is-wrong.md`: "program" where an owner reads "tool" today.
-- `admin/director-commands.md`, `admin/directors.md`, `admin/files-and-paths.md` (with the note on the old folder), `admin/install-and-versions.md`, `admin/recipes-and-vendoring.md`, `admin/scheduling-checks.md`: the commands, folders and words.
-- `recipes/recipe-builder.md`, `recipes/spreadsheet-reconcile.md` and their `recipe-sources/` files: the shipped recipes in program terms.
-- `reference/commands.md`, `reference/diagnostics.md`: regenerated.
+The owner topics already said "program"; only their anchors and the gate's question change. The other topics first listed here (`getting-started`, `when-something-is-wrong`, `director-commands`, `directors`, `install-and-versions`, `reference/diagnostics`) use "tool" only in its kept senses (MCP tools, `uv tool install`, `tool_evidence.*`) and are unchanged.
+
+- `user/what-baton-may-do.md`: the section *Programs a process runs* `{#programs}`, the old anchor `#tools` kept as an alias.
+- `admin/recipes-and-vendoring.md`: *Programs a recipe ships* `{#programs}` (alias `#tools`), `programs/<id>/program.yaml`, `baton programs setup|test|examples`, `--program <id>`, the program budget.
+- `admin/files-and-paths.md`: `~/.baton/programs/`, and that a `~/.baton/tools/` folder left by an earlier Baton can be deleted (Decision 0167 item 4).
+- `admin/scheduling-checks.md`: a check is a program; the example uses `program:`.
+- `recipe-sources/recipe-builder.md` (and the generated `recipes/recipe-builder.md`): "Build the programs to these examples?", the section `{#engineered-programs}` with the alias `#engineered-tools`; the parts table follows the recipe's new titles.
+- `recipe-sources/spreadsheet-reconcile.md` (and `recipes/spreadsheet-reconcile.md`): the link to `admin.recipes-and-vendoring#programs`.
+- `reference/commands.md`: regenerated; `reference-notes.yaml` gains `command_anchor_aliases`, which the generator writes into the page's `anchor_aliases`, so `#baton-tools…` still resolve.
+- `context.yaml`: the `programs` command opens `admin.recipes-and-vendoring`. `anchors.yaml` refreshed.
 
 ### Decisions
 
@@ -82,35 +88,25 @@ All five were answered as suggested (Decision [0167](../decisions/0167-program-s
 
 Each slice leaves the repository passing its tests.
 
-### Slice 1: the runtime, the format and the records
+### Slice 1: the runtime, the format, the records, the shipped recipes and the manual
 
-- **Outcome:** the loader, runtime, commands, records, error codes and environments use the new names, and the old spelling fails plainly.
+- **Outcome:** the loader, runtime, commands, records, error codes and environments use the new names, and the old spelling fails plainly; `spreadsheet-reconcile` and `recipe-builder` are written in program terms and behave exactly as before; the manual and the Director skill follow.
 - **Criteria:**
   - `program:` and `programs/<id>/program.yaml` load; `tool:` and `tools/<id>/tool.yaml` are load errors naming the new spelling;
-  - `baton programs setup|test|examples` in the CLI and MCP;
+  - `baton programs setup|test|examples` in the CLI;
   - the renamed event keys, profile, adapter, creator, effort default, vendor flag, `programs_not_ready` and error codes;
   - environments under `~/.baton/programs/`;
-  - the modules and tests renamed (if open question 3 is accepted), and the test fixtures moved;
+  - the modules and tests renamed, and the test fixtures moved;
+  - the packages use `program:` and `programs/`; the builder's schemas use `done_by: program`, and its prompts, patterns and rubric say program and program budget;
+  - the manual topics and the Director skill, the reference regenerated;
   - every existing test passes under the new names.
-- **Effort:** M
+- **Effort:** L
 
-### Slice 2: the shipped recipes and the builder
+### Slice 2: the design docs and the completeness search
 
-- **Outcome:** `spreadsheet-reconcile` and `recipe-builder` are written in program terms and behave exactly as before.
-- **Criteria:**
-  - the packages use `program:` and `programs/`;
-  - the builder's schemas use `done_by: program`, and its prompts, patterns and rubric say program and program budget;
-  - their scenario tests pass;
-  - `baton recipe check` passes on both.
-- **Effort:** M
-
-### Slice 3: the docs, the skill and the manual
-
-- **Outcome:** an owner, an administrator and a maintainer read "program" for §5.9 everywhere current, and "tool" only in its kept senses.
+- **Outcome:** a maintainer reads "program" for §5.9 everywhere current in `docs/`, and "tool" only in its kept senses.
 - **Criteria:**
   - the design and principles edits listed above;
-  - the Director skill;
-  - the manual topics listed above, the reference regenerated;
   - the completeness search of open question 5 recorded in the Log;
   - `tests/test_docs.py` passes.
 - **Effort:** M
@@ -133,4 +129,12 @@ Each slice leaves the repository passing its tests.
 
 - **Summary:** The owner approved the Request and Design as updated with Decision 0167's answers. No code changed.
 - **Owner decision:** 2026-11-17, "Approve"
+- **Accepted:** Yes.
+
+### Slice 1: the runtime, the format, the records, the shipped recipes and the manual
+
+- **Summary:** The §5.9 concept is a program throughout the code, the shipped recipes, the tests, the manual and the Director skill. Modules: `tools.py`, `tool_env.py`, `tool_runner.py`, `tool_test.py` and `adapters/tool.py` became `programs.py`, `program_env.py`, `program_runner.py`, `program_test.py` and `adapters/program.py` (Decision 0167 item 3), and their names inside them (`LoadedProgram`, `ProgramSpec`, `ProgramSetupError`, `PROGRAMS_DIR`, `PROGRAM_FILE`, ...). Format: a step's `program:`, `programs/<id>/program.yaml`, the entry placeholder `{program}`, still `baton-recipe/1` (item 1); `formats/baton-recipe-1.schema.json` regenerated. The old spelling fails plainly: a `tool:` key is `recipe.renamed_key` ("`tool:` is now `program:`") and a `tools/<id>/tool.yaml` is `recipe.renamed_folder`, naming the new path. Records: `dispatched.program`, `wait_started.program`, profile `program:<id>`, adapter, creator and vendor `program`, `effort_source: program default`, the vendor flag code `program`, the lock entry's `programs` map, `programs_not_ready` from `start`, `doctor`'s `programs`, and the codes `program.*`, `step.program_and_worker`, `step.program_workspace_mismatch`, `step.wait_needs_program`, `step.max_attempts_needs_program`, `vendor.program_unbuilt`, `configuration.not_a_program`, `programs.unknown_program`, `programs.examples_usage`. Commands: `baton programs setup|test|examples`, `programs test --program <id>`; the runner takes `--program-dir`. Environments: `~/.baton/programs/` (item 4: the old folder is left alone). Recipes: `spreadsheet-reconcile` and `recipe-builder@6` edited in place (item 2): `programs/csv_diff/`; the builder's step `build_programs`, its input `programs`, `engineered_programs`, `done_by: program`, `prompts/program_review.md`, `static/program_review_rubric.md`, the gate "Build the programs to these examples?", and its prompts, patterns and rubric in program terms. Plain-English uses ("a workflow tool", "name no AI model, vendor or tool") were kept. Fixtures: `tool-demo` is `program-demo`; the frozen `recipe-builder-v4` and `-v5` fixtures had only their `baton tools test` gate commands changed, since the command is gone. Manual: as listed under *Manual edits*; published anchors kept as aliases, and `manual_gen` writes `command_anchor_aliases` from `reference-notes.yaml` into the generated command reference. Skill: the vendor flag, `programs_not_ready` and the builder's examples section, in `skills/baton-director/SKILL.md` and its copy in `design/director-interface.md` §13.3 (a test keeps them equal). Kept senses unchanged: `tool_evidence`, harness tool maps and `ToolPlan`, tooling capabilities, `tool_use`, the MCP server's tools, the Codex approval setting, and the repository's `tools/` folder.
+- **Plan change, told to the owner:** the former Slice 2 (the shipped recipes and the builder), the manual and the Director skill are folded into this slice. The builder's gates call `baton tools test`, the manual's tests check every command it names, and the skill names the runtime's records, so none of them can lag the rename without a broken commit. The design docs, the principles and the completeness search remain, as Slice 2.
+- **Criterion 3 corrected:** the `programs` commands are CLI only, as `tools …` were (§13.1); the Request said "in the CLI and MCP".
+- **Tests:** every existing test passes under the new names (test files `test_program_steps`, `test_program_runs`, `test_program_readiness`, `test_program_examples`, `test_engineered_program_checks`, `test_engineered_program_engine`); two new tests in `test_program_steps.py` show the old key and the old folder fail with the new names.
 - **Accepted:** Yes.

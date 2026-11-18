@@ -85,7 +85,7 @@ rules and acts on it. The rules then hold every time, and only the reading is a 
 For each stage, record what its work is like (`traits`), and give it to the first doer on this list
 that can do it:
 
-1. **A tool** (a small program the process ships) when complete rules can be written for every input
+1. **A program** (small software the process ships) when complete rules can be written for every input
    in scope and the input is structured: a calculation, a conversion, matching one list against
    another, keeping a record. It gives the same result every time, costs nothing per run and needs no
    AI service.
@@ -96,24 +96,24 @@ that can do it:
 
 Software before an AI worker. When an AI worker does a stage software could do (`rules: complete` and
 `input: structured`, or `repeatable: required`), record why (`executor_choice`): the owner's ceiling
-on software, the owner's own choice (with their words in the ledger), or the work is over the tool
+on software, the owner's own choice (with their words in the ledger), or the work is over the program
 budget; what is given up (the same result every time, no cost per run, no dependence on an AI
 service); and what the software would cost (building it, and looking after it). Existing software
 the owner already has is not yet a doer: record it as a discovery and do the stage another way.
 
-**The tool budget.** A tool has one entry command, reads its inputs and writes its outputs, keeps no
+**The program budget.** A program has one entry command, reads its inputs and writes its outputs, keeps no
 service running, holds no state beyond what it declares, fits one effort band, and can be tested from
 worked examples. At `software: simple` it is also one file, uses only the Python standard library,
 reaches no network and needs no secrets. Anything bigger is a separate software project: do the stage
 another way and say so.
 
-**Contract, examples, then code** (`software: engineered`). A tool that needs real engineering (a real
+**Contract, examples, then code** (`software: engineered`). A program that needs real engineering (a real
 data format, rules with exceptions, a package) is built in that order: the design gives its contract
-(inputs, outputs, what it may touch, every package and why, why it is one tool) and the examples the
+(inputs, outputs, what it may touch, every package and why, why it is one program) and the examples the
 owner should supply; the owner supplies them, or approves drafted ones; another worker builds the
-tool to them, and a reviewer from another vendor checks it against the contract. Examples the builder
+program to them, and a reviewer from another vendor checks it against the contract. Examples the builder
 invents prove nothing about what the owner means, so the owner's own are asked for first. Prefer a
-simple tool wherever one will do.
+simple program wherever one will do.
 
 **The check says what it establishes** (`acceptance.kind`): `format` (the output has the right shape),
 `rule` (it obeys stated rules), `source` (it matches a source) or `judgment` (a reviewer or the owner
@@ -121,7 +121,7 @@ judges it). A stage with an effect, or whose result can be wrong about the world
 `format`.
 
 **A point of no return has the owner's decision before it, whoever does the stage** (shape 4). A
-tool that spends money or changes something others depend on runs only after the owner approves.
+program that spends money or changes something others depend on runs only after the owner approves.
 
 **Delegation.** The owner may one day let their own AI assistant act for them. For each stage a person
 does and each owner decision, say whether that would be risky (`delegation`), and why in plain words:

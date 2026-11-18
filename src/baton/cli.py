@@ -312,8 +312,8 @@ def establish_baseline(
 
 
 def _flag_text(f: dict) -> str:
-    if f["code"] == "tool":
-        return (f"{'changed ' if f.get('changed') else ''}tool {f['tool']!r}: {f['does']} It needs {f['needs']}; it {f['touches']}.")
+    if f["code"] == "program":
+        return (f"{'changed ' if f.get('changed') else ''}program {f['program']!r}: {f['does']} It needs {f['needs']}; it {f['touches']}.")
     if f["code"] == "signature_changed":
         return f"step id {f['step']!r} keeps its id but changes {', '.join(f['changed'])} (vs version {', '.join(map(str, f['versions']))})"
     return f"step id {f['step']!r} was retired in version {', '.join(map(str, f['retired_in']))} and is reused"
@@ -322,11 +322,11 @@ def _flag_text(f: dict) -> str:
 @app.command()
 def vendor(
     recipe_dir: Annotated[Path, typer.Argument(help="Recipe package directory, or the id of a recipe shipped with Baton (needs --note).")],
-    approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes and tools.")] = False,
+    approved: Annotated[bool, typer.Option("--approved", help="The owner approved the flagged step-id changes and programs.")] = False,
     note: Annotated[Optional[str], typer.Option("--note", help="With --approved, or a shipped recipe's id: the owner's words, recorded verbatim.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new tools, need the owner: exit 4)."""
+    """Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new programs, need the owner: exit 4)."""
     out = _call(as_json, lambda: _api().vendor(recipe_dir, approved=approved, note=note))
     if out["needs_owner"]:
         text = "\n".join([out["message"], *(f"  - {_flag_text(f)}" for f in out["flags"])])
@@ -1581,73 +1581,73 @@ def waits_schedule(
     raise typer.Exit(EXIT_PROBLEM if install and not out["installed"] else EXIT_OK)
 
 
-tools_app = typer.Typer(no_args_is_help=True, help="Tools the vendored recipes ship: scripts run with no model (§5.9).")
-app.add_typer(tools_app, name="tools")
+programs_app = typer.Typer(no_args_is_help=True, help="Programs the vendored recipes ship: scripts run with no model (§5.9).")
+app.add_typer(programs_app, name="programs")
 
 
-@tools_app.command("setup")
-def tools_setup(as_json: JsonOpt = False) -> None:
-    """Build each vendored recipe's tools' environments now, instead of at their first use."""
-    out = _call(as_json, lambda: _api().tools_setup())
+@programs_app.command("setup")
+def programs_setup(as_json: JsonOpt = False) -> None:
+    """Build each vendored recipe's programs' environments now, instead of at their first use."""
+    out = _call(as_json, lambda: _api().programs_setup())
     lines = []
-    for t in out["tools"]:
-        where = f"{t['tool']} ({t['recipe']})"
+    for t in out["programs"]:
+        where = f"{t['program']} ({t['recipe']})"
         if t["status"] in ("built", "reused"):
             lines.append(f"{t['status']} {where}: Python {t['python_version']}")
         else:
             lines.append(f"{'FAILED' if t['status'] == 'failed' else 'NOT READY'} {where}: {t['reason']}")
-    _emit(out, as_json, "\n".join(lines) or "No vendored recipe has tools.")
+    _emit(out, as_json, "\n".join(lines) or "No vendored recipe has programs.")
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 
-@tools_app.command("test")
-def tools_test(
-    package: Annotated[Path, typer.Argument(help="A recipe package folder (its recipe.yaml and tools/).")],
-    require_examples: Annotated[bool, typer.Option("--require-examples", help="A tool with no examples fails.")] = False,
-    tool: Annotated[Optional[str], typer.Option("--tool", help="Test only this tool.")] = None,
+@programs_app.command("test")
+def programs_test(
+    package: Annotated[Path, typer.Argument(help="A recipe package folder (its recipe.yaml and programs/).")],
+    require_examples: Annotated[bool, typer.Option("--require-examples", help="A program with no examples fails.")] = False,
+    program: Annotated[Optional[str], typer.Option("--program", help="Test only this program.")] = None,
     repeat: Annotated[int, typer.Option("--repeat", min=1, max=10, help="Run each example this many times; the runs must give the same result.")] = 1,
-    allow_unbuilt: Annotated[bool, typer.Option("--allow-unbuilt", help="An engineered tool not built yet is listed and skipped, not failed.")] = False,
+    allow_unbuilt: Annotated[bool, typer.Option("--allow-unbuilt", help="An engineered program not built yet is listed and skipped, not failed.")] = False,
     as_json: JsonOpt = False,
 ) -> None:
-    """Run each of a recipe's tools on its worked examples and report any difference (exit 0 when all pass)."""
+    """Run each of a recipe's programs on its worked examples and report any difference (exit 0 when all pass)."""
     from .project import machine_home
     from .recipe import load_recipe
-    from .tool_test import run_tool_examples
+    from .program_test import run_program_examples
 
     loaded = _call(as_json, lambda: load_recipe(package.resolve()))
-    if tool is not None and tool not in loaded.tools:
-        _fail(as_json, EXIT_USAGE, "tools.unknown_tool", f"the package has no tool {tool!r} (it has: {', '.join(sorted(loaded.tools)) or 'none'})")
-    results = run_tool_examples(loaded.tools, machine_home(), require_examples=require_examples, only=tool,
+    if program is not None and program not in loaded.programs:
+        _fail(as_json, EXIT_USAGE, "programs.unknown_program", f"the package has no program {program!r} (it has: {', '.join(sorted(loaded.programs)) or 'none'})")
+    results = run_program_examples(loaded.programs, machine_home(), require_examples=require_examples, only=program,
                                 repeat=repeat, allow_unbuilt=allow_unbuilt)
-    out = {"package": str(package), "ok": all(r.ok for r in results), "repeat": repeat, "tools": [r.as_dict() for r in results]}
+    out = {"package": str(package), "ok": all(r.ok for r in results), "repeat": repeat, "programs": [r.as_dict() for r in results]}
     lines = []
     for r in results:
         if r.problem:
-            lines.append(f"FAILED {r.tool}: {r.problem}")
+            lines.append(f"FAILED {r.program}: {r.problem}")
         elif r.unbuilt:
-            lines.append(f"{r.tool}: not built yet, skipped")
+            lines.append(f"{r.program}: not built yet, skipped")
         elif not r.examples:
-            lines.append(f"{r.tool}: no examples")
+            lines.append(f"{r.program}: no examples")
         for e in r.examples:
-            lines.append(f"passed {r.tool} / {e.example}" if e.ok else f"FAILED {r.tool} / {e.example}: {e.difference}")
-    _emit(out, as_json, "\n".join(lines) or "This recipe has no tools.")
+            lines.append(f"passed {r.program} / {e.example}" if e.ok else f"FAILED {r.program} / {e.example}: {e.difference}")
+    _emit(out, as_json, "\n".join(lines) or "This recipe has no programs.")
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 
-@tools_app.command("examples")
-def tools_examples(
-    package: Annotated[Path, typer.Argument(help="A recipe package folder (its recipe.yaml and tools/).")],
+@programs_app.command("examples")
+def programs_examples(
+    package: Annotated[Path, typer.Argument(help="A recipe package folder (its recipe.yaml and programs/).")],
     run: Annotated[Optional[str], typer.Option("--run", help="The run whose binding of 'examples' the owner's files are checked against (default: $BATON_RUN_ID).")] = None,
-    tool: Annotated[Optional[str], typer.Option("--tool", help="Check only this tool.")] = None,
+    program: Annotated[Optional[str], typer.Option("--program", help="Check only this program.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Check each engineered tool's examples: enough of them, one awkward, and the owner's files copied exactly (exit 0 when all pass)."""
+    """Check each engineered program's examples: enough of them, one awkward, and the owner's files copied exactly (exit 0 when all pass)."""
     from .example_check import bound_documents, check_examples
     from .recipe import load_recipe
 
     loaded = _call(as_json, lambda: load_recipe(package.resolve()))
-    if tool is not None and tool not in loaded.tools:
-        _fail(as_json, EXIT_USAGE, "tools.unknown_tool", f"the package has no tool {tool!r} (it has: {', '.join(sorted(loaded.tools)) or 'none'})")
+    if program is not None and program not in loaded.programs:
+        _fail(as_json, EXIT_USAGE, "programs.unknown_program", f"the package has no program {program!r} (it has: {', '.join(sorted(loaded.programs)) or 'none'})")
     run = run or os.environ.get("BATON_RUN_ID") or None
     bound = None
     if run:
@@ -1656,21 +1656,21 @@ def tools_examples(
 
         root = _opts.project or find_project(Path.cwd())
         if root is None:
-            _fail(as_json, EXIT_USAGE, "tools.examples_usage", "--run reads the run's record: run it in the project")
+            _fail(as_json, EXIT_USAGE, "programs.examples_usage", "--run reads the run's record: run it in the project")
         try:
             bound = bound_documents(Store(Path(root)).run(run).events())
         except (StoreError, ValueError) as e:
-            _fail(as_json, EXIT_USAGE, "tools.examples_usage", f"no run {run!r} in this project: {e}")
-    reports = check_examples(loaded.tools, bound, only=tool)
-    out = {"package": str(package), "run": run, "ok": all(r.ok for r in reports), "tools": [r.as_dict() for r in reports]}
+            _fail(as_json, EXIT_USAGE, "programs.examples_usage", f"no run {run!r} in this project: {e}")
+    reports = check_examples(loaded.programs, bound, only=program)
+    out = {"package": str(package), "run": run, "ok": all(r.ok for r in reports), "programs": [r.as_dict() for r in reports]}
     lines = []
     for r in reports:
-        head = f"{'passed' if r.ok else 'FAILED'} {r.tool}: {r.examples} example{'s' if r.examples != 1 else ''}"
+        head = f"{'passed' if r.ok else 'FAILED'} {r.program}: {r.examples} example{'s' if r.examples != 1 else ''}"
         lines.append(head + (f", {len(r.drafted)} drafted for the owner to approve ({', '.join(r.drafted)})" if r.drafted else ""))
         if r.stated:
             lines.append(f"  written from the owner's words, for them to confirm: {', '.join(r.stated)}")
         lines += [f"  {p}" for p in r.problems]
-    _emit(out, as_json, "\n".join(lines) or "This recipe has no engineered tools.")
+    _emit(out, as_json, "\n".join(lines) or "This recipe has no engineered programs.")
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)
 
 

@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
-from . import refs, tailoring, tools, versions
+from . import refs, tailoring, programs, versions
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml, read_text
 from .models import (
@@ -42,7 +42,7 @@ from .models import (
     ReviewGate,
     ScriptGate,
     Step,
-    ToolSpec,
+    ProgramSpec,
 )
 from .vocab import Vocabulary
 
@@ -52,7 +52,7 @@ FORBIDDEN_KEYS = frozenset({"worker", "model", "adapter", "provider", "profile",
 PUBLISH_VARIABLES = frozenset({"paths", "run", "project"})
 MAX_GROUP_DEPTH = 2  # a group may contain a group, but no deeper (§5.4)
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
-_TEXT_DIRS = ("prompts", "templates", "schemas", "static", tools.TOOLS_DIR)
+_TEXT_DIRS = ("prompts", "templates", "schemas", "static", programs.PROGRAMS_DIR)
 # Ids name roles, never positions (§5.8): "step1", "s2", "phase_3", "step01_design", "review_2".
 AXIS_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 POSITIONAL_ID = re.compile(r"^(?:step|stage|phase|part|task)_?\d+(?:_|$)|^[sp]_?\d+$|_\d+$")
@@ -78,7 +78,7 @@ class LoadedRecipe:
     vocab: Vocabulary
     warnings: list[Issue] = field(default_factory=list)
     schemas: dict[str, dict] = field(default_factory=dict)  # recipe-relative path -> schema
-    tools: dict[str, tools.LoadedTool] = field(default_factory=dict)  # tool id -> checked tool (§5.9)
+    programs: dict[str, programs.LoadedProgram] = field(default_factory=dict)  # program id -> checked program (§5.9)
 
 
 def load_recipe(root: str | Path) -> LoadedRecipe:
@@ -129,7 +129,7 @@ class _Checker:
         self.vocab: Vocabulary
         self.places: dict[str, _Place] = {}
         self.top: _Scope
-        self.tools: dict[str, tools.LoadedTool | None] = {}  # None: named but not loadable
+        self.programs: dict[str, programs.LoadedProgram | None] = {}  # None: named but not loadable
 
     # -- reporting -------------------------------------------------------
 
@@ -174,7 +174,7 @@ class _Checker:
             else:
                 self._check_step(node, place)
         self._check_proposing()
-        self._check_tool_dirs()
+        self._check_program_dirs()
         self._check_sme()
         self._check_complexity()
         self._lint_crosswalks()
@@ -188,7 +188,7 @@ class _Checker:
             vocab=self.vocab,
             warnings=[i for i in self.issues if i.severity == "warning"],
             schemas=self.schemas,
-            tools={k: v for k, v in self.tools.items() if v is not None},
+            programs={k: v for k, v in self.programs.items() if v is not None},
         )
 
     def _read(self) -> Any:
@@ -336,6 +336,9 @@ class _Checker:
                         where,
                         f"unknown gate type {tag!r} (known: {ctx.get('expected_tags')})",
                     )
+            elif etype == "extra_forbidden" and str(err["loc"][-1]) == "tool":
+                # Renamed outright, with no alias (Decision 0166): say the new name.
+                self.error("recipe.renamed_key", where, "`tool:` is now `program:`: a step names its program with `program: <id>`")
             elif etype == "extra_forbidden":
                 self.error("recipe.unknown_key", where, f"unknown key {str(err['loc'][-1])!r}")
             elif etype == "missing":
@@ -664,18 +667,18 @@ class _Checker:
 
     def _check_step(self, step: Step, place: _Place) -> None:
         w = self.where(step)
-        if step.tool is not None:
-            self._check_tool_step(step, w)
+        if step.program is not None:
+            self._check_program_step(step, w)
         else:
             if step.wait is not None:
-                self.error("step.wait_needs_tool", f"{w}.wait",
-                           "only a tool step can wait: its tool is the check that is run until the condition is met (§5.9)")
+                self.error("step.wait_needs_program", f"{w}.wait",
+                           "only a program step can wait: its program is the check that is run until the condition is met (§5.9)")
             if step.max_attempts is not None:
-                self.error("step.max_attempts_needs_tool", f"{w}.max_attempts",
-                           "max_attempts on a step is for a tool step only; other steps use the recipe's defaults.max_attempts")
+                self.error("step.max_attempts_needs_program", f"{w}.max_attempts",
+                           "max_attempts on a step is for a program step only; other steps use the recipe's defaults.max_attempts")
             for key in ("requires", "prompt"):
                 if getattr(step, key) is None:
-                    self.error("recipe.missing_key", f"{w}.{key}", f"required key {key!r} is missing (or name a tool with 'tool')")
+                    self.error("recipe.missing_key", f"{w}.{key}", f"required key {key!r} is missing (or name a program with 'program')")
             if step.prompt is not None:
                 self._file(step.prompt, f"{w}.prompt", "prompt")
             if step.requires is not None:
@@ -718,25 +721,25 @@ class _Checker:
         for i, gate in enumerate(step.gates):
             self._check_gate(step, place, gate, f"{w}.gates[{i}]")
 
-    # -- tools (§5.9) -----------------------------------------------------
+    # -- programs (§5.9) -----------------------------------------------------
 
-    def _check_tool_step(self, step: Step, w: str) -> None:
+    def _check_program_step(self, step: Step, w: str) -> None:
         both = [k for k in ("requires", "prompt") if getattr(step, k) is not None]
         if both:
             self.error(
-                "step.tool_and_worker",
+                "step.program_and_worker",
                 w,
-                f"a step done by a tool has no {' or '.join(repr(k) for k in both)}: "
-                "the tool is its one executor (remove them, or remove 'tool')",
+                f"a step done by a program has no {' or '.join(repr(k) for k in both)}: "
+                "the program is its one executor (remove them, or remove 'program')",
             )
-        assert step.tool is not None
-        tool = self._tool(step.tool, f"{w}.tool")
-        if tool is not None and step.workspace != tool.spec.reach.workspace:
+        assert step.program is not None
+        program = self._program(step.program, f"{w}.program")
+        if program is not None and step.workspace != program.spec.reach.workspace:
             self.error(
-                "step.tool_workspace_mismatch",
+                "step.program_workspace_mismatch",
                 f"{w}.workspace",
-                f"the step is workspace: {step.workspace}, but tool {tool.id!r} declares reach.workspace: "
-                f"{tool.spec.reach.workspace}; they must match",
+                f"the step is workspace: {step.workspace}, but program {program.id!r} declares reach.workspace: "
+                f"{program.spec.reach.workspace}; they must match",
             )
 
         if step.wait is not None:
@@ -761,19 +764,19 @@ class _Checker:
             self.error("step.wait_workspace_write", f"{w}.workspace",
                        "a waiting step's check may look at the working tree but not change it: use workspace: read or none")
 
-    def _tool(self, tool_id: str, where: str) -> tools.LoadedTool | None:
-        if tool_id not in self.tools:
-            self.tools[tool_id] = self._load_tool(tool_id, where)
-        return self.tools[tool_id]
+    def _program(self, program_id: str, where: str) -> programs.LoadedProgram | None:
+        if program_id not in self.programs:
+            self.programs[program_id] = self._load_program(program_id, where)
+        return self.programs[program_id]
 
-    def _load_tool(self, tool_id: str, where: str) -> tools.LoadedTool | None:
-        base = self.root / tools.TOOLS_DIR / tool_id
-        rel = f"{tools.TOOLS_DIR}/{tool_id}/{tools.TOOL_FILE}"
-        if not (base / tools.TOOL_FILE).is_file():
-            self.error("tool.unknown", where, f"no tool {tool_id!r}: {rel} does not exist")
+    def _load_program(self, program_id: str, where: str) -> programs.LoadedProgram | None:
+        base = self.root / programs.PROGRAMS_DIR / program_id
+        rel = f"{programs.PROGRAMS_DIR}/{program_id}/{programs.PROGRAM_FILE}"
+        if not (base / programs.PROGRAM_FILE).is_file():
+            self.error("program.unknown", where, f"no program {program_id!r}: {rel} does not exist")
             return None
         try:
-            raw = load_yaml(base / tools.TOOL_FILE)
+            raw = load_yaml(base / programs.PROGRAM_FILE)
         except YamlError as e:
             self.error("yaml.duplicate_key" if "duplicate key" in str(e) else "yaml.invalid", rel, str(e))
             return None
@@ -783,7 +786,7 @@ class _Checker:
         n_before = len(self.issues)
         stripped = self._lint_neutrality(raw, rel)
         try:
-            spec = ToolSpec.model_validate(stripped)
+            spec = ProgramSpec.model_validate(stripped)
         except ValidationError as e:
             for err in e.errors():
                 loc = ".".join(str(x) for x in err["loc"])
@@ -795,94 +798,94 @@ class _Checker:
                 else:
                     self.error("recipe.invalid_value", at, err["msg"])
             return None
-        if spec.id != tool_id:
-            self.error("tool.id_mismatch", f"{rel}:id", f"id {spec.id!r} does not match its folder {tool_id!r}")
-        if spec.runtime.kind not in tools.RUNTIME_KINDS:
+        if spec.id != program_id:
+            self.error("program.id_mismatch", f"{rel}:id", f"id {spec.id!r} does not match its folder {program_id!r}")
+        if spec.runtime.kind not in programs.RUNTIME_KINDS:
             self.error(
-                "tool.unknown_runtime",
+                "program.unknown_runtime",
                 f"{rel}:runtime.kind",
-                f"runtime {spec.runtime.kind!r} is not supported (supported: {', '.join(tools.RUNTIME_KINDS)})",
+                f"runtime {spec.runtime.kind!r} is not supported (supported: {', '.join(programs.RUNTIME_KINDS)})",
             )
-        if spec.runtime.version is not None and not tools.valid_version_spec(spec.runtime.version):
+        if spec.runtime.version is not None and not programs.valid_version_spec(spec.runtime.version):
             self.error(
-                "tool.bad_runtime_version",
+                "program.bad_runtime_version",
                 f"{rel}:runtime.version",
                 f"{spec.runtime.version!r} is not a version specifier such as '>=3.11' or '>=3.11,<3.14'",
             )
-        contract, contract_problems = tools.load_contract(base)
+        contract, contract_problems = programs.load_contract(base)
         for code, c_where, message in contract_problems:
-            self.error(code, f"{tools.TOOLS_DIR}/{tool_id}/{c_where}", message)
+            self.error(code, f"{programs.PROGRAMS_DIR}/{program_id}/{c_where}", message)
         built = self._check_entry(spec, base, rel, engineered=contract is not None or bool(contract_problems))
         for i, name in enumerate(spec.reach.secrets):
             if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", name):
-                self.error("tool.bad_secret_name", f"{rel}:reach.secrets[{i}]", f"{name!r} is not a secret name (letters, digits, _)")
-        lock = self._tool_file(base, spec.dependencies.lock, f"{rel}:dependencies.lock", "lock file")
-        reqs: list[tools.LockedRequirement] = []
+                self.error("program.bad_secret_name", f"{rel}:reach.secrets[{i}]", f"{name!r} is not a secret name (letters, digits, _)")
+        lock = self._program_file(base, spec.dependencies.lock, f"{rel}:dependencies.lock", "lock file")
+        reqs: list[programs.LockedRequirement] = []
         if lock is not None:
             try:
                 text = read_text(lock)
             except (UnicodeDecodeError, OSError) as e:
-                self.error("tool.lock_unreadable", f"{rel}:dependencies.lock", f"{spec.dependencies.lock}: {e}")
+                self.error("program.lock_unreadable", f"{rel}:dependencies.lock", f"{spec.dependencies.lock}: {e}")
                 text = None
             if text is not None:
-                reqs, problems = tools.parse_lock(text)
-                lock_rel = f"{tools.TOOLS_DIR}/{tool_id}/{spec.dependencies.lock}"
+                reqs, problems = programs.parse_lock(text)
+                lock_rel = f"{programs.PROGRAMS_DIR}/{program_id}/{spec.dependencies.lock}"
                 for p in problems:
                     self.error(p.code, f"{lock_rel}:{p.line}", p.message)
-        examples, example_problems = tools.load_examples(base)
+        examples, example_problems = programs.load_examples(base)
         for code, ex_where, message in example_problems:
-            self.error(code, f"{tools.TOOLS_DIR}/{tool_id}/{ex_where}", message)
+            self.error(code, f"{programs.PROGRAMS_DIR}/{program_id}/{ex_where}", message)
         if any(i.severity == "error" for i in self.issues[n_before:]) or lock is None:
             return None
-        return tools.LoadedTool(
+        return programs.LoadedProgram(
             spec=spec,
             root=base,
             sha256=package_sha256(base),
-            lock_sha256=tools.file_sha256(lock),
+            lock_sha256=programs.file_sha256(lock),
             requirements=reqs,
             examples=examples,
             contract=contract,
             built=built,
         )
 
-    def _check_entry(self, spec: ToolSpec, base: Path, rel: str, *, engineered: bool = False) -> bool:
-        """Check the entry command; ``False`` when an engineered tool's entry file is not written yet.
+    def _check_entry(self, spec: ProgramSpec, base: Path, rel: str, *, engineered: bool = False) -> bool:
+        """Check the entry command; ``False`` when an engineered program's entry file is not written yet.
 
-        An engineered tool is placed by recipe builder before it is built
-        (Decision 0164): its missing entry file is a warning (``tool.unbuilt``),
-        and vendoring refuses it. For any other tool it is ``file.missing``.
+        An engineered program is placed by recipe builder before it is built
+        (Decision 0164): its missing entry file is a warning (``program.unbuilt``),
+        and vendoring refuses it. For any other program it is ``file.missing``.
         """
-        if not tools.is_bare_command(spec.entry[0]):
+        if not programs.is_bare_command(spec.entry[0]):
             self.error(
-                "tool.bad_entry_command",
+                "program.bad_entry_command",
                 f"{rel}:entry[0]",
-                f"{spec.entry[0]!r} must be a bare command name found in the tool's environment (such as 'python')",
+                f"{spec.entry[0]!r} must be a bare command name found in the program's environment (such as 'python')",
             )
         seen: set[str] = set()
         built = True
         for i, word in enumerate(spec.entry):
-            names = tools.placeholders(word)
+            names = programs.placeholders(word)
             for name in names:
-                if name not in tools.PLACEHOLDERS:
+                if name not in programs.PLACEHOLDERS:
                     self.error(
-                        "tool.unknown_placeholder",
+                        "program.unknown_placeholder",
                         f"{rel}:entry[{i}]",
-                        f"{{{name}}} is not a placeholder (known: {', '.join('{' + p + '}' for p in sorted(tools.PLACEHOLDERS))})",
+                        f"{{{name}}} is not a placeholder (known: {', '.join('{' + p + '}' for p in sorted(programs.PLACEHOLDERS))})",
                     )
             seen.update(names)
-            if word.startswith("{tool}/"):
-                entry_rel = word[len("{tool}/"):]
+            if word.startswith("{program}/"):
+                entry_rel = word[len("{program}/"):]
                 if engineered and self._inside(entry_rel) and not (base / entry_rel).exists():
-                    self.warn("tool.unbuilt", f"{rel}:entry[{i}]",
-                              f"entry file {entry_rel!r} is not written yet: the tool is not built (it cannot be vendored or run)")
+                    self.warn("program.unbuilt", f"{rel}:entry[{i}]",
+                              f"entry file {entry_rel!r} is not written yet: the program is not built (it cannot be vendored or run)")
                     built = False
                 else:
-                    self._tool_file(base, entry_rel, f"{rel}:entry[{i}]", "entry file")
+                    self._program_file(base, entry_rel, f"{rel}:entry[{i}]", "entry file")
         if "output" not in seen:
-            self.error("tool.entry_needs_output", f"{rel}:entry", "the entry command must pass {output}, where the tool writes output.json")
+            self.error("program.entry_needs_output", f"{rel}:entry", "the entry command must pass {output}, where the program writes output.json")
         if "workspace" in seen and spec.reach.workspace == "none":
             self.error(
-                "tool.workspace_placeholder",
+                "program.workspace_placeholder",
                 f"{rel}:entry",
                 "{workspace} is passed but reach.workspace is none: declare read or write, or drop {workspace}",
             )
@@ -893,10 +896,10 @@ class _Checker:
         p = PurePosixPath(rel.replace("\\", "/"))
         return bool(p.parts) and not p.is_absolute() and ".." not in p.parts
 
-    def _tool_file(self, base: Path, rel: str, where: str, what: str) -> Path | None:
+    def _program_file(self, base: Path, rel: str, where: str, what: str) -> Path | None:
         p = PurePosixPath(rel.replace("\\", "/"))
         if p.is_absolute() or ".." in p.parts or not p.parts:
-            self.error("file.outside_recipe", where, f"{what} {rel!r} must be a path inside the tool's folder")
+            self.error("file.outside_recipe", where, f"{what} {rel!r} must be a path inside the program's folder")
             return None
         full = base / p
         if not full.is_file():
@@ -904,13 +907,18 @@ class _Checker:
             return None
         return full
 
-    def _check_tool_dirs(self) -> None:
-        base = self.root / tools.TOOLS_DIR
+    def _check_program_dirs(self) -> None:
+        old = self.root / "tools"  # the spelling before Decision 0166, renamed outright with no alias
+        for f in sorted(old.glob("*/tool.yaml")) if old.is_dir() else []:
+            self.error("recipe.renamed_folder", f"tools/{f.parent.name}",
+                       f"`tools/<id>/tool.yaml` is now `{programs.PROGRAMS_DIR}/<id>/{programs.PROGRAM_FILE}`: move it to "
+                       f"{programs.PROGRAMS_DIR}/{f.parent.name}/{programs.PROGRAM_FILE}")
+        base = self.root / programs.PROGRAMS_DIR
         if not base.is_dir():
             return
         for d in sorted(p for p in base.iterdir() if p.is_dir() and p.name != "__pycache__"):
-            if d.name not in self.tools:
-                self.warn("tool.unused", f"{tools.TOOLS_DIR}/{d.name}", f"no step uses tool {d.name!r}")
+            if d.name not in self.programs:
+                self.warn("program.unused", f"{programs.PROGRAMS_DIR}/{d.name}", f"no step uses program {d.name!r}")
 
     def _check_proposing(self) -> None:
         """``proposes_runs`` (§5.1; Decision 0152): one top-level step whose output is a ``baton-proposals/1`` list."""
@@ -1599,7 +1607,7 @@ def build_plan(loaded: LoadedRecipe, level: str | None = None, ratings: dict[str
                             included=inc,
                             reason=reason,
                             requires=n.requires,
-                            tool=n.tool,
+                            program=n.program,
                             workspace=n.workspace,
                             gates=_plan_gates(n, look, inc, recipe, per_axis=per_axis),
                         )
@@ -1747,8 +1755,8 @@ def render_plan(plan: Plan) -> str:
                 detail = _render_group(r.group or {})
             else:
                 detail = _render_gates(r.gates, "only at some ratings" if per_axis else "not at these ratings" if lv.ratings else "not at this level")
-                if r.tool is not None:
-                    detail = f"by tool {r.tool}; {detail}"
+                if r.program is not None:
+                    detail = f"by program {r.program}; {detail}"
             lines.append(f"  {name.ljust(width)}{status}  {detail}".rstrip())
     for ax in plan.axes or []:
         lines.append("")

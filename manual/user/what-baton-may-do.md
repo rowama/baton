@@ -5,6 +5,7 @@ audience: owner
 order: 90
 summary: Which repository actions are allowed, which need your approval and which are never done.
 related: [user.answer-questions-and-decide]
+anchor_aliases: {tools: programs}
 ---
 
 ## Here, now {#here-now}
@@ -19,7 +20,7 @@ Baton never pushes, tags, merges or deploys on its own authority. Your project's
 | Tag a release | asks you |
 | Force-push, merge or deploy | never |
 
-## Scripts a process runs {#tools}
+## Programs a process runs {#programs}
 
 Some processes do part of their work with a small program instead of an AI, for example to compare two spreadsheets the same way every time. Your assistant asks you before a process like that is added to your project, and tells you for each program:
 - what it does;

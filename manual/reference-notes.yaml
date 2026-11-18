@@ -80,3 +80,10 @@ diagnostics:
   waits.check_failed: "A waiting part's check failed to run or to report (the site was down, the script crashed). Counted: the third failure in a row hands the part to the owner."
   waits.not_met: "A waiting part was checked and what it waits for has not happened yet. Routine; kept only here, not in the work's record."
   ui.route_failed: "A request to the setup page failed on a bug; the page answered with a generic error and no request detail was recorded."
+
+# A renamed command's old anchors in the generated command reference, so a published link keeps working.
+command_anchor_aliases:
+  baton-tools: baton-programs                    # renamed outright (decision 0166)
+  baton-tools-examples: baton-programs-examples
+  baton-tools-setup: baton-programs-setup
+  baton-tools-test: baton-programs-test

@@ -40,7 +40,7 @@ PREFERENCES_FILE = "preferences.yaml"
 
 
 def needed_capabilities(requires: Requires | None, workspace: str) -> list[str]:
-    """The step's required capabilities plus its workspace mode's (§8.4 step 2); none for a tool step."""
+    """The step's required capabilities plus its workspace mode's (§8.4 step 2); none for a program step."""
     if requires is None:
         return []
     needed = list(requires.capabilities)
@@ -54,10 +54,10 @@ def requirement_gaps(requires: Requires | None, workspace: str, profile: WorkerP
     """Why ``profile`` cannot do a step with these requirements; empty when it can.
 
     A claimed capability whose recorded state is ``absent`` counts as missing (0084).
-    ``requires`` is ``None`` for a tool step (§5.9): no worker profile can do it.
+    ``requires`` is ``None`` for a program step (§5.9): no worker profile can do it.
     """
     if requires is None:
-        return ["this step is done by its tool, not by a worker (§5.9)"]
+        return ["this step is done by its program, not by a worker (§5.9)"]
     gaps: list[str] = []
     needed = needed_capabilities(requires, workspace)
     missing = [c for c in needed if c not in profile.capabilities]
@@ -226,8 +226,8 @@ def same_at(level: str, a: WorkerIdentity, b: WorkerIdentity) -> bool:
     """
     if a.profile == b.profile:
         return True
-    if (a.adapter == "tool") != (b.adapter == "tool"):
-        return False  # a tool and a worker are never the same worker (§5.9)
+    if (a.adapter == "program") != (b.adapter == "program"):
+        return False  # a program and a worker are never the same worker (§5.9)
     if level == "different_profile":
         return False
     ca, cb = (a.creator or "").lower() or None, (b.creator or "").lower() or None
@@ -333,8 +333,8 @@ def eligible_workers(
                 reasons.append(independence_reason(indep.level, indep.from_step, identity_of(name, p), other))
             else:
                 waived = True
-        if p.adapter == "tool":
-            reasons.append("the tool adapter runs a recipe's own tool steps only (§5.9)")
+        if p.adapter == "program":
+            reasons.append("the program adapter runs a recipe's own program steps only (§5.9)")
         if name in prefs.exclude:
             reasons.append("turned off for this machine (~/.baton/preferences.yaml; `baton workers prefs --include`)"
                            if prefs.excluded_by_machine(name) else "excluded by preferences.yaml")

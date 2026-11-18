@@ -35,12 +35,12 @@
           },
           "done_by": {
             "enum": [
-              "tool",
+              "program",
               "automatic_check",
               "person",
               "ai"
             ],
-            "description": "The simplest means that can do the stage: a tool (a script the recipe ships), an automatic check, a person, or an AI worker"
+            "description": "The simplest means that can do the stage: a program (a script the recipe ships), an automatic check, a person, or an AI worker"
           },
           "needs": {
             "type": "array",
@@ -161,7 +161,7 @@
               }
             }
           },
-          "tool": {
+          "program": {
             "type": "object",
             "additionalProperties": false,
             "required": [
@@ -171,7 +171,7 @@
               "output",
               "reach"
             ],
-            "description": "The script that does a tool stage (\u00a75.9), within the tool budget: simple (written in one pass to drafted examples) or engineered (built later to the owner's examples, Decision 0164)",
+            "description": "The script that does a program stage (\u00a75.9), within the program budget: simple (written in one pass to drafted examples) or engineered (built later to the owner's examples, Decision 0164)",
             "properties": {
               "id": {
                 "type": "string",
@@ -278,7 +278,7 @@
                   "packages",
                   "budget_reason"
                 ],
-                "description": "An engineered tool's contract: what it takes and gives, every package it needs and why, and why it is within the tool budget",
+                "description": "An engineered program's contract: what it takes and gives, every package it needs and why, and why it is within the program budget",
                 "properties": {
                   "input_schema": {
                     "type": "object",
@@ -312,12 +312,12 @@
                   "budget_reason": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Why it is one tool: one command, inputs in and outputs out, nothing kept running, testable from examples"
+                    "description": "Why it is one program: one command, inputs in and outputs out, nothing kept running, testable from examples"
                   },
                   "size_reason": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Only when it will be over 600 lines of code: why it is still one tool"
+                    "description": "Only when it will be over 600 lines of code: why it is still one program"
                   }
                 }
               },
@@ -335,7 +335,7 @@
                     "awkward"
                   ]
                 },
-                "description": "The examples the owner should supply for an engineered tool, in plain words: at least three, one a case the owner finds awkward",
+                "description": "The examples the owner should supply for an engineered program, in plain words: at least three, one a case the owner finds awkward",
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
@@ -366,7 +366,7 @@
                   "changed",
                   "new"
                 ],
-                "description": "With a base recipe: whether this engineered tool is the base recipe's unchanged, changed or new (unchanged tools are copied, not rebuilt)"
+                "description": "With a base recipe: whether this engineered program is the base recipe's unchanged, changed or new (unchanged programs are copied, not rebuilt)"
               }
             },
             "allOf": [
@@ -431,7 +431,7 @@
                   "owner_choice",
                   "over_budget"
                 ],
-                "description": "ceiling: the owner's software rating; owner_choice: the owner chose an AI worker; over_budget: the work exceeds the tool budget"
+                "description": "ceiling: the owner's software rating; owner_choice: the owner chose an AI worker; over_budget: the work exceeds the program budget"
               },
               "gives_up": {
                 "type": "string",
@@ -490,7 +490,7 @@
             "if": {
               "properties": {
                 "done_by": {
-                  "const": "tool"
+                  "const": "program"
                 }
               },
               "required": [
@@ -499,13 +499,13 @@
             },
             "then": {
               "required": [
-                "tool"
+                "program"
               ]
             },
             "else": {
               "not": {
                 "required": [
-                  "tool"
+                  "program"
                 ]
               }
             }

@@ -79,7 +79,7 @@ def _waiting_lines(step_path: str, state: Any, mine: list[Event]) -> list[str]:
     every = f"; worth checking every {d['every']}" if d.get("every") else ""
     cut = f" (cut from {d['until']} to the project's {d['cut_to']})" if d.get("cut_to") else ""
     then = "the owner may go on without it" if d.get("on_expire") == "skip" else "the owner decides"
-    return [f"- Waiting: its check (tool `{d.get('tool')}`) found the condition not met at {ev.ts}; it waits until {d.get('deadline')}{cut}{every}; "
+    return [f"- Waiting: its check (program `{d.get('program')}`) found the condition not met at {ev.ts}; it waits until {d.get('deadline')}{cut}{every}; "
             f"then {then}. `baton waits check` checks it again."]
 
 

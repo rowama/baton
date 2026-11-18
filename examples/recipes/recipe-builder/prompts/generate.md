@@ -23,48 +23,48 @@ You work in the project; commit your work.
    required input) and the stages named in `generated.consumers`, each taking the decision stage's
    output as a required input, with the ids `generated` names. The target is a run input of the
    recipe, never a fixed value.
-5. For each stage the design gives to a `tool`, write the tool and the step that runs it (§5.9 of
-   the format; `spreadsheet-reconcile`'s `tools/csv_diff/` is a worked example):
-   - `tools/<id>/<id>.py`: one file, the Python standard library only, no network, no secrets. It
+5. For each stage the design gives to a `program`, write the program and the step that runs it (§5.9 of
+   the format; `spreadsheet-reconcile`'s `programs/csv_diff/` is a worked example):
+   - `programs/<id>/<id>.py`: one file, the Python standard library only, no network, no secrets. It
      reads the inputs file named by its first argument (one JSON object keyed by input name; a
      file input is `{"path", "media_type"}`), writes `output.json` (a JSON object) and any
      artifacts (`<artifact>.<ext>`) into the folder named by its second argument, and nothing else.
      On input it cannot handle it prints a plain reason on stderr and exits 1. It does exactly what
-     the design's `tool.does` says, no more.
-   - `tools/<id>/tool.yaml`: `id`, `description` (the design's `does`), `runtime: { kind: python,
-     version: ">=3.10" }`, `entry: ["python", "{tool}/<id>.py", "{input}", "{output}"]`,
+     the design's `program.does` says, no more.
+   - `programs/<id>/program.yaml`: `id`, `description` (the design's `does`), `runtime: { kind: python,
+     version: ">=3.10" }`, `entry: ["python", "{program}/<id>.py", "{input}", "{output}"]`,
      `dependencies: { lock: requirements.lock }` and `reach` from the design
      (`{ workspace: none, network: false, secrets: [] }` unless the design says otherwise).
-   - `tools/<id>/requirements.lock`: empty (a simple tool needs only the standard library).
-   - each of the design's examples as `tools/<id>/examples/<name>/`: `input.json` (the JSON
+   - `programs/<id>/requirements.lock`: empty (a simple program needs only the standard library).
+   - each of the design's examples as `programs/<id>/examples/<name>/`: `input.json` (the JSON
      inputs), `inputs/<input name>.<ext>` (each file input), `expected.json` (the output, exactly)
      and `expected/<artifact>.<ext>` (each artifact, byte for byte; Python's `csv` module ends
      lines with `\r\n`).
-   - the step: `tool: <id>` in place of `requires` and `prompt`, `workspace` equal to the tool's
+   - the step: `program: <id>` in place of `requires` and `prompt`, `workspace` equal to the program's
      `reach.workspace`, its inputs, an `output_schema` for `output.json`, its artifacts and a
-     `schema` gate. A tool that spends money or changes something others depend on runs only after
+     `schema` gate. A program that spends money or changes something others depend on runs only after
      a step where the owner approves (a `human` gate before it).
-   Run `baton tools test recipes/drafts/<run slug> --require-examples --allow-unbuilt` yourself and
-   fix the tool (not the example) until every example passes; the runtime runs it again as a gate.
+   Run `baton programs test recipes/drafts/<run slug> --require-examples --allow-unbuilt` yourself and
+   fix the program (not the example) until every example passes; the runtime runs it again as a gate.
    An example the owner approved is never changed to fit the code.
-   For a tool the design gives as `kind: engineered`, write everything but the program and its
-   examples: `tool.yaml` (its `entry` naming `{tool}/<id>.py`, which you do not write), the empty
-   `requirements.lock`, the step, and `tools/<id>/contract.json`: `{"kind": "engineered", "does":
-   <tool.does>, "input_schema", "output_schema", "reach": <tool.reach>, "packages",
+   For a program the design gives as `kind: engineered`, write everything but its code and its
+   examples: `program.yaml` (its `entry` naming `{program}/<id>.py`, which you do not write), the empty
+   `requirements.lock`, the step, and `programs/<id>/contract.json`: `{"kind": "engineered", "does":
+   <program.does>, "input_schema", "output_schema", "reach": <program.reach>, "packages",
    "budget_reason"}` and `size_reason` if the design gives one, copied from the design's `contract`.
    The owner's examples are placed next, and the program is built to them by another worker.
-   List each engineered tool to be built in your result's `engineered_tools`, in the order to build
-   them: `{tool, title}` (no `id`). When you built from a base recipe that has engineered tools, copy
-   each tool the design marks `unchanged` exactly, with its program and examples, and list only the
-   `changed` and `new` ones; the gate reruns every tool's examples. When a revision asks you to do a
-   tool's stage another way, remove that tool's folder and step, write the stage as the revision
-   says, with its `executor_choice` record, and leave the tool out of `engineered_tools`.
+   List each engineered program to be built in your result's `engineered_programs`, in the order to build
+   them: `{program, title}` (no `id`). When you built from a base recipe that has engineered programs, copy
+   each program the design marks `unchanged` exactly, with its code and examples, and list only the
+   `changed` and `new` ones; the gate reruns every program's examples. When a revision asks you to do a
+   program's stage another way, remove that program's folder and step, write the stage as the revision
+   says, with its `executor_choice` record, and leave the program out of `engineered_programs`.
 6. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
    stage, what they decide, what happens when something fails, and what it covers and does not.
    Say plainly when and how the owner will choose how the work is done (decided now, in what they
    approved, or at a stage of the process before the work that depends on it), and what the process
    will do to find the options. Then two lists:
-   - **Small programs in this process:** each tool, what it does, what it needs installed (Python,
+   - **Small programs in this process:** each program, what it does, what it needs installed (Python,
      nothing else, or the packages a program built to your examples needs) and what it may touch
      (for example "does not open your files and does not use the internet"). Say which programs will
      be built to examples you supply, and what those examples are.
@@ -76,4 +76,4 @@ You work in the project; commit your work.
 
 Run `baton plan recipes/drafts/<run slug>` yourself before you finish, and fix what it reports. The
 runtime runs it again, and `baton recipe check`, as gates. Return the commit, the package path, the
-ledger path, `engineered_tools` (empty when there are none) and a short summary.
+ledger path, `engineered_programs` (empty when there are none) and a short summary.

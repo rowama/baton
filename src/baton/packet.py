@@ -864,7 +864,7 @@ def build_packet(
     if not view.deps_met(node, loc.frame):
         unmet = [d for d in node.depends_on if view.state(groups.child_path(loc.frame, d)) not in SATISFIES_DEPS]
         raise EngineError("packet.deps_unmet", f"{step_path}: dependencies not satisfied: {', '.join(unmet)}")
-    gaps = [] if node.tool is not None else requirement_gaps(node.requires, node.workspace, profile, loaded.vocab)
+    gaps = [] if node.program is not None else requirement_gaps(node.requires, node.workspace, profile, loaded.vocab)
     if gaps:
         raise EngineError("packet.ineligible_profile", f"{profile_name} cannot do {step_path}: {'; '.join(gaps)}")
 
@@ -941,10 +941,10 @@ def build_packet(
     }
     if reviews.is_reviewer(node):
         manifest["prior_findings"] = _prior_findings(ctx, record, node, loc)
-    if node.tool is not None:
-        # A tool reads no instructions; its runner reads the manifest (§7.1, §5.9). Only tool packets carry the key.
-        tool = loaded.tools[node.tool]
-        manifest["tool"] = {"id": tool.id, "sha256": tool.sha256, "lock_sha256": tool.lock_sha256}
+    if node.program is not None:
+        # A program reads no instructions; its runner reads the manifest (§7.1, §5.9). Only program packets carry the key.
+        program = loaded.programs[node.program]
+        manifest["program"] = {"id": program.id, "sha256": program.sha256, "lock_sha256": program.lock_sha256}
     else:
         files["INSTRUCTIONS.md"] = render_instructions(node, prompt or "", manifest, inputs, schema).encode("utf-8")
     manifest["packet_sha256"] = packet_digest(manifest, {k: hashlib.sha256(v).hexdigest() for k, v in files.items()})

@@ -21,7 +21,7 @@ relevant and adequate for this owner's goal; the mechanical form is checked else
 Check how the work is divided and who does it (checks 21 to 27): one kind of work per stage; the
 traits fit the work and the doer follows from them, software before an AI worker; every AI stage that
 software could do says why not, and the reason holds for this run's `software` rating; checks say what
-they establish; tools stay within the budget; and every stage a person does and every owner decision
+they establish; programs stay within the budget; and every stage a person does and every owner decision
 says whether delegating it is risky. A design that gives a stage to an AI worker because it is easier
 to write, when rules could do it, fails check 22.
 

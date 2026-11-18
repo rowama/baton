@@ -69,6 +69,7 @@ published:
 - admin.recipes-and-vendoring#axes
 - admin.recipes-and-vendoring#guides
 - admin.recipes-and-vendoring#here-now
+- admin.recipes-and-vendoring#programs
 - admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review
 - admin.recipes-and-vendoring#tools
@@ -212,6 +213,7 @@ published:
 - recipes.quick-run#what-it-reads
 - recipes.quick-run#what-you-are-asked
 - recipes.recipe-builder
+- recipes.recipe-builder#engineered-programs
 - recipes.recipe-builder#engineered-tools
 - recipes.recipe-builder#example
 - recipes.recipe-builder#full-or-quick
@@ -277,6 +279,10 @@ published:
 - reference.commands#baton-policy
 - reference.commands#baton-policy-confirm
 - reference.commands#baton-policy-set
+- reference.commands#baton-programs
+- reference.commands#baton-programs-examples
+- reference.commands#baton-programs-setup
+- reference.commands#baton-programs-test
 - reference.commands#baton-promote-sme
 - reference.commands#baton-push
 - reference.commands#baton-recipe
@@ -403,6 +409,7 @@ published:
 - user.what-baton-may-do#changing
 - user.what-baton-may-do#command-line
 - user.what-baton-may-do#here-now
+- user.what-baton-may-do#programs
 - user.what-baton-may-do#tools
 - user.what-is-baton
 - user.what-is-baton#here-now

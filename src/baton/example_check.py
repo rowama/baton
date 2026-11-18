@@ -1,12 +1,12 @@
-"""``baton tools examples``: an engineered tool's examples are enough, and the owner's are exact copies (§5.9; Decision 0164).
+"""``baton programs examples``: an engineered program's examples are enough, and the owner's are exact copies (§5.9; Decision 0164).
 
-Recipe builder's ``examples`` step places each engineered tool's examples
+Recipe builder's ``examples`` step places each engineered program's examples
 before anything is implemented: the owner's files copied byte for byte, and
 any example the owner chose not to supply drafted for their approval. Each
-example says where it came from in ``about.json`` (``tools.load_examples``).
+example says where it came from in ``about.json`` (``programs.load_examples``).
 This check is the step's gate, so the rules are code (§0 rule 2):
 
-- an engineered tool (one with ``contract.json``) has at least
+- an engineered program (one with ``contract.json``) has at least
   ``MIN_EXAMPLES`` examples, one of them marked ``awkward``, each with
   ``about.json``;
 - an example from the owner has every file under ``inputs/`` and
@@ -26,16 +26,16 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
-from .tools import EXAMPLE_ARTIFACTS, EXAMPLE_EXPECTED, EXAMPLE_INPUTS, LoadedTool, file_sha256
+from .programs import EXAMPLE_ARTIFACTS, EXAMPLE_EXPECTED, EXAMPLE_INPUTS, LoadedProgram, file_sha256
 
-#: The fewest examples an engineered tool is built to (Decision 0164, item 2).
+#: The fewest examples an engineered program is built to (Decision 0164, item 2).
 MIN_EXAMPLES = 3
 ROLE = "examples"
 
 
 @dataclass
 class ExamplesReport:
-    tool: str
+    program: str
     examples: int = 0
     problems: list[str] = field(default_factory=list)
     drafted: list[str] = field(default_factory=list)  # for the owner to approve
@@ -46,7 +46,7 @@ class ExamplesReport:
         return not self.problems
 
     def as_dict(self) -> dict[str, Any]:
-        return {"tool": self.tool, "ok": self.ok, "examples": self.examples, "problems": self.problems,
+        return {"program": self.program, "ok": self.ok, "examples": self.examples, "problems": self.problems,
                 "drafted": self.drafted, "stated": self.stated}
 
 
@@ -65,25 +65,25 @@ def _norm(path: str) -> str:
     return PurePosixPath(path.replace("\\", "/")).as_posix()
 
 
-def check_examples(tools: dict[str, LoadedTool], bound: dict[str, str] | None, *, only: str | None = None) -> list[ExamplesReport]:
-    """A report per engineered tool (or ``only`` that tool); ``bound`` from ``bound_documents``, ``None`` when unknown."""
-    if only is not None and only not in tools:
+def check_examples(programs: dict[str, LoadedProgram], bound: dict[str, str] | None, *, only: str | None = None) -> list[ExamplesReport]:
+    """A report per engineered program (or ``only`` that program); ``bound`` from ``bound_documents``, ``None`` when unknown."""
+    if only is not None and only not in programs:
         raise KeyError(only)
     out: list[ExamplesReport] = []
-    for tid, tool in sorted(tools.items()):
-        if (only is not None and tid != only) or (only is None and not tool.engineered):
+    for tid, program in sorted(programs.items()):
+        if (only is not None and tid != only) or (only is None and not program.engineered):
             continue
-        rep = ExamplesReport(tid, len(tool.examples))
+        rep = ExamplesReport(tid, len(program.examples))
         out.append(rep)
-        if not tool.engineered:
-            rep.problems.append(f"tool {tid!r} has no contract.json: this check is for engineered tools")
+        if not program.engineered:
+            rep.problems.append(f"program {tid!r} has no contract.json: this check is for engineered programs")
             continue
-        if len(tool.examples) < MIN_EXAMPLES:
-            rep.problems.append(f"{len(tool.examples)} example{'s' if len(tool.examples) != 1 else ''}; "
+        if len(program.examples) < MIN_EXAMPLES:
+            rep.problems.append(f"{len(program.examples)} example{'s' if len(program.examples) != 1 else ''}; "
                                 f"at least {MIN_EXAMPLES} are needed, the owner's or drafted and approved")
-        if tool.examples and not any((ex.about or {}).get("awkward") for ex in tool.examples):
+        if program.examples and not any((ex.about or {}).get("awkward") for ex in program.examples):
             rep.problems.append("no example is marked awkward (\"awkward\": true in about.json)")
-        for ex in tool.examples:
+        for ex in program.examples:
             where = f"example {ex.name!r}"
             about = ex.about
             if about is None:

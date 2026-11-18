@@ -44,7 +44,7 @@ You work in the project; commit your work.
      `reach.workspace`, its inputs, an `output_schema` for `output.json`, its artifacts and a
      `schema` gate. A tool that spends money or changes something others depend on runs only after
      a step where the owner approves (a `human` gate before it).
-   Run `baton tools test recipes/drafts/<run slug> --require-examples` yourself and fix the tool
+   Run `baton programs test recipes/drafts/<run slug> --require-examples` yourself and fix the tool
    (not the example) until every example passes; the runtime runs it again as a gate. An example
    the owner approved is never changed to fit the code.
 6. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each

@@ -1,6 +1,6 @@
 id: csv_diff
 description: Compares two CSV tables on a key column and lists every added row, removed row and changed cell.
 runtime: { kind: python, version: ">=3.10" }
-entry: ["python", "{tool}/csv_diff.py", "{input}", "{output}"]
+entry: ["python", "{program}/csv_diff.py", "{input}", "{output}"]
 dependencies: { lock: requirements.lock }
 reach: { workspace: none, network: false, secrets: [] }

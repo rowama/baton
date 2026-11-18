@@ -43,7 +43,7 @@ Commit what the process **is** and what it has **produced**; never commit who ru
 | `~/.baton/quota.yaml` | Routes whose quota is used up, and until when |
 | `~/.baton/known-workers.local.yaml` | Your assessed models, merged over Baton's shipped data |
 | `~/.baton/secrets/` | The file-based secret store (directory 0700, files 0600) |
-| `~/.baton/tools/` | Environments for recipes' tools, one per lock file and Python version, built by Baton (`baton tools setup` builds them ahead) |
+| `~/.baton/programs/` | Environments for recipes' programs, one per lock file and Python version, built by Baton (`baton programs setup` builds them ahead). A `~/.baton/tools/` folder left by an earlier Baton is no longer used and can be deleted |
 | `~/.baton/hooks.yaml` | Machine-level completion hooks; may reference secrets |
 | `~/.baton/mcp.yaml` | `token: secret:<name>`: the bearer token for `baton mcp --http` |
 | `~/.baton/launcher.yaml` | Where the launcher installs versions from |

@@ -378,7 +378,7 @@ def _uncovered_steps(project: Any, profiles: dict[str, Any]) -> list[str]:
             for n in nodes:
                 if isinstance(n, Group):
                     visit(n.steps, f"{prefix}{n.id}/")
-                elif isinstance(n, Step) and n.tool is None:  # a tool's readiness is its own check (§5.9)
+                elif isinstance(n, Step) and n.program is None:  # a program's readiness is its own check (§5.9)
                     if not any(not requirement_gaps(n.requires, n.workspace, p, loaded.vocab) for p in profiles.values()):
                         out.append(f"{ref}/{prefix}{n.id}")
 
@@ -541,8 +541,8 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
     for rname, line in (readiness(project.home).get("quota") or {}).items() if only is None else []:
         if line.startswith("0 free-model requests left"):
             warnings.append(f"{rname}: {line}; its free routes are skipped until the reset")
-    tools = _tools(project) if only is None else []
-    warnings += [f"tool {t['tool']} of {t['recipe']} is not ready: {'; '.join(t['reasons'])}" for t in tools if not t["ready"]]
+    programs = _programs(project) if only is None else []
+    warnings += [f"program {t['program']} of {t['recipe']} is not ready: {'; '.join(t['reasons'])}" for t in programs if not t["ready"]]
     web = _web_advice(project, profiles) if only is None else None
     if web is not None:
         warnings.append(f"steps that search the web have no worker here ({', '.join(web['steps'])}): {web['advice']}")
@@ -569,14 +569,14 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         out["diag_unusual"] = diag_unusual
     if web is not None:
         out["web_advice"] = web
-    if tools:
-        out["tools"] = tools
+    if programs:
+        out["programs"] = programs
     return out
 
 
-def _tools(project: Any) -> list[dict[str, Any]]:
-    """Every vendored recipe's tool, and whether it is ready on this machine (§5.9)."""
-    from . import tool_env
+def _programs(project: Any) -> list[dict[str, Any]]:
+    """Every vendored recipe's program, and whether it is ready on this machine (§5.9)."""
+    from . import program_env
 
     out = []
     for ref in project.vendored():
@@ -584,8 +584,8 @@ def _tools(project: Any) -> list[dict[str, Any]]:
             loaded = project.recipe(ref)
         except EngineError:  # expected: a recipe that does not load is reported by check
             continue
-        for tid, tool in sorted(loaded.tools.items()):
-            out.append({"recipe": ref, **tool_env.readiness(tool, project.home).as_dict()})
+        for tid, program in sorted(loaded.programs.items()):
+            out.append({"recipe": ref, **program_env.readiness(program, project.home).as_dict()})
     return out
 
 

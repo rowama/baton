@@ -81,7 +81,7 @@ def _relabel(root: Path, issues: list[Issue]) -> list[Issue]:
 def check(root: Path, *, strict: bool = False, home: Path | None = None) -> list[Issue]:
     """Every problem found; drift of an active run's deliverables is a warning, an error with ``strict``.
 
-    A vendored recipe's tool that is not ready on this machine (``home``,
+    A vendored recipe's program that is not ready on this machine (``home``,
     default ``$BATON_HOME``) is a warning (§5.9): it says what to install or set.
     """
     root = Path(root)
@@ -167,18 +167,18 @@ def check(root: Path, *, strict: bool = False, home: Path | None = None) -> list
     if cfg is not None:
         issues += _check_policy(root, cfg, strict)
 
-    # tools not ready on this machine (§5.9; 2026-11-tool-steps criterion 6)
+    # programs not ready on this machine (§5.9; 2026-11-tool-steps criterion 6)
     if lock:
-        issues += _tool_readiness(baton, lock, home)
+        issues += _program_readiness(baton, lock, home)
 
     # secrets
     issues += _scan_secrets(baton)
     return _relabel(root, issues)
 
 
-def _tool_readiness(baton: Path, lock: dict[str, Any], home: Path | None) -> list[Issue]:
+def _program_readiness(baton: Path, lock: dict[str, Any], home: Path | None) -> list[Issue]:
     from . import diag
-    from .engine import tools_not_ready
+    from .engine import programs_not_ready
     from .recipe import RecipeError, load_recipe
 
     home = home if home is not None else diag.home()
@@ -188,11 +188,11 @@ def _tool_readiness(baton: Path, lock: dict[str, Any], home: Path | None) -> lis
             loaded = load_recipe(baton / "recipes" / ref)
         except RecipeError:  # expected: a recipe that does not load is reported by the lock check above
             continue
-        if not loaded.tools:
+        if not loaded.programs:
             continue
-        for t in tools_not_ready(loaded, home):
-            out.append(Issue(code="tool.not_ready", where=f"{ref}/tools/{t['tool']}", severity="warning",
-                             message=f"tool {t['tool']} (for {', '.join(t['steps'])}) is not ready on this machine: {'; '.join(t['reasons'])}"))
+        for t in programs_not_ready(loaded, home):
+            out.append(Issue(code="program.not_ready", where=f"{ref}/programs/{t['program']}", severity="warning",
+                             message=f"program {t['program']} (for {', '.join(t['steps'])}) is not ready on this machine: {'; '.join(t['reasons'])}"))
     return out
 
 

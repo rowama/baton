@@ -1,12 +1,12 @@
-"""Tools a recipe ships (§5.9; Decisions 0154, 0156, 0158).
+"""Programs a recipe ships (§5.9; Decisions 0154, 0156, 0158).
 
-A tool is a script in ``tools/<id>/`` of a recipe package, described by
-``tool.yaml``, with its dependencies pinned in a lock file. This module holds
-what the loader needs to check a tool without running it: the lock-file parser,
-the entry placeholders, the runtime-version check, the tool's worked
-examples (``examples/<name>/``; Decision 0162) and an engineered tool's
+A program is a script in ``programs/<id>/`` of a recipe package, described by
+``program.yaml``, with its dependencies pinned in a lock file. This module holds
+what the loader needs to check a program without running it: the lock-file parser,
+the entry placeholders, the runtime-version check, the program's worked
+examples (``examples/<name>/``; Decision 0162) and an engineered program's
 contract (``contract.json``; Decision 0164). Environments are built in
-``tool_env``, tools run in ``tool_runner`` and examples are run by ``tool_test``.
+``program_env``, programs run in ``program_runner`` and examples are run by ``program_test``.
 """
 
 from __future__ import annotations
@@ -18,28 +18,28 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .models import ToolSpec
+from .models import ProgramSpec
 
-TOOLS_DIR = "tools"
-TOOL_FILE = "tool.yaml"
+PROGRAMS_DIR = "programs"
+PROGRAM_FILE = "program.yaml"
 EXAMPLES_DIR = "examples"
 #: An example's files (Decision 0162, items 5 and 10).
 EXAMPLE_INPUT, EXAMPLE_INPUTS, EXAMPLE_EXPECTED, EXAMPLE_ARTIFACTS, EXAMPLE_WORKSPACE = (
     "input.json", "inputs", "expected.json", "expected", "workspace")
-#: Where an engineered tool's example came from (Decision 0164, item 4).
+#: Where an engineered program's example came from (Decision 0164, item 4).
 EXAMPLE_ABOUT = "about.json"
 EXAMPLE_SOURCES = ("owner", "drafted")
-#: An engineered tool's contract, written by recipe builder's ``generate`` (Decision 0164).
+#: An engineered program's contract, written by recipe builder's ``generate`` (Decision 0164).
 CONTRACT_FILE = "contract.json"
 _CONTRACT_KEYS = {"kind": True, "does": True, "input_schema": True, "output_schema": True, "reach": True,
                   "packages": True, "budget_reason": True, "size_reason": False}
 _EXAMPLE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 RUNTIME_KINDS = ("python",)  # Decision 0156, item 2
 #: The only words Baton fills into an entry command: the inputs file, the
-#: output directory, the tool's own folder (Decision 0158) and the workspace.
-PLACEHOLDERS = frozenset({"input", "output", "tool", "workspace"})
+#: output directory, the program's own folder (Decision 0158) and the workspace.
+PLACEHOLDERS = frozenset({"input", "output", "program", "workspace"})
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
-_COMMAND = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")  # a bare name, found in the tool's environment
+_COMMAND = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")  # a bare name, found in the program's environment
 _SPEC = re.compile(r"^\s*(~=|==|!=|<=|>=|<|>)\s*\d+(\.\d+)*(\.\*)?\s*$")
 _REQUIREMENT = re.compile(
     r"^(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[A-Za-z0-9._,\s-]*\])?"
@@ -66,30 +66,30 @@ class LockProblem:
 
 @dataclass
 class Example:
-    """One worked example of a tool: the inputs it is given and the result it must give (Decision 0162)."""
+    """One worked example of a program: the inputs it is given and the result it must give (Decision 0162)."""
 
     name: str
-    root: Path  # tools/<id>/examples/<name>/
+    root: Path  # programs/<id>/examples/<name>/
     values: dict[str, Any]  # input.json: the JSON inputs
     files: dict[str, Path]  # inputs/<input name>.<ext>: the file inputs
     expected: dict[str, Any]  # expected.json: output.json must equal it
     artifacts: dict[str, Path]  # expected/<artifact>.<ext>: compared byte for byte
-    workspace: Path | None = None  # workspace/: copied as the workspace of a tool that reaches it
+    workspace: Path | None = None  # workspace/: copied as the workspace of a program that reaches it
     about: dict[str, Any] | None = None  # about.json: {source, awkward, from} (Decision 0164)
 
 
 @dataclass
-class LoadedTool:
-    """A checked tool: its declaration, its folder and the hashes that pin it."""
+class LoadedProgram:
+    """A checked program: its declaration, its folder and the hashes that pin it."""
 
-    spec: ToolSpec
-    root: Path  # tools/<id>/ inside the recipe package
-    sha256: str  # over every file in the tool's folder, as the recipe hash is (§5.9)
+    spec: ProgramSpec
+    root: Path  # programs/<id>/ inside the recipe package
+    sha256: str  # over every file in the program's folder, as the recipe hash is (§5.9)
     lock_sha256: str
     requirements: list[LockedRequirement] = field(default_factory=list)
     examples: list[Example] = field(default_factory=list)
-    contract: dict[str, Any] | None = None  # contract.json: an engineered tool (Decision 0164)
-    built: bool = True  # False: an engineered tool whose entry file is not written yet
+    contract: dict[str, Any] | None = None  # contract.json: an engineered program (Decision 0164)
+    built: bool = True  # False: an engineered program whose entry file is not written yet
 
     @property
     def engineered(self) -> bool:
@@ -125,7 +125,7 @@ def parse_lock(text: str) -> tuple[list[LockedRequirement], list[LockProblem]]:
     Every entry must be ``name==version`` (optionally with extras and an
     environment marker) and carry at least one ``--hash=sha256:...``. Options
     (``-e``, ``-r``, ``--index-url``, ...) and direct URLs are refused, so the
-    lock alone says exactly what is installed. An empty lock is a tool that
+    lock alone says exactly what is installed. An empty lock is a program that
     needs only the standard library.
     """
     reqs: list[LockedRequirement] = []
@@ -134,25 +134,25 @@ def parse_lock(text: str) -> tuple[list[LockedRequirement], list[LockProblem]]:
         hashes = tuple(_HASH.findall(entry))
         spec = _HASH.sub(" ", entry).strip()
         if not spec and hashes:
-            problems.append(LockProblem("tool.lock_option", start, "a --hash with no requirement"))
+            problems.append(LockProblem("program.lock_option", start, "a --hash with no requirement"))
             continue
         if spec.startswith("-"):
             problems.append(
-                LockProblem("tool.lock_option", start, f"{spec.split()[0]!r}: only pinned requirements with hashes may appear in a tool's lock")
+                LockProblem("program.lock_option", start, f"{spec.split()[0]!r}: only pinned requirements with hashes may appear in a program's lock")
             )
             continue
         m = _REQUIREMENT.match(spec)
         if m is None:
             problems.append(
-                LockProblem("tool.unpinned_dependency", start, f"{spec!r} is not pinned to one exact version (name==version)")
+                LockProblem("program.unpinned_dependency", start, f"{spec!r} is not pinned to one exact version (name==version)")
             )
             continue
         if not hashes:
-            problems.append(LockProblem("tool.unhashed_dependency", start, f"{m['name']}=={m['version']} has no --hash"))
+            problems.append(LockProblem("program.unhashed_dependency", start, f"{m['name']}=={m['version']} has no --hash"))
             continue
         bad = [h for h in hashes if not SHA256_HASH.match(h)]
         if bad:
-            problems.append(LockProblem("tool.unhashed_dependency", start, f"{m['name']}: hash {bad[0]!r} is not sha256:<64 hex digits>"))
+            problems.append(LockProblem("program.unhashed_dependency", start, f"{m['name']}: hash {bad[0]!r} is not sha256:<64 hex digits>"))
             continue
         reqs.append(LockedRequirement(m["name"], m["version"], hashes, m["marker"]))
     return reqs, problems
@@ -192,20 +192,20 @@ def artifact_name(filename: str) -> str:
     return filename.split(".", 1)[0]
 
 
-def load_examples(tool_root: Path) -> tuple[list[Example], list[tuple[str, str, str]]]:
-    """A tool's examples, and the problems with them as ``(code, where, message)``.
+def load_examples(program_root: Path) -> tuple[list[Example], list[tuple[str, str, str]]]:
+    """A program's examples, and the problems with them as ``(code, where, message)``.
 
-    ``where`` is relative to the tool's folder. No ``examples/`` folder is no
-    examples, not a problem (``baton tools test --require-examples`` says so).
+    ``where`` is relative to the program's folder. No ``examples/`` folder is no
+    examples, not a problem (``baton programs test --require-examples`` says so).
     """
-    base = tool_root / EXAMPLES_DIR
+    base = program_root / EXAMPLES_DIR
     if not base.is_dir():
         return [], []
     examples: list[Example] = []
     problems: list[tuple[str, str, str]] = []
 
     def bad(where: str, message: str) -> None:
-        problems.append(("tool.bad_example", where, message))
+        problems.append(("program.bad_example", where, message))
 
     for d in sorted(base.iterdir()):
         where = f"{EXAMPLES_DIR}/{d.name}"
@@ -274,7 +274,7 @@ def _about(path: Path, where: str, bad: Any) -> dict[str, Any] | None:
     """An example's ``about.json``: ``{source: owner | drafted, awkward: bool, from: {<file in the example>: <project path>}}``.
 
     ``from`` names, for each file copied from the owner's documents, the
-    project document it was copied from, so ``baton tools examples`` can prove
+    project document it was copied from, so ``baton programs examples`` can prove
     the copy (Decision 0164, item 4). No file is no record, not a problem.
     """
     if not path.exists():
@@ -301,21 +301,21 @@ def _about(path: Path, where: str, bad: Any) -> dict[str, Any] | None:
     return value
 
 
-def load_contract(tool_root: Path) -> tuple[dict[str, Any] | None, list[tuple[str, str, str]]]:
-    """An engineered tool's ``contract.json`` and the problems with it as ``(code, where, message)``.
+def load_contract(program_root: Path) -> tuple[dict[str, Any] | None, list[tuple[str, str, str]]]:
+    """An engineered program's ``contract.json`` and the problems with it as ``(code, where, message)``.
 
-    No file is a simple tool (Decision 0162), not a problem. The contract is
-    the design's: what the tool does, its schemas, what it may touch, every
-    package it needs with the reason, and why it is within the tool budget
+    No file is a simple program (Decision 0162), not a problem. The contract is
+    the design's: what the program does, its schemas, what it may touch, every
+    package it needs with the reason, and why it is within the program budget
     (Decision 0155, item 4); ``size_reason`` when it is over the size cap.
     """
-    path = tool_root / CONTRACT_FILE
+    path = program_root / CONTRACT_FILE
     if not path.exists():
         return None, []
     problems: list[tuple[str, str, str]] = []
 
     def bad(where: str, message: str) -> None:
-        problems.append(("tool.bad_contract", where, message))
+        problems.append(("program.bad_contract", where, message))
 
     value = _json_object(path, CONTRACT_FILE, bad, required=True)
     if value is None:
@@ -325,7 +325,7 @@ def load_contract(tool_root: Path) -> tuple[dict[str, Any] | None, list[tuple[st
     for key in sorted(k for k, req in _CONTRACT_KEYS.items() if req and k not in value):
         bad(f"{CONTRACT_FILE}:{key}", f"required key {key!r} is missing")
     if "kind" in value and value["kind"] != "engineered":
-        bad(f"{CONTRACT_FILE}:kind", "`kind` must be 'engineered' (a simple tool has no contract file)")
+        bad(f"{CONTRACT_FILE}:kind", "`kind` must be 'engineered' (a simple program has no contract file)")
     for key in ("does", "budget_reason", "size_reason"):
         if key in value and not (isinstance(value[key], str) and value[key].strip()):
             bad(f"{CONTRACT_FILE}:{key}", f"`{key}` must be a non-empty string")

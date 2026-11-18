@@ -261,8 +261,10 @@ def _clean(text: str) -> str:
     return "`".join(parts).replace("|", "\\|")
 
 
-def _front(tid: str, title: str, summary: str, order: int) -> list[str]:
-    return ["---", f"id: reference.{tid}", f"title: {title}", "audience: admin", f"summary: {summary}", f"order: {order}", "generated: true", "---", ""]
+def _front(tid: str, title: str, summary: str, order: int, anchor_aliases: dict[str, str] | None = None) -> list[str]:
+    aliases = ([f"anchor_aliases: {{{', '.join(f'{k}: {v}' for k, v in sorted(anchor_aliases.items()))}}}"] if anchor_aliases else [])
+    return ["---", f"id: reference.{tid}", f"title: {title}", "audience: admin", f"summary: {summary}", f"order: {order}", "generated: true",
+            *aliases, "---", ""]
 
 
 def _anchor(words: list[str]) -> str:
@@ -308,7 +310,8 @@ def commands_page(base: Path) -> str:
         return (ref, m.resolve(ref)[0].title) if ref else None
 
     root = manual_cli._group()
-    out = _front("commands", "Command reference", "Every baton command and option.", 10)
+    aliases = dict((_notes_file(base).get("command_anchor_aliases") or {}))  # a renamed command keeps its published anchors
+    out = _front("commands", "Command reference", "Every baton command and option.", 10, aliases)
     out += ["## Here, now {#here-now}", "", "Every command takes `--json` for machine-readable output. Global options: `--project <path>` (or `BATON_PROJECT`), `--director <id>` (or `BATON_DIRECTOR`). Exit codes are in [setting up an assistant](admin.directors#exit-codes).", ""]
     for name in sorted(root.commands):
         cmd = root.commands[name]

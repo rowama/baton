@@ -52,4 +52,4 @@ It can build on documents your project already has. Before the work that needs o
 
 - A file has no column with the name you gave, a row has no value in it, or the same value appears twice: the comparison stops and says which. Fix the file or choose another column, and your assistant tries again.
 - A file is not saved as CSV with UTF-8: save it again as "CSV UTF-8" and try again.
-- Python is not installed: see [what a recipe's tools need](admin.recipes-and-vendoring#tools).
+- Python is not installed: see [what a recipe's programs need](admin.recipes-and-vendoring#programs).

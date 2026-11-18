@@ -23,7 +23,7 @@ project_inputs:
 steps:
   - id: compare
     title: Compare the two tables row by row
-    tool: csv_diff
+    program: csv_diff
     workspace: none
     inputs:
       - { name: before, from: project.before,   required: true }

@@ -39,13 +39,13 @@ A step's `until` is its longest wait, from the first check that found the condit
 
 ## Writing a check {#writing-a-check}
 
-A check is a tool (a script the recipe ships) on a step that declares `wait`:
+A check is a program (a script the recipe ships) on a step that declares `wait`:
 
 ```yaml
 - id: price_reached
   title: Wait for the price to reach the level
   depends_on: [levels]
-  tool: price_check
+  program: price_check
   workspace: none
   wait: { until: 14d, every: 30m, on_expire: escalate }
   inputs:

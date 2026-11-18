@@ -1,4 +1,4 @@
-id: tool-demo
+id: program-demo
 version: 1
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
@@ -20,7 +20,7 @@ steps:
   - id: backtest
     title: Test the strategy against past prices
     depends_on: [parameters]
-    tool: backtest
+    program: backtest
     workspace: none
     inputs:
       - { name: parameters, from: steps.parameters.output, required: true }

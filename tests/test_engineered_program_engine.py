@@ -1,8 +1,8 @@
 """2026-11-builder-engineered-tools Slice 3: the engine support the build loop needs (§5.3, §9; Decision 0164).
 
 A step in a group may be independent of a top-level step its group depends on (the worker that placed
-the examples never builds the tool), and a script gate inside a `foreach` instance may name the
-instance's item (`--tool {{ item.tool }}`), only with text a shell cannot read as syntax.
+the examples never builds the program), and a script gate inside a `foreach` instance may name the
+instance's item (`--program {{ item.program }}`), only with text a shell cannot read as syntax.
 """
 
 from __future__ import annotations
@@ -36,13 +36,13 @@ def _copy(tmp_path: Path, old: str, new: str) -> Path:
 def test_a_group_step_may_be_independent_of_a_top_level_step_its_group_depends_on(tmp_path):
     loaded, issues = validate_recipe(BUILDER)
     assert loaded is not None and not [i for i in issues if i.severity == "error"]
-    implement = next(s for s in next(g for g in loaded.recipe.steps if g.id == "build_tools").steps if s.id == "implement")
+    implement = next(s for s in next(g for g in loaded.recipe.steps if g.id == "build_programs").steps if s.id == "implement")
     assert implement.independence.from_step == "examples"
     # `guide` is a top-level step, but not one the group depends on.
     root = _copy(tmp_path, "independence: { from_step: examples, level: different_vendor }",
                  "independence: { from_step: guide, level: different_vendor }")
     _loaded, issues = validate_recipe(root)
-    assert [(i.code, i.where) for i in issues if i.severity == "error"] == [("independence.bad_from_step", "build_tools/implement.independence")]
+    assert [(i.code, i.where) for i in issues if i.severity == "error"] == [("independence.bad_from_step", "build_programs/implement.independence")]
     assert "or a top-level ancestor of its group" in next(i.message for i in issues if i.code == "independence.bad_from_step")
 
 
@@ -56,13 +56,13 @@ def _ctx(item=None):
 def test_a_gate_command_names_the_instances_item(monkeypatch):
     from baton import groups, packet
 
-    ctx, view = _ctx({"tool": "count_plants", "title": "Count the plants"})
+    ctx, view = _ctx({"program": "count_plants", "title": "Count the plants"})
     monkeypatch.setattr(groups, "locate", lambda recipe, path: SimpleNamespace(frame=object()))
     monkeypatch.setattr(packet, "view_of", lambda c: view)
-    cmd = "baton tools test recipes/drafts/{{ run.slug }} --tool {{ item.tool }} --repeat 2"
-    assert render_command(ctx, cmd, "build_tools/x1/i1/implement") == "baton tools test recipes/drafts/flower-bed --tool count_plants --repeat 2"
+    cmd = "baton programs test recipes/drafts/{{ run.slug }} --program {{ item.program }} --repeat 2"
+    assert render_command(ctx, cmd, "build_programs/x1/i1/implement") == "baton programs test recipes/drafts/flower-bed --program count_plants --repeat 2"
     with pytest.raises(jinja2.TemplateError, match="not safe in a command"):
-        render_command(ctx, "echo {{ item.title }}", "build_tools/x1/i1/implement")  # a space
+        render_command(ctx, "echo {{ item.title }}", "build_programs/x1/i1/implement")  # a space
     # Outside a group, `item` is undefined, as before.
     monkeypatch.setattr(groups, "locate", lambda recipe, path: SimpleNamespace(frame=None))
     with pytest.raises(jinja2.UndefinedError):

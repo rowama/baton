@@ -105,7 +105,7 @@ def describe(ctx: Any, baton_dir: Path) -> list[dict[str, Any]]:
         title = getattr(loc.node, "title", None) if loc is not None else None
         cached = entry(baton_dir, ctx.run_id, path, st.attempt)
         item: dict[str, Any] = {
-            "step_path": path, "attempt": st.attempt, "waits_for": title or path, "tool": d.get("tool"),
+            "step_path": path, "attempt": st.attempt, "waits_for": title or path, "program": d.get("program"),
             "since": ev.ts if ev is not None else None, "deadline": d.get("deadline"), "every": d.get("every"),
             "on_expire": d.get("on_expire", "escalate"), "last_checked": cached.get("last_checked"),
             "failed_checks": int(cached.get("failures") or 0),

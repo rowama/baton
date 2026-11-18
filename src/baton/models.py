@@ -135,7 +135,7 @@ IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected")
 
 
 class Wait(_Strict):
-    """A tool step that waits for a condition (§5.9): its tool is a check, run again until it is met.
+    """A program step that waits for a condition (§5.9): its program is a check, run again until it is met.
 
     Durations are strings such as ``30m``, ``12h`` or ``14d``; the loader checks them.
     """
@@ -146,9 +146,9 @@ class Wait(_Strict):
 
 
 class Step(_Strict):
-    """A leaf step: one unit of work done by one worker or tool per attempt.
+    """A leaf step: one unit of work done by one worker or program per attempt.
 
-    A worker step has ``requires`` and ``prompt``; a tool step has ``tool``
+    A worker step has ``requires`` and ``prompt``; a program step has ``program``
     instead (§5.9). The loader checks that a step has one or the other.
     """
 
@@ -158,9 +158,9 @@ class Step(_Strict):
     applies_to: AppliesTo | None = None
     requires: Requires | None = None
     prompt: str | None = None
-    tool: str | None = Field(default=None, pattern=STEP_ID)  # tools/<id>/ in the package (§5.9)
-    max_attempts: int | None = Field(default=None, ge=1)  # a tool step only: its attempts (default 1; Decision 0156, item 4)
-    wait: Wait | None = None  # a tool step only: wait for a condition its tool checks (§5.9; Decision 0165)
+    program: str | None = Field(default=None, pattern=STEP_ID)  # programs/<id>/ in the package (§5.9)
+    max_attempts: int | None = Field(default=None, ge=1)  # a program step only: its attempts (default 1; Decision 0156, item 4)
+    wait: Wait | None = None  # a program step only: wait for a condition its program checks (§5.9; Decision 0165)
     inputs: list[Input] = Field(default_factory=list)
     output_schema: str | None = None  # recipe-relative path, "baton:findings" or "baton:proposals"
     artifacts: list[Artifact] = Field(default_factory=list)
@@ -184,34 +184,34 @@ class Step(_Strict):
 
 
 # --------------------------------------------------------------------------
-# Tools: tools/<id>/tool.yaml in a recipe package (§5.9; Decisions 0154, 0156, 0158)
+# Programs: programs/<id>/program.yaml in a recipe package (§5.9; Decisions 0154, 0156, 0158)
 # --------------------------------------------------------------------------
 
 
-class ToolRuntime(_Strict):
+class ProgramRuntime(_Strict):
     kind: str  # "python" only, for now (Decision 0156, item 2); checked by the loader
     version: str | None = None  # a version specifier, e.g. ">=3.11"
 
 
-class ToolDependencies(_Strict):
-    lock: str  # tool-relative path of a requirements file with exact versions and hashes
+class ProgramDependencies(_Strict):
+    lock: str  # program-relative path of a requirements file with exact versions and hashes
 
 
-class ToolReach(_Strict):
-    """What a tool may touch: shown at vendoring, recorded, enforced where the machine can (§15.2)."""
+class ProgramReach(_Strict):
+    """What a program may touch: shown at vendoring, recorded, enforced where the machine can (§15.2)."""
 
     workspace: Literal["none", "read", "write"] = "none"
     network: bool = False
     secrets: list[str] = Field(default_factory=list)
 
 
-class ToolSpec(_Strict):
+class ProgramSpec(_Strict):
     id: str = Field(pattern=STEP_ID)
     description: str = Field(min_length=1)
-    runtime: ToolRuntime
+    runtime: ProgramRuntime
     entry: list[str] = Field(min_length=1)  # one word each; no shell runs it
-    dependencies: ToolDependencies
-    reach: ToolReach = Field(default_factory=ToolReach)
+    dependencies: ProgramDependencies
+    reach: ProgramReach = Field(default_factory=ProgramReach)
 
 
 class Group(_Strict):
@@ -678,7 +678,7 @@ class PlanStep(BaseModel):
     included: bool
     reason: str = ""  # why skipped
     requires: Requires | None = None
-    tool: str | None = None  # a tool step: the tool that does it (§5.9)
+    program: str | None = None  # a program step: the program that does it (§5.9)
     workspace: str = "none"
     gates: list[PlanGate] = Field(default_factory=list)
     group: dict[str, Any] | None = None  # foreach / repeat details for groups

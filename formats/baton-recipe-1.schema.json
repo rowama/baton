@@ -959,7 +959,7 @@
     },
     "Step": {
       "additionalProperties": false,
-      "description": "A leaf step: one unit of work done by one worker or tool per attempt.\n\nA worker step has ``requires`` and ``prompt``; a tool step has ``tool``\ninstead (\u00a75.9). The loader checks that a step has one or the other.",
+      "description": "A leaf step: one unit of work done by one worker or program per attempt.\n\nA worker step has ``requires`` and ``prompt``; a program step has ``program``\ninstead (\u00a75.9). The loader checks that a step has one or the other.",
       "properties": {
         "applies_to": {
           "anyOf": [
@@ -1121,6 +1121,19 @@
           "default": null,
           "title": "Output Schema"
         },
+        "program": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program"
+        },
         "prompt": {
           "anyOf": [
             {
@@ -1179,19 +1192,6 @@
           "default": null,
           "title": "Title"
         },
-        "tool": {
-          "anyOf": [
-            {
-              "pattern": "^[a-z][a-z0-9_]*$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tool"
-        },
         "wait": {
           "anyOf": [
             {
@@ -1222,7 +1222,7 @@
     },
     "Wait": {
       "additionalProperties": false,
-      "description": "A tool step that waits for a condition (\u00a75.9): its tool is a check, run again until it is met.\n\nDurations are strings such as ``30m``, ``12h`` or ``14d``; the loader checks them.",
+      "description": "A program step that waits for a condition (\u00a75.9): its program is a check, run again until it is met.\n\nDurations are strings such as ``30m``, ``12h`` or ``14d``; the loader checks them.",
       "properties": {
         "every": {
           "anyOf": [

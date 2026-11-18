@@ -116,7 +116,7 @@ def start(
         "formats": {"events": versions.current_format("events"), "packet": PROTOCOL, "recipe": recipe.recipe.format},
         "capabilities_vocab": recipe.recipe.capabilities_vocab,
         "max_attempts": recipe.recipe.defaults.max_attempts,
-        **({"step_max_attempts": tool_attempts} if (tool_attempts := tool_step_attempts(recipe)) else {}),  # only with tool steps
+        **({"step_max_attempts": program_attempts} if (program_attempts := program_step_attempts(recipe)) else {}),  # only with program steps
         "inputs_sha256": hashlib.sha256(blob).hexdigest(),
         **(work_item or {}),
     }
@@ -1257,7 +1257,7 @@ def finish_child(
 
 def check_not_met(ctx: RunContext, step_path: str, n: int, result_dir: Path | None = None) -> bool:
     """Whether a waiting step's check reported its condition not met (``not_met.json``, no ``result.json``)."""
-    from .tool_runner import NOT_MET_FILE
+    from .program_runner import NOT_MET_FILE
 
     r = result_dir or ctx.attempt_dir(step_path, n) / "result"
     return (r / NOT_MET_FILE).is_file() and not (r / "result.json").is_file()
@@ -1281,7 +1281,7 @@ def start_wait(ctx: RunContext, step_path: str, n: int, waits_config: Any, *, ac
     limit = waits_config.max_seconds()
     until_s = min(asked, limit)
     deadline = fmt(ctx.log.clock() + timedelta(seconds=until_s))
-    data: dict[str, Any] = {"until": w.until, "deadline": deadline, "tool": step.tool, "on_expire": w.on_expire}
+    data: dict[str, Any] = {"until": w.until, "deadline": deadline, "program": step.program, "on_expire": w.on_expire}
     if w.every:
         data["every"] = w.every
     if asked > limit:
@@ -1337,8 +1337,8 @@ def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | Non
         if value in EFFORTS:
             return value, "effort_from"
         return config.default, f"default ({ref} is {value!r}, not one of {', '.join(EFFORTS)})"
-    if getattr(node, "tool", None):
-        return "S", "tool default"  # a tool step's default effort (Decision 0156, item 8)
+    if getattr(node, "program", None):
+        return "S", "program default"  # a program step's default effort (Decision 0156, item 8)
     return config.default, "default"
 
 
@@ -1349,58 +1349,58 @@ def _leaf_steps(nodes: list[Any]) -> list[Step]:
     return out
 
 
-def tool_step_attempts(loaded: Any) -> dict[str, int]:
-    """Attempts per tool step id: one unless the step raises it (Decision 0156, item 4)."""
+def program_step_attempts(loaded: Any) -> dict[str, int]:
+    """Attempts per program step id: one unless the step raises it (Decision 0156, item 4)."""
     out: dict[str, int] = {}
 
     def visit(nodes: list[Any]) -> None:
         for n in nodes:
             if isinstance(n, Group):
                 visit(n.steps)
-            elif n.tool is not None:
+            elif n.program is not None:
                 out[n.id] = n.max_attempts or 1
 
     visit(loaded.recipe.steps)
     return out
 
 
-def tool_profile(tool: Any, env: Any, *, wait: bool = False) -> WorkerProfile:
-    """The profile a tool step runs under (§6.3 ``tool``): a clean environment with only the secrets the tool names."""
-    from .adapters.tool import PROFILE_PREFIX  # noqa: F401  (the name is ``tool:<id>``)
+def program_profile(program: Any, env: Any, *, wait: bool = False) -> WorkerProfile:
+    """The profile a program step runs under (§6.3 ``program``): a clean environment with only the secrets the program names."""
+    from .adapters.program import PROFILE_PREFIX  # noqa: F401  (the name is ``program:<id>``)
     from .models import ProfileAuth
 
-    secrets_ = tool.spec.reach.secrets
+    secrets_ = program.spec.reach.secrets
     auth = ProfileAuth(mode="api_key", env={n: f"secret:{n}" for n in secrets_}) if secrets_ else ProfileAuth(mode="none")
     return WorkerProfile(
-        adapter="tool", creator="tool", env_mode="clean", auth=auth,
-        options={"tool": tool.id, "tool_dir": str(tool.root), "bin_dir": str(env.bin_dir), "entry": list(tool.spec.entry),
+        adapter="program", creator="program", env_mode="clean", auth=auth,
+        options={"program": program.id, "program_dir": str(program.root), "bin_dir": str(env.bin_dir), "entry": list(program.spec.entry),
                  **({"wait": True} if wait else {})},
     )
 
 
-def tool_routing(loaded: Any, node: Step, step_path: str, home: Path) -> Any:
-    """A tool step's eligibility: its tool, the one executor, when it is ready here (§5.9; criteria 3, 6).
+def program_routing(loaded: Any, node: Step, step_path: str, home: Path) -> Any:
+    """A program step's eligibility: its program, the one executor, when it is ready here (§5.9; criteria 3, 6).
 
     Not ready, it is the one exclusion, with what to install or set; dispatch then refuses.
     """
-    from . import tool_env
-    from .adapters.tool import PROFILE_PREFIX
+    from . import program_env
+    from .adapters.program import PROFILE_PREFIX
     from .routing import Eligibility
 
     out = Eligibility(step_path)
-    name = f"{PROFILE_PREFIX}{node.tool}"
-    ready = tool_env.readiness(loaded.tools[node.tool], home)
+    name = f"{PROFILE_PREFIX}{node.program}"
+    ready = program_env.readiness(loaded.programs[node.program], home)
     if not ready.ready:
         out.excluded.append({"profile": name, "reasons": ready.reasons})
         return out
-    reasons = ["the step's own tool, shipped with the recipe: no routing"] + ([ready.note] if ready.note else [])
-    out.eligible.append({"profile": name, "adapter": "tool", "tool": node.tool, "vendor": "tool", "creator": "tool", "reasons": reasons})
+    reasons = ["the step's own program, shipped with the recipe: no routing"] + ([ready.note] if ready.note else [])
+    out.eligible.append({"profile": name, "adapter": "program", "program": node.program, "vendor": "program", "creator": "program", "reasons": reasons})
     return out
 
 
-def tools_not_ready(loaded: Any, home: Path) -> list[dict[str, Any]]:
-    """Each tool of a recipe that is not ready on this machine, with the steps that use it and why (criterion 6)."""
-    from . import tool_env
+def programs_not_ready(loaded: Any, home: Path) -> list[dict[str, Any]]:
+    """Each program of a recipe that is not ready on this machine, with the steps that use it and why (criterion 6)."""
+    from . import program_env
 
     steps: dict[str, list[str]] = {}
 
@@ -1408,15 +1408,15 @@ def tools_not_ready(loaded: Any, home: Path) -> list[dict[str, Any]]:
         for n in nodes:
             if isinstance(n, Group):
                 visit(n.steps, f"{prefix}{n.id}/")
-            elif n.tool is not None:
-                steps.setdefault(n.tool, []).append(f"{prefix}{n.id}")
+            elif n.program is not None:
+                steps.setdefault(n.program, []).append(f"{prefix}{n.id}")
 
     visit(loaded.recipe.steps, "")
     out = []
     for tid, used_by in sorted(steps.items()):
-        r = tool_env.readiness(loaded.tools[tid], home)
+        r = program_env.readiness(loaded.programs[tid], home)
         if not r.ready:
-            out.append({"recipe": loaded.recipe.ref, "tool": tid, "steps": used_by, "reasons": r.reasons})
+            out.append({"recipe": loaded.recipe.ref, "program": tid, "steps": used_by, "reasons": r.reasons})
     return out
 
 
@@ -2660,12 +2660,12 @@ class Api:
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
         self._add_wait_advice(out, loaded)
-        if loaded.tools:  # warn, never refuse: a step the run's rating skips never blocks anything (Decision 0156, item 5)
-            pending = tools_not_ready(loaded, self.project.home)
+        if loaded.programs:  # warn, never refuse: a step the run's rating skips never blocks anything (Decision 0156, item 5)
+            pending = programs_not_ready(loaded, self.project.home)
             if pending:
-                out["tools_not_ready"] = pending
+                out["programs_not_ready"] = pending
                 out.setdefault("warnings", []).extend(
-                    f"tool {t['tool']} (for {', '.join(t['steps'])}) is not ready on this machine: {'; '.join(t['reasons'])}" for t in pending)
+                    f"program {t['program']} (for {', '.join(t['steps'])}) is not ready on this machine: {'; '.join(t['reasons'])}" for t in pending)
         return out
 
     def bind(self, run_id: str, role: str, paths: list[str], note: str) -> dict[str, Any]:
@@ -2900,8 +2900,8 @@ class Api:
         node = node_for(ctx.recipe, step_path)
         if not isinstance(node, Step):
             raise EngineError("engine.unknown_step", f"{step_path} is not a runnable step of {ctx.recipe.recipe.ref}")
-        if node.tool is not None:
-            return tool_routing(ctx.recipe, node, step_path, self.project.home), None
+        if node.program is not None:
+            return program_routing(ctx.recipe, node, step_path, self.project.home), None
         try:
             prefs = load_preferences(self.project.baton, self.project.home)
         except PreferencesError as e:
@@ -2993,19 +2993,19 @@ class Api:
 
         ctx0 = self._ctx(run_id)
         node0 = node_for(ctx0.recipe, step_path)
-        tool_info: dict[str, Any] | None = None
-        if isinstance(node0, Step) and node0.tool is not None:
-            # A tool step's one executor is its tool (§5.9): no machine profile, no routing.
-            from .adapters.tool import PROFILE_PREFIX
+        program_info: dict[str, Any] | None = None
+        if isinstance(node0, Step) and node0.program is not None:
+            # A program step's one executor is its program (§5.9): no machine profile, no routing.
+            from .adapters.program import PROFILE_PREFIX
 
-            own = f"{PROFILE_PREFIX}{node0.tool}"
+            own = f"{PROFILE_PREFIX}{node0.program}"
             if worker != own:
-                raise EngineError("routing.ineligible", f"{step_path} is done by its tool: dispatch it to {own} (see `baton eligible {run_id} {step_path}`)")
+                raise EngineError("routing.ineligible", f"{step_path} is done by its program: dispatch it to {own} (see `baton eligible {run_id} {step_path}`)")
             # Not ready here: building the environment says why, as a platform failure with an incident (Decision 0159, item 3);
             # a missing secret is refused as configuration when the environment is constructed.
             routing, waiver = self._routing(ctx0, step_path)
             routing.excluded = []
-            profile, tool_info = self._tool_profile(ctx0, node0, step_path, worker)
+            profile, program_info = self._program_profile(ctx0, node0, step_path, worker)
         else:
             profiles = self.project.profiles()
             if worker not in profiles:
@@ -3089,8 +3089,8 @@ class Api:
                 extra["effort_source"] = effort_source
             if env is not None:
                 extra["env"] = env.describe()
-            if tool_info is not None:
-                extra["tool"] = tool_info  # what ran: tool, lock, runtime, environment (criterion 7)
+            if program_info is not None:
+                extra["program"] = program_info  # what ran: program, lock, runtime, environment (criterion 7)
             tools = self._tool_plan(profile, getattr(node, "requires", None), mode)
             if tools is not None:
                 extra["tools"] = tools.describe()
@@ -3168,25 +3168,25 @@ class Api:
                     out[k] = res.get(k, waited.get(k))
         return out
 
-    def _tool_profile(self, ctx: RunContext, node: Step, step_path: str, worker: str) -> tuple[WorkerProfile, dict[str, Any]]:
-        """The in-memory profile that runs a tool step, its environment built first (Decision 0159, item 3).
+    def _program_profile(self, ctx: RunContext, node: Step, step_path: str, worker: str) -> tuple[WorkerProfile, dict[str, Any]]:
+        """The in-memory profile that runs a program step, its environment built first (Decision 0159, item 3).
 
         A missing uv or Python, or a failed build, is a platform failure:
         nothing is dispatched, the step stays ready, and an incident says why.
         """
-        from . import tool_env
+        from . import program_env
 
-        tool = ctx.recipe.tools[node.tool]  # type: ignore[index]
+        program = ctx.recipe.programs[node.program]  # type: ignore[index]
         try:
-            env = tool_env.ensure(tool, self.project.home)
-        except tool_env.ToolSetupError as e:
+            env = program_env.ensure(program, self.project.home)
+        except program_env.ProgramSetupError as e:
             inc = self._open_incident({"run": ctx.run_id, "step_path": step_path, "attempt": None, "class": "platform",
                                        "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": worker})
             raise EngineError(e.code, f"{e} (platform incident {inc} opened)") from e
-        return tool_profile(tool, env, wait=node.wait is not None), {
-            "id": tool.id, "sha256": tool.sha256, "lock_sha256": tool.lock_sha256,
-            "runtime": tool.spec.runtime.model_dump(exclude_none=True), **env.describe(),
-            "reach": tool.spec.reach.model_dump(),
+        return program_profile(program, env, wait=node.wait is not None), {
+            "id": program.id, "sha256": program.sha256, "lock_sha256": program.lock_sha256,
+            "runtime": program.spec.runtime.model_dump(exclude_none=True), **env.describe(),
+            "reach": program.spec.reach.model_dump(),
         }
 
     # -- the workspace queue (§8.9) -----------------------------------------
@@ -3533,7 +3533,7 @@ class Api:
         if deadline is None or ctx.log.clock() >= supervisor.parse(deadline):
             return base | self._end_wait(run_id, path, n, "expired", lambda c: expire_wait(c, path, n))
         tmp, child, failure, changes = self._run_check(ctx, path, n)
-        worker = _last_data(ctx.log.events(), "dispatched", path, n).get("profile") or "tool"
+        worker = _last_data(ctx.log.events(), "dispatched", path, n).get("profile") or "program"
         baton = self.project.baton
         with self._run_lock(run_id):
             ctx = self._ctx(run_id)
@@ -3579,7 +3579,7 @@ class Api:
         Returns the folder it wrote into, the child, why the check failed (None when it
         reported met or not met) and any change it made to the working tree.
         """
-        from . import adapters, gitops, supervisor, tool_env
+        from . import adapters, gitops, supervisor, program_env
         from .profiles import SetupError, build_env
 
         node = _step(ctx, path)
@@ -3590,13 +3590,13 @@ class Api:
         tmp.mkdir(parents=True)
         workspace = self.project.root if node.workspace != "none" else None
         try:
-            tool = ctx.recipe.tools[node.tool]  # type: ignore[index]
-            profile = tool_profile(tool, tool_env.ensure(tool, self.project.home), wait=True)
+            program = ctx.recipe.programs[node.program]  # type: ignore[index]
+            profile = program_profile(program, program_env.ensure(program, self.project.home), wait=True)
             env = build_env(profile, home=self.project.home, packet_dir=adir / "packet", result_dir=tmp, workspace=workspace,
                             config_home_var=None, resolve=False)
-        except (tool_env.ToolSetupError, SetupError) as e:
+        except (program_env.ProgramSetupError, SetupError) as e:
             return tmp, None, f"the check could not start: {redact_text(str(e))}", []
-        adapter = adapters.get("tool")
+        adapter = adapters.get("program")
         argv = adapter.command(profile, adir / "packet", tmp, workspace, node.workspace)
         assert argv is not None
         rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
@@ -4120,7 +4120,7 @@ class Api:
 
         def body(ctx: RunContext) -> dict[str, Any]:
             from . import waits
-            from .tool_runner import NOT_MET_FILE
+            from .program_runner import NOT_MET_FILE
 
             st = ctx.log.state().step(step_path)
             if st.state not in ("running", "waiting"):
@@ -5572,29 +5572,29 @@ class Api:
 
         return docs.trace(self.project.store.run(run_id).events(), limit)
 
-    def tools_setup(self) -> dict[str, Any]:
-        """Build every vendored recipe's tools' environments ahead of first use (§5.9; ``baton tools setup``).
+    def programs_setup(self) -> dict[str, Any]:
+        """Build every vendored recipe's programs' environments ahead of first use (§5.9; ``baton programs setup``).
 
-        Each tool is ``built``, ``reused`` or ``failed`` with the reason; nothing is recorded in any run.
+        Each program is ``built``, ``reused`` or ``failed`` with the reason; nothing is recorded in any run.
         """
-        from . import tool_env
+        from . import program_env
 
         results: list[dict[str, Any]] = []
         for ref in self.project.vendored():
             loaded = self.project.recipe(ref)
-            for tid, tool in sorted(loaded.tools.items()):
-                item: dict[str, Any] = {"recipe": ref, "tool": tid}
+            for tid, program in sorted(loaded.programs.items()):
+                item: dict[str, Any] = {"recipe": ref, "program": tid}
                 try:
-                    env = tool_env.ensure(tool, self.project.home)
-                except tool_env.ToolSetupError as e:
+                    env = program_env.ensure(program, self.project.home)
+                except program_env.ProgramSetupError as e:
                     item.update(status="failed", code=e.code, reason=str(e))
                 else:
                     item.update(status="built" if env.built else "reused", env_id=env.id, python_version=env.python_version)
-                ready = tool_env.readiness(tool, self.project.home)
+                ready = program_env.readiness(program, self.project.home)
                 if item["status"] != "failed" and not ready.ready:
                     item.update(status="not_ready", reason="; ".join(ready.reasons))
                 results.append(item)
-        return {"tools": results, "ok": all(r["status"] in ("built", "reused") for r in results)}
+        return {"programs": results, "ok": all(r["status"] in ("built", "reused") for r in results)}
 
     def check(self) -> list[Any]:
         from .check import check

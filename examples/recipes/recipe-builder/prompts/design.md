@@ -13,29 +13,29 @@ stage give:
   something others depend on, or cannot be undone); whether a correct result can still be wrong
   about the world (`result`: `certain`, `uncertain`); and how its output can be `check`ed
   (`mechanical`, `source`, `judgment`).
-- `done_by`: the simplest means that can do it, by pattern 10: `tool`, `automatic_check`, `person`
+- `done_by`: the simplest means that can do it, by pattern 10: `program`, `automatic_check`, `person`
   or `ai`. Software before an AI worker.
 - `acceptance`: the check on its output and what it establishes (`kind`: `format`, `rule`,
   `source` or `judgment`; `what`, in one line).
 - what it needs, what it hands on, any decision the owner makes there, and what happens when it
   fails (`retry`, `revise`, `escalate`, `stop` or `accepted_risk`, with a `failure_note`).
-- For a `tool` stage, `tool`: an `id` (lower case, digits and `_`), what it `does` in the owner's
+- For a `program` stage, `program`: an `id` (lower case, digits and `_`), what it `does` in the owner's
   terms, its `input` and `output`, its `reach` (`workspace`, and `network: false` with no
   `secrets` at `software: simple`), and at least one worked example: the JSON `input`, any `files`
   it reads (`<input name>.<ext>` and their exact text), the `expected` output, any `artifacts` it
   writes (`<artifact>.<ext>` and their exact text), and what the example `says` in the owner's
   words. Draft the examples from what the owner told you; the owner approves them with the design.
-- A tool is `kind: simple` (as above) unless the run's `software` rating is `engineered` and the
+- A program is `kind: simple` (as above) unless the run's `software` rating is `engineered` and the
   stage needs real engineering: a real data format, rules with exceptions, or a package. Then give
   `kind: engineered`, no drafted `examples`, and instead a `contract` (the `input_schema` of its
   inputs file, the `output_schema` of its `output.json`, every `package` it needs with `why`, and
-  the `budget_reason`: why it is one tool, with one command, inputs in and outputs out, nothing kept
+  the `budget_reason`: why it is one program, with one command, inputs in and outputs out, nothing kept
   running and testable from examples; a `size_reason` only if it will be over 600 lines) and
   `examples_needed`: at least three examples the owner should supply, each saying `what` goes in and
   what should come out in their terms, one of them `awkward` (a case the owner finds hard). It is
   built later, to the owner's examples, by another worker. When the base recipe already has the
-  tool, give `base`: `unchanged` when neither its contract nor the examples it needs change,
-  `changed` otherwise; a tool the base recipe does not have is `new`.
+  program, give `base`: `unchanged` when neither its contract nor the examples it needs change,
+  `changed` otherwise; a program the base recipe does not have is `new`.
 - For an `ai` stage that software could do (`rules: complete` and `input: structured`, or
   `repeatable: required`), `executor_choice`: what `could_be` doing it, the `reason` (`ceiling`,
   `owner_choice` with the owner's confirmed entry as `ledger_id`, or `over_budget`), what it
@@ -48,12 +48,12 @@ The run's ratings (in the packet) set the most software you may plan. At `softwa
 stage software could do to another doer, record `executor_choice` with reason `ceiling`, and add a
 `rating_signal` to your result once: `{axis: "software", suggested: "simple", reason}`, naming the
 stages in the owner's terms, so the owner can raise the limit or keep it. At `software: simple`, a
-tool stays within the tool budget (pattern 10); work over it is done another way, with reason
-`over_budget`. A tool is `engineered` only at `software: engineered`; even then, prefer `simple`
+program stays within the program budget (pattern 10); work over it is done another way, with reason
+`over_budget`. A program is `engineered` only at `software: engineered`; even then, prefer `simple`
 where a one-file standard-library script will do. Where existing software the owner has could do a stage, record a `discovery` and do
 the stage another way. When the process is made to run elsewhere, the stages here are the ones that
 make it; for each step of the process being made, give in the document what its work is like and
-who should do it, and plan no tool for it.
+who should do it, and plan no program for it.
 
 Then:
 

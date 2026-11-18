@@ -1,32 +1,32 @@
-"""Child-process entrypoint for tool steps (§6.3 ``tool``; Decisions 0154, 0158, 0159).
+"""Child-process entrypoint for program steps (§6.3 ``program``; Decisions 0154, 0158, 0159).
 
-``python -m baton.tool_runner --packet DIR --result DIR --tool-dir DIR --bin-dir DIR --entry JSON [--workspace DIR] [--secret-names JSON] [--wait]``
+``python -m baton.program_runner --packet DIR --result DIR --program-dir DIR --bin-dir DIR --entry JSON [--workspace DIR] [--secret-names JSON] [--wait]``
 
-The runtime starts this under the tool's constructed environment (clean: only
-the secrets the tool names, a minimal PATH). The tool never sees the packet
+The runtime starts this under the program's constructed environment (clean: only
+the secrets the program names, a minimal PATH). The program never sees the packet
 protocol. This runner:
 
 1. writes ``inputs.json`` from the packet: one object keyed by input name, a
    JSON input as its value, any other input as ``{"path", "media_type"}``
    (an input given more than once, a ``many`` role, as a list in order);
-2. makes a fresh, empty scratch folder (the tool's working directory) and an
+2. makes a fresh, empty scratch folder (the program's working directory) and an
    empty output folder, outside the repository;
-3. runs the entry command, with ``{input}``, ``{output}``, ``{tool}`` and
+3. runs the entry command, with ``{input}``, ``{output}``, ``{program}`` and
    ``{workspace}`` filled in and its first word found in the environment's
    ``bin`` folder only; no shell runs it;
 4. turns ``output.json`` and the declared artifacts into ``result.json``:
    exit 0 with a JSON object in ``output.json`` and no undeclared file is
    ``completed``; anything else is ``failed``, with the reason and the last
-   lines of the tool's error output in ``notes`` (the values of the secrets
-   it names masked, since notes enter the record). A tool cannot return
+   lines of the program's error output in ``notes`` (the values of the secrets
+   it names masked, since notes enter the record). A program cannot return
    ``blocked`` or ask questions. Intake and the gates judge the result.
    A waiting step's check (``--wait``, §5.9; Decision 0165, item 2) must
    also put ``met: true|false`` in ``output.json``. Met: the rest of it is
    the step's output, taken in as above. Not met: ``not_met.json`` is
    written in place of ``result.json`` and nothing else is kept. A
    missing or non-boolean ``met`` fails the check.
-5. ends anything the tool left running once it has exited, and fails the
-   result naming it (``run_contained``; Decision 0164, item 6): a tool
+5. ends anything the program left running once it has exited, and fails the
+   result naming it (``run_contained``; Decision 0164, item 6): a program
    keeps no service running (Decision 0155, item 4).
 
 A problem that is not the step's (the command is not in the environment)
@@ -46,7 +46,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-#: Lines of the tool's error output kept in a failed result's notes.
+#: Lines of the program's error output kept in a failed result's notes.
 TAIL_LINES = 20
 #: Written in place of ``result.json`` when a waiting step's check finds its condition not met.
 NOT_MET_FILE = "not_met.json"
@@ -99,9 +99,9 @@ def collect(out_dir: Path, manifest: dict[str, Any]) -> tuple[dict[str, Path], l
             continue
         name = p.name if p.name in declared else (p.name.split(".", 1)[0] if p.name.split(".", 1)[0] in declared else None)
         if p.is_dir() or name is None:
-            problems.append(f"the tool left {p.name!r}, which is not output.json or a declared artifact ({', '.join(declared) or 'none declared'})")
+            problems.append(f"the program left {p.name!r}, which is not output.json or a declared artifact ({', '.join(declared) or 'none declared'})")
         elif name in found:
-            problems.append(f"the tool left two files for artifact {name!r}: {found[name].name!r} and {p.name!r}")
+            problems.append(f"the program left two files for artifact {name!r}: {found[name].name!r} and {p.name!r}")
         else:
             found[name] = p
     return found, problems
@@ -130,19 +130,19 @@ def _tail(text: str, secrets: list[str]) -> str:
     return "\n".join(lines[-TAIL_LINES:])
 
 
-def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry: list[str], workspace: str | None,
+def run(packet_dir: Path, result_dir: Path, program_dir: Path, bin_dir: Path, entry: list[str], workspace: str | None,
         secret_names: list[str] | None = None, wait: bool = False) -> int:
     manifest = json.loads((packet_dir / "manifest.json").read_text(encoding="utf-8"))
     command = shutil.which(entry[0], path=str(bin_dir))
     if command is None:
-        return _platform_failure("tool_command_missing", f"{entry[0]!r} is not in the tool's environment ({bin_dir})")
-    base = Path(tempfile.mkdtemp(prefix="baton-tool-"))
+        return _platform_failure("program_command_missing", f"{entry[0]!r} is not in the program's environment ({bin_dir})")
+    base = Path(tempfile.mkdtemp(prefix="baton-program-"))
     try:
         scratch, out_dir, inputs = base / "work", base / "output", base / "inputs.json"
         scratch.mkdir()
         out_dir.mkdir()
         inputs.write_text(json.dumps(inputs_document(packet_dir, manifest), ensure_ascii=False, indent=2), encoding="utf-8")
-        values = {"input": str(inputs), "output": str(out_dir), "tool": str(tool_dir)}
+        values = {"input": str(inputs), "output": str(out_dir), "program": str(program_dir)}
         if workspace:
             values["workspace"] = workspace
         argv = [command, *fill(entry[1:], values)]
@@ -154,17 +154,17 @@ def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry
         sys.stderr.write(stderr)
         if left:
             write(result_dir, envelope(manifest, "failed", None, [],
-                                       f"the tool left a process running after it finished ({', '.join(left)}); it was stopped. "
-                                       "A tool keeps no service running: everything it starts must end before it does"))
+                                       f"the program left a process running after it finished ({', '.join(left)}); it was stopped. "
+                                       "A program keeps no service running: everything it starts must end before it does"))
             return 0
         if returncode != 0:
             tail = _tail(stderr, [os.environ[n] for n in secret_names or [] if os.environ.get(n)])
-            write(result_dir, envelope(manifest, "failed", None, [], f"the tool exited with code {returncode}" + (f":\n{tail}" if tail else "")))
+            write(result_dir, envelope(manifest, "failed", None, [], f"the program exited with code {returncode}" + (f":\n{tail}" if tail else "")))
             return 0
         try:
             output = json.loads((out_dir / "output.json").read_text(encoding="utf-8"))
-        except FileNotFoundError:  # expected: a tool that wrote no output.json; the result says so
-            output, why = None, "the tool finished without writing output.json"
+        except FileNotFoundError:  # expected: a program that wrote no output.json; the result says so
+            output, why = None, "the program finished without writing output.json"
         except (ValueError, UnicodeDecodeError) as e:
             output, why = None, f"output.json is not valid JSON ({e})"
         else:
@@ -193,11 +193,11 @@ def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry
 
 
 def run_contained(argv: list[str], cwd: Path, env: dict[str, str], base: Path) -> tuple[int, str, str, list[str]]:
-    """Run the tool and wait for it; then end anything it left running (Decision 0164, item 6).
+    """Run the program and wait for it; then end anything it left running (Decision 0164, item 6).
 
     Returns the exit code, its output and error output, and a description of
-    each process still running when the tool itself had exited (empty when
-    none). The tool runs in its own process group on POSIX and in a job object
+    each process still running when the program itself had exited (empty when
+    none). The program runs in its own process group on POSIX and in a job object
     on Windows, so what it starts can be found and ended. Its output goes to
     files, not pipes, so a process left holding them cannot stall the runner.
     A process that leaves the group on purpose (``setsid``) is not found.
@@ -223,7 +223,7 @@ def run_contained(argv: list[str], cwd: Path, env: dict[str, str], base: Path) -
 
 
 def _posix_leftovers(pgid: int) -> list[str]:
-    """Processes still in the tool's group, named where the system says (Linux ``/proc``), then killed."""
+    """Processes still in the program's group, named where the system says (Linux ``/proc``), then killed."""
     import signal
 
     try:
@@ -253,7 +253,7 @@ def _posix_leftovers(pgid: int) -> list[str]:
 
 
 class _WinJob:  # pragma: no cover - Windows path, exercised in Windows CI (§15.1)
-    """A Windows job object holding the tool and everything it starts."""
+    """A Windows job object holding the program and everything it starts."""
 
     def __init__(self) -> None:
         import ctypes
@@ -319,17 +319,17 @@ class _WinJob:  # pragma: no cover - Windows path, exercised in Windows CI (§15
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="baton.tool_runner")
+    ap = argparse.ArgumentParser(prog="baton.program_runner")
     ap.add_argument("--packet", required=True)
     ap.add_argument("--result", required=True)
-    ap.add_argument("--tool-dir", required=True)
+    ap.add_argument("--program-dir", required=True)
     ap.add_argument("--bin-dir", required=True)
     ap.add_argument("--entry", required=True)
     ap.add_argument("--workspace")
     ap.add_argument("--secret-names", default="[]")
     ap.add_argument("--wait", action="store_true")
     a = ap.parse_args(argv)
-    return run(Path(a.packet), Path(a.result), Path(a.tool_dir), Path(a.bin_dir), json.loads(a.entry), a.workspace, json.loads(a.secret_names),
+    return run(Path(a.packet), Path(a.result), Path(a.program_dir), Path(a.bin_dir), json.loads(a.entry), a.workspace, json.loads(a.secret_names),
                a.wait)
 
 

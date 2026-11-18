@@ -170,8 +170,8 @@ COMPARISON = {"criteria": ["no software to maintain"], "uncertainty": "", "recom
               "options": [{"name": "A printed guide", "kind": "manual_procedure", "requires_of_development": "layout, proof check",
                            "tradeoffs": "no reminders", "sources": [{"title": "A handbook", "read_on": "2026-11-13"}]}]}
 DECIDED = {**BEFORE, "status": "decided", "comparison": COMPARISON, "decision": {"ledger_id": "E9"}}
-DEFERRED = {"id": "D2", "question": "Which tool does a job use?", "target_status": "none", "timing": "in_generated_recipe",
-            "timing_reason": "One shape serves every tool", "status": "deferred",
+DEFERRED = {"id": "D2", "question": "Which program does a job use?", "target_status": "none", "timing": "in_generated_recipe",
+            "timing_reason": "One shape serves every program", "status": "deferred",
             "generated": {"research_step": "research_options", "decision_step": "decide", "consumers": ["build"]}}
 GOAL = {"id": "G1", "statement": "s", "kind": "goal", "scope": "class", "status": "confirmed", "basis": "b", "owner_words": "w"}
 def rated(approach, software="none"):
@@ -395,10 +395,10 @@ RULES = {"rules": "complete", "input": "structured", "repeatable": "required", "
          "basis": "Totals are sums of the listed amounts."}
 AI_STAGE = {"id": "s", "title": "t", "done_by": "ai", "needs": [], "hands_on": [], "on_failure": "retry", "traits": OPEN,
             "acceptance": {"kind": "judgment", "what": "The owner reads it."}}
-TOOL = {"id": "total_lines", "does": "Adds up the amounts.", "input": "a list of amounts", "output": "the total",
+PROGRAM = {"id": "total_lines", "does": "Adds up the amounts.", "input": "a list of amounts", "output": "the total",
         "reach": {"workspace": "none", "network": False, "secrets": []},
         "examples": [{"name": "two-lines", "input": {"amounts": [1, 2]}, "expected": {"total": 3}, "says": "1 and 2 make 3."}]}
-TOOL_STAGE = {**AI_STAGE, "done_by": "tool", "traits": RULES, "acceptance": {"kind": "rule", "what": "The total equals the sum."}, "tool": TOOL}
+PROGRAM_STAGE = {**AI_STAGE, "done_by": "program", "traits": RULES, "acceptance": {"kind": "rule", "what": "The total equals the sum."}, "program": PROGRAM}
 CHOICE = {"could_be": "a small program", "reason": "ceiling", "gives_up": "the same total every time, at no cost per run",
           "would_cost": "writing and checking a program"}
 PERSON = {**AI_STAGE, "done_by": "person", "delegation": {"risky": False, "reason": "Only notes are taken."}}
@@ -424,12 +424,12 @@ def test_a_stage_with_an_effect_or_an_uncertain_result_needs_more_than_a_format_
     assert not design_valid({**AI_STAGE, "acceptance": fmt, "traits": {**OPEN, "result": "uncertain"}})
 
 
-def test_a_tool_stage_has_its_tool_with_an_example_and_only_a_tool_stage_has_one():
-    assert design_valid(TOOL_STAGE)
-    assert not design_valid({k: x for k, x in TOOL_STAGE.items() if k != "tool"})
-    assert not design_valid({**TOOL_STAGE, "tool": {**TOOL, "examples": []}})
-    assert not design_valid({**TOOL_STAGE, "tool": {**TOOL, "id": "Total Lines"}})
-    assert not design_valid({**AI_STAGE, "tool": TOOL})
+def test_a_program_stage_has_its_program_with_an_example_and_only_a_program_stage_has_one():
+    assert design_valid(PROGRAM_STAGE)
+    assert not design_valid({k: x for k, x in PROGRAM_STAGE.items() if k != "program"})
+    assert not design_valid({**PROGRAM_STAGE, "program": {**PROGRAM, "examples": []}})
+    assert not design_valid({**PROGRAM_STAGE, "program": {**PROGRAM, "id": "Total Lines"}})
+    assert not design_valid({**AI_STAGE, "program": PROGRAM})
 
 
 def test_an_ai_stage_software_could_do_carries_why_and_the_owners_choice_names_their_words():
@@ -441,7 +441,7 @@ def test_an_ai_stage_software_could_do_carries_why_and_the_owners_choice_names_t
     assert not design_valid({**could, "executor_choice": {k: x for k, x in CHOICE.items() if k != "gives_up"}})
     # A stage that must repeat needs the record even when its rules are only partial.
     assert not design_valid({**AI_STAGE, "traits": {**OPEN, "repeatable": "required"}})
-    assert not design_valid({**TOOL_STAGE, "executor_choice": CHOICE})  # only an AI stage explains itself
+    assert not design_valid({**PROGRAM_STAGE, "executor_choice": CHOICE})  # only an AI stage explains itself
 
 
 def test_a_persons_stage_and_an_owner_decision_say_whether_delegating_them_is_risky():
@@ -459,20 +459,20 @@ def test_the_patterns_rubric_and_prompts_carry_the_step_design_rules():
     patterns, rubric = read("static", "patterns.md"), read("static", "readiness.md")
     for shape in ("## 8. One kind of work per stage", "## 9. Interpret, then enforce", "## 10. The simplest means that can do the work"):
         assert shape in patterns
-    assert "The tool budget." in patterns and "Software before an AI worker." in patterns
+    assert "The program budget." in patterns and "Software before an AI worker." in patterns
     import re
 
     for n in range(21, 28):
         assert re.search(rf"\| {n} \| [^|]+ \| high \|", rubric), n  # each new check blocks the design
     design, audit = read("prompts", "design.md"), read("prompts", "audit.md")
     assert "`rating_signal`" in design and '{axis: "software", suggested: "simple", reason}' in design
-    assert "executor_choice" in design and "delegation" in design and "plan no tool for it" in design
+    assert "executor_choice" in design and "delegation" in design and "plan no program for it" in design
     assert "checks 21 to 27" in audit
 
 
-def test_generate_is_gated_on_every_tool_passing_its_examples_and_writes_the_walkthrough_lists(loaded):
+def test_generate_is_gated_on_every_program_passing_its_examples_and_writes_the_walkthrough_lists(loaded):
     gen = next(s for s in loaded.recipe.steps if s.id == "generate")
-    assert [g.run for g in gen.gates if g.type == "script"][2] == "baton tools test recipes/drafts/{{ run.slug }} --require-examples --allow-unbuilt"
+    assert [g.run for g in gen.gates if g.type == "script"][2] == "baton programs test recipes/drafts/{{ run.slug }} --require-examples --allow-unbuilt"
     prompt = " ".join((BUILDER / "prompts" / "generate.md").read_text(encoding="utf-8").split())
     assert "the Python standard library only, no network, no secrets" in prompt
     assert "Small programs in this process:" in prompt and "Parts an AI helper does that a program could do:" in prompt
@@ -481,7 +481,7 @@ def test_generate_is_gated_on_every_tool_passing_its_examples_and_writes_the_wal
     assert "imports anything outside the Python standard library" in rubric and "were changed to fit the code" in rubric
 
 
-# -- engineered tools (change 2026-11-builder-engineered-tools, Slice 2; Decisions 0155, 0164) --------------
+# -- engineered programs (change 2026-11-builder-engineered-tools, Slice 2; Decisions 0155, 0164) --------------
 
 V5 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v5"
 
@@ -514,11 +514,11 @@ def test_the_owners_examples_are_a_role_and_the_examples_step_is_gated_by_the_ch
     assert ex.depends_on == ["example_plan"] and ex.workspace == "write"
     assert {i.name: (i.from_, i.required) for i in ex.inputs}["owner_examples"] == ("project.examples", False)
     assert [g.type for g in ex.gates] == ["schema", "script", "human"]
-    assert ex.gates[1].run == "baton tools examples recipes/drafts/{{ run.slug }} --run {{ run.id }}"
-    assert acc.depends_on == ["generate", "examples", "build_tools"]
+    assert ex.gates[1].run == "baton programs examples recipes/drafts/{{ run.slug }} --run {{ run.id }}"
+    assert acc.depends_on == ["generate", "examples", "build_programs"]
 
 
-ENGINEERED_TOOL = {"id": "match_payments", "kind": "engineered", "does": "Matches the bank's payments to the invoices.",
+ENGINEERED_PROGRAM = {"id": "match_payments", "kind": "engineered", "does": "Matches the bank's payments to the invoices.",
                    "input": "the bank export and the invoice list", "output": "matched and unmatched payments",
                    "reach": {"workspace": "none", "network": False, "secrets": []},
                    "contract": {"input_schema": {"type": "object"}, "output_schema": {"type": "object"},
@@ -529,92 +529,92 @@ ENGINEERED_TOOL = {"id": "match_payments", "kind": "engineered", "does": "Matche
                                        {"name": "split", "what": "A payment that covers two invoices", "awkward": True}]}
 
 
-def test_an_engineered_tool_gives_a_contract_and_the_examples_the_owner_should_supply():
-    ok = {**TOOL_STAGE, "tool": ENGINEERED_TOOL}
+def test_an_engineered_program_gives_a_contract_and_the_examples_the_owner_should_supply():
+    ok = {**PROGRAM_STAGE, "program": ENGINEERED_PROGRAM}
     assert design_valid(ok)
-    assert design_valid({**TOOL_STAGE, "tool": {**TOOL, "kind": "simple"}})
-    for broken in ({k: v_ for k, v_ in ENGINEERED_TOOL.items() if k != "contract"},
-                   {**ENGINEERED_TOOL, "examples_needed": ENGINEERED_TOOL["examples_needed"][:2]},
-                   {**ENGINEERED_TOOL, "examples_needed": [{**e, "awkward": False} for e in ENGINEERED_TOOL["examples_needed"]]},
-                   {**ENGINEERED_TOOL, "contract": {**ENGINEERED_TOOL["contract"], "packages": [{"name": "x"}]}},
-                   {**TOOL, "contract": ENGINEERED_TOOL["contract"]}):  # a simple tool has no contract
-        assert not design_valid({**TOOL_STAGE, "tool": broken}), broken
+    assert design_valid({**PROGRAM_STAGE, "program": {**PROGRAM, "kind": "simple"}})
+    for broken in ({k: v_ for k, v_ in ENGINEERED_PROGRAM.items() if k != "contract"},
+                   {**ENGINEERED_PROGRAM, "examples_needed": ENGINEERED_PROGRAM["examples_needed"][:2]},
+                   {**ENGINEERED_PROGRAM, "examples_needed": [{**e, "awkward": False} for e in ENGINEERED_PROGRAM["examples_needed"]]},
+                   {**ENGINEERED_PROGRAM, "contract": {**ENGINEERED_PROGRAM["contract"], "packages": [{"name": "x"}]}},
+                   {**PROGRAM, "contract": ENGINEERED_PROGRAM["contract"]}):  # a simple program has no contract
+        assert not design_valid({**PROGRAM_STAGE, "program": broken}), broken
 
 
 def test_a_choice_to_have_examples_drafted_records_the_warning_and_the_owners_words():
     v = schema_of("example_plan_out")
-    assert v.is_valid({"tools": [{"tool": "match_payments", "supplied": 3, "drafted": 0}]})
-    assert not v.is_valid({"tools": [{"tool": "match_payments", "supplied": 1, "drafted": 2}]})
-    assert not v.is_valid({"tools": [{"tool": "match_payments", "supplied": 1, "drafted": 2, "warned": False, "owner_words": "Draft them."}]})
-    assert v.is_valid({"tools": [{"tool": "match_payments", "supplied": 0, "drafted": 3, "warned": True,
+    assert v.is_valid({"programs": [{"program": "match_payments", "supplied": 3, "drafted": 0}]})
+    assert not v.is_valid({"programs": [{"program": "match_payments", "supplied": 1, "drafted": 2}]})
+    assert not v.is_valid({"programs": [{"program": "match_payments", "supplied": 1, "drafted": 2, "warned": False, "owner_words": "Draft them."}]})
+    assert v.is_valid({"programs": [{"program": "match_payments", "supplied": 0, "drafted": 3, "warned": True,
                                   "owner_words": "I understand; draft them and I'll check each one."}]})
 
 
 def test_the_placed_examples_are_at_least_three_one_awkward_with_their_source():
     v = schema_of("examples_out")
     ex = [{"name": n, "source": "owner", "awkward": n == "split", "says": "s"} for n in ("march", "april", "split")]
-    assert v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": ex}], "summary": "s"})
-    assert not v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": ex[:2]}], "summary": "s"})
-    assert not v.is_valid({"commit_sha": "abc1234", "tools": [{"tool": "match_payments", "examples": [{**e, "awkward": False} for e in ex]}],
+    assert v.is_valid({"commit_sha": "abc1234", "programs": [{"program": "match_payments", "examples": ex}], "summary": "s"})
+    assert not v.is_valid({"commit_sha": "abc1234", "programs": [{"program": "match_payments", "examples": ex[:2]}], "summary": "s"})
+    assert not v.is_valid({"commit_sha": "abc1234", "programs": [{"program": "match_payments", "examples": [{**e, "awkward": False} for e in ex]}],
                            "summary": "s"})
 
 
-def test_the_prompts_patterns_and_rubric_carry_the_engineered_tool_rules():
+def test_the_prompts_patterns_and_rubric_carry_the_engineered_program_rules():
     read = lambda rel: " ".join((BUILDER / rel).read_text(encoding="utf-8").split())  # noqa: E731
     assert "| `engineered` |" in read("prompts/profile.md") and "what it will ask of the owner" in read("prompts/profile.md")
     design = read("prompts/design.md")
-    assert "`kind: engineered`" in design and "`examples_needed`" in design and "A tool is `engineered` only at `software: engineered`" in design
+    assert "`kind: engineered`" in design and "`examples_needed`" in design and "A program is `engineered` only at `software: engineered`" in design
     generate = read("prompts/generate.md")
-    assert "`tools/<id>/contract.json`" in generate and "which you do not write" in generate
+    assert "`programs/<id>/contract.json`" in generate and "which you do not write" in generate
     plan = read("prompts/example_plan.md")
-    assert "three good examples are the minimum, and with fewer the tool is more likely to differ from what they expect" in plan
+    assert "three good examples are the minimum, and with fewer the program is more likely to differ from what they expect" in plan
     assert "`bind <run> examples <paths…>`" in plan
     examples = read("prompts/examples.md")
     assert "byte for byte" in examples and "You write no code" in examples
     assert "**Contract, examples, then code**" in read("static/patterns.md")
     readiness = read("static/readiness.md")
-    assert "| 28 | An engineered tool appears only at the `software` rating `engineered`" in readiness and "| 29 |" in readiness
+    assert "| 28 | An engineered program appears only at the `software` rating `engineered`" in readiness and "| 29 |" in readiness
     assert "`contract.json` differs from the design's contract" in read("prompts/package_review_rubric.md")
 
 
 # -- the build loop (change 2026-11-builder-engineered-tools, Slice 3) ---------------------------------------
 
 
-def test_each_engineered_tool_is_built_in_a_bounded_loop_reviewed_by_another_vendor(loaded):
-    group = next(s for s in loaded.recipe.steps if s.id == "build_tools")
-    assert group.depends_on == ["examples"] and group.foreach == "steps.generate.output.engineered_tools"
+def test_each_engineered_program_is_built_in_a_bounded_loop_reviewed_by_another_vendor(loaded):
+    group = next(s for s in loaded.recipe.steps if s.id == "build_programs")
+    assert group.depends_on == ["examples"] and group.foreach == "steps.generate.output.engineered_programs"
     assert (group.concurrency, group.max_iterations, group.repeat_from) == (1, 3, "implement")
     assert group.repeat_until == "group.steps.review.gates.passed" and group.foreach_if_source_skipped == "skip"
     implement, review = group.steps
     assert implement.independence.from_step == "examples" and implement.independence.level == "different_vendor"
-    assert implement.protect.paths == ["recipes/drafts/**/tools/*/examples/**"] and implement.protect.on_violation == "fail"
+    assert implement.protect.paths == ["recipes/drafts/**/programs/*/examples/**"] and implement.protect.on_violation == "fail"
     assert [g.run for g in implement.gates if g.type == "script"] == [
-        "baton tools test recipes/drafts/{{ run.slug }} --tool {{ item.tool }} --repeat 2 --require-examples",
+        "baton programs test recipes/drafts/{{ run.slug }} --program {{ item.program }} --repeat 2 --require-examples",
         "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json"]
     assert review.independence.from_step == "implement" and review.workspace == "read"
-    assert {i.name: i.from_ for i in review.inputs}["rubric"] == "static.tool_review_rubric.md"
+    assert {i.name: i.from_ for i in review.inputs}["rubric"] == "static.program_review_rubric.md"
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
-            assert plan["build_tools/implement"].included == plan["build_tools/review"].included == (sw == "engineered")
+            assert plan["build_programs/implement"].included == plan["build_programs/review"].included == (sw == "engineered")
     accept = next(s for s in loaded.recipe.steps if s.id == "accept")
-    assert accept.depends_on == ["generate", "examples", "build_tools"]
-    assert {i.name: (i.from_, i.required) for i in accept.inputs}["tools"] == ("steps.build_tools.outputs", False)
+    assert accept.depends_on == ["generate", "examples", "build_programs"]
+    assert {i.name: (i.from_, i.required) for i in accept.inputs}["programs"] == ("steps.build_programs.outputs", False)
 
 
-def test_generate_lists_the_tools_to_build_and_the_prompts_carry_the_loop_rules():
+def test_generate_lists_the_programs_to_build_and_the_prompts_carry_the_loop_rules():
     gen = schema_of("generate_out")
     base = {"commit_sha": "abc1234", "package_path": "p", "ledger_path": "l", "summary": "s"}
-    assert gen.is_valid({**base, "engineered_tools": [{"tool": "count_plants", "title": "Count"}]})
-    assert not gen.is_valid({**base, "engineered_tools": [{"tool": "Count Plants", "title": "Count"}]})
+    assert gen.is_valid({**base, "engineered_programs": [{"program": "count_plants", "title": "Count"}]})
+    assert not gen.is_valid({**base, "engineered_programs": [{"program": "Count Plants", "title": "Count"}]})
     read = lambda rel: " ".join((BUILDER / rel).read_text(encoding="utf-8").split())  # noqa: E731
     generate = read("prompts/generate.md")
-    assert "`engineered_tools`" in generate and "copy each tool the design marks `unchanged` exactly" in generate
-    assert "remove that tool's folder and step" in generate
+    assert "`engineered_programs`" in generate and "copy each program the design marks `unchanged` exactly" in generate
+    assert "remove that program's folder and step" in generate
     assert "give `base`: `unchanged`" in read("prompts/design.md")
     implement = read("prompts/implement.md")
     assert "You may not change them" in implement and "`uv pip compile --generate-hashes`" in implement
     assert "never by recognising the example" in implement and "return `blocked`" in implement
-    rubric = read("static/tool_review_rubric.md")
+    rubric = read("static/program_review_rubric.md")
     assert "by recognising that example" in rubric and "a package the contract does not name" in rubric
-    assert "`tools`" in read("prompts/accept.md")
+    assert "`programs`" in read("prompts/accept.md")

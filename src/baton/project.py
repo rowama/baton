@@ -523,23 +523,23 @@ def signature_flags(lock: dict[str, Any], recipe_id: str, version: int, steps: d
     return flags
 
 
-def tool_flags(lock: dict[str, Any], loaded: LoadedRecipe) -> list[dict[str, Any]]:
-    """Each tool the owner has not approved in this project yet, in the owner's terms (§5.9; criterion 10).
+def program_flags(lock: dict[str, Any], loaded: LoadedRecipe) -> list[dict[str, Any]]:
+    """Each program the owner has not approved in this project yet, in the owner's terms (§5.9; criterion 10).
 
-    A tool whose exact files were approved with any vendored version of the
-    same recipe is not asked about again; a new or changed tool is.
+    A program whose exact files were approved with any vendored version of the
+    same recipe is not asked about again; a new or changed program is.
     """
-    from .tool_env import describe
+    from .program_env import describe
 
     approved: set[tuple[str, str]] = set()
     for ref, entry in (lock.get("recipes") or {}).items():
         if ref.partition("@")[0] == loaded.recipe.id:
-            approved |= {(tid, sha) for tid, sha in (entry.get("tools") or {}).items()}
+            approved |= {(tid, sha) for tid, sha in (entry.get("programs") or {}).items()}
     out = []
-    for tid, tool in sorted(loaded.tools.items()):
-        if (tid, tool.sha256) not in approved:
+    for tid, program in sorted(loaded.programs.items()):
+        if (tid, program.sha256) not in approved:
             changed = any(t == tid for t, _ in approved)
-            out.append({"code": "tool", **describe(tool), "sha256": tool.sha256, "changed": changed})
+            out.append({"code": "program", **describe(program), "sha256": program.sha256, "changed": changed})
     return out
 
 
@@ -567,16 +567,16 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
             "vendor.version_exists",
             f"{ref} is already vendored with different content; publish a new recipe version instead of editing one in place",
         )
-    unbuilt = sorted(tid for tid, t in loaded.tools.items() if not t.built)
+    unbuilt = sorted(tid for tid, t in loaded.programs.items() if not t.built)
     if unbuilt:
-        raise EngineError("vendor.tool_unbuilt", f"{ref} has tools that are not built yet ({', '.join(unbuilt)}); "
-                          "an engineered tool is vendored only once it is built and passes its examples")
+        raise EngineError("vendor.program_unbuilt", f"{ref} has programs that are not built yet ({', '.join(unbuilt)}); "
+                          "an engineered program is vendored only once it is built and passes its examples")
     steps = versions.step_signatures(loaded)
-    flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps) + tool_flags(lock, loaded)
+    flags = signature_flags(lock, loaded.recipe.id, loaded.recipe.version, steps) + program_flags(lock, loaded)
     if flags and decision is None:
-        why = ("it brings tools that run on this machine" if all(f["code"] == "tool" for f in flags)
-               else "it changes step ids this project has used" if not any(f["code"] == "tool" for f in flags)
-               else "it changes step ids this project has used and brings tools that run on this machine")
+        why = ("it brings programs that run on this machine" if all(f["code"] == "program" for f in flags)
+               else "it changes step ids this project has used" if not any(f["code"] == "program" for f in flags)
+               else "it changes step ids this project has used and brings programs that run on this machine")
         return {"recipe": ref, "sha256": loaded.sha256, "changed": False, "flags": flags, "needs_owner": True,
                 "message": f"vendoring {ref}: {why}; it needs the owner's decision: "
                            "repeat with --approved --note \"<the owner's words>\""}
@@ -593,8 +593,8 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
         "vocab": loaded.recipe.capabilities_vocab,
         "steps": steps,
     }
-    if loaded.tools:  # only a recipe with tools carries the key (criterion 11)
-        lock["recipes"][ref]["tools"] = {tid: t.sha256 for tid, t in sorted(loaded.tools.items())}
+    if loaded.programs:  # only a recipe with programs carries the key (criterion 11)
+        lock["recipes"][ref]["programs"] = {tid: t.sha256 for tid, t in sorted(loaded.programs.items())}
     if flags and decision is not None:
         lock["recipes"][ref]["decision"] = {**decision, "flags": flags}
     if loaded.recipe.capabilities_vocab not in lock.setdefault("vocab", []):

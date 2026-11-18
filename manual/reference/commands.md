@@ -5,6 +5,7 @@ audience: admin
 summary: Every baton command and option.
 order: 10
 generated: true
+anchor_aliases: {baton-tools: baton-programs, baton-tools-examples: baton-programs-examples, baton-tools-setup: baton-programs-setup, baton-tools-test: baton-programs-test}
 ---
 
 ## Here, now {#here-now}
@@ -482,6 +483,50 @@ Explained in the manual: [Project settings](admin.project-settings#here-now).
 | `--permission <str>` | ACTION=allow\|ask\|deny (push.docs-only, push.after-verified, push.other, tag, force-push, merge, deploy). |
 | `--json` | Machine-readable output. |
 
+## baton programs {#baton-programs}
+
+Programs the vendored recipes ship: scripts run with no model.
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+### baton programs examples {#baton-programs-examples}
+
+Check each engineered program's examples: enough of them, one awkward, and the owner's files copied exactly (exit 0 when all pass).
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `package <path>` | A recipe package folder (its recipe.yaml and programs/). |
+| `--run <str>` | The run whose binding of 'examples' the owner's files are checked against (default: $BATON_RUN_ID). |
+| `--program <str>` | Check only this program. |
+| `--json` | Machine-readable output. |
+
+### baton programs setup {#baton-programs-setup}
+
+Build each vendored recipe's programs' environments now, instead of at their first use.
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--json` | Machine-readable output. |
+
+### baton programs test {#baton-programs-test}
+
+Run each of a recipe's programs on its worked examples and report any difference (exit 0 when all pass).
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `package <path>` | A recipe package folder (its recipe.yaml and programs/). |
+| `--require-examples` | A program with no examples fails. |
+| `--program <str>` | Test only this program. |
+| `--repeat <int range>` | Run each example this many times; the runs must give the same result. |
+| `--allow-unbuilt` | An engineered program not built yet is listed and skipped, not failed. |
+| `--json` | Machine-readable output. |
+
 ## baton promote-sme {#baton-promote-sme}
 
 Bring an expert's answer into the work, with the owner's agreement.
@@ -709,50 +754,6 @@ Explained in the manual: [Check on your work](user.check-on-your-work#here-now).
 | `run <str>` | Run id. |
 | `--json` | Machine-readable output. |
 
-## baton tools {#baton-tools}
-
-Tools the vendored recipes ship: scripts run with no model.
-
-Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
-
-### baton tools examples {#baton-tools-examples}
-
-Check each engineered tool's examples: enough of them, one awkward, and the owner's files copied exactly (exit 0 when all pass).
-
-Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
-
-| Argument or option | What it does |
-|---|---|
-| `package <path>` | A recipe package folder (its recipe.yaml and tools/). |
-| `--run <str>` | The run whose binding of 'examples' the owner's files are checked against (default: $BATON_RUN_ID). |
-| `--tool <str>` | Check only this tool. |
-| `--json` | Machine-readable output. |
-
-### baton tools setup {#baton-tools-setup}
-
-Build each vendored recipe's tools' environments now, instead of at their first use.
-
-Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
-
-| Argument or option | What it does |
-|---|---|
-| `--json` | Machine-readable output. |
-
-### baton tools test {#baton-tools-test}
-
-Run each of a recipe's tools on its worked examples and report any difference (exit 0 when all pass).
-
-Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
-
-| Argument or option | What it does |
-|---|---|
-| `package <path>` | A recipe package folder (its recipe.yaml and tools/). |
-| `--require-examples` | A tool with no examples fails. |
-| `--tool <str>` | Test only this tool. |
-| `--repeat <int range>` | Run each example this many times; the runs must give the same result. |
-| `--allow-unbuilt` | An engineered tool not built yet is listed and skipped, not failed. |
-| `--json` | Machine-readable output. |
-
 ## baton trace {#baton-trace}
 
 Print the run's recent events, one line each.
@@ -793,14 +794,14 @@ Explained in the manual: [Install, versions and upgrades](admin.install-and-vers
 
 ## baton vendor {#baton-vendor}
 
-Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new tools, need the owner: exit 4).
+Vendor a recipe into .baton/recipes/ and pin it in baton.lock (changed or reused step ids, and new programs, need the owner: exit 4).
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `recipe_dir <path>` | Recipe package directory, or the id of a recipe shipped with Baton (needs --note). |
-| `--approved` | The owner approved the flagged step-id changes and tools. |
+| `--approved` | The owner approved the flagged step-id changes and programs. |
 | `--note <str>` | With --approved, or a shipped recipe's id: the owner's words, recorded verbatim. |
 | `--json` | Machine-readable output. |
 

@@ -1,10 +1,10 @@
 """2026-11-waiting-steps Slice 1: a step waits as state (§5.9, §8.1, §8.7; Decisions 0154 item 5, 0165).
 
-A tool step with ``wait`` runs its check at dispatch. Not met, the step is
+A program step with ``wait`` runs its check at dispatch. Not met, the step is
 ``waiting`` with a deadline and no process; ``baton waits check`` runs the
 check again, takes the result in when it is met, counts failed checks, and at
 the deadline hands the step to the owner. The end-to-end tests build a real
-tool environment and run real checks, so they are ``slow``; the rules are quick.
+program environment and run real checks, so they are ``slow``; the rules are quick.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from baton.supervisor import now as utc_now, parse
 from conftest import ROOT
 from projectkit import Cli, git, make_git_project, make_home, packet_dir, write_result
 
-TOOL_DEMO = ROOT / "tests" / "fixtures" / "recipes" / "tool-demo"
+PROGRAM_DEMO = ROOT / "tests" / "fixtures" / "recipes" / "program-demo"
 PARAMS = {"window": 3, "reason": "short swings"}
 
 # The check: met when the flag file says "yes", crashes on "crash", else not met.
@@ -61,14 +61,14 @@ with open(sys.argv[1], "a", encoding="utf-8") as f:
 
 
 class Setup:
-    """tool-demo with its backtest step made a waiting step whose check reads a flag file."""
+    """program-demo with its backtest step made a waiting step whose check reads a flag file."""
 
     def __init__(self, tmp_path: Path, *, wait: dict | None = None, waits_max: str | None = None):
         self.tmp = tmp_path
         self.flag = tmp_path / "flag.txt"
-        src = tmp_path / "src" / "tool-demo"
-        shutil.copytree(TOOL_DEMO, src)
-        (src / "tools" / "backtest" / "backtest.py").write_text(f"FLAG = {str(self.flag)!r}\n" + CHECK, encoding="utf-8")
+        src = tmp_path / "src" / "program-demo"
+        shutil.copytree(PROGRAM_DEMO, src)
+        (src / "programs" / "backtest" / "backtest.py").write_text(f"FLAG = {str(self.flag)!r}\n" + CHECK, encoding="utf-8")
         rp = src / "recipe.yaml"
         data = yaml.safe_load(rp.read_text(encoding="utf-8"))
         next(s for s in data["steps"] if s["id"] == "backtest")["wait"] = wait or {"until": "14d", "every": "30m"}
@@ -88,7 +88,7 @@ class Setup:
         py.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
         git(self.project, "add", "-A")
         git(self.project, "commit", "-qm", "Adopt Baton")
-        self.run = self.cli.run("start", "tool-demo", "--inputs", json.dumps({"title": "MA test", "goal": "catch short swings"}))["run_id"]
+        self.run = self.cli.run("start", "program-demo", "--inputs", json.dumps({"title": "MA test", "goal": "catch short swings"}))["run_id"]
         self.cli.run("dispatch", self.run, "parameters", "--worker", "owner")
         write_result(packet_dir(self.project, self.run, "parameters", 1), PARAMS)
         self.cli.run("submit", self.run, "parameters")
@@ -97,7 +97,7 @@ class Setup:
         self.flag.write_text(mode, encoding="utf-8")
 
     def dispatch(self, expect: int | None = None) -> dict:
-        return self.cli("dispatch", self.run, "backtest", "--worker", "tool:backtest", "--wait", expect=expect).payload
+        return self.cli("dispatch", self.run, "backtest", "--worker", "program:backtest", "--wait", expect=expect).payload
 
     def check(self, *, later: timedelta | None = None) -> dict:
         if later is None:
@@ -134,7 +134,7 @@ class Setup:
 
 
 @pytest.mark.slow
-def test_a_condition_met_at_dispatch_goes_on_as_any_tool_step(tmp_path):
+def test_a_condition_met_at_dispatch_goes_on_as_any_program_step(tmp_path):
     s = Setup(tmp_path)
     s.flag_to("yes")
     out = s.dispatch()
@@ -335,7 +335,7 @@ def _codes(make_recipe, step: dict) -> set[str]:
     from baton.recipe import RecipeError, load_recipe
 
     sid = step.pop("_id", "backtest")
-    root = make_recipe(lambda d, _p: next(s for s in d["steps"] if s["id"] == sid).update(step), source=TOOL_DEMO)
+    root = make_recipe(lambda d, _p: next(s for s in d["steps"] if s["id"] == sid).update(step), source=PROGRAM_DEMO)
     try:
         load_recipe(root)
     except RecipeError as e:
@@ -344,13 +344,13 @@ def _codes(make_recipe, step: dict) -> set[str]:
 
 
 @pytest.mark.not_slow("loads one recipe")
-def test_a_tool_step_may_wait(make_recipe):
+def test_a_program_step_may_wait(make_recipe):
     assert _codes(make_recipe, {"wait": {"until": "14d", "every": "30m", "on_expire": "skip"}}) == set()
 
 
 @pytest.mark.not_slow("loads one recipe")
 @pytest.mark.parametrize("step,code", [
-    ({"_id": "parameters", "wait": {"until": "1d"}}, "step.wait_needs_tool"),
+    ({"_id": "parameters", "wait": {"until": "1d"}}, "step.wait_needs_program"),
     ({"wait": {"until": "soon"}}, "step.bad_wait_duration"),
     ({"wait": {"until": "1d", "every": "0m"}}, "step.bad_wait_duration"),
 ])
@@ -365,7 +365,7 @@ def test_a_waiting_step_may_not_write(make_recipe):
 
     from baton.recipe import RecipeError, load_recipe
 
-    root = make_recipe(edit, source=TOOL_DEMO)
+    root = make_recipe(edit, source=PROGRAM_DEMO)
     with pytest.raises(RecipeError) as e:
         load_recipe(root)
     assert "step.wait_workspace_write" in {i.code for i in e.value.issues}
@@ -378,7 +378,7 @@ def test_a_waiting_step_conforms_to_the_published_schema():
     from baton.data import path as data_path
 
     schema = json.loads((data_path("formats") / "baton-recipe-1.schema.json").read_text(encoding="utf-8"))
-    raw = yaml.safe_load((TOOL_DEMO / "recipe.yaml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load((PROGRAM_DEMO / "recipe.yaml").read_text(encoding="utf-8"))
     next(s for s in raw["steps"] if s["id"] == "backtest")["wait"] = {"until": "14d", "every": "30m", "on_expire": "skip"}
     assert not [e.message for e in Draft202012Validator(schema).iter_errors(raw)]
 
@@ -532,7 +532,7 @@ def test_the_owner_sees_what_waits_and_that_nothing_checks_it(tmp_path, sched, m
     board = s.cli("board", expect=None).payload
     assert board["runs"][0]["waiting"][0]["step_path"] == "backtest" and "waits_notice" in board
     record = (s.project / ".baton" / "runs" / s.run / "docs" / "backtest.md").read_text(encoding="utf-8")
-    assert "- Waiting: its check (tool `backtest`) found the condition not met" in record and "cut from 60d to the project's 30d" in record
+    assert "- Waiting: its check (program `backtest`) found the condition not met" in record and "cut from 60d to the project's 30d" in record
 
     doc = s.cli("doctor", expect=None).payload
     assert any("1 step(s) waiting (backtest of " in w for w in doc["warnings"]) and doc["waits"]["scheduled"] is False
@@ -552,7 +552,7 @@ def test_the_owner_sees_what_waits_and_that_nothing_checks_it(tmp_path, sched, m
 def test_start_says_how_long_each_step_may_wait(tmp_path, sched, monkeypatch):
     monkeypatch.setattr(waits, "platform_name", lambda: "linux")
     s = Setup(tmp_path, wait={"until": "60d"}, waits_max="30d")
-    out = s.cli("start", "tool-demo", "--inputs", json.dumps({"title": "Again", "goal": "x"}), expect=None).payload
+    out = s.cli("start", "program-demo", "--inputs", json.dumps({"title": "Again", "goal": "x"}), expect=None).payload
     assert out["waits"]["steps"] == [{"step": "backtest", "until": "60d", "on_expire": "escalate", "cut_to": "30d"}]
     assert out["waits"]["scheduled"] is False and "nothing on this machine is scheduled" in out["waits"]["notice"]
     assert any("backtest may wait up to 60d" in w for w in out["warnings"])
@@ -574,5 +574,5 @@ def test_something_outside_may_hand_in_a_waiting_steps_result(tmp_path):
     (outside.parent / "result" / "artifacts" / "trades.csv").write_text("day,side,price\n", encoding="utf-8")
     out = s.cli.run("submit", s.run, "backtest", "--result", str(outside.parent / "result"))
     assert out["outcome"] == "passed" and s.state() == "passed"
-    assert "wait_met" not in s.types() and s.last("result_submitted")["actor"] == "worker:tool:backtest"
+    assert "wait_met" not in s.types() and s.last("result_submitted")["actor"] == "worker:program:backtest"
     assert waits.entry(s.project / ".baton", s.run, "backtest", 1) == {}

@@ -1,4 +1,4 @@
-# Tool review rubric
+# Program review rubric
 
 | Check | Typical severity |
 |---|---|

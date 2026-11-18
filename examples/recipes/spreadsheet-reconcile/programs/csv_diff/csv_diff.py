@@ -1,4 +1,4 @@
-"""Compare two CSV tables on a key column (the spreadsheet-reconcile recipe's tool).
+"""Compare two CSV tables on a key column (the spreadsheet-reconcile recipe's program).
 
 Usage: python csv_diff.py <inputs.json> <output folder>
 

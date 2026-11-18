@@ -52,7 +52,7 @@ from .state import IllegalTransition, RunState, StepState
 
 BATON_DIR = ".baton"
 EVENTS_FILE = "events.jsonl"
-CACHE_SCHEMA_VERSION = "2"  # 2: step_limits (tool steps, §5.9)
+CACHE_SCHEMA_VERSION = "2"  # 2: step_limits (program steps, §5.9)
 
 
 def _cache_key() -> str:
@@ -558,7 +558,7 @@ class _Cache:
                 "INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?)",
                 (rs.run_id, rs.state, rs.max_attempts, rs.last_seq, rs.last_sha256, log_size),
             )
-            if rs.step_max_attempts:  # tool steps' own limits (§5.9); fixed at run_started
+            if rs.step_max_attempts:  # program steps' own limits (§5.9); fixed at run_started
                 c.executemany("INSERT OR REPLACE INTO step_limits VALUES (?,?,?)", [(rs.run_id, k, v) for k, v in rs.step_max_attempts.items()])
             if changed is _ALL:
                 c.execute("DELETE FROM steps WHERE run_id=?", (rs.run_id,))

@@ -352,8 +352,8 @@ def step_signatures(loaded: Any) -> dict[str, dict[str, Any]]:
                     "output_schema_sha256": schema_hash(n.output_schema),
                     "capabilities": sorted(n.requires.capabilities) if n.requires else [],
                 }
-                if n.tool is not None:  # only tool steps carry the key, so other summaries are unchanged
-                    out[n.id]["tool"] = n.tool
+                if n.program is not None:  # only program steps carry the key, so other summaries are unchanged
+                    out[n.id]["program"] = n.program
 
     visit(loaded.recipe.steps, None)
     return out
