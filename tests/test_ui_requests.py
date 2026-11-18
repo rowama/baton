@@ -194,3 +194,106 @@ def test_the_directors_ui_call_gives_the_requests_page(served, monkeypatch):
         assert e.value.code == "interaction.stale"
     finally:
         api.close()
+
+
+# --------------------------------------------------------------------------
+# Slice 2: files, context by reference, the list
+# --------------------------------------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _upload(page, name, rid, file, data, *, ctype="application/octet-stream", filename="receipt.png"):
+    return page.req("POST", f"/api/p/{name}/interactions/{rid}/files/{file}", body=None,
+                    headers={"X-Baton-UI": "1", "Content-Type": ctype, "X-Baton-Filename": filename, "Content-Length": str(len(data))},
+                    raw=data)
+
+
+@pytest.fixture
+def person(tmp_path):
+    from test_interactions import person_run
+
+    cli, project, run = person_run(tmp_path)
+    name = ui.register_project(cli.home, project)
+    page = Page(cli.home)
+    yield cli, project, run, name, page
+    page.close()
+
+
+def test_a_persons_step_is_answered_with_an_uploaded_file_and_the_upload_is_removed(person):
+    cli, project, run, name, page = person
+    rid = status(cli, run)["running"][0]["request_id"]
+    r, raw = _upload(page, name, rid, "receipt", PNG)
+    assert r.status == 400 and json.loads(raw)["error"] == "ui.upload"  # only the step's declared files
+    r, raw = _upload(page, name, rid, "photo", PNG, ctype="application/json")
+    assert r.status == 400 and json.loads(raw)["error"] == "ui.header"
+    r, raw = _upload(page, name, rid, "photo", PNG)
+    up = json.loads(raw)
+    assert r.status == 200 and up["file"] == "photo" and up["size"] == len(PNG) and "/" not in up["handle"]
+    kept = next(p for (_, _, n, p) in ui.UPLOADS._items.values() if n == "photo")
+    assert kept.is_file() and kept.suffix == ".png" and oct(kept.parent.parent.stat().st_mode & 0o777) == "0o700"
+
+    values = {"matches": [{"line": "Widget A", "item": "i1"}], "checked": True}
+    r, raw = page.post(f"/api/p/{name}/interactions/{rid}/answer", {"values": values, "files": {"photo": "not-a-handle"}})
+    assert r.status == 400 and json.loads(raw)["error"] == "ui.upload"
+    assert not kept.exists()  # a refused answer removes the uploads too; the page sends them again
+    r, raw = _upload(page, name, rid, "photo", PNG)
+    handle = json.loads(raw)["handle"]
+    r, raw = page.post(f"/api/p/{name}/interactions/{rid}/answer", {"values": values, "files": {"photo": handle}, "note": "Done."})
+    assert r.status == 200, raw
+    assert ui.UPLOADS._items == {}
+    res = [e for e in events(project, run) if e["type"] == "result_submitted"][-1]["data"]
+    assert res["via"] == "local_page" and res["request_id"] == rid
+    stored = next((project / ".baton" / "runs" / run).rglob("artifacts/photo.png"))
+    assert stored.read_bytes() == PNG
+
+    # The gate that follows shows the photo: served inline as itself, sandboxed, by its id only.
+    gate = status(cli, run)["pending_decisions"][0]["request_id"]
+    req = json.loads(page.req("GET", f"/api/p/{name}/interactions/{gate}")[1])
+    item = next(c for c in req["context"] if c["kind"] == "image")
+    r, raw = page.req("GET", f"/api/p/{name}/interactions/{gate}/context/{item['id']}/raw")
+    assert r.status == 200 and raw == PNG and r.getheader("Content-Type") == "image/png"
+    assert r.getheader("X-Content-Type-Options") == "nosniff" and "sandbox" in ",".join(r.headers.get_all("Content-Security-Policy"))
+    out = next(c for c in req["context"] if c.get("ref") == "output")
+    r, raw = page.req("GET", f"/api/p/{name}/interactions/{gate}/context/{out['id']}/raw")
+    assert r.getheader("Content-Type") == "text/plain; charset=utf-8" and b"Widget A" in raw
+
+
+def test_an_upload_too_large_or_empty_is_refused_before_it_is_read(person):
+    cli, project, run, name, page = person
+    rid = status(cli, run)["running"][0]["request_id"]
+    import http.client
+
+    c = http.client.HTTPConnection("127.0.0.1", page.server.port, timeout=10)
+    c.putrequest("POST", f"/api/p/{name}/interactions/{rid}/files/photo")
+    for k, v in {"Host": f"127.0.0.1:{page.server.port}", "Cookie": f"{ui.COOKIE}={page.server.token}", "X-Baton-UI": "1",
+                 "Content-Type": "application/octet-stream", "Content-Length": str(ui.MAX_UPLOAD + 1)}.items():
+        c.putheader(k, v)
+    c.endheaders()
+    r = c.getresponse()
+    assert r.status == 413 and json.loads(r.read())["error"] == "ui.too_large"
+    c.close()
+    r, raw = _upload(page, name, rid, "photo", b"")
+    assert r.status == 400 and json.loads(raw)["error"] == "ui.upload"
+
+
+@pytest.mark.not_slow("pure function over files")
+@pytest.mark.parametrize("media, ctype, attachment", [
+    ("image/png", "image/png", False), ("image/webp", "image/webp", False),
+    ("image/svg+xml", "application/octet-stream", True), ("text/html", "text/plain; charset=utf-8", False),
+    ("text/markdown", "text/plain; charset=utf-8", False), ("application/pdf", "application/octet-stream", True),
+])
+def test_context_is_served_with_a_fixed_type(tmp_path, monkeypatch, media, ctype, attachment):
+    f = tmp_path / "x.bin"
+    f.write_bytes(b"<svg onload=alert(1)>")
+    monkeypatch.setattr(ui, "_engine_call", lambda home, name, fn: {"id": "c", "ref": "result/x.bin", "path": str(f), "media_type": media})
+    out = ui._context_raw(tmp_path, {}, {"name": "p", "id": "ir_1", "item": "c"})
+    assert out.ctype == ctype and ("Content-Disposition" in out.extra) == attachment
+    assert out.extra["Content-Security-Policy"] == "sandbox; default-src 'none'"
+
+
+def test_the_list_says_when_each_request_was_opened(served):
+    cli, project, run, name, page = served
+    (r,) = json.loads(page.req("GET", f"/api/p/{name}/interactions")[1])["requests"]
+    opened = next(e for e in events(project, run) if e["type"] == "human_gate_opened")["ts"]
+    assert r["opened"] == opened

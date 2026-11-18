@@ -37,13 +37,13 @@ class Page:
         self.thread = threading.Thread(target=self.server.serve, daemon=True)
         self.thread.start()
 
-    def req(self, method="GET", path="/", *, headers=None, body=None, cookie=True, host=None):
+    def req(self, method="GET", path="/", *, headers=None, body=None, cookie=True, host=None, raw=None):
         c = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=10)
         h = {"Host": host or f"127.0.0.1:{self.server.port}"}
         if cookie:
             h["Cookie"] = f"{ui.COOKIE}={self.server.token}"
         h.update(headers or {})
-        data = None
+        data = raw
         if body is not None:
             data = json.dumps(body)
             h.setdefault("Content-Type", "application/json")

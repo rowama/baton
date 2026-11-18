@@ -153,7 +153,21 @@
     return { fixed: given.length > 0, rows: given.map((r) => ({ ...(r || {}) })), givenKeys: given.map((r) => new Set(Object.keys(r || {}))) };
   }
 
-  const pure = { choicesOf, kindOf, fieldsOf, layout, clean, validate, display, summaryRows, tableRows };
+  /** The list, newest first (by when each was opened; unknown times last, in the order given). */
+  function newestFirst(reqs) {
+    return reqs.map((r, i) => [r, i]).sort((a, b) => {
+      const x = a[0].opened || "", y = b[0].opened || "";
+      return x === y ? a[1] - b[1] : (x < y ? 1 : -1);
+    }).map(([r]) => r);
+  }
+
+  /** Which declared files are still needed: the required ones not chosen. */
+  function missingFiles(files, chosen) {
+    return (files || []).filter((f) => f.required && !(chosen || {})[f.name]).map((f) => f.name);
+  }
+
+  const MAX_UPLOAD = 100 * 1024 * 1024;
+  const pure = { choicesOf, kindOf, fieldsOf, layout, clean, validate, display, summaryRows, tableRows, newestFirst, missingFiles };
 
   // ---- the page ---------------------------------------------------------------------------------------------------
 
@@ -174,6 +188,8 @@
     for (const kid of kids.flat(Infinity)) { if (kid == null || kid === false) continue; el.append(kid instanceof Node ? kid : document.createTextNode(String(kid))); }
     return el;
   }
+  /** Replace an element's children, leaving out the empty ones (``replaceChildren`` would show null as text). */
+  const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
   let uid = 0;
   const nextId = () => "f" + (++uid);
 
@@ -332,12 +348,18 @@
         h("tbody", {}, (c.rows || []).map((r) => h("tr", {}, r.map((x) => h("td", {}, x == null ? "" : String(x)))))))));
     }
     if (c.ref === undefined) return h("div", { class: "card context" }, head, h("div", { class: "text" }, c.text || ""));
+    const raw = api(req.id) + "/context/" + encodeURIComponent(c.id) + "/raw";
+    if (c.kind === "image") {
+      return h("div", { class: "card context" }, head, h("a", { href: raw, target: "_blank", rel: "noopener" },
+        h("img", { class: "context-img", src: raw, alt: c.label || humanize(c.id), loading: "lazy" })));
+    }
     const box = h("div", { class: "text" });
     const show = h("button", { type: "button", class: "quiet small", onclick: async () => {
       show.disabled = true;
       try {
         const got = await call("GET", api(req.id) + "/context/" + encodeURIComponent(c.id));
-        box.replaceChildren(got.text != null ? got.text : "This item cannot be shown as text here (" + (got.media_type || "a file") + ", " + got.size + " bytes).");
+        if (got.text != null) box.replaceChildren(got.text);
+        else box.replaceChildren("This one cannot be shown here. ", h("a", { href: raw, download: "" }, "Download it"), " (" + Math.ceil((got.size || 0) / 1024) + " KB).");
         show.remove();
       } catch (e) { box.textContent = e.message; show.disabled = false; }
     } }, "Show");
@@ -369,10 +391,12 @@
     const note = h("textarea", { id: "req-note", rows: 3, placeholder: "Optional" });
     const confirm = h("button", { type: "button" }, "Confirm");
     const back = h("button", { type: "button", class: "quiet" }, "Change my answer");
-    box.replaceChildren(h("div", { class: "card confirm" },
+    fill(box, h("div", { class: "card confirm" },
       h("h2", {}, "Check before it is recorded"),
       choice ? h("p", {}, h("strong", {}, choice.label), choice.effect ? " — " + choice.effect : "") : null,
       rows.length ? h("dl", { class: "summary" }, rows.map((r) => [h("dt", {}, r.label), h("dd", {}, summaryValue(r))])) : null,
+      !choice && req._chosen && Object.keys(req._chosen).length ? h("dl", { class: "summary" }, Object.entries(req._chosen).map(([n, file]) =>
+        [h("dt", {}, humanize(n)), h("dd", {}, file.name)])) : null,
       h("label", { for: "req-note", class: "label" }, "Anything to add? (recorded with your answer)"), note,
       h("div", { class: "actions" }, confirm, back)));
     back.addEventListener("click", () => showRequest(req, choice, values));
@@ -382,6 +406,11 @@
       if (choice) body.choice = choice.decision;
       if (schema) body.values = clean(values);
       try {
+        if (!choice && req._chosen && Object.keys(req._chosen).length) {
+          body.files = {};
+          for (const [n, file] of Object.entries(req._chosen)) { say("Sending " + file.name + "…"); body.files[n] = await upload(req, n, file); }
+          say("");
+        }
         await call("POST", api(req.id) + "/answer", body);
         box.replaceChildren(h("div", { class: "card done" }, h("h2", {}, "Recorded"),
           h("p", {}, "Your answer is recorded. Your assistant carries on from here."), h("p", {}, h("a", { href: listUrl() }, "See what else is waiting"))));
@@ -411,21 +440,51 @@
     return display(r.schema, r.value);
   }
 
+  /** The files a person's step asks for: a picker each; the chosen File objects stay in ``chosen`` until Confirm. */
+  function filePickers(files, chosen) {
+    return h("fieldset", { class: "group" }, h("legend", {}, "Files"), files.map((f) => {
+      const id = nextId();
+      const inp = h("input", { type: "file", id, accept: f.media_type || null, required: f.required || null });
+      const picked = h("span", { class: "muted" }, chosen[f.name] ? " Chosen: " + chosen[f.name].name : "");
+      inp.addEventListener("change", () => {
+        const file = inp.files && inp.files[0];
+        if (file && file.size > MAX_UPLOAD) { say(file.name + " is larger than 100 MB; choose a smaller file.", true); inp.value = ""; return; }
+        if (file) chosen[f.name] = file; else delete chosen[f.name];
+        picked.textContent = file ? " Chosen: " + file.name : "";
+      });
+      const label = h("label", { for: id, class: "label" }, humanize(f.name));
+      if (f.required) label.append(h("span", { class: "req", "aria-hidden": "true" }, " *"));
+      return h("div", { class: "field" }, label, f.description ? h("p", { class: "muted" }, f.description) : null, inp, picked);
+    }));
+  }
+
   function answerForm(req, choice, spec, values) {
     const box = $("req-step");
     if (!spec.renderable) { box.replaceChildren(fallback(req)); return; }
     const f = form(spec.schema, req.hints || {}, values !== undefined ? values : spec.prefill || {});
+    const files = choice ? [] : req.files || [];
+    req._chosen = req._chosen || {};
     const next = h("button", { type: "submit" }, "Review");
-    const el = h("form", { class: "card", novalidate: true }, choice ? h("h2", {}, choice.label) : null, f.node, h("div", { class: "actions" }, next));
+    const el = h("form", { class: "card", novalidate: true }, choice ? h("h2", {}, choice.label) : null, f.node,
+      files.length ? filePickers(files, req._chosen) : null, h("div", { class: "actions" }, next));
     el.addEventListener("submit", (ev) => {
       ev.preventDefault();
       const v = f.get();
-      const problems = validate(spec.schema, clean(v), "", true, null, req.hints || {});
-      if (problems.length) { say(problems.map((p) => p.message).join(" "), true); return; }
+      const problems = validate(spec.schema, clean(v), "", true, null, req.hints || {}).map((p) => p.message);
+      for (const n of missingFiles(files, req._chosen)) problems.push(humanize(n) + " is needed: choose the file.");
+      if (problems.length) { say(problems.join(" "), true); return; }
       say("");
       confirmView(req, choice, v, spec.schema);
     });
     box.replaceChildren(el);
+  }
+
+  async function upload(req, name, file) {
+    const res = await fetch(api(req.id) + "/files/" + encodeURIComponent(name), { method: "POST", body: file,
+      headers: { "X-Baton-UI": "1", "Content-Type": "application/octet-stream", "X-Baton-Filename": encodeURIComponent(file.name) } });
+    const out = await res.json().catch(() => ({ message: "Unreadable answer." }));
+    if (!res.ok) { const err = new Error(out.message || "Refused."); err.code = out.error; err.status = res.status; throw err; }
+    return out.handle;
   }
 
   function showRequest(req, chosen, values) {
@@ -444,7 +503,6 @@
         else confirmView(req, chosen, null, null);
       }
     } else if (req.answer) {
-      if ((req.files || []).length) { $("req-step").replaceChildren(fallback(req, "This step also asks for files. Until the page takes files, answer it with an answer file:")); return; }
       answerForm(req, null, req.answer, values);
     } else $("req-step").replaceChildren(fallback(req));
   }
@@ -453,13 +511,13 @@
     let req;
     try { req = await call("GET", api(id)); }
     catch (e) {
-      main().replaceChildren(h("div", { class: "page-head" }, h("h1", {}, "Not waiting any more")),
+      fill(main(), h("div", { class: "page-head" }, h("h1", {}, "Not waiting any more")),
         h("p", {}, e.status === 409 ? "This question was answered already, or it changed. Nothing more is needed here." : e.message),
         h("p", {}, h("a", { href: listUrl() }, "See the questions waiting now")));
       return;
     }
     document.title = req.title + " · Baton";
-    main().replaceChildren(
+    fill(main(), 
       h("p", { class: "crumbs" }, h("a", { href: listUrl() }, "Waiting for you"), " / ", project),
       h("div", { class: "page-head" }, h("h1", {}, req.title)),
       h("p", { id: "req-notice", role: "status", hidden: true }),
@@ -470,23 +528,49 @@
     showRequest(req, null);
   }
 
-  async function openList() {
+  const when = (ts) => { try { return ts ? new Date(ts).toLocaleString() : ""; } catch (e) { return ""; } };
+  let shown = null;
+
+  /** The project's open requests, newest first; refreshed every 5 seconds while the tab is visible (Decision 0171, item 3). */
+  async function openList(quiet) {
     document.title = "Waiting for you · Baton";
-    let out;
+    let out, others = [];
     try { out = await call("GET", api(null)); }
-    catch (e) { main().replaceChildren(h("h1", {}, "Waiting for you"), h("p", { class: "bad" }, e.message)); return; }
-    const reqs = out.requests || [];
-    main().replaceChildren(
+    catch (e) { if (!quiet) fill(main(), h("h1", {}, "Waiting for you"), h("p", { class: "bad" }, e.message)); return; }
+    try { others = ((await call("GET", "/api/projects")).projects || []).filter((p) => p.name !== project && !p.gone); } catch (e) { /* the list stands alone */ }
+    const reqs = newestFirst(out.requests || []);
+    const key = JSON.stringify([reqs.map((r) => r.id), others.map((p) => [p.name, p.open])]);
+    if (quiet && key === shown) return;
+    shown = key;
+    fill(main(), 
       h("div", { class: "page-head" }, h("h1", {}, "Waiting for you"), h("p", { class: "sub" }, project)),
       reqs.length ? h("ul", { class: "req-list" }, reqs.map((r) => h("li", { class: "card" },
-        h("a", { href: listUrl() + "/" + encodeURIComponent(r.id) }, r.title), h("p", { class: "muted" }, r.message))))
-        : h("p", { class: "muted" }, "Nothing is waiting for you in this project."));
+        h("a", { href: listUrl() + "/" + encodeURIComponent(r.id) }, r.title), h("p", { class: "muted" }, r.message),
+        r.opened ? h("p", { class: "muted small" }, "Since " + when(r.opened)) : null)))
+        : h("p", { class: "muted" }, "Nothing is waiting for you in this project."),
+      others.length ? h("section", {}, h("h2", {}, "Other projects"), h("ul", { class: "req-list" }, others.map((p) =>
+        h("li", {}, h("a", { href: "/p/" + encodeURIComponent(p.name) + "/requests" }, p.name), p.open ? " — " + p.open + " waiting" : " — nothing waiting"))))
+        : null);
   }
 
   if (inRequests()) {
     $("view-setup").hidden = true; $("view-requests").hidden = false;
     const tab = document.querySelector('[data-tab="requests"]');
     if (tab) { tab.hidden = false; tab.setAttribute("href", listUrl()); }
-    if (m[2]) openRequest(decodeURIComponent(m[2])); else openList();
+    if (m[2]) openRequest(decodeURIComponent(m[2]));
+    else {
+      openList(false);
+      setInterval(() => { if (!document.hidden) openList(true); }, 5000);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) openList(true); });
+    }
+  } else if (!window.BATON_STATIC) {
+    // Elsewhere on the page, the tab leads to the projects' requests once the page knows a project.
+    call("GET", "/api/projects").then((out) => {
+      const live = (out.projects || []).filter((p) => !p.gone);
+      if (!live.length) return;
+      const pick = live.find((p) => p.open) || live[0];
+      const tab = document.querySelector('[data-tab="requests"]');
+      if (tab) { tab.hidden = false; tab.setAttribute("href", "/p/" + encodeURIComponent(pick.name) + "/requests"); }
+    }).catch(() => { /* the tab stays hidden */ });
   }
 })();

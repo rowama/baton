@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -55,6 +56,10 @@ MANUAL_PAGES = "/manual"
 #: A project's request pages are the same shell: `/p/<name>/requests` and `/p/<name>/requests/<id>`.
 PROJECT_PAGES = "/p/"
 MAX_BODY = 64 * 1024
+#: A file the owner gives a person's step through the page (Decision 0171, item 6).
+MAX_UPLOAD = 100 * 1024 * 1024
+#: Context the page shows inline as an image; any other kind but text is a download (an SVG can carry script).
+INLINE_IMAGES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
 class UiError(Exception):
@@ -425,16 +430,127 @@ def _context_item(home: Path, _body: dict[str, Any], args: dict[str, str]) -> An
 
 
 def _answer(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
-    """``baton answer <id> --via local_page``: the owner confirmed it on the page, with an optional note."""
-    allowed = {"choice", "values", "words", "partial", "note"}
+    """``baton answer <id> --via local_page``: the owner confirmed it on the page, with an optional note. ``files`` maps a
+    file the step asks for to the handle its upload returned; the uploads are removed once the answer is recorded or refused."""
+    allowed = {"choice", "values", "words", "partial", "note", "files"}
     extra = sorted(set(body) - allowed)
     if extra:
         raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", f"unexpected fields: {', '.join(extra)}")
     note = body.get("note") or ""
     if not isinstance(note, str):
         raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "note must be text")
+    files = body.get("files") or {}
+    if not isinstance(files, dict) or not all(isinstance(v, str) for v in files.values()):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "files maps a file's name to its upload's handle")
     answer = {k: body[k] for k in ("choice", "values", "words", "partial") if body.get(k) is not None}
-    return _engine_call(home, args["name"], lambda api: api.answer(args["id"], answer, note, via=VIA))
+    try:
+        if files:
+            answer["artifacts"] = UPLOADS.paths(args["name"], args["id"], files)
+        return _engine_call(home, args["name"], lambda api: api.answer(args["id"], answer, note, via=VIA))
+    finally:
+        UPLOADS.drop(args["name"], args["id"])
+
+
+@dataclass
+class Raw:
+    """A route's answer that is not JSON: bytes with a fixed content type."""
+
+    body: bytes
+    ctype: str
+    extra: dict[str, str]
+
+
+def _context_raw(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
+    """One context item's content as itself: PNG, JPEG, GIF and WebP inline, text as plain text, anything else a download."""
+    out = _engine_call(home, args["name"], lambda api: api.interaction(args["id"], item=args["item"]))
+    if "path" in out:
+        data, media = Path(out["path"]).read_bytes(), str(out.get("media_type") or "application/octet-stream")
+    elif "text" in out:
+        data, media = str(out["text"]).encode("utf-8"), "text/plain"
+    else:
+        data, media = json.dumps({k: out.get(k) for k in ("columns", "rows")}, ensure_ascii=False).encode("utf-8"), "text/plain"
+    sandbox = {"Content-Security-Policy": "sandbox; default-src 'none'"}
+    if media in INLINE_IMAGES:
+        return Raw(data, media, sandbox)
+    if media.startswith("text/") or media in ("application/json", "application/yaml"):
+        return Raw(data, "text/plain; charset=utf-8", sandbox)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(str(out.get("ref") or out.get("label") or "file")).name)[:80] or "file"
+    return Raw(data, "application/octet-stream", {**sandbox, "Content-Disposition": f'attachment; filename="{safe}"'})
+
+
+class Uploads:
+    """Files the owner chose on the page for a person's step, kept in a private folder until the answer is recorded or
+    refused, or the page closes (Decision 0171, item 6). A handle names one; the browser never sees a path."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._root: Path | None = None
+        self._items: dict[str, tuple[str, str, str, Path]] = {}  # handle -> (project, request, file name, path)
+
+    def add(self, project: str, request: str, name: str, suffix: str, stream: Any, length: int) -> str:
+        import tempfile
+
+        with self._lock:
+            if self._root is None or not self._root.is_dir():
+                self._root = Path(tempfile.mkdtemp(prefix="baton-ui-uploads-"))  # 0700
+            handle = secrets.token_urlsafe(16)
+            folder = self._root / handle
+            folder.mkdir(mode=0o700)
+        path = folder / f"{name}{suffix}"
+        left = length
+        with open(path, "wb") as f:
+            while left > 0:
+                chunk = stream.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        if left:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise UiError(HTTPStatus.BAD_REQUEST, "ui.upload", "The file did not arrive whole; choose it again.")
+        with self._lock:
+            self._items[handle] = (project, request, name, path)
+        return handle
+
+    def paths(self, project: str, request: str, files: dict[str, str]) -> dict[str, str]:
+        out = {}
+        with self._lock:
+            for name, handle in files.items():
+                hit = self._items.get(handle)
+                if hit is None or hit[:3] != (project, request, name):
+                    raise UiError(HTTPStatus.BAD_REQUEST, "ui.upload", f"The file for {name} is no longer here; choose it again.")
+                out[name] = str(hit[3])
+        return out
+
+    def drop(self, project: str, request: str) -> None:
+        with self._lock:
+            gone = [h for h, v in self._items.items() if v[:2] == (project, request)]
+            paths = [self._items.pop(h)[3] for h in gone]
+        for p in paths:
+            shutil.rmtree(p.parent, ignore_errors=True)
+
+    def clear(self) -> None:
+        with self._lock:
+            root, self._root, self._items = self._root, None, {}
+        if root is not None:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+UPLOADS = Uploads()
+UPLOAD_ROUTE = "/api/p/<name>/interactions/<id>/files/<file>"
+
+
+def _upload(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    """One file a person's step asks for, as the raw body; only the step's declared files are taken."""
+    req = _engine_call(home, args["name"], lambda api: api.interaction(args["id"]))
+    names = [f["name"] for f in req.get("files") or []]
+    if args["file"] not in names:
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.upload", f"This step does not ask for a file called {args['file']!r}"
+                      + (f" (it asks for: {', '.join(names)})." if names else "; it asks for none."))
+    suffix = Path(unquote(body["filename"] or "")).suffix
+    suffix = suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", suffix) else ""
+    handle = UPLOADS.add(args["name"], args["id"], args["file"], suffix, body["stream"], body["length"])
+    return {"file": args["file"], "handle": handle, "size": body["length"]}
 
 
 def request_url(base_url: str, name: str, request: str | None = None) -> str:
@@ -464,6 +580,8 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/p/<name>/interactions"): _requests,
     ("GET", "/api/p/<name>/interactions/<id>"): _request,
     ("GET", "/api/p/<name>/interactions/<id>/context/<item>"): _context_item,
+    ("GET", "/api/p/<name>/interactions/<id>/context/<item>/raw"): _context_raw,
+    ("POST", UPLOAD_ROUTE): _upload,
     ("POST", "/api/p/<name>/interactions/<id>/answer"): _answer,
 }
 
@@ -573,6 +691,7 @@ class Server:
             stop.set()
             self.httpd.server_close()
             self.remove_registration()
+            UPLOADS.clear()
         return why["v"]
 
     def quit(self) -> None:
@@ -667,7 +786,9 @@ class Server:
                     return self._refuse(HTTPStatus.UNAUTHORIZED, "ui.token", "Open the page with the link Baton gave you.")
                 server.touch()
                 if method != "GET":
-                    if self.headers.get("X-Baton-UI") != "1" or "application/json" not in (self.headers.get("Content-Type") or ""):
+                    ctype = self.headers.get("Content-Type") or ""
+                    upload = method == "POST" and _match(UPLOAD_ROUTE, url.path) is not None
+                    if self.headers.get("X-Baton-UI") != "1" or ("application/octet-stream" if upload else "application/json") not in ctype:
                         return self._refuse(HTTPStatus.BAD_REQUEST, "ui.header", "Changes must come from the page itself.")
                 if method == "GET" and url.path in STATIC:
                     return self._static(url.path)
@@ -693,7 +814,15 @@ class Server:
                 if route is None:
                     return self._refuse(HTTPStatus.NOT_FOUND, "ui.not_found", "No such page action.")
                 body: dict[str, Any] = {}
-                if method != "GET":
+                if route is _upload and method == "POST":
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if n <= 0 or n > MAX_UPLOAD:
+                        self.close_connection = True
+                        if n <= 0:
+                            return self._refuse(HTTPStatus.BAD_REQUEST, "ui.upload", "The file is empty.")
+                        return self._refuse(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "ui.too_large", f"A file may be at most {MAX_UPLOAD >> 20} MiB.")
+                    body = {"stream": self.rfile, "length": n, "filename": self.headers.get("X-Baton-Filename") or ""}
+                elif method != "GET":
                     n = int(self.headers.get("Content-Length") or 0)
                     if n > MAX_BODY:
                         return self._refuse(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "ui.too_large", "That request is too large.")
@@ -713,6 +842,8 @@ class Server:
                 except Exception as e:  # noqa: BLE001 - a bug in a route must not reveal request contents or stop the page
                     diag.note("ui.route_failed", "ui:_route", error=type(e).__name__, route=f"{method} {path}")
                     return self._refuse(HTTPStatus.INTERNAL_SERVER_ERROR, "ui.failed", "Something went wrong; see `baton diag`.")
+                if isinstance(out, Raw):
+                    return self._send(HTTPStatus.OK, out.body, out.ctype, out.extra)
                 self._json(HTTPStatus.OK, out)
 
             def do_GET(self) -> None:  # noqa: N802

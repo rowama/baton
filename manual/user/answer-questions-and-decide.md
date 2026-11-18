@@ -48,7 +48,9 @@ If you do a part of the work yourself, it can be answered the same way: what it 
 
 For a long form, a table or something to look at, your assistant may give you a link instead. It opens a page on your own computer, in your browser, showing the question, what to look at, and the choices or fields to fill in. The page checks what you filled in and says plainly what is missing. Then it shows what will be recorded, with a box for anything you want to add, and records it only when you press **Confirm**. You do not need your assistant to be part of this: it sees your answer the next time it looks.
 
-Each project has its own address on the page, such as `http://127.0.0.1:47474/p/garden-shed/requests`, which lists everything waiting for you in that project. The address stays the same for as long as the project exists, so you can bookmark it. Its name is the project's name, which starts as the project folder's name; to change it, tell your assistant. To see a project's page yourself, run this in the project's folder:
+If the work needs a file from you (a photo, a signed page), the page has a button to choose it from your computer; it is sent when you press **Confirm**, kept only until your answer is recorded, and then becomes part of the work. A file can be up to 100 MB. Pictures the work shows you appear on the page; other documents can be opened or downloaded.
+
+Each project has its own address on the page, such as `http://127.0.0.1:47474/p/garden-shed/requests`, which lists everything waiting for you in that project, newest first, and updates itself while you have it open. The address stays the same for as long as the project exists, so you can bookmark it. Its name is the project's name, which starts as the project folder's name; to change it, tell your assistant. To see a project's page yourself, run this in the project's folder:
 
 ```baton
 baton ui

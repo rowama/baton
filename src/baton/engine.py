@@ -4285,11 +4285,28 @@ class Api:
             return None
 
     def interactions(self, run_id: str | None = None) -> dict[str, Any]:
-        """The open interaction requests, of one run or of every active run (§13.1)."""
+        """The open interaction requests, of one run or of every active run (§13.1), each with when it was ``opened``."""
         from . import interactions as ia
 
-        reqs = [ia.summary(req) for _, req, _ in self._open_requests(run_id)]
+        reqs = [{**ia.summary(req), "opened": self._opened_at(rid, req, p)} for rid, req, p in self._open_requests(run_id)]
         return {"format": ia.FORMAT, "requests": reqs, "needs_owner": bool(reqs)}
+
+    def _opened_at(self, rid: str, req: dict[str, Any], p: dict[str, Any] | None) -> str | None:
+        """When a request was opened or last changed: its opening event's time, else its step's last event's, else the run's."""
+        from . import interactions as ia
+
+        ctx = self._ctx(rid)
+        evs = ctx.log.events()
+        if p is not None:
+            seq = ia._opened_seq(ctx, p)
+        else:
+            seq = next((s for path, n, s in ia.person_steps(ctx) if path == req["ref"] and n == req.get("attempt")), None)
+        hit = next((e for e in evs if e.seq == seq), None) if seq is not None else None
+        if hit is None:
+            step = req.get("step_path") or req["ref"]
+            hit = next((e for e in reversed(evs) if e.step_path == step), None)
+        hit = hit or (evs[-1] if evs else None)
+        return hit.ts if hit is not None else None
 
     def _find_request(self, request_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
         open_ = self._open_requests(run_id)

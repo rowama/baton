@@ -64,7 +64,7 @@ Baton never scrapes a search engine's result pages.
 
 ## The setup page and MCP over HTTP {#local-servers}
 
-`baton ui` binds `127.0.0.1` only, checks a token kept in `~/.baton/ui-token` (0600), the `Host` and `Origin` headers and a custom request header on every request, and never returns a stored key. Its pages for a project's questions name the project by its name and anything they show by its id, never by a path from the browser, and never send where a file is kept on disk. `baton mcp --http` also binds loopback only and needs the bearer token from `~/.baton/mcp.yaml`.
+`baton ui` binds `127.0.0.1` only, checks a token kept in `~/.baton/ui-token` (0600), the `Host` and `Origin` headers and a custom request header on every request, and never returns a stored key. Its pages for a project's questions name the project by its name and anything they show by its id, never by a path from the browser, and never send where a file is kept on disk. Pictures are shown only as PNG, JPEG, GIF or WebP; text is shown as plain text, and anything else is a download. A file the owner gives the work is accepted only where the work asks for one, up to 100 MB, kept in a private temporary folder, and removed once the answer is recorded. `baton mcp --http` also binds loopback only and needs the bearer token from `~/.baton/mcp.yaml`.
 
 ## What Baton may do to the repository {#permissions}
 

@@ -97,3 +97,15 @@ def test_a_tables_rows_are_fixed_by_the_prefill_and_its_cells_name_the_row():
                        ["tableRows", SCHEMA["properties"]["matches"], None])
     assert fixed["fixed"] is True and fixed["rows"] == [{"line": "Widget A"}, {"line": "Widget B"}] and fixed["givenKeys"] == [["line"], ["line"]]
     assert open_ == {"fixed": False, "rows": [], "givenKeys": []}
+
+
+def test_the_list_is_newest_first_and_keeps_the_given_order_otherwise():
+    reqs = [{"id": "a", "opened": "2026-11-18T10:00:00Z"}, {"id": "b"}, {"id": "c", "opened": "2026-11-18T11:00:00Z"},
+            {"id": "d", "opened": "2026-11-18T10:00:00Z"}, {"id": "e"}]
+    (out,) = run(["newestFirst", reqs])
+    assert [r["id"] for r in out] == ["c", "a", "d", "b", "e"]
+
+
+def test_a_required_file_not_chosen_is_named():
+    files = [{"name": "photo", "required": True}, {"name": "extra", "required": False}, {"name": "signed", "required": True}]
+    assert run(["missingFiles", files, {"photo": {"name": "p.png"}}], ["missingFiles", [], {}]) == [["signed"], []]

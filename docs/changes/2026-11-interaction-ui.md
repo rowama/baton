@@ -96,10 +96,10 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 
 ### Manual edits
 
-- `user/answer-questions-and-decide.md`: *Answering on a page* (the link, the checks, Confirm with a note, the project's lasting address, `baton ui` in the project's folder, what the page cannot show); a changed question on the page. Slice 2 adds files and the list's refresh.
-- `admin/director-commands.md`: `ui --request`, the project's requests at `/p/<name>/requests`; an answer with any `--via` but `conversation` is the owner's own.
+- `user/answer-questions-and-decide.md`: *Answering on a page* (the link, the checks, Confirm with a note, files from your computer, pictures and documents, the project's lasting address and its list, newest first and updating itself, `baton ui` in the project's folder, what the page cannot show); a changed question on the page.
+- `admin/director-commands.md`: `ui --request`, the project's requests at `/p/<name>/requests`; an answer with any `--via` but `conversation` is the owner's own; `interactions` gives when each was opened.
 - `admin/files-and-paths.md`: `~/.baton/ui-projects.yaml`.
-- `admin/network-and-security.md`: the request pages name projects and items, never paths.
+- `admin/network-and-security.md`: the request pages name projects and items, never paths; fixed types for what they show; files the owner gives.
 - `reference/commands.md`: `baton ui --request` (regenerated).
 
 ### Decisions
@@ -142,3 +142,10 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 - **Docs:** `director-interface.md` §13.1 (`ui`, `answer`), §13.9 (*Requests*); `persistence.md` §10.2, §10.4; `platform-and-security.md` §15.2; `layouts.md` §4.4; Decision 0171 item 7.
 - **Tests:** `test_ui_requests.py` (name and fallback, registry, routes, owner answer and stale refusal, page paths and launch link, context items without paths, the Director's `ui(request)`); `test_ui_requests_js.py` under node (order, labels, groups, controls per field, validation messages, empty fields, summary rows, fixed table rows); `test_interactions.py` (the owner's answer needs no lease; conversation still does). Also driven by hand in jsdom against a live server (in a scratch folder, not a dependency): a gate, a blocked step's questions and a person's table, each recorded with `via: local_page`.
 - **Not yet:** files (a person's step with files offers the answer file), images and documents as more than text, the list's refresh and order, the Director skill.
+
+### Slice 2: files, context, the list and the Director
+
+- **Summary:** A person's step's declared files are chosen on the page and uploaded at Confirm (`POST …/files/<file>`, raw body, at most 100 MiB, only declared names) into a private temporary folder, then attached to the answer by handle; uploads go once the answer is recorded or refused, and all when the page closes. Context items are served as themselves by id (`…/context/<item>/raw`) with fixed types, `nosniff` and a `sandbox` policy: PNG, JPEG, GIF and WebP inline, text as plain text, anything else (SVG included) a download; the page shows images inline and offers documents as text or a download. `interactions` gives each request's `opened` time; the list is newest first, shows the other known projects, and refreshes every 5 seconds while visible; the *Waiting for you* tab appears on every page once a project is known. The Director skill (and §13.3) offers the page for a table, many fields, files or something to look at, and does not confirm again what the owner confirmed there.
+- **Modules:** `ui.py` (`Raw`, `_context_raw`, `Uploads`, `_upload`, files in `_answer`, upload header and size checks), `engine.py` (`opened`, `_opened_at`); front end `ui/requests.js` (images, downloads, file pickers and upload, the list), `app.css`; `skills/baton-director/SKILL.md`.
+- **Docs:** `director-interface.md` §13.1 (`interactions`' `opened`), §13.3 (the skill), §13.9 (raw context, uploads, the list); `platform-and-security.md` §15.2.
+- **Tests:** `test_ui_requests.py` (an uploaded photo answers a person's step and lands in its result; undeclared, wrong-type, empty and too-large uploads refused; uploads removed after a refused and a recorded answer; the following gate's photo served inline as `image/png`, its output as plain text; each media type's fixed type; `opened` in the list); `test_ui_requests_js.py` (newest first; required files named).
