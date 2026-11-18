@@ -61,6 +61,8 @@ owner:                                 # a person: the manual adapter
 
 A claimed capability is **likely** until work shows it **verified** or **absent** on this machine; `baton workers status` shows each one.
 
+An API profile (`litellm_api`) whose model calls tools (`tool_use`) can also read files: Baton itself provides `workspace_read` for it, shown as **verified** (provided by Baton's runner), so you do not claim it. An API profile never has `shell`, `file_write`, `code_exec` or `repo_workspace`, whatever its file claims. See [what an API model may read](admin.network-and-security#api-model-reading).
+
 ## Preferences {#preferences}
 
 `~/.baton/preferences.yaml` (machine-wide) and `.baton/preferences.yaml` (per project, overriding) set routing preferences: cheapest or most proven first, and preferred models per capability. The setup page edits the machine file. See [choosing models](user.choose-models#here-now).

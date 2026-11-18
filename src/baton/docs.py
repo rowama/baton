@@ -270,6 +270,23 @@ def _brief(ev: Event) -> str:
     return d.get("reason") or ""
 
 
+def _tool_call_lines(ctx: RunContext, step_path: str, n: int, d: dict[str, Any]) -> list[str]:
+    """The tool calls Baton's API runner made for an attempt, from ``tool_calls.jsonl`` when its hash still matches."""
+    import hashlib
+
+    lines = [f"- Tool calls: {d['tool_calls']} (`tool_calls.jsonl` `{d.get('tool_calls_sha256')}`)"]
+    f = ctx.attempt_dir(step_path, n) / "tool_calls.jsonl"
+    data = f.read_bytes() if f.is_file() else b""
+    if hashlib.sha256(data).hexdigest() != d.get("tool_calls_sha256"):
+        return lines + ["  - the call list is missing or does not match its recorded hash"]
+    for line in data.decode("utf-8").splitlines():
+        r = json.loads(line)
+        args = "" if r.get("args") is None else " " + json.dumps(r["args"], ensure_ascii=False, sort_keys=True)
+        refused = f" — refused: {r['refused']}" if r.get("refused") else ""
+        lines.append(f"  - {r['n']}. `{r['tool']}`{args}: {r['bytes']} bytes, {r['ms']} ms{refused}")
+    return lines
+
+
 def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], mine: list[Event]) -> list[str]:
     lines = [f"## Attempt {n}", ""]
     disp = next((e for e in evs if e.type == "dispatched"), None)
@@ -288,6 +305,8 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
             lines += _inputs(ctx, step_path, n)
         elif ev.type == "result_submitted":
             lines.append(f"- Result: {d.get('status')} at {ev.ts} (`result.json` `{d.get('result_sha256')}`)")
+            if "tool_calls" in d:
+                lines += _tool_call_lines(ctx, step_path, n, d)
         elif ev.type in ("gate_passed", "gate_failed"):
             lines.append(_gate_line(ev))
         elif ev.type == "result_rejected":
@@ -582,7 +601,7 @@ def trace(events: list[Event], limit: int | None = 20) -> list[str]:
     out = []
     for e in chosen:
         where = (e.step_path or "") + (f"#{e.attempt}" if e.attempt else "")
-        detail = {k: v for k, v in e.data.items() if k in ("reason", "decision", "profile", "outcome", "director_id", "gate", "type", "status")}
+        detail = {k: v for k, v in e.data.items() if k in ("reason", "decision", "profile", "outcome", "director_id", "gate", "type", "status", "tool_calls")}
         extra = " " + json.dumps(detail, sort_keys=True, ensure_ascii=False) if detail else ""
         out.append(f"{e.seq:>4} {e.ts} {e.type:<22} {where:<24} {e.actor}{extra}".rstrip())
     return out

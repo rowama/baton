@@ -172,6 +172,7 @@ class Step(_Strict):
     independence: Independence | None = None
     doc_template: str | None = None
     proposes_runs: bool = False  # its output proposes runs the owner chooses from (§5.1, §11.6; Decision 0152)
+    tool_calls: int | None = Field(default=None, ge=1)  # the tool-call limit when Baton's API runner offers tools (§5.6; Decision 0168, item 5)
 
     @property
     def is_group(self) -> bool:
@@ -572,6 +573,9 @@ class WorkerProfile(_Strict):
     _quota_until: Any = PrivateAttr(default=None)
     #: True when the owner switched this route's resource off (``resources.yaml`` ``enabled: false``, 0113); attached by ``Project.profiles``.
     _switched_off: bool = PrivateAttr(default=False)
+    #: Capabilities Baton's API runner provides for this profile (``runner_tools.provided``): capability -> evidence.
+    #: Facts about Baton's code, attached by ``Project.profiles``; never in a profile file, never hashed.
+    _provided: dict[str, str] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -596,23 +600,58 @@ class WorkerProfile(_Strict):
         """The legacy name for ``creator``."""
         return self.creator
 
+    def claims(self, capability: str) -> bool:
+        """The profile has ``capability``: claimed in its file, or provided by Baton's runner.
+
+        A ``litellm_api`` profile never has a tooling capability its runner does not
+        provide, whatever its file claims: the runner writes nothing, runs no command
+        and executes no code (change 2026-11-step-tool-harness, criterion 2).
+        """
+        if capability in self._provided:
+            return True
+        if self.adapter == "litellm_api" and capability in ("shell", "code_exec", "repo_workspace", "file_write", "web_access", "workspace_read"):
+            return False
+        return capability in self.capabilities
+
+    def provided_by_runner(self, capability: str) -> bool:
+        return capability in self._provided
+
     def capability_state(self, capability: str) -> str:
         """``likely`` (the default for a claimed capability), ``verified`` or ``absent`` (0084)."""
-        st = self._capability_states.get(capability)
+        st = self.capability_record(capability)
         return st.state if st is not None else "likely"
 
     def capability_record(self, capability: str) -> Any:
-        return self._capability_states.get(capability)
+        """The recorded state; for a runner-provided capability with none recorded, ``verified`` on Baton's basis (0088)."""
+        st = self._capability_states.get(capability)
+        if st is None and capability in self._provided:
+            from .capability_states import CapabilityState
+
+            return CapabilityState(state="verified", by="baton_runner", evidence=self._provided[capability])
+        return st
+
+    def with_provided(self, provided: dict[str, str]) -> "WorkerProfile":
+        """A copy carrying the capabilities Baton's runner provides for it."""
+        out = self._copy_private()
+        out._provided = dict(provided)
+        return out
+
+    def _copy_private(self) -> "WorkerProfile":
+        out = self.model_copy()
+        out._capability_states = dict(self._capability_states)
+        out._quota_until = self._quota_until
+        out._switched_off = self._switched_off
+        out._provided = dict(self._provided)
+        return out
 
     def with_capability_states(self, states: dict[str, Any]) -> "WorkerProfile":
         """A copy carrying the recorded states of the capabilities it claims."""
-        out = self.model_copy()
-        out._capability_states = {c: s for c, s in states.items() if c in self.capabilities}
+        out = self._copy_private()
+        out._capability_states = {c: s for c, s in states.items() if c in self.capabilities or c in self._provided}
         return out
 
     def with_quota(self, until: Any) -> "WorkerProfile":
-        out = self.model_copy()
-        out._capability_states = dict(self._capability_states)
+        out = self._copy_private()
         out._quota_until = until
         return out
 
@@ -620,9 +659,7 @@ class WorkerProfile(_Strict):
         return self._quota_until
 
     def with_switched_off(self, off: bool) -> "WorkerProfile":
-        out = self.model_copy()
-        out._capability_states = dict(self._capability_states)
-        out._quota_until = self._quota_until
+        out = self._copy_private()
         out._switched_off = off
         return out
 

@@ -39,6 +39,18 @@ A recipe's script checks run commands on the machine. Review a recipe before you
 
 A coding assistant used as a helper may be able to edit files and run commands. For risky work, prefer a container or a dedicated user. Baton never weakens an assistant's own sandbox: if the shell it gives Baton is sandboxed, `baton detect` and `baton doctor` stop with `director_sandboxed`, and the assistant should reach Baton over MCP instead. See [setting up an assistant](admin.directors#codex).
 
+## What an API model may read {#api-model-reading}
+
+A model reached through an API key does nothing on the machine by itself. When a step needs to read files and the model can call tools, Baton offers it two tools of its own, list files and read file, and carries out each call:
+
+- It sees only the step's inputs and, on a step that reads the project, the working tree. It never sees `.git`, `.baton`, or anything outside the tree, and a link that leads out is not followed.
+- Each read is at most 1 MiB of text.
+- Nothing it is offered writes a file, runs a command or executes code. An API model never gets a step that needs those, whatever its profile claims.
+- What a tool returns is given to the model as outside data, not instructions.
+- A step allows 40 tool calls unless its recipe sets another limit; a model that reaches the limit without answering fails the attempt.
+
+Each call is listed in the step's record. The full conversation is kept on the machine only, beside the attempt's log in `~/.baton/logs/`, because it holds whole files.
+
 ## The setup page and MCP over HTTP {#local-servers}
 
 `baton ui` binds `127.0.0.1` only, checks a token kept in `~/.baton/ui-token` (0600), the `Host` and `Origin` headers and a custom request header on every request, and never returns a stored key. `baton mcp --http` also binds loopback only and needs the bearer token from `~/.baton/mcp.yaml`.

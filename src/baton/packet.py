@@ -42,6 +42,7 @@ from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .recipe import LoadedRecipe
 from .routing import requirement_gaps
+from .runner_tools import DEFAULT_TOOL_CALLS
 from .state import SATISFIES_DEPS
 from .store import RunLog, Store, StoreError, canonical_json, ensure_dir
 
@@ -187,6 +188,17 @@ def revision_of(record: RunRecord, step_path: str) -> tuple[Event, Event] | None
 def gate_included(gate: Any, ratings: dict[str, str] | None) -> bool:
     """A gate with ``applies_to`` runs only at those ratings (any listed axis matching); before triage sets them, it runs."""
     return tailoring.applies(gate.applies_to, ratings)
+
+
+def runner_tools_for(profile: WorkerProfile, node: Any) -> list[str]:
+    """The tools Baton's API runner offers this step's model: those of the needed capabilities it provides."""
+    from .routing import needed_capabilities
+    from .runner_tools import offered
+
+    requires = getattr(node, "requires", None)
+    if profile.adapter != "litellm_api" or requires is None:
+        return []
+    return offered(c for c in needed_capabilities(requires, node.workspace) if profile.provided_by_runner(c))
 
 
 def profile_sha256(profile: WorkerProfile) -> str:
@@ -939,6 +951,11 @@ def build_packet(
         "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance, revision),
         "packet_sha256": None,
     }
+    tools = runner_tools_for(profile, node)
+    if tools:
+        # Only packets for Baton's API runner with tools carry the keys: other packets are unchanged (criterion 11).
+        manifest["tools"] = tools
+        manifest["tool_calls"] = node.tool_calls or DEFAULT_TOOL_CALLS
     if reviews.is_reviewer(node):
         manifest["prior_findings"] = _prior_findings(ctx, record, node, loc)
     if node.program is not None:

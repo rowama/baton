@@ -441,6 +441,11 @@ def eligible(subject: str, req: Requires, profiles: dict[str, WorkerProfile], vo
     for name in sorted(profiles):
         p = profiles[name]
         reasons = requirement_gaps(req, workspace_mode(req), p, vocab)
+        from .routing import needed_capabilities
+
+        runner = [c for c in needed_capabilities(req, workspace_mode(req)) if p.provided_by_runner(c)]
+        if not reasons and runner:
+            reasons = [f"Baton's runner offers its tools ({', '.join(runner)}) to steps, not yet to expert consultations"]
         if p.adapter == "manual":
             reasons = ["a person is never consulted directly; consult a proxy expert with --contact"]
         if reasons:

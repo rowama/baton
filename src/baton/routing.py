@@ -60,11 +60,11 @@ def requirement_gaps(requires: Requires | None, workspace: str, profile: WorkerP
         return ["this step is done by its program, not by a worker (§5.9)"]
     gaps: list[str] = []
     needed = needed_capabilities(requires, workspace)
-    missing = [c for c in needed if c not in profile.capabilities]
+    missing = [c for c in needed if not profile.claims(c)]
     if missing:
         gaps.append(f"missing capabilities: {', '.join(missing)}")
     for c in needed:
-        if c in profile.capabilities and profile.capability_state(c) == "absent":
+        if profile.claims(c) and profile.capability_state(c) == "absent":
             rec = profile.capability_record(c)
             gaps.append(f"capability {c} is absent here ({rec.describe()}); "
                         f"`baton workers declare --profile <name> --likely {c}` lets it be tried again")
@@ -350,6 +350,9 @@ def eligible_workers(
         verified = [c for c, st in caps.items() if st == "verified"]
         if verified:
             why.append(f"verified here: {', '.join(verified)}")
+        by_runner = [c for c in caps if p.provided_by_runner(c)]
+        if by_runner:
+            why.append(f"Baton's runner provides: {', '.join(by_runner)}")
         if waived:
             why.append(f"not independent of {indep.from_step} ({indep.level}), waived for one dispatch ({independence_waiver})")
         elif other is not None and indep:
@@ -414,7 +417,7 @@ def web_steps(recipe: Any) -> list[str]:
 
 def web_capable(profiles: dict[str, WorkerProfile]) -> list[str]:
     """Profiles that claim ``web_access`` with any state but ``absent`` (0084)."""
-    return sorted(n for n, p in profiles.items() if "web_access" in p.capabilities and p.capability_state("web_access") != "absent")
+    return sorted(n for n, p in profiles.items() if p.claims("web_access") and p.capability_state("web_access") != "absent")
 
 
 def web_advice(recipe: Any, profiles: dict[str, WorkerProfile]) -> dict[str, Any] | None:

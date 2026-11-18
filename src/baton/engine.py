@@ -44,11 +44,13 @@ from .packet import (
     node_for,
     remove_tree,
     revision_of,
+    runner_tools_for,
     view_of,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
 from .routing import identity_record
 from .redact import redact_text
+from .runner_tools import DEFAULT_TOOL_CALLS
 from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, StoreError, canonical_json
 from .supervisor import ChildResult
@@ -699,6 +701,16 @@ def _step(ctx: RunContext, step_path: str) -> Step:
     return node
 
 
+def _tool_calls_record(adir: Path) -> dict[str, Any]:
+    """``tool_calls`` (the count, ``finish`` not counted) and the hash of ``tool_calls.jsonl``, when Baton's runner offered tools."""
+    f = adir / "tool_calls.jsonl"
+    if not f.is_file():
+        return {}
+    data = f.read_bytes()
+    rows = [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
+    return {"tool_calls": sum(1 for r in rows if r.get("tool") != "finish"), "tool_calls_sha256": hashlib.sha256(data).hexdigest()}
+
+
 def submit(
     ctx: RunContext, step_path: str, *, actor: str = "runtime", workspace_changes: list[str] | None = None,
     worker_exit: dict[str, Any] | None = None,
@@ -735,7 +747,8 @@ def submit(
         actor=actor,
         step_path=step_path,
         attempt=n,
-        data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **({"worker_exit": worker_exit} if worker_exit else {})},
+        data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **_tool_calls_record(adir),
+              **({"worker_exit": worker_exit} if worker_exit else {})},
     )
     _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
     if sub.rating_signal is not None and not rating_signal_problems(ctx, sub.rating_signal):
@@ -3097,6 +3110,9 @@ class Api:
                 version = self._harness_version(profile, env)
                 if version:
                     extra["harness_version"] = version
+            offered = runner_tools_for(profile, node)
+            if offered:
+                extra["tools"] = {"runner": offered, "limit": getattr(node, "tool_calls", None) or DEFAULT_TOOL_CALLS}
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
@@ -3120,13 +3136,16 @@ class Api:
                 return out  # a person does the work (no supervisor, no timeout); the Director submits
             if env.resolved is not None:
                 argv = [env.resolved.executable, *argv[1:]]
+            log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
+            if offered:
+                # The tool loop's messages stay on this machine, beside the attempt's log: they hold whole files.
+                argv += ["--transcript", str(log_path.with_suffix(".transcript.json"))]
             # read / none steps may not change the tree; CLI flags cannot confine
             # writes to result/, so the runtime compares before and after (§6.3).
             # The runtime's own run and project records are excluded: they change
             # while the worker runs.
             check_tree = getattr(adapter, "touches_files", False) and mode != "write"
             rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
-            log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
             spec = {
                 "root": str(self.project.root), "home": str(self.project.home), "director": self.director.id,
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,

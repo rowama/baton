@@ -19,6 +19,13 @@ from ..models import WorkerProfile
 from ..profiles import SetupError
 
 
+def _offers_tools(packet_dir: Path) -> bool:
+    try:
+        return bool(json.loads((packet_dir / "manifest.json").read_text(encoding="utf-8")).get("tools"))
+    except (OSError, ValueError):  # expected: no readable manifest: no tools to offer
+        return False
+
+
 class LitellmApiAdapter:
     name = "litellm_api"
     #: Starts the runtime's own interpreter: no executable to resolve.
@@ -44,7 +51,10 @@ class LitellmApiAdapter:
 
     def command(self, profile: WorkerProfile, packet_dir: Path, result_dir: Path, workspace: Path | None, mode: str) -> list[str] | None:
         self.check_profile(profile)
-        return self.base_argv(profile) + ["--packet", str(packet_dir), "--result", str(result_dir)]
+        argv = self.base_argv(profile) + ["--packet", str(packet_dir), "--result", str(result_dir)]
+        if mode == "read" and workspace is not None and _offers_tools(packet_dir):
+            argv += ["--workspace", str(workspace)]  # what read_file may see on a read step, besides the inputs
+        return argv
 
     def noop_command(self, profile: WorkerProfile) -> list[str]:
         self.check_profile(profile)

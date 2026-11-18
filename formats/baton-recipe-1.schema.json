@@ -1192,6 +1192,19 @@
           "default": null,
           "title": "Title"
         },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
         "wait": {
           "anyOf": [
             {

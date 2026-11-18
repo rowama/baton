@@ -1,7 +1,7 @@
 ---
 id: 2026-11-step-tool-harness
 title: "Baton runs a bounded tool loop for API workers, with only the tools a step requires"
-status: accepted
+status: in-progress
 level: major
 decisions: ["0168", "0075", "0076", "0084", "0085", "0086", "0088", "0114", "0154", "0166"]
 touches: [design/workers.md, design/runtime.md, design/recipes.md, design/platform-and-security.md]
@@ -74,8 +74,8 @@ Approved by the owner with the Request, 2026-11-17.
   4. Stop on `finish` (its arguments are the reply, validated as today), on the limit (`failed`, `notes` say so), or on an error the runner classifies as today.
 - **`search`** returns `[{title, url, snippet}]`, at most ten results. Through an owner-declared provider, the runner calls LiteLLM's search interface for that provider directly.
 - **`fetch(url)`** resolves the host, refuses non-public addresses (also after each redirect, at most five), downloads at most 2 MiB, extracts readable text (HTML to text; plain and JSON as is; PDF and others refused in the first version) and returns at most 50,000 characters with the final URL.
-- **`read_file(path)` / `list_files(dir)`**: paths relative to the packet's input folder or, on a `read` step, the working tree; normalized and checked to stay inside; `.git` and `.baton` refused; at most 1 MiB per read.
-- **Records.** `logs/<attempt>/tool_calls.jsonl` (`{n, tool, args, bytes, sha256, ms, refused?}`) and `transcript.json` in the attempt's log folder; `result_submitted` gains `tool_calls: <count>` and `searches: <count>`.
+- **`read_file(path)` / `list_files(dir)`**: paths start with `inputs/` (the packet's inputs) or, on a `read` step, `workspace/` (the working tree); normalized and checked to stay inside; `.git` and `.baton` refused; at most 1 MiB per read.
+- **Records.** `tool_calls.jsonl` in the attempt folder (`{n, tool, args, bytes, sha256, ms, refused?}`), committed with the run; the transcript beside the attempt's machine-local log (`~/.baton/logs/<run>/<step_path>/attempt-<n>.transcript.json`), since it holds whole files and pages; `dispatched` gains `tools {runner, limit}`, and `result_submitted` gains `tool_calls: <count>`, `tool_calls_sha256` and (Slice 2) `searches: <count>`.
 - **Capability facts.** `workers status` and routing compute, for each `litellm_api` profile, `workspace_read` (when the model supports tool calling) and `web_access` (when it also has a search backend: provider-native, or a declared provider) as `verified` with `basis: baton_runner`. `doctor` says which profiles gain web access and why the others do not, and which are billed per search; the setup page shows the same note on a model's web access.
 - **Declared search.** `workers declare --search <provider> --credential secret:<NAME>` (or `--search searxng --base-url <url>`) writes the machine's search backend to `~/.baton/resources.yaml`.
 - **Limits in numbers** (2 MiB, 50,000 characters, 1 MiB, ten results, five redirects) are starting values chosen for this draft, not from a source; each is a constant to tune from use.
@@ -155,5 +155,11 @@ Slices as proposed; refined once the Request and Design are approved.
 ### Request and Design approved
 
 - **Summary:** The owner approved the Request and Design as updated with Decision 0168. Two facts are to be checked in Slice 2 before they are relied on: how each provider returns its native search's citations, and whether a provider accepts native search and function tools in one call. No code changed.
+- **Owner decision:** 2026-11-17, "Agree. Proceed."
+- **Accepted:** Yes.
+
+### Slice 1: the loop, reading and finish
+
+- **Summary:** `runner_tools.py` (new, standard library only) holds the rules (`provided`: `workspace_read` for a `litellm_api` profile whose model claims `tool_use`, not recorded absent; `offered`: the tools for the needed capabilities) and the tools (`ReadScope`: `list_files`, `read_file` over `inputs/` and, on a read step, `workspace/`). `worker_runner.py` loops when the manifest lists `tools`: tools plus `finish`, results marked as outside data, the step's `tool_calls` limit (default 40), two reminders for a reply in text, profile fallback options refused (`fallbacks_not_allowed`), `tool_calls.jsonl` in the attempt folder and the transcript in the machine-local log. `WorkerProfile` gains `claims()` and the runner-provided capabilities (attached in `Project.profiles`, never hashed; `verified`, `by: baton_runner`); an API profile never has `shell`, `file_write`, `code_exec`, `repo_workspace` or (for now) `web_access`. `routing` uses `claims()` and names the runner in its reasons; SME consultations do not route to a runner-provided capability yet (their packets carry no tools). `packet.py` writes `tools` and `tool_calls` only for API packets with tools; the step key `tool_calls` is new (a program step cannot set it). `engine.py` records `dispatched.tools {runner, limit}` and `result_submitted.tool_calls` / `tool_calls_sha256`; `record` lists the calls and `trace` the count; `workers status` shows the provided capability (`provided_by_runner`). Two details settled while building: tool paths carry a root name (`inputs/`, `workspace/`) so the inputs and the tree never collide, and the call list is committed with the attempt while the transcript stays machine-local. Design: §6.1, §6.3 (`workers.md`), §8.2, §8.4 (`runtime.md`), §5.6 (`recipes.md`), §15.2 (`platform-and-security.md`). Manual: `admin/network-and-security.md` (new heading *What an API model may read*), `admin/machine-settings.md`. Tests: `tests/test_runner_tools.py` (rules, hash unchanged, routing, packet keys, read boundary and limits, the loop, its limit, reminders, refusals, fallbacks, classified errors, the unchanged single call, `workers status`, and end to end with the real child and LiteLLM's offline `mock_tool_calls`).
 - **Owner decision:** 2026-11-17, "Agree. Proceed."
 - **Accepted:** Yes.

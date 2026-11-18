@@ -1513,6 +1513,8 @@ def workers_status(as_json: JsonOpt = False) -> None:
         observed = {st: [c for c, s in g.get("capabilities", {}).items() if s == st] for st in ("verified", "absent")}
         if any(observed.values()):
             lines.append("  " + "; ".join(f"{st}: {', '.join(cs)}" for st, cs in observed.items() if cs))
+        if g.get("provided_by_runner"):
+            lines.append(f"  provided by Baton's runner: {', '.join(g['provided_by_runner'])}")
     for n, caps in out.get("capability_states", {}).items():
         if n not in out["generated"]:
             lines.append(f"profile {n}: " + "; ".join(f"{c} {s['state']}" for c, s in caps.items()))

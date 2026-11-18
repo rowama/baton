@@ -669,6 +669,9 @@ class _Checker:
         w = self.where(step)
         if step.program is not None:
             self._check_program_step(step, w)
+            if step.tool_calls is not None:
+                self.error("step.tool_calls_needs_worker", f"{w}.tool_calls",
+                           "tool_calls limits the tools Baton's API runner offers a model; a program step has no model (§5.9)")
         else:
             if step.wait is not None:
                 self.error("step.wait_needs_program", f"{w}.wait",

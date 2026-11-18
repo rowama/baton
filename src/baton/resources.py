@@ -680,8 +680,13 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         gen[name].update(detail)
     states = _states_or_problem(home)
     claims = machine_claims(home)
+    adapters = {name: body.get("adapter") for name, (_p, body) in read_generated_dir(home).items() if isinstance(body, dict)}
     for name, g in gen.items():
         g["capabilities"] = cs_summary(states, name, claims.get(name, []))
+        provided = _runner_summary(states, name, adapters.get(name), claims.get(name, []))
+        if provided:
+            g["capabilities"].update(provided)
+            g["provided_by_runner"] = sorted(provided)
     return {
         "catalog": {"path": str(kw_mod.default_path()), "sha256": kw_sha},
         "setup_complete": state.completed is not None,
@@ -909,6 +914,21 @@ def declare(
         changed["nothing_more"] = nothing_more
     path = save_resources(home, res)
     return {**changed, "path": str(path)}
+
+
+def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: list[str]) -> dict[str, str]:
+    """The capabilities Baton's API runner provides for a profile and their state words (``runner_tools.provided``).
+
+    ``verified`` on Baton's basis, unless a state was recorded since (``workers declare``).
+    """
+    from . import runner_tools
+
+    tool_use = states.get(name, {}).get("tool_use")
+    out = {}
+    for cap in runner_tools.provided(str(adapter), claimed, tool_use is not None and tool_use.state == "absent"):
+        recorded = states.get(name, {}).get(cap)
+        out[cap] = recorded.state if recorded is not None else "verified"
+    return out
 
 
 def machine_claims(home: Path) -> dict[str, list[str]]:
