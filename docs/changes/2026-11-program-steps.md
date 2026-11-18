@@ -1,7 +1,7 @@
 ---
 id: 2026-11-program-steps
 title: "A recipe's tool is renamed a program, so \"tool\" means only what a model or a harness calls"
-status: proposed
+status: accepted
 level: standard
 decisions: ["0166", "0167", "0154", "0155", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/director-interface.md, design/platform-and-security.md, design/adoption-and-framing.md]
@@ -128,3 +128,9 @@ Each slice leaves the repository passing its tests.
 - **Summary:** Checked the **[VERIFY]** of question 2 before asking: a recipe's hash is compared only with the project's own lockfile (`src/baton/project.py`, `vendor` and `Project.recipe`), so the shipped recipes can be edited in place. The owner accepted all five suggested answers. Recorded as Decision 0167; the Request and Design now cite it. The proposal drafted earlier (this doc, Decision 0166, and the edits to `2026-11-ai-delegates`, `2026-11-step-tool-harness`, `docs/README.md` and the register) is committed with it. No code changed.
 - **Owner decision:** 2026-11-17, "Concur with commit and all question suggestions." (0167).
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Accepted
+
+- **Summary:** The owner approved the Request and Design as updated with Decision 0167's answers. No code changed.
+- **Owner decision:** 2026-11-17, "Approve"
+- **Accepted:** Yes.
