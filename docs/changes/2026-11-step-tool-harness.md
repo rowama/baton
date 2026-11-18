@@ -1,7 +1,7 @@
 ---
 id: 2026-11-step-tool-harness
 title: "Baton runs a bounded tool loop for API workers, with only the tools a step requires"
-status: in-progress
+status: done
 level: major
 decisions: ["0168", "0075", "0076", "0084", "0085", "0086", "0088", "0114", "0154", "0166"]
 touches: [design/workers.md, design/runtime.md, design/recipes.md, design/platform-and-security.md]
@@ -175,5 +175,11 @@ Slices as proposed; refined once the Request and Design are approved.
 ### Slice 3: declared search and the manual
 
 - **Summary:** `resources.py` gains the machine's search service: a top-level `search: {provider, credential?, base_url?, note?}` in `resources.yaml` (not a resource kind: the code treats every resource as a worker account), `declare_search` (provider checked against LiteLLM's `SearchProviders` when declaring only, since reading it loads LiteLLM; `searxng` needs `--base-url`; credentials only as `secret:`; another provider replaces the service), `declared_search`, and `search` in `workers status`. `baton workers declare --search` (CLI, MCP and `Api.workers_declare`). `runner_tools.search_backend` falls back to the declared service after the provider's own search, so any tool-calling API model gains `web_access`. At dispatch the key goes into the child's environment as `BATON_SEARCH_API_KEY` (a recorded secret name, redacted) and the provider and address onto its command line, never into the packet. The runner offers a `search` function over `litellm.search` (checked in the litellm 1.108.3 source: `search(query, search_provider, max_results, api_key, api_base, timeout)`, results with `title`, `url`, `snippet`); a failed search is refused back to the model naming only the error's type. Its results count as found URLs for the read-and-web rule. LiteLLM's search providers include `duckduckgo`, which calls DuckDuckGo's instant-answer JSON API, not result pages, so it may be declared; it returns related topics rather than full web results, so the manual names it nowhere. SearXNG is called with `format=json`, which an instance serves only when its `settings.yml` allows it; the manual says so. Design: §6.3, §6.4 (`workers.md`), §2 (`principles.md`: the search service is one more declaration, no new concept). Manual: `admin/web-access.md` (new topic), `admin/machine-settings.md`, `admin/network-and-security.md`, `reference/commands.md`, `reference/diagnostics.md` and `reference/environment.md` regenerated (`reference-notes.yaml`: `BATON_SEARCH_API_KEY`, `resources.search_invalid`). Tests: `tests/test_runner_tools.py` (declaring, refusing a literal key, an unknown provider and a keyless address-less SearXNG, replacing and removing; any tool-calling model gains web access, provider search first; the loop's declared search, recorded and found; the LiteLLM wrapper's results and hidden failures; end to end, the key in the child's environment only and nowhere in the project).
+- **Owner decision:** 2026-11-17, "Agree. Proceed."
+- **Accepted:** Yes.
+
+### Done
+
+- **Summary:** All twelve acceptance criteria are demonstrated by tests: the loop (1), only the required tools and never writes, commands or code (2), search without an account where possible and never scraped (3: provider search for Anthropic, a declared service otherwise), fetch safe by construction (4), reading in bounds (5), the bounded loop (6), tool output untrusted (7), every call recorded and shown by `record` and `trace` (8), the capability facts Baton's own (9), one model per attempt (10), steps without tooling unchanged (11), and the manual and design current (12). Slice 3's full suite is green on `ed4755e`. Left for later: SME consultations do not yet route to the runner's tools (their packets carry none); a recipe's programs offered to a model as tools (open question 8); other providers' own search, each after the same LiteLLM check.
 - **Owner decision:** 2026-11-17, "Agree. Proceed."
 - **Accepted:** Yes.

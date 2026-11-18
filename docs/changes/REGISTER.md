@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
@@ -35,6 +34,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | done | major | |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | done | standard |  |
 | [2026-11-setup-ui](2026-11-setup-ui.md) | A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file | done | major | |
+| [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | done | major | |
 | [2026-11-tailoring-axes](2026-11-tailoring-axes.md) | A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects | done | major | |
 | [2026-11-tool-steps](2026-11-tool-steps.md) | A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran | done | major | |
 | [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | done | major | |
