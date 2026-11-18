@@ -2817,7 +2817,7 @@ class Api:
                 running.append(item)
         from . import waits
 
-        waiting = waits.describe(ctx, self.project.baton)
+        waiting_steps = waits.describe(ctx, self.project.baton)  # not `waiting`: that name holds steps waiting on a binding below
         lease = locks.current(events)
         now = ctx.log.clock()
         lease_info = None
@@ -2863,8 +2863,8 @@ class Api:
             "ready": ready,
             "stale": stale,
             "running": running,
-            "waiting": waiting,
-            **({"waits_notice": self._schedule_state()["notice"]} if waiting and self._schedule_state()["notice"] else {}),
+            "waiting": waiting_steps,
+            **({"waits_notice": self._schedule_state()["notice"]} if waiting_steps and self._schedule_state()["notice"] else {}),
             "queued": self._queued_for(run_id),
             "pending_decisions": pending,
             "needs_owner": bool(pending),
