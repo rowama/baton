@@ -68,6 +68,21 @@ def _gate_line(ev: Event) -> str:
     return line
 
 
+def _waiting_lines(step_path: str, state: Any, mine: list[Event]) -> list[str]:
+    """A waiting step: what it waits on, since when and until when (§8.7). When it was last checked is machine-local: `status` shows it."""
+    if state.state != "waiting":
+        return []
+    ev = next((e for e in reversed(mine) if e.type == "wait_started" and e.attempt == state.attempt), None)
+    if ev is None:
+        return []
+    d = ev.data
+    every = f"; worth checking every {d['every']}" if d.get("every") else ""
+    cut = f" (cut from {d['until']} to the project's {d['cut_to']})" if d.get("cut_to") else ""
+    then = "the owner may go on without it" if d.get("on_expire") == "skip" else "the owner decides"
+    return [f"- Waiting: its check (tool `{d.get('tool')}`) found the condition not met at {ev.ts}; it waits until {d.get('deadline')}{cut}{every}; "
+            f"then {then}. `baton waits check` checks it again."]
+
+
 def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = None) -> str:
     events = ctx.log.events() if events is None else events
     mine = [e for e in events if e.step_path == step_path]
@@ -79,6 +94,7 @@ def step_record(ctx: RunContext, step_path: str, events: list[Event] | None = No
         f"- Recipe: `{ctx.recipe.recipe.ref}`",
         f"- State: **{state.state}**",
         f"- Attempts: {state.attempt}",
+        *_waiting_lines(step_path, state, mine),
         "",
     ]
     attempts = sorted({e.attempt for e in mine if e.attempt is not None})

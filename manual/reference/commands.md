@@ -821,17 +821,29 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 
 Steps that wait for a condition, held with no process running.
 
-Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+Explained in the manual: [Waiting steps and scheduling their check](admin.scheduling-checks#here-now).
 
 ### baton waits check {#baton-waits-check}
 
 Check each waiting step once and exit: a met condition is taken in now, an expired wait goes to the owner.
 
-Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+Explained in the manual: [Waiting steps and scheduling their check](admin.scheduling-checks#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `--run <str>` | Check only this run's waiting steps (default: every run). |
+| `--json` | Machine-readable output. |
+
+### baton waits schedule {#baton-waits-schedule}
+
+Show the scheduler entry that would run `waits check` regularly on this machine; install or remove it when asked.
+
+Explained in the manual: [Waiting steps and scheduling their check](admin.scheduling-checks#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--install` | Install the entry shown (only when the owner asked for it). |
+| `--remove` | Remove this project's entry. |
 | `--json` | Machine-readable output. |
 
 ## baton waive {#baton-waive}

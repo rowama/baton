@@ -37,6 +37,7 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | `cancel` | Withdraw a dispatch queued for the working tree |
 | `retry` | Start a new attempt of a part that was not accepted |
 | `waits check` | Check each part that is waiting for something outside to happen, once, and exit: one that is met is taken in and the work goes on; one past its deadline goes to the owner. Safe to run at any time; two never overlap |
+| `waits schedule` | Show the scheduler entry that would run `waits check` regularly on this computer; `--install` and `--remove` only when the owner asked ([scheduling the check](admin.scheduling-checks#here-now)) |
 
 ## The owner's decisions {#decisions}
 

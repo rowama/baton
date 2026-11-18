@@ -4,7 +4,7 @@ title: Long-running work and coming back
 audience: owner
 order: 70
 summary: Work can run after your chat ends; what happens when you come back, or move to another computer.
-related: [user.check-on-your-work, user.when-something-is-wrong]
+related: [user.check-on-your-work, user.when-something-is-wrong, user.waiting-for-something]
 ---
 
 ## Here, now {#here-now}

@@ -1342,6 +1342,13 @@ def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | Non
     return config.default, "default"
 
 
+def _leaf_steps(nodes: list[Any]) -> list[Step]:
+    out: list[Step] = []
+    for n in nodes:
+        out += _leaf_steps(n.steps) if isinstance(n, Group) else [n]
+    return out
+
+
 def tool_step_attempts(loaded: Any) -> dict[str, int]:
     """Attempts per tool step id: one unless the step raises it (Decision 0156, item 4)."""
     out: dict[str, int] = {}
@@ -2333,6 +2340,7 @@ class Api:
     def __init__(self, project: Any, director: Any):
         self.project = project
         self.director = director
+        self._sched: dict[str, Any] | None = None  # whether a scheduler checks waiting steps, looked up once (§8.7)
 
     @classmethod
     def open(
@@ -2651,6 +2659,7 @@ class Api:
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
+        self._add_wait_advice(out, loaded)
         if loaded.tools:  # warn, never refuse: a step the run's rating skips never blocks anything (Decision 0156, item 5)
             pending = tools_not_ready(loaded, self.project.home)
             if pending:
@@ -2727,6 +2736,8 @@ class Api:
                             for r in st["running"]],
                 "queued": st["queued"], "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"],
                 "lease": st["lease"],
+                **({"waiting": [{k: w.get(k) for k in ("step_path", "waits_for", "deadline", "last_checked", "failed_checks")} for w in st["waiting"]]}
+                   if st.get("waiting") else {}),
                 **({"waiting_on_binding": st["waiting_on_binding"]} if st.get("waiting_on_binding") else {}),
                 **({"upstream_changes": st["upstream_changes"]} if st.get("upstream_changes") else {}),
                 **({"policy_outdated": True} if st.get("policy_outdated") else {}),
@@ -2738,7 +2749,9 @@ class Api:
 
         open_inc = [{k: i.get(k) for k in ("id", "run", "step_path", "attempt", "class", "code", "message")}
                     for i in incidents(self.project.store.project_log().events()).values() if i["status"] == "open"]
+        any_waiting = any(r.get("waiting") for r in runs)
         return {"runs": runs, "workspace": ws, "incidents": open_inc, "needs_owner": any(r.get("needs_owner") for r in runs),
+                **({"waits_notice": self._schedule_state()["notice"]} if any_waiting and self._schedule_state()["notice"] else {}),
                 **self._policy_notice()}
 
     def status(self, run_id: str) -> dict[str, Any]:
@@ -2802,6 +2815,9 @@ class Api:
                 if disp.get("adapter") != "manual" and disp.get("dispatch_id"):
                     item["liveness"] = supervisor.liveness(self.project.baton, disp["dispatch_id"]).as_dict()
                 running.append(item)
+        from . import waits
+
+        waiting = waits.describe(ctx, self.project.baton)
         lease = locks.current(events)
         now = ctx.log.clock()
         lease_info = None
@@ -2847,6 +2863,8 @@ class Api:
             "ready": ready,
             "stale": stale,
             "running": running,
+            "waiting": waiting,
+            **({"waits_notice": self._schedule_state()["notice"]} if waiting and self._schedule_state()["notice"] else {}),
             "queued": self._queued_for(run_id),
             "pending_decisions": pending,
             "needs_owner": bool(pending),
@@ -3623,6 +3641,81 @@ class Api:
         self._fire_and_record(ctx, path, n, did, before=before)
         return {"result": result, **_outcome_dict(outcome)}
 
+    def waits_schedule(self, *, install: bool = False, remove: bool = False) -> dict[str, Any]:
+        """The scheduler entry that would run ``waits check`` here; installed or removed only when asked (criterion 6)."""
+        from . import waits
+
+        system = waits.platform_name()
+        if remove:
+            out = waits.remove(self.project.root, system)
+            self._sched = None
+            return {**out, "scheduled": self._schedule_state()["scheduled"]}
+        seconds = waits.interval_seconds(self._wait_everies())
+        out = waits.install(self.project.root, self.project.home, seconds, system) if install else waits.plan(self.project.root, self.project.home, seconds, system)
+        self._sched = None
+        state = self._schedule_state()
+        return {**out, "installed": out.get("installed", False) if install else None, "scheduled": state["scheduled"], "current": state["installed"],
+                "waiting": len(self._waiting_steps()), **({"notice": state["notice"]} if state["notice"] and not install else {})}
+
+    def _schedule_state(self) -> dict[str, Any]:
+        """Whether a scheduler entry checks waiting steps here (one look per call of the API, §8.7)."""
+        from . import waits
+
+        cached = self._sched
+        if cached is None:
+            system = waits.platform_name()
+            state = waits.installed(self.project.root, system)
+            cached = self._sched = {"platform": system, "installed": state, "scheduled": waits.is_scheduled(state, system),
+                                    "notice": waits.notice(state, system)}
+        return cached
+
+    def _waiting_steps(self) -> list[dict[str, Any]]:
+        """Every waiting step of every active run, with its run id."""
+        from . import waits
+
+        out = []
+        for rid in self.project.store.run_ids():
+            try:
+                ctx = self._ctx(rid)
+            except (EngineError, StoreError):  # expected: a broken run is reported by status and board
+                continue
+            if ctx.log.state().state == "active":
+                out += [{"run_id": rid, **w} for w in waits.describe(ctx, self.project.baton)]
+        return out
+
+    def _wait_everies(self) -> list[str | None]:
+        """``every`` of each waiting step; with none waiting, of every waiting step the vendored recipes declare."""
+        waiting = self._waiting_steps()
+        if waiting:
+            return [w.get("every") for w in waiting]
+        out: list[str | None] = []
+        for ref in self.project.vendored():
+            try:
+                loaded = self.project.recipe(ref)
+            except EngineError:  # expected: a recipe that does not load is reported by check
+                continue
+            out += [st.wait.every for st in _leaf_steps(loaded.recipe.steps) if st.wait is not None]
+        return out
+
+    def _add_wait_advice(self, out: dict[str, Any], loaded: Any) -> None:
+        """A recipe with waiting steps: each wait's length (cut to waits.max, told now) and whether anything checks them here."""
+        from .models import duration_seconds
+
+        waits_cfg = self.project.config.waits
+        steps = [st for st in _leaf_steps(loaded.recipe.steps) if st.wait is not None]
+        if not steps:
+            return
+        items = []
+        for st in steps:
+            item: dict[str, Any] = {"step": st.id, "until": st.wait.until, "on_expire": st.wait.on_expire}
+            if duration_seconds(st.wait.until) > waits_cfg.max_seconds():
+                item["cut_to"] = str(waits_cfg.max)
+                out.setdefault("warnings", []).append(
+                    f"{st.id} may wait up to {st.wait.until}, longer than this project allows; it will wait at most {waits_cfg.max} (waits.max in project.yaml)")
+            items.append(item)
+        sched = self._schedule_state()
+        out["waits"] = {"steps": items, "scheduled": sched["scheduled"], **({"notice": sched["notice"]} if sched["notice"] else {})}
+
     def _release_finished_holder(self, ctx: RunContext) -> None:
         """Release this run's hold on the working tree if its attempt is no longer in flight (e.g. a crashed ``submit``)."""
         from . import locks
@@ -3935,7 +4028,18 @@ class Api:
     def doctor(self, profile: str | None = None, *, run_noop: bool = True) -> dict[str, Any]:
         from .doctor import doctor
 
-        return doctor(self.project, profile, run_noop=run_noop)
+        out = doctor(self.project, profile, run_noop=run_noop)
+        if profile is None and "blocked" not in out:
+            waiting = self._waiting_steps()
+            if waiting:
+                sched = self._schedule_state()
+                note = sched["notice"]
+                if note:
+                    where = ", ".join(f"{w['step_path']} of {w['run_id']}" for w in waiting)
+                    out.setdefault("warnings", []).append(f"{len(waiting)} step(s) waiting ({where}): {note}")
+                out["waits"] = {"waiting": waiting, "scheduled": sched["scheduled"], "platform": sched["platform"],
+                                **({"notice": note} if note else {})}
+        return out
 
     def diag(self, since: str | int | None = None, code: str | None = None, run: str | None = None, records: bool = False,
              limit: int = 200) -> dict[str, Any]:
@@ -4015,10 +4119,20 @@ class Api:
         import shutil
 
         def body(ctx: RunContext) -> dict[str, Any]:
+            from . import waits
+            from .tool_runner import NOT_MET_FILE
+
             st = ctx.log.state().step(step_path)
-            if st.state != "running":
-                raise EngineError("engine.not_running", f"{step_path} is {st.state}; only a running attempt can be submitted")
+            if st.state not in ("running", "waiting"):
+                raise EngineError("engine.not_running", f"{step_path} is {st.state}; only a running or waiting attempt can be submitted")
             target = ctx.attempt_dir(step_path, st.attempt) / "result"
+            if st.state == "waiting":
+                # Something outside hands in the result of a waiting step (Decision 0165, item 3): the met check's place.
+                src = Path(result_dir) if result_dir is not None else target
+                if not (src / "result.json").is_file():
+                    raise EngineError("submit.no_result", f"{step_path} is waiting; hand in its result with --result <folder holding result.json>")
+                (target / NOT_MET_FILE).unlink(missing_ok=True)
+                waits.forget(self.project.baton, ctx.run_id, step_path, st.attempt)
             if result_dir is not None and Path(result_dir).resolve() != target.resolve():
                 src = Path(result_dir)
                 if not (src / "result.json").is_file():

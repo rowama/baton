@@ -448,6 +448,10 @@ def _status_text(s: dict) -> str:
         lines.append(f"  {gid}: {g['summary']}")
     for r in s["running"]:
         lines.append(f"  {r['step_path']}#{r['attempt']}: packet {r['packet']}; result goes in {r['result']}")
+    for w in s.get("waiting") or []:
+        lines.append("  " + _waiting_text(w))
+    if s.get("waits_notice"):
+        lines.append(f"  Note: {s['waits_notice']}")
     for q in s.get("queued") or []:
         lines.append(f"  {q['step_path']}: queued for the working tree (position {q['position']}, worker {q['worker']})")
     for st in s.get("stale") or []:
@@ -465,6 +469,14 @@ def _status_text(s: dict) -> str:
     lines += _pending_lines(s)
     lines += _policy_lines(s)
     return "\n".join(lines)
+
+
+def _waiting_text(w: dict) -> str:
+    """One waiting step in plain words: what it waits for, since when, until when, last checked (§8.7)."""
+    checked = f"last checked {w['last_checked']}" if w.get("last_checked") else "not checked since it started waiting"
+    failed = f"; {w['failed_checks']} failed check(s) in a row" if w.get("failed_checks") else ""
+    since = f" since {w['since']}" if w.get("since") else ""
+    return f"{w['step_path']}: waiting for \"{w['waits_for']}\"{since}, until {w['deadline']}; {checked}{failed}"
 
 
 def _policy_lines(s: dict) -> list[str]:
@@ -500,6 +512,7 @@ def board(
             bits.append("under an earlier policy")
         lines.append(" · ".join(bits))
         lines += [f"  {g}: {summary}" for g, summary in r["groups"].items()]
+        lines += ["  " + _waiting_text({**w, "since": None}) for w in r.get("waiting") or []]
         lines += ["  " + line for line in _pending_lines(r)]
     if not out["runs"]:
         lines.append("No runs need you." if needs_me else "No active runs.")
@@ -508,6 +521,8 @@ def board(
     ws = out["workspace"]
     if ws["holder"]:
         lines.append(f"Working tree: held by {ws['holder']['step_path']} of {ws['holder']['run_id']}" + (f"; {ws['queued']} queued" if ws["queued"] else ""))
+    if out.get("waits_notice"):
+        lines.append(f"Note: {out['waits_notice']}")
     lines += _policy_lines(out)
     _done(out, as_json, "\n".join(lines))
 
@@ -1538,6 +1553,32 @@ def waits_check(
             lines.append(f"{where}: already {c.get('state')}")
     _emit(out, as_json, "\n".join(lines) or "No step is waiting.")
     raise typer.Exit(EXIT_OK)
+
+
+@waits_app.command("schedule")
+def waits_schedule(
+    install: Annotated[bool, typer.Option("--install", help="Install the entry shown (only when the owner asked for it).")] = False,
+    remove: Annotated[bool, typer.Option("--remove", help="Remove this project's entry.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Show the scheduler entry that would run `waits check` regularly on this machine; install or remove it when asked."""
+    if install and remove:
+        _fail(as_json, EXIT_USAGE, "usage.waits_schedule", "give --install or --remove, not both")
+    out = _call(as_json, lambda: _api().waits_schedule(install=install, remove=remove))
+    if remove:
+        text = (f"Removed from {', '.join(out['removed'])}." if out["removed"] else "No entry for this project was installed.")
+        text += "".join(f"\nERROR: {p}" for p in out["problems"])
+        _emit(out, as_json, text)
+        raise typer.Exit(EXIT_PROBLEM if out["problems"] else EXIT_OK)
+    lines = [f"{out['scheduler']} entry ({out['platform']}): it {out['does']}.", f"  {out['entry']}"]
+    if install:
+        lines.append("Installed." if out["installed"] else f"ERROR: not installed: {out.get('problem')}")
+    else:
+        lines.append("Installed already." if out["scheduled"] else "Not installed. `baton waits schedule --install` installs it; `--remove` removes it.")
+        if out.get("notice") and out["scheduled"] is False and out["platform"] == "wsl":
+            lines.append(f"Note: {out['notice']}")
+    _emit(out, as_json, "\n".join(lines))
+    raise typer.Exit(EXIT_PROBLEM if install and not out["installed"] else EXIT_OK)
 
 
 tools_app = typer.Typer(no_args_is_help=True, help="Tools the vendored recipes ship: scripts run with no model (§5.9).")

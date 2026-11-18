@@ -73,6 +73,11 @@ published:
 - admin.recipes-and-vendoring#review
 - admin.recipes-and-vendoring#tools
 - admin.recipes-and-vendoring#versions
+- admin.scheduling-checks
+- admin.scheduling-checks#here-now
+- admin.scheduling-checks#how-long
+- admin.scheduling-checks#where
+- admin.scheduling-checks#writing-a-check
 - admin.secrets
 - admin.secrets#here-now
 - admin.secrets#replacing-and-removing
@@ -301,6 +306,7 @@ published:
 - reference.commands#baton-wait
 - reference.commands#baton-waits
 - reference.commands#baton-waits-check
+- reference.commands#baton-waits-schedule
 - reference.commands#baton-waive
 - reference.commands#baton-workers
 - reference.commands#baton-workers-assess
@@ -387,6 +393,11 @@ published:
 - user.using-the-manual#here-now
 - user.using-the-manual#layout
 - user.using-the-manual#terminal
+- user.waiting-for-something
+- user.waiting-for-something#here-now
+- user.waiting-for-something#when-it-runs-out
+- user.waiting-for-something#where-it-stands
+- user.waiting-for-something#who-checks
 - user.what-baton-may-do
 - user.what-baton-may-do#asks-you
 - user.what-baton-may-do#changing

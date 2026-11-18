@@ -17,8 +17,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from baton import labels, locks, state as sm, waits
+from baton.cli import app
 from baton.engine import Api
 from baton.models import duration_seconds
 from baton.state import IllegalTransition, RunState
@@ -408,3 +410,169 @@ def test_a_held_check_lock_is_reported_busy(tmp_path):
             assert not second
     with locks.try_file_lock(tmp_path / "x.lock") as again:
         assert again
+
+
+# -- Slice 2: the owner can see and schedule it ---------------------------------------
+
+
+class FakeScheduler:
+    """Stands in for crontab and schtasks: records what would be installed, touches nothing on the machine."""
+
+    def __init__(self, cron: list[str] | None = None, *, crontab: bool = True, schtasks: bool = True):
+        self.cron = list(cron or [])
+        self.tasks: dict[str, list[str]] = {}
+        self.has_crontab, self.has_schtasks = crontab, schtasks
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str], stdin: str | None = None) -> tuple[int, str]:
+        self.calls.append(argv)
+        if argv[0] == "crontab":
+            if not self.has_crontab:
+                return 127, "crontab is not available"
+            if argv[1] == "-l":
+                return (0, "\n".join(self.cron) + "\n") if self.cron else (1, "no crontab for you")
+            self.cron = [ln for ln in (stdin or "").splitlines() if ln]
+            return 0, ""
+        if not self.has_schtasks:
+            return 127, "schtasks is not available"
+        name = argv[argv.index("/TN") + 1]
+        if argv[1] == "/Query":
+            return (0, name) if name in self.tasks else (1, "ERROR: The system cannot find the file specified.")
+        if argv[1] == "/Delete":
+            self.tasks.pop(name, None)
+            return 0, "SUCCESS"
+        self.tasks[name] = argv
+        return 0, "SUCCESS"
+
+
+@pytest.fixture
+def sched(monkeypatch):
+    fake = FakeScheduler(["0 3 * * * backup.sh"])
+    monkeypatch.setattr(waits, "_run", fake)
+    return fake
+
+
+@pytest.mark.not_slow("arithmetic")
+def test_the_interval_is_the_shortest_every_and_never_under_five_minutes():
+    assert waits.interval_seconds(["2h", "30m", None]) == 1800
+    assert waits.interval_seconds(["1m"]) == 300
+    assert waits.interval_seconds([None]) == waits.interval_seconds([]) == 1800
+    assert [waits.cron_spec(s) for s in (300, 1800, 7200, 3 * 86400)] == ["*/5 * * * *", "*/30 * * * *", "0 */2 * * *", "0 0 * * *"]
+
+
+@pytest.mark.not_slow("a fake scheduler")
+def test_cron_install_keeps_other_lines_and_replaces_its_own(sched, tmp_path):
+    root, home = tmp_path / "proj", tmp_path / "home"
+    p = waits.plan(root, home, 1800, "linux")
+    assert p["scheduler"] == "cron" and p["entry"].startswith("*/30 * * * * ") and f"--project {root} waits check" in p["entry"]
+    assert p["entry"].endswith(f"{waits.CRON_MARK}{root}") and sched.cron == ["0 3 * * * backup.sh"]  # printing installs nothing
+    assert waits.installed(root, "linux") == {"cron": False, "task": None}
+    assert waits.install(root, home, 1800, "linux")["installed"]
+    assert waits.install(root, home, 600, "linux")["installed"]
+    assert sched.cron[0] == "0 3 * * * backup.sh" and len(sched.cron) == 2 and sched.cron[1].startswith("*/10 ")
+    assert waits.is_scheduled(waits.installed(root, "linux"), "linux")
+    assert waits.remove(root, "linux") == {"platform": "linux", "removed": ["cron"], "problems": []}
+    assert sched.cron == ["0 3 * * * backup.sh"]
+    assert waits.remove(root, "linux")["removed"] == []
+
+
+@pytest.mark.not_slow("a fake scheduler")
+def test_on_wsl_the_check_is_scheduled_by_windows_inside_wsl(sched, tmp_path, monkeypatch):
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    root, home = tmp_path / "proj", tmp_path / "home"
+    p = waits.plan(root, home, 1800, "wsl")
+    assert p["scheduler"] == "Task Scheduler" and p["entry"].startswith("schtasks.exe /Create /F /TN")
+    assert "wsl.exe -d Ubuntu -- sh -c" in p["entry"] and "waits check" in p["entry"] and "inside WSL" in p["does"]
+    # A cron entry alone does not count on WSL: cron stops with WSL (Decision 0165, item 7).
+    waits.install(root, home, 1800, "linux")
+    state = waits.installed(root, "wsl")
+    assert state == {"cron": True, "task": False} and not waits.is_scheduled(state, "wsl")
+    assert "Task Scheduler" in waits.notice(state, "wsl")
+    assert waits.install(root, home, 1800, "wsl")["installed"]
+    (args,) = sched.tasks.values()
+    assert args[0] == "schtasks.exe" and args[args.index("/SC") + 1] == "MINUTE" and args[args.index("/MO") + 1] == "30"
+    assert waits.is_scheduled(waits.installed(root, "wsl"), "wsl") and waits.notice(waits.installed(root, "wsl"), "wsl") is None
+    assert set(waits.remove(root, "wsl")["removed"]) == {"cron", "Task Scheduler"}
+
+
+@pytest.mark.not_slow("a fake scheduler")
+def test_on_windows_task_scheduler_runs_baton(sched, tmp_path):
+    root, home = tmp_path / "proj", tmp_path / "home"
+    p = waits.plan(root, home, 2 * 86400, "windows")
+    assert p["entry"].startswith("schtasks /Create") and "/SC DAILY" in p["entry"] and "wsl.exe" not in p["entry"]
+    assert waits.installed(root, "windows") == {"cron": None, "task": False}
+    assert waits.install(root, home, 2 * 86400, "windows")["installed"]
+    assert not any(c[0] == "crontab" for c in sched.calls)
+
+
+@pytest.mark.not_slow("a fake scheduler")
+def test_no_scheduler_is_reported_not_installed(monkeypatch, tmp_path):
+    monkeypatch.setattr(waits, "_run", FakeScheduler(crontab=False, schtasks=False))
+    out = waits.install(tmp_path, tmp_path, 1800, "linux")
+    assert out["installed"] is False and "crontab is not available" in out["problem"]
+    assert waits.installed(tmp_path, "linux") == {"cron": None, "task": None}
+    assert "nothing on this machine is scheduled" in waits.notice({"cron": None, "task": None}, "linux")
+
+
+@pytest.mark.slow
+def test_the_owner_sees_what_waits_and_that_nothing_checks_it(tmp_path, sched, monkeypatch):
+    monkeypatch.setattr(waits, "platform_name", lambda: "linux")
+    s = Setup(tmp_path, wait={"until": "60d", "every": "15m"}, waits_max="30d")
+    s.dispatch()
+    s.check()
+    st = s.status()
+    (w,) = st["waiting"]
+    assert w["step_path"] == "backtest" and w["waits_for"] == "Test the strategy against past prices"
+    assert w["deadline"] == s.last("wait_started")["data"]["deadline"] and w["since"] == s.last("wait_started")["ts"]
+    assert w["last_checked"] and w["failed_checks"] == 0 and w["cut_to"] == "30d"
+    assert "nothing on this machine is scheduled" in st["waits_notice"]
+    plain = CliRunner(env={"BATON_HOME": str(s.home), "BATON_DIRECTOR": s.cli.director, "BATON_PROJECT": str(s.project)}).invoke(
+        app, ["status", s.run]).stdout
+    assert 'backtest: waiting for "Test the strategy against past prices" since' in plain and "last checked" in plain
+    board = s.cli("board", expect=None).payload
+    assert board["runs"][0]["waiting"][0]["step_path"] == "backtest" and "waits_notice" in board
+    record = (s.project / ".baton" / "runs" / s.run / "docs" / "backtest.md").read_text(encoding="utf-8")
+    assert "- Waiting: its check (tool `backtest`) found the condition not met" in record and "cut from 60d to the project's 30d" in record
+
+    doc = s.cli("doctor", expect=None).payload
+    assert any("1 step(s) waiting (backtest of " in w for w in doc["warnings"]) and doc["waits"]["scheduled"] is False
+
+    out = s.cli.run("waits", "schedule")
+    assert out["scheduler"] == "cron" and out["entry"].startswith("*/15 ") and out["installed"] is None and not out["scheduled"]
+    assert sched.cron == ["0 3 * * * backup.sh"]  # shown, not installed
+    out = s.cli.run("waits", "schedule", "--install")
+    assert out["installed"] and out["scheduled"] and len(sched.cron) == 2
+    st = s.status()
+    assert "waits_notice" not in st
+    assert not any("waiting (" in w for w in s.cli("doctor", expect=None).payload["warnings"])
+    assert s.cli.run("waits", "schedule", "--remove")["removed"] == ["cron"] and sched.cron == ["0 3 * * * backup.sh"]
+
+
+@pytest.mark.slow
+def test_start_says_how_long_each_step_may_wait(tmp_path, sched, monkeypatch):
+    monkeypatch.setattr(waits, "platform_name", lambda: "linux")
+    s = Setup(tmp_path, wait={"until": "60d"}, waits_max="30d")
+    out = s.cli("start", "tool-demo", "--inputs", json.dumps({"title": "Again", "goal": "x"}), expect=None).payload
+    assert out["waits"]["steps"] == [{"step": "backtest", "until": "60d", "on_expire": "escalate", "cut_to": "30d"}]
+    assert out["waits"]["scheduled"] is False and "nothing on this machine is scheduled" in out["waits"]["notice"]
+    assert any("backtest may wait up to 60d" in w for w in out["warnings"])
+
+
+@pytest.mark.slow
+def test_something_outside_may_hand_in_a_waiting_steps_result(tmp_path):
+    s = Setup(tmp_path)
+    s.dispatch()
+    s.check()
+    s.cli("submit", s.run, "backtest", expect=1)  # nothing handed in yet
+    assert s.state() == "waiting"
+    pdir = packet_dir(s.project, s.run, "backtest", 1)
+    outside = tmp_path / "outside" / "packet"
+    outside.mkdir(parents=True)
+    shutil.copy(pdir / "manifest.json", outside / "manifest.json")
+    write_result(outside, {"trades": 2, "return_pct": 1.5}, artifacts=[{"name": "trades", "path": "artifacts/trades.csv"}])
+    (outside.parent / "result" / "artifacts").mkdir()
+    (outside.parent / "result" / "artifacts" / "trades.csv").write_text("day,side,price\n", encoding="utf-8")
+    out = s.cli.run("submit", s.run, "backtest", "--result", str(outside.parent / "result"))
+    assert out["outcome"] == "passed" and s.state() == "passed"
+    assert "wait_met" not in s.types() and s.last("result_submitted")["actor"] == "worker:tool:backtest"
+    assert waits.entry(s.project / ".baton", s.run, "backtest", 1) == {}

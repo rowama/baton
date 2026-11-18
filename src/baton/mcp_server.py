@@ -211,6 +211,16 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.wait(run, dispatch, timeout))
 
     @tool
+    def waits_check(run: str | None = None) -> dict[str, Any]:
+        """Check each waiting step once (of one run, or every run) and return: met ones are taken in, expired ones go to the owner."""
+        return t.call(lambda api: api.waits_check(run))
+
+    @tool
+    def waits_schedule(install: bool = False, remove: bool = False) -> dict[str, Any]:
+        """The scheduler entry that would run waits_check regularly here; install or remove it only when the owner asked."""
+        return t.call(lambda api: api.waits_schedule(install=install, remove=remove))
+
+    @tool
     def submit(run: str, step: str, result: str | None = None) -> dict[str, Any]:
         """Hand in a manual or external worker's result directory (default: the attempt's result/); intake and gates run now."""
         return t.call(lambda api: api.submit(run, step, result))
