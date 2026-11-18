@@ -1,7 +1,7 @@
 ---
 id: 2026-11-step-tool-harness
 title: "Baton runs a bounded tool loop for API workers, with only the tools a step requires"
-status: proposed
+status: accepted
 level: major
 decisions: ["0168", "0075", "0076", "0084", "0085", "0086", "0088", "0114", "0154", "0166"]
 touches: [design/workers.md, design/runtime.md, design/recipes.md, design/platform-and-security.md]
@@ -62,7 +62,7 @@ All nine were answered as suggested (Decision [0168](../decisions/0168-step-tool
 
 ## Design
 
-For the owner's approval, with the Request.
+Approved by the owner with the Request, 2026-11-17.
 
 ### Shape
 
@@ -151,3 +151,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** The eight open questions were put to the owner with their suggested answers, plus a ninth raised in doing so: provider web search is billed per search. Question 6 gained a note on provider-native search, where the found URLs are the provider's citations. The owner accepted all nine. Recorded as Decision 0168; the Request, Design and manual list now cite it. No code changed.
 - **Owner decision:** 2026-11-17, "As suggested." (0168).
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Summary:** The owner approved the Request and Design as updated with Decision 0168. Two facts are to be checked in Slice 2 before they are relied on: how each provider returns its native search's citations, and whether a provider accepts native search and function tools in one call. No code changed.
+- **Owner decision:** 2026-11-17, "Agree. Proceed."
+- **Accepted:** Yes.
