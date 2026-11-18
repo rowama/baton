@@ -1,16 +1,16 @@
 ---
 id: 2026-11-person-step-forms
 title: "A person's step can show a form built from the step's data, when the Director's questions are not enough"
-status: proposed            # ON HOLD: deferred by the owner (2026-11-15); after 2026-11-tool-steps and the recipe-builder changes of Decision 0155
+status: abandoned           # superseded by 2026-11-interaction-requests (Decision 0169)
 level: major
-decisions: ["0155", "0031", "0121"]
+decisions: ["0155", "0031", "0121", "0169"]
 touches: [design/director-interface.md, design/packets.md, design/recipes.md, design/platform-and-security.md]
 manual: []
 ---
 
 # A person's step can show a form built from the step's data, when the Director's questions are not enough
 
-> **On hold.** Discussed 2026-11-15 and deferred by the owner ("I don't want to forget it, but it needs to be deferred"). Not to be designed further until taken off hold.
+> **Abandoned** (2026-11-18). It tied a person's step to a form Baton rendered and served as a web page. Superseded by [2026-11-interaction-requests](2026-11-interaction-requests.md), where a step only asks for a structured interaction and any client renders it (Decision [0169](../decisions/0169-interaction-requests.md)); the first graphical renderer is [2026-11-interaction-ui](2026-11-interaction-ui.md).
 
 ## Request
 
@@ -57,3 +57,9 @@ To be written when taken off hold.
 - **Summary:** Recorded from the owner's discussion of 2026-11-15 so the idea is not lost. No design, no code.
 - **Owner decision:** 2026-11-15, "drop in the on hold change proposal for a more capable director/human interaction capability."
 - **Accepted:** No; on hold.
+
+### Abandoned
+
+- **Summary:** Superseded by `2026-11-interaction-requests` and `2026-11-interaction-ui`. Its problem (a table with a choice per row) and its rule that a form never blocks a run carry over; its Baton-rendered web form does not.
+- **Owner decision:** 2026-11-18, "Rewrite as interaction-requests and then obsolete the old proposal." (0169).
+- **Accepted:** No; abandoned.
