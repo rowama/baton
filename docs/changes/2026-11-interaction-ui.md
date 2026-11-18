@@ -1,7 +1,7 @@
 ---
 id: 2026-11-interaction-ui
 title: "The owner can answer any of Baton's requests in a page of the local UI, the first graphical renderer"
-status: in-progress
+status: done
 level: major
 decisions: ["0169", "0170", "0171", "0121", "0122", "0125"]
 touches: [design/director-interface.md, design/platform-and-security.md, design/layouts.md, design/persistence.md]
@@ -149,3 +149,8 @@ For the owner's approval, with the Request. Refined against `2026-11-interaction
 - **Modules:** `ui.py` (`Raw`, `_context_raw`, `Uploads`, `_upload`, files in `_answer`, upload header and size checks), `engine.py` (`opened`, `_opened_at`); front end `ui/requests.js` (images, downloads, file pickers and upload, the list), `app.css`; `skills/baton-director/SKILL.md`.
 - **Docs:** `director-interface.md` §13.1 (`interactions`' `opened`), §13.3 (the skill), §13.9 (raw context, uploads, the list); `platform-and-security.md` §15.2.
 - **Tests:** `test_ui_requests.py` (an uploaded photo answers a person's step and lands in its result; undeclared, wrong-type, empty and too-large uploads refused; uploads removed after a refused and a recorded answer; the following gate's photo served inline as `image/png`, its output as plain text; each media type's fixed type; `opened` in the list); `test_ui_requests_js.py` (newest first; required files named).
+
+### Finished
+
+- **Acceptance criteria:** 1, 2 (the generic renderer: `test_ui_requests_js.py`, driven against a live server for a gate, a blocked step's questions and a person's table); 3 (`renderable: false` offers the answer file); 4 (Confirm with a summary and note, `via: local_page`: `test_the_page_lists_reads_and_answers_a_request_as_the_owner`); 5 (the list, newest first, polling); 6 (`test_the_directors_ui_call_gives_the_requests_page`); 7 (projects by name, `baton ui` outside a project registers none: setup only, as before); 8 (routes call the CLI's functions; uploads are transient); 9 (`test_request_pages_are_the_shell_and_their_launch_link_keeps_the_path`, context without paths, fixed types, upload checks); 10 (the page's script ships with Baton; `extensions` ignored); 11 (design §13.1, §13.3, §13.9, §10.2, §10.4, §15.2, §4.4; the manual topics above).
+- **Not done here, as the Request scoped it:** a terminal renderer, a desktop window (`baton ui --window`), MCP elicitation, project and run views beyond the list.
