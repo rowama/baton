@@ -3,9 +3,9 @@ id: 2026-11-interaction-ui
 title: "The owner can answer any of Baton's requests in a page of the local UI, the first graphical renderer"
 status: proposed
 level: major
-decisions: ["0169", "0121", "0122", "0125"]
-touches: [design/director-interface.md, design/platform-and-security.md, design/layouts.md]
-manual: []
+decisions: ["0169", "0170", "0171", "0121", "0122", "0125"]
+touches: [design/director-interface.md, design/platform-and-security.md, design/layouts.md, design/persistence.md]
+manual: [user/answer-questions-and-decide.md, admin/director-commands.md, reference/commands.md, reference/project-settings.md]
 ---
 
 # The owner can answer any of Baton's requests in a page of the local UI, the first graphical renderer
@@ -46,12 +46,13 @@ The options considered:
 
 ### Open questions
 
-Each has a suggested answer, assumed until the owner decides.
+All answered by the owner, 2026-11-18 (Decision [0171](../decisions/0171-interaction-ui-details.md)):
 
-1. **One server per machine, or per project?** *Suggested:* one `baton ui` process serves the machine's views and one project's requests; starting it in another project restarts it there, as `baton ui` already restarts itself. *Rationale:* it keeps the single-process, single-port model of §13.9.
-2. **Does the page refresh on its own when a new request appears?** *Suggested:* the list polls `GET /api/interactions` every few seconds while open. *Rationale:* simple, needs no push channel, and the page is local.
-3. **What may `extensions.local_page` hold?** *Suggested:* column widths and whether a table may add rows; nothing else in the first version. *Rationale:* a small, declarative set that cannot become a back door for script.
-4. **Is a desktop window part of this change?** *Suggested:* no; a later option `baton ui --window`, using pywebview when it is installed. *Rationale:* it adds a dependency for little gain over a browser tab, and the page works without it.
+1. **One server per machine, or per project?** One for the machine, serving several projects; running in another project never restarts it. A project's address is lasting and readable: `/p/<name>/…`, from `project.name` in `project.yaml`, falling back to the folder's name (owner: "a platform trait doesn't define the project"). A request's id need not be readable.
+2. **Does the list refresh on its own?** Yes, every 5 seconds while its tab is visible; a request's page learns of a change when Confirm is refused as stale.
+3. **What may `extensions.local_page` hold?** Nothing in this change: the slot stays reserved by the format, and the way for a recipe to fill it waits for a recipe that needs it.
+4. **Is a desktop window part of this change?** No; a later `baton ui --window`.
+5. **Files for a person's step** (raised while refining): uploaded through the page to a private temporary folder, at most 100 MiB a file, and attached to the answer.
 
 ### Out of scope
 
@@ -61,53 +62,61 @@ Each has a suggested answer, assumed until the owner decides.
 
 ## Design
 
-For the owner's approval, with the Request. It follows `2026-11-interaction-requests` and is refined against that change's final form.
+For the owner's approval, with the Request. Refined against `2026-11-interaction-requests` as built and Decision [0171](../decisions/0171-interaction-ui-details.md).
 
 ### Shape
 
-- **Routes** (JSON, calling the CLI's functions):
+- **Projects.** `baton ui` and `ui(request?)` run in a project register it with the running server (or the one they start): its name and folder in `~/.baton/ui-projects.yaml` (0600), kept across restarts. The name is `project.name` slugified, else the folder's name; a second folder claiming a name already held by another live folder gets `-2`; a folder that moved keeps its name. A registered folder that no longer holds a Baton project is shown as gone, never served. `baton init` writes `project: {name: <folder name>}`. The browser names a project only by its name, never a path.
+- **Routes** (JSON, each calling the CLI's function, under the same safety checks as §13.9):
 
   | Route | Does | CLI equivalent |
   |---|---|---|
-  | `GET /api/interactions` | Open requests of the project | `interactions --json` |
-  | `GET /api/interactions/<id>` | One request | `interaction <id> --json` |
-  | `GET /api/interactions/<id>/context/<item>` | One context item's content | `interaction <id> --item <item>` |
-  | `POST /api/interactions/<id>/answer` | Record the confirmed answer | `answer <id> --file … --note …` |
+  | `GET /api/projects` | The projects the server knows, with their count of open requests | |
+  | `GET /api/p/<name>/interactions` | Open requests of the project, newest first | `interactions --json` |
+  | `GET /api/p/<name>/interactions/<id>` | One request | `interaction <id> --json` |
+  | `GET /api/p/<name>/interactions/<id>/context/<item>` | One context item's content | `interaction <id> --item <item>` |
+  | `POST /api/p/<name>/interactions/<id>/files/<file>` | Upload one declared file (raw body, at most 100 MiB) to a private temporary folder; returns a handle | |
+  | `POST /api/p/<name>/interactions/<id>/answer` | Record the confirmed answer: `{choice, values, words, note, files: {name: handle}}` | `answer <id> --file … --attach … --note … --via local_page` |
 
-- **Pages.** `/requests` (the list) and `/requests/<id>` (one request), in the same plain front end as the setup page.
-- **Rendering** is one generic renderer of the subset, written once: a field per property, a table for a list of objects, groups from hints. It validates against the schema before Confirm, and the runtime validates again on `answer`.
-- **Director.** `ui(request?)` returns `{url}` with the request's page; the skill says when to offer it: a request with a table, more than a few fields, or an image to look at.
+- **Pages.** `/p/<name>/requests` (the list) and `/p/<name>/requests/<id>` (one request), in the same shell and design system as Setup and Manual; the header links to the requests of the known projects. A stale or answered request's page says so and links to the current one, if any.
+- **Rendering** is one generic renderer of the subset (0170, item 2), written once, building DOM nodes, never HTML strings: a field per property, a table for a list of objects (fixed rows when the prefill or context gives them, otherwise rows the owner adds within `minItems`/`maxItems`), groups from hints, choices as buttons with their effects. It honours the closed hints (0170, item 3), ignores the rest and `extensions`, and validates before Confirm; the runtime validates again on `answer`. A request with `renderable: false` shows the message and context and the commands for the answer file.
+- **Confirmation.** Confirm shows the summary (the `summary` hint's fields, or all), the chosen effect, and an optional note; `answer` records `via: local_page` (0170, item 1).
+- **Context served by reference.** Text and tables inline. A `document` or `image` item is fetched by request and item id only; every response has a fixed content type and `X-Content-Type-Options: nosniff`. PNG, JPEG, GIF and WebP show inline; text and Markdown show as plain text; anything else, SVG included, is a download.
+- **Uploads.** Each file is kept under a private temporary folder (0700) named by the request, removed after the answer is recorded or refused, or when the server exits; only the request's declared file names are accepted.
+- **Director.** `ui(request?)` returns `{url}` for the request's page (the project's list without one), never restarting a running server; the skill offers it for a request with a table, more than a few fields, files to give, or an image to look at.
 
 ### Doc edits
 
-- `design/director-interface.md` §13.9 (the request pages, routes and project scope), §13.1 (`ui(request?)`), §13.3 (when the Director offers the page).
-- `design/platform-and-security.md`: context items served by reference.
-- `design/layouts.md`: the front end's new files.
+- `design/director-interface.md` §13.9 (projects, the request pages, routes, uploads), §13.1 (`ui(request?)`), §13.3 (when the Director offers the page).
+- `design/platform-and-security.md`: context items served by reference; uploads.
+- `design/layouts.md` §4.4: `~/.baton/ui-projects.yaml`; the front end's new files.
+- `design/persistence.md` §10: `project.name`.
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: the owner's topic on answering Baton's questions your way, `admin/director-commands.md`, `reference/commands.md`.
+- `user/answer-questions-and-decide.md`: answering in the page; the project's lasting address; files.
+- `admin/director-commands.md`: `ui(request?)`.
+- `reference/commands.md`: `baton ui` in a project (regenerated).
+- `reference/project-settings.md`: `project.name` (regenerated if it appears there).
 
 ### Decisions
 
-- [0169](../decisions/0169-interaction-requests.md) (accepted): requests are renderer-neutral; this is the first GUI renderer.
+- [0169](../decisions/0169-interaction-requests.md), [0170](../decisions/0170-interaction-requests-details.md) (accepted): requests are renderer-neutral; this is the first GUI renderer.
 - [0121](../decisions/0121-optional-ui-is-a-client.md), [0122](../decisions/0122-ui-scope-and-packaging.md), [0125](../decisions/0125-ui-adds-no-concept.md) (accepted): the local UI's place, packaging and limits.
-- The four open questions above become one record when the owner answers them.
+- [0171](../decisions/0171-interaction-ui-details.md) (accepted): the answers to the five open questions.
 
 ## Plan
-
-Slices as proposed; refined once the Request and Design are approved and `2026-11-interaction-requests` is done.
 
 ### Slice 1: answering one request
 
 - **Outcome:** the Director gives the owner a link, and the owner answers a decision or a form in the page.
-- **Criteria:** the routes; project scope; the generic renderer for fields and choices; hints; Confirm with summary and note; `answer` with `via: local_page`; a non-renderable request offers the file; the safety checks on the new routes.
+- **Criteria:** `project.name` and its fallback; projects registered and kept across restarts; the list, request and answer routes; the generic renderer for fields and choices; hints; Confirm with summary and note; `answer` with `via: local_page`; stale requests; a non-renderable request offers the file; `ui(request?)`; the safety checks on the new routes.
 - **Effort:** M
 
-### Slice 2: tables, context and the list
+### Slice 2: tables, context, files and the list page
 
-- **Outcome:** the owner answers a table-per-row request with images in view, and sees every open request.
-- **Criteria:** tables with fixed and added rows; context tables, documents and images served by reference; the list and its polling; `extensions.local_page`; the Director skill; the manual.
+- **Outcome:** the owner answers a table-per-row request with images in view, gives a person's step its files, and sees every open request.
+- **Criteria:** tables with fixed and added rows; context items served by reference with fixed types; uploads and their cleanup; the list page and its polling; the Director skill; the manual.
 - **Effort:** M
 
 ## Log
@@ -117,3 +126,8 @@ Slices as proposed; refined once the Request and Design are approved and `2026-1
 - **Summary:** Written from the owner's direction of 2026-11-18 (Decision 0169, item 6), with the recommendation to build the first graphical renderer as a page of the existing local UI. No code changed.
 - **Owner decision:** 2026-11-18, "Include a gui renderer as the baseline option either as part of this or as a separate proposal."
 - **Accepted:** No; proposal only. Four open questions await the owner.
+
+### Open questions answered
+
+- **Summary:** The owner answered the five open questions (Decision 0171). Three suggested answers changed when the draft was checked against `2026-11-interaction-requests` as built: one server serving several projects (a restart would break §13.9's no-restart rule for the Director), no `extensions.local_page` (nothing fills it yet), and file uploads (new). The owner chose a project name in `project.yaml`, falling back to the folder's name, for a lasting address. Design and Plan refined. No code changed.
+- **Accepted:** Not yet; awaiting the owner's approval of Request and Design.
