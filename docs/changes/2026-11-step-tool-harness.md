@@ -3,9 +3,9 @@ id: 2026-11-step-tool-harness
 title: "Baton runs a bounded tool loop for API workers, with only the tools a step requires"
 status: proposed
 level: major
-decisions: ["0075", "0076", "0084", "0085", "0086", "0088", "0114", "0154", "0166"]
+decisions: ["0168", "0075", "0076", "0084", "0085", "0086", "0088", "0114", "0154", "0166"]
 touches: [design/workers.md, design/runtime.md, design/recipes.md, design/platform-and-security.md]
-manual: []
+manual: [admin/accounts-and-costs.md, admin/network-and-security.md, admin/machine-settings.md, reference/commands.md, reference/diagnostics.md]
 ---
 
 # Baton runs a bounded tool loop for API workers, with only the tools a step requires
@@ -41,16 +41,17 @@ The tools here are Baton's own, offered to a model inside one worker's attempt, 
 
 ### Open questions
 
-Each has a suggested answer, assumed until the owner decides.
+All nine were answered as suggested (Decision [0168](../decisions/0168-step-tool-harness-details.md)); question 9 was raised when the first eight were put to the owner.
 
 1. **An option of `litellm_api`, or a new adapter?** *Suggested:* part of `litellm_api`. *Rationale:* the same profiles, routes and identity; a new adapter would duplicate every API profile.
 2. **Does `web_access` need both search and fetch?** *Suggested:* yes; a profile with fetch but no search backend does not offer `web_access`. *Rationale:* the capability means "can fetch / search the web" (§5.6), and research steps depend on finding sources, not only reading known ones.
 3. **Which search providers may the owner declare?** *Suggested:* any that LiteLLM's web search interception supports ([LiteLLM: web search interception](https://docs.litellm.ai/docs/integrations/websearch_interception)), declared once per machine with `workers declare` and a `secret:` key, plus a self-hosted SearXNG with only a base URL. *Rationale:* no Baton code per provider; SearXNG gives a free route for an owner who runs one.
 4. **How does the model finish?** *Suggested:* by calling `finish` with the reply as its arguments, on every route that has tools. *Rationale:* some providers do not combine tool calling with structured output in one call **[VERIFY per provider]**; a finish tool works the same everywhere, and its arguments are checked against the reply schema as today.
 5. **Default tool-call limit?** *Suggested:* 40 per attempt; a recipe may set `tool_calls: <n>` on a step. *Rationale:* a guess, not a measured figure: enough for a research step to search a few times and read a dozen pages, small enough to stop a model that loops. To be revised from recorded use.
-6. **May a step read the project and the web at once?** This is the real risk: a page can instruct the model to fetch a URL that carries the project's contents out. *Suggested:* allowed, but with both, `fetch` only opens URLs that appeared in a search result or in the step's inputs during this attempt. *Rationale:* research steps need both; limiting fetch to found or given URLs blocks the easy route out without forbidding the step.
+6. **May a step read the project and the web at once?** This is the real risk: a page can instruct the model to fetch a URL that carries the project's contents out. *Suggested:* allowed, but with both, `fetch` only opens URLs that appeared in a search result or in the step's inputs during this attempt. *Rationale:* research steps need both; limiting fetch to found or given URLs blocks the easy route out without forbidding the step. With provider-native search, the search runs on the provider's side, so the URLs it found are the citations the provider returns; a provider that returns none allows no fetch on such a step. How each provider returns citations is checked in Slice 2 **[VERIFY]**.
 7. **Does the runner prefer itself over a harness?** *Suggested:* no new routing rule; the runner's profiles compete by tier and capability state like any other. *Rationale:* routing already prefers what fits; a special preference would surprise the owner and hide cost differences.
 8. **Can a step offer one of its recipe's programs (§5.9) to the model as a tool?** *Suggested:* not in this change; recorded as a later possibility. *Rationale:* it would let a model call pinned, tested code mid-reasoning, which is valuable, but it mixes two designs that are each new.
+9. **Provider search is billed per search.** Some providers charge for each web search apart from tokens. *Suggested:* each attempt records how many searches it made, and `doctor` and the setup page say when a profile's web access is billed per search; Baton does not estimate the charge. *Rationale:* the owner sees that a cost exists and how much the work used, without Baton keeping a price list for searches.
 
 ### Out of scope
 
@@ -74,8 +75,8 @@ For the owner's approval, with the Request.
 - **`search`** returns `[{title, url, snippet}]`, at most ten results. Through an owner-declared provider, the runner calls LiteLLM's search interface for that provider directly.
 - **`fetch(url)`** resolves the host, refuses non-public addresses (also after each redirect, at most five), downloads at most 2 MiB, extracts readable text (HTML to text; plain and JSON as is; PDF and others refused in the first version) and returns at most 50,000 characters with the final URL.
 - **`read_file(path)` / `list_files(dir)`**: paths relative to the packet's input folder or, on a `read` step, the working tree; normalized and checked to stay inside; `.git` and `.baton` refused; at most 1 MiB per read.
-- **Records.** `logs/<attempt>/tool_calls.jsonl` (`{n, tool, args, bytes, sha256, ms, refused?}`) and `transcript.json` in the attempt's log folder; `result_submitted` gains `tool_calls: <count>`.
-- **Capability facts.** `workers status` and routing compute, for each `litellm_api` profile, `workspace_read` (when the model supports tool calling) and `web_access` (when it also has a search backend: provider-native, or a declared provider) as `verified` with `basis: baton_runner`. `doctor` says which profiles gain web access and why the others do not.
+- **Records.** `logs/<attempt>/tool_calls.jsonl` (`{n, tool, args, bytes, sha256, ms, refused?}`) and `transcript.json` in the attempt's log folder; `result_submitted` gains `tool_calls: <count>` and `searches: <count>`.
+- **Capability facts.** `workers status` and routing compute, for each `litellm_api` profile, `workspace_read` (when the model supports tool calling) and `web_access` (when it also has a search backend: provider-native, or a declared provider) as `verified` with `basis: baton_runner`. `doctor` says which profiles gain web access and why the others do not, and which are billed per search; the setup page shows the same note on a model's web access.
 - **Declared search.** `workers declare --search <provider> --credential secret:<NAME>` (or `--search searxng --base-url <url>`) writes the machine's search backend to `~/.baton/resources.yaml`.
 - **Limits in numbers** (2 MiB, 50,000 characters, 1 MiB, ten results, five redirects) are starting values chosen for this draft, not from a source; each is a constant to tune from use.
 
@@ -88,7 +89,11 @@ For the owner's approval, with the Request.
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: an administrator topic on giving API models web access (provider search, declaring a search backend), `admin/accounts-and-costs.md`, `admin/network-and-security.md` and `reference/commands.md`.
+- A new administrator topic, `admin/web-access.md`, on giving API models web access: provider search, declaring a search backend, SearXNG, and what a model may fetch. Added to `manual:` in Slice 3, when the file exists.
+- `admin/accounts-and-costs.md`: provider search billed per search; the search count recorded per attempt.
+- `admin/network-and-security.md`: what `fetch` refuses, the read boundary, the combined read-and-web rule.
+- `admin/machine-settings.md`: the search backend in `~/.baton/resources.yaml`.
+- `reference/commands.md`, `reference/diagnostics.md`: regenerated (`workers declare --search`, new codes).
 
 ### Decisions
 
@@ -97,7 +102,7 @@ To be listed when the change is accepted. Expected: an administrator topic on gi
 - [0075](../decisions/0075-model-identity-separate-from-route.md), [0076](../decisions/0076-unknown-identity-not-independent.md) (accepted): recorded identity; no silent switch.
 - [0086](../decisions/0086-capability-absent-reroutes.md), [0114](../decisions/0114-quota-exhausted-reroutes.md) (accepted): re-routing on absent capability and exhausted quota.
 - [0154](../decisions/0154-tool-steps.md), [0166](../decisions/0166-tools-renamed-programs.md) (accepted): a recipe's programs, which these tools are not.
-- The eight open questions above become one record when the owner answers them.
+- [0168](../decisions/0168-step-tool-harness-details.md) (accepted): the answers to the nine open questions, all as suggested.
 
 ## Plan
 
@@ -140,3 +145,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** With the recipe's tool renamed a program (Decision 0166, `2026-11-program-steps`), this change's tools keep the plain word, as agent software uses it; "runner tools" is dropped. To be built after `2026-11-program-steps`.
 - **Owner decision:** 2026-11-17, "It seems to me that the 5.9 usage is the odd one out." (0166).
 - **Accepted:** No; proposal only. Eight open questions await the owner.
+
+### Open questions answered
+
+- **Summary:** The eight open questions were put to the owner with their suggested answers, plus a ninth raised in doing so: provider web search is billed per search. Question 6 gained a note on provider-native search, where the found URLs are the provider's citations. The owner accepted all nine. Recorded as Decision 0168; the Request, Design and manual list now cite it. No code changed.
+- **Owner decision:** 2026-11-17, "As suggested." (0168).
+- **Accepted:** No; the Request and Design await the owner's approval.
