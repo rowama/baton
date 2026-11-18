@@ -1,7 +1,7 @@
 ---
 id: 2026-11-waiting-steps
 title: "A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it"
-status: proposed
+status: accepted
 level: major
 decisions: ["0165", "0154", "0156", "0058", "0059"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/workers.md, design/director-interface.md, design/platform-and-security.md]
@@ -59,7 +59,7 @@ The owner answered all nine on 2026-11-17, each as suggested (Decision [0165](..
 
 ## Design
 
-For the owner's approval, with the Request.
+Settled by the answers of Decision 0165. Approved by the owner with the Request on 2026-11-17.
 
 ### Shape
 
@@ -135,3 +135,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** Checked the nine suggested answers against the design: an escalated step's decisions are `retry` and `abandon` today, and `skipped` is reached only by tailoring, so answer 9 adds the edge `escalated → skipped` for an expired wait that declares `skip`. The owner accepted all nine as suggested. Recorded as Decision 0165. Request and Design updated (failed-check count, the 30-day ceiling, the skip edge). No code changed.
 - **Owner decision:** 2026-11-17, "All as suggested." (0165).
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Accepted
+
+- **Summary:** The owner approved the Request and Design as updated with Decision 0165's answers. No code changed.
+- **Owner decision:** 2026-11-17, "Approved."
+- **Accepted:** Yes.
