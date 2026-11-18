@@ -36,7 +36,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@6" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@7" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -283,8 +283,8 @@ def test_the_published_v3_still_loads_with_its_levels():
     assert "level" in json.loads((V3 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
 
 
-def test_v6_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@6" and not loaded.warnings
+def test_v7_loads_and_plans_at_every_pair_of_ratings(loaded):
+    assert loaded.recipe.ref == "recipe-builder@7" and not loaded.warnings
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
@@ -506,7 +506,7 @@ def test_engineered_adds_the_example_steps_the_design_approval_and_the_package_r
 
 
 def test_the_owners_examples_are_a_role_and_the_examples_step_is_gated_by_the_check_and_the_owner(loaded):
-    [role] = loaded.recipe.project_inputs
+    role = next(r for r in loaded.recipe.project_inputs if r.role == "examples")
     assert (role.role, role.many, role.required) == ("examples", True, False)
     by_id = {s.id: s for s in loaded.recipe.steps}
     plan, ex, acc = by_id["example_plan"], by_id["examples"], by_id["accept"]
@@ -618,3 +618,39 @@ def test_generate_lists_the_programs_to_build_and_the_prompts_carry_the_loop_rul
     rubric = read("static/program_review_rubric.md")
     assert "by recognising that example" in rubric and "a package the contract does not name" in rubric
     assert "`programs`" in read("prompts/accept.md")
+
+
+# -- the owner's documents of how they work now (change 2026-11-builder-context-and-locks, Slice 1; Decision 0173) --
+
+V6 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v6"
+
+
+def test_v7_takes_the_owners_documents_as_context_in_the_profile_research_and_design(loaded):
+    roles = {r.role: r for r in loaded.recipe.project_inputs}
+    assert set(roles) == {"examples", "context"}
+    assert (roles["context"].many, roles["context"].required) == (True, False)
+    steps = {s.id: s for s in loaded.recipe.steps}
+    design_step = next(s for s in steps["shape"].steps if s.id == "design")
+    for step in (steps["profile"], steps["research"], design_step):
+        assert {i.name: (i.from_, i.required) for i in step.inputs}["context"] == ("project.context", False), step.id
+    others = [s for s in loaded.recipe.steps if s.id not in ("profile", "research", "shape")]
+    assert not any(i.from_ == "project.context" for s in others for i in getattr(s, "inputs", []))
+
+
+def test_the_prompts_read_the_owners_documents_as_evidence_not_a_specification():
+    text = lambda name: " ".join((BUILDER / "prompts" / name).read_text(encoding="utf-8").split())
+    profile = text("profile.md")
+    assert "Read them as **evidence of how the owner works**, not as a specification" in profile
+    assert "Treat a document as the specification only when the owner says so" in profile
+    assert "the idea is the owner's current word" in profile
+    assert "evidence, not a specification" in text("research.md")
+    design = text("design.md")
+    assert "keep what works in them" in design and "say what the design kept from them, what it changed, and why" in design
+
+
+def test_the_published_v6_is_a_frozen_copy_without_the_context_role():
+    """A project's pinned recipe-builder@6 is never edited (§5.8): v7 is a new version, the v6 package a frozen copy."""
+    old = load_recipe(V6)
+    assert old.recipe.ref == "recipe-builder@6" and not old.warnings
+    assert [r.role for r in old.recipe.project_inputs] == ["examples"]
+    assert "context" not in (V6 / "prompts" / "profile.md").read_text(encoding="utf-8")

@@ -1,11 +1,11 @@
 ---
 id: 2026-11-builder-context-and-locks
 title: "Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired"
-status: proposed
+status: in-progress
 level: standard
 decisions: ["0173", "0172", "0142", "0037", "0149"]
 touches: [design/recipes.md, design/gates-and-reviews.md, design/runtime.md, design/adoption-and-framing.md, design/director-interface.md]
-manual: []
+manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, anchors.yaml]
 ---
 
 # Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired
@@ -64,7 +64,9 @@ For the owner's approval, with the Request. Refined against `36352e7` and Decisi
 
 ### Manual edits
 
-To be listed when the change is in progress. Expected: `recipes/recipe-builder.md`, `admin/recipes-and-vendoring.md`, `reference/commands.md`, and a line in the owner's topic on approvals.
+- `recipe-sources/recipe-builder.md` (and the generated `recipes/recipe-builder.md`): a new section, *What you already have written down* (`#your-documents`), and a line under *What you will be asked* pointing to it. Slice 1.
+- `anchors.yaml`: the new anchor. Slice 1.
+- Still to come: `admin/recipes-and-vendoring.md`, `reference/commands.md`, and a line in the owner's topic on approvals (Slices 2 and 3).
 
 ### Decisions
 
@@ -122,3 +124,17 @@ To be listed when the change is in progress. Expected: `recipes/recipe-builder.m
 - **Summary:** Recorded Decision 0173 (the five suggested answers). Refined the Design against `36352e7`: the violation mode belongs to the lock (most bound steps have no `protect`, and only write steps may); a difference found at dispatch was made outside any step, so it refuses the dispatch and asks the owner rather than failing an attempt; a publish into a locked file is a publish conflict; a `protected` waiver does not cover a lock. No code changed.
 - **Owner decision:** 2026-11-18, "accept all".
 - **Accepted:** No; the Request and Design await the owner's approval.
+
+### Request and Design approved
+
+- **Owner decision:** 2026-11-18, "Approve" (the Request, and the Design with its four refinements).
+- **Accepted:** Yes; status `in-progress`.
+
+### Slice 1: recipe-builder takes reference documents
+
+- **Summary:** `recipe-builder@7` declares a second project role, `context` (many, optional), and gives it to `profile`, `research` and `design` as an optional `project.context` input. The profile prompt has a new section 2a: the documents are evidence of how the owner works, a specification only when the owner says so, and the idea wins where they disagree (an `open` entry). Research compares usual practice with them; the design keeps what works and says what it kept and changed, in its summary and design document. `@6` is frozen as `tests/fixtures/recipes/recipe-builder-v6`.
+- **Modules:** none changed (the recipe and its prompts only).
+- **Design docs:** `design/recipes.md` §5.7 (version 7, the owner's documents).
+- **Manual:** `recipe-sources/recipe-builder.md` *What you already have written down*; `anchors.yaml`.
+- **Other docs:** `2026-11-ai-delegates` now plans `recipe-builder@8` (Decision 0173, item 4).
+- **Tests:** `tests/test_recipe_builder.py` (the role and the three inputs, nothing else takes it; the prompts' guidance; v6 a frozen copy); `tests/test_recipe_builder_runs.py` (an attested procedures document bound at start reaches the profile, research and design packets byte for byte, and not audit or generate; a pinned `@6` still runs to completion); the `@6` references moved to `@7`.

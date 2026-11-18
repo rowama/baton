@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 6
+version: 7
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
@@ -17,6 +17,10 @@ run_inputs:
 project_inputs:
   - role: examples
     description: "The owner's examples for the programs to be built: for each one, the files it is given and the result expected, one folder per example under examples/ in the project"
+    required: false
+    many: true
+  - role: context
+    description: "Documents of how the owner works now, such as a procedures manual, a checklist or an earlier process, for the builder to learn from"
     required: false
     many: true
 
@@ -39,6 +43,7 @@ steps:
       - { name: idea,        from: run.inputs.idea,        required: true }
       - { name: profile,     from: run.inputs.profile,     required: false }
       - { name: base_recipe, from: run.inputs.base_recipe, required: false }
+      - { name: context,     from: project.context,        required: false }   # how the owner works now (Decision 0173)
       - { name: recipes,     from: catalog.summaries,      required: false }
       - { name: guides,      from: catalog.guides,         required: false }   # for a quick run instead (Decision 0145)
     output_schema: schemas/profile_out.json
@@ -75,6 +80,7 @@ steps:
     prompt: prompts/research.md
     inputs:
       - { name: profile, from: steps.profile.output, required: true }
+      - { name: context, from: project.context,      required: false }
     output_schema: schemas/research_out.json
     gates: [ { type: schema } ]
 
@@ -93,6 +99,7 @@ steps:
         inputs:
           - { name: profile,       from: steps.profile.output,              required: true }
           - { name: research,      from: steps.research.output,             required: false }
+          - { name: context,       from: project.context,                   required: false }
           - { name: open_findings, from: group.previous_iteration.findings, required: false }
           - { name: patterns,      from: static.patterns.md,                required: true }
         output_schema: schemas/design_out.json

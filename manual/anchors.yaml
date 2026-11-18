@@ -234,6 +234,7 @@ published:
 - recipes.recipe-builder#what-it-produces
 - recipes.recipe-builder#what-you-are-asked
 - recipes.recipe-builder#who-does-each-part
+- recipes.recipe-builder#your-documents
 - recipes.software-feature
 - recipes.software-feature#example
 - recipes.software-feature#here-now

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "commit_sha",
+    "package_path",
+    "ledger_path",
+    "summary"
+  ],
+  "properties": {
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,64}$"
+    },
+    "package_path": {
+      "type": "string"
+    },
+    "ledger_path": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "engineered_programs": {
+      "type": "array",
+      "description": "Each engineered program to be built, in build order (the build_programs group's items); give no id",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "program",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "program": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

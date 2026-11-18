@@ -48,6 +48,18 @@ anything that changes who does a step, what a check requires, or what the owner 
 You may never mark your own entry `confirmed`; only the owner's answer does that, and then the entry
 carries their words in `owner_words`.
 
+## 2a. Documents of how the owner works now
+
+A `context` input, when given, holds documents the owner bound to this run: how they do this work
+now (a procedures manual, a checklist, an earlier kit or process, notes of lessons learned). Read
+them as **evidence of how the owner works**, not as a specification: they tell you the steps,
+people, checks and lessons the owner already has, and what went wrong before. Infer from them as
+from the idea, with a ledger entry whose `basis` names the document. Treat a document as the
+specification only when the owner says so, in the idea or in answer to a question; then record
+that as a `confirmed` entry with their words. Where a document and the idea disagree, the idea is
+the owner's current word: add an `open` entry stating the difference in their terms, and ask
+only if it changes who does a step, what a check requires or what the owner gets at the end.
+
 ## 3. The goal
 
 Restate it in `goal`: what the process is for, what starts it, the end state, and how the owner

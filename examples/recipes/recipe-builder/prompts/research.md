@@ -1,7 +1,11 @@
 # Learn how this work is usually done, and compare the ways to do it
 
 The `profile` input holds the owner's goal, the chosen generality, the requirements so far and
-`discovery`: the implementation choices the profile found, with their timing.
+`discovery`: the implementation choices the profile found, with their timing. A `context` input,
+when given, holds documents of how the owner works now: evidence, not a specification (the
+profile's ledger says if the owner made one a specification). Compare usual practice with what
+they show, and note in the ledger where the owner's way departs from it and whether the departure
+looks deliberate (a lesson learned) or worth questioning.
 
 ## 1. How this class of work is usually done
 

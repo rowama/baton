@@ -273,7 +273,7 @@ def test_a_project_reference_needs_declared_roles(tmp_path):
 @pytest.mark.not_slow("loads recipes in process")
 def test_shipped_recipes_declare_no_roles_and_their_summaries_are_unchanged():
     """Only project-review (2026-11-project-review), spreadsheet-reconcile (2026-11-tool-steps, new), quick-run
-    (2026-11-quick-runs, new) and recipe-builder@6 (`examples`, 2026-11-builder-engineered-tools) declare roles;
+    (2026-11-quick-runs, new) and recipe-builder@7 (`examples`, 2026-11-builder-engineered-tools; `context`, 2026-11-builder-context-and-locks) declare roles;
     every other shipped recipe's summary is unchanged."""
     from baton.frame import _summary
     from baton.project import builtin_recipe, catalog

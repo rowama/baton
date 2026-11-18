@@ -228,10 +228,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@6")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@6"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@7")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@7"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@6"
+    assert started["recipe"] == "recipe-builder@7"
 
 
 @pytest.mark.slow
@@ -1199,4 +1199,55 @@ def test_research_runs_on_an_api_model_through_batons_tool_loop(project_with):
     assert disp["profile"] == "api-research" and disp["tools"] == {"runner": ["search", "fetch"], "limit": 40, "search": "provider"}
     sub = next(e["data"] for e in evs if e["type"] == "result_submitted" and e["step_path"] == "research")
     assert sub["tool_calls"] == 0 and "searches" not in sub
+    assert_package_is_ready(cli, project)
+
+
+# -- the owner's documents of how they work now (change 2026-11-builder-context-and-locks, Slice 1; Decision 0173) --
+
+PROCEDURES = "# How we plant a bed\n\n1. Test the soil.\n2. Plant in rows of four.\n\nLesson: we lost a bed to clay in 2025.\n"
+
+
+@pytest.mark.slow
+def test_the_owners_procedures_reach_the_profile_the_research_and_the_design(project_with):
+    """recipe-builder@7: documents bound to `context` are given to the three steps that learn from them, byte for byte."""
+    ledger = [GOAL, BED, SOIL]
+    cli, project, _ = project_with({
+        "profile": profile("standard", [GOAL, BED]),
+        "research": {"output": {"discovery": [NONE_NEEDED], "ledger": ledger, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "R1"}]}},
+        "design": design(ledger, "Survey, test the soil as the owner's manual does, then plant"),
+        "audit": CLEAN, "generate": generated(ledger)})
+    (project / "docs").mkdir()
+    (project / "docs" / "procedures.md").write_text(PROCEDURES, encoding="utf-8")
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "Our procedures")
+    cli.run("attest", "docs/procedures.md", "--note", "That's how we do it now.")
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS), "--bind", "context=docs/procedures.md",
+                  "--note", "Yes, learn from our manual.", expect=None)["run_id"]
+    d = Director(cli, project, run, route=route, decisions={"audit": [("approve", "That is it.")]})
+    st = d.drive()
+    assert st["recipe"] == "recipe-builder@7" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
+    from projectkit import packet_dir
+
+    inst = st["groups"]["shape"]["instances"][0]["id"]
+    for step in ("profile", "research", f"shape/{inst}/i1/design"):
+        pd = packet_dir(project, run, step, 1)
+        manifest = json.loads((pd / "manifest.json").read_text(encoding="utf-8"))
+        (ctx,) = [e for e in manifest["inputs"] if e["name"] == "context"]
+        assert (pd / ctx["path"]).read_text(encoding="utf-8") == PROCEDURES, step
+    for step in ("audit", "generate"):  # only the three steps that learn from them are given them
+        assert not any(e["name"] == "context" for e in json.loads((packet_dir(project, run, step if step == "generate" else f"shape/{inst}/i1/audit", 1) / "manifest.json").read_text(encoding="utf-8"))["inputs"])
+    assert_package_is_ready(cli, project)
+
+
+@pytest.mark.slow
+def test_a_pinned_builder_v6_still_runs_without_the_context_role(project_with, monkeypatch):
+    """A project that pinned recipe-builder@6 keeps it (2026-11-builder-context-and-locks criterion 1)."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys.modules[__name__], "BUILDER", ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v6")
+    ledger = [GOAL, BED]
+    cli, project, _ = project_with({"profile": profile("simple", ledger), "design": design(ledger), "audit": CLEAN, "generate": generated(ledger)})
+    run = cli.run("start", "recipe-builder@6", "--inputs", json.dumps(INPUTS))["run_id"]
+    st = Director(cli, project, run, route=route).drive()
+    assert st["recipe"] == "recipe-builder@6" and st["state"] == "completed"
     assert_package_is_ready(cli, project)

@@ -1,7 +1,11 @@
 # Design the process
 
 Design the process for the rung in `profile`, in plain terms first. The `patterns` input holds
-reusable process shapes: use them, and say in `summary` where and why you depart from one.
+reusable process shapes: use them, and say in `summary` where and why you depart from one. A
+`context` input, when given, holds documents of how the owner works now: keep what works in them
+(their checks, roles and lessons learned) unless the profile or research gives a reason not to, and
+say in `summary` what you kept from them and what you changed, and why. They are evidence, not a
+specification, unless the profile's ledger records that the owner made one.
 
 Return `stages`. Split the work until each stage has one kind of work (patterns 8 and 9). For each
 stage give:
@@ -86,7 +90,8 @@ worked examples in plain words. For each program built to the owner's examples: 
 it may touch, the packages it needs and why, and the examples the owner will be asked to supply. For each part an AI worker does that a program could do: what a
 program would have given (the same result every time, no cost each run, no AI service needed),
 what it would have cost, and why it was not used. Mark the parts where letting an assistant act
-for the owner would be risky, and why. No jargon.
+for the owner would be risky, and why. When the owner gave documents of how they work now
+(`context`), say what the design kept from them, what it changed, and why. No jargon.
 
 Return the `discovery` records, updated.
 

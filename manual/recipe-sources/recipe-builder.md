@@ -19,7 +19,7 @@ You never need to know how Baton describes processes. Talk about your work. The 
 
 ## What you will be asked {#what-you-are-asked}
 
-- To describe the process: a title and what you want, in your words, and any process you already have in mind.
+- To describe the process: a title and what you want, in your words, and any process you already have in mind. If you already have it written down, give it the documents too: see [what you already have written down](#your-documents).
 - Once, to confirm what it understood and approve two things it judged, each with its reason: how much to build (a quick run, or a small, standard or large process), and whether it may write small programs for the process. A program does rule-like work (a calculation, a conversion, matching one list against another) the same way every time, at no cost each time it runs; it has to be written and checked first, and looked after if the work changes. The limit is none, small programs, or programs built to examples you supply (for work with exceptions or real data formats, such as matching a bank export to invoices). You set this limit; Baton recommends one.
 - If how the work could be done changes what the process must contain, to choose after it has compared the ways: see [choosing how it will be done](#implementation-choices).
 - For larger processes, or when it may write programs, after the design has been checked: **Is this the process you want?** Saying no sends it back with your note.
@@ -28,6 +28,12 @@ You never need to know how Baton describes processes. Talk about your work. The 
 - On a quick run instead, after that first question: **Use this guide?** Nothing else is built.
 
 It works out what it can and says what it assumed, so you confirm rather than start from a blank page. It will not promote its own guess to something you said: it records only what you confirmed.
+
+## What you already have written down {#your-documents}
+
+If you already do this work and have it written down (a procedures manual, a checklist, an earlier kit, notes of what went wrong last time), give those documents to recipe builder when you start, instead of pasting them into your description. Your assistant attaches them to the run; you are shown each one and asked to confirm it before the work starts.
+
+Recipe builder reads them as evidence of how you work: the steps, people, checks and lessons you already have. It keeps what works, and the design it shows you says what it kept from them, what it changed and why. It does not treat them as a specification it must copy, unless you say so ("follow our manual exactly"). Where a document and what you said disagree, what you said now counts, and it tells you about the difference.
 
 ## A full process or a quick run {#full-or-quick}
 
