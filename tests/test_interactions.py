@@ -455,3 +455,31 @@ def test_the_director_skill_renders_requests():
                    "answer <id> --template", "--via answer_file", "always `--note", "`interaction.stale`", "renderable: false"):
         assert phrase in part, phrase
     assert "answer <id> --choice <decision>" in text and "--attach <name>=<path>" in text
+
+
+@pytest.mark.parametrize("entry, kind", [
+    ({"ref": "build", "step_path": "build", "attempt": 1, "kind": "escalation", "reason": "attempts_exhausted",
+      "reasons": ["tests failed"], "questions": [], "options": [{"decision": "retry", "label": "Try again", "effect": "e"}]}, "escalation"),
+    ({"ref": "build", "step_path": "build", "attempt": 1, "kind": "escalation", "reason": "wait_expired", "reasons": [],
+      "questions": [], "options": [{"decision": "skip", "label": "Go on without it", "effect": "e"}]}, "wait_expired"),
+    ({"ref": "checks/i1", "step_path": "checks/i1", "kind": "iteration_limit", "reasons": ["not converged"],
+      "options": [{"decision": "retry", "label": "Give it another round", "effect": "e"}]}, "iteration_limit"),
+    ({"ref": "baseline", "step_path": None, "kind": "baseline", "path": "docs/baseline.yaml", "prompt": "Review it",
+      "options": [{"decision": "establish", "label": "That's an accurate picture", "effect": "e"}]}, "baseline"),
+    ({"ref": "skip:7", "step_path": "build", "kind": "skip_notice", "prompt": "Reported: skipped",
+      "options": [{"decision": "acknowledge", "label": "Noted", "effect": "e"}]}, "skip_notice"),
+    ({"ref": "publish:build.doc", "step_path": "build", "kind": "publish_conflict", "artifact": "doc", "path": "docs/x.md",
+      "reasons": ["a file is there"], "prompt": "Overwrite?", "options": [
+          {"decision": "keep", "label": "Keep the existing file", "effect": "e"},
+          {"decision": "alternate", "label": "Save the new one alongside", "effect": "e"}]}, "publish_conflict"),
+    ({"ref": "drift:build.doc", "step_path": "build", "kind": "drift", "artifact": "doc", "path": "docs/x.md", "current_sha256": "ab",
+      "prompt": "Edited", "options": [{"decision": "leave", "label": "Leave it as it is", "effect": "e"}]}, "drift"),
+], ids=lambda v: v if isinstance(v, str) else None)
+def test_every_kind_of_pending_decision_is_a_valid_request(ctx, entry, kind):
+    req = valid(interactions.build(None, ctx, entry))
+    assert req["kind"] == kind and req["title"] == interactions.TITLES[kind]
+    assert [c["decision"] for c in req["choices"]] == [o["decision"] for o in entry["options"]]
+    if kind == "publish_conflict":
+        assert "answer" not in req["choices"][0] and list(req["choices"][1]["answer"]["schema"]["properties"]) == ["path"]
+    changed = {**entry, "prompt": (entry.get("prompt") or "") + " now"}
+    assert interactions.request_id(ctx, changed) != req["id"]

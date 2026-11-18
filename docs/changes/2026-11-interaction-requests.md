@@ -1,7 +1,7 @@
 ---
 id: 2026-11-interaction-requests
 title: "Everything Baton asks the owner is a renderer-neutral interaction request, which any client may show in its own way"
-status: in-progress
+status: done
 level: major
 decisions: ["0169", "0170", "0031", "0121", "0125", "0161"]
 touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/director-interface.md, design/versioning.md]
@@ -198,3 +198,8 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Design docs:** director-interface §13.3 (the skill), §13.8 (the confirm-back seam for `answer`), §13.1 (notes for a person's step).
 - **Manual:** `user/answer-questions-and-decide.md` (`#answer-file`: a table in conversation, row by row).
 - **Tests:** `tests/test_interactions.py`: the Request's scenario over MCP, a person's table answered row by row in conversation with per-field words and a file, refused without the owner's words, recorded with `via: conversation`; the skill's *Answering requests* names every call and rule it relies on. The answer-file path of the scenario is covered by Slice 2's template test.
+
+### Done
+
+- **Summary:** Every acceptance criterion is shown by `tests/test_interactions.py`: one format, valid against `formats/baton-interaction-1.schema.json` (1); every kind of pending decision a request, gates, blocked questions, framing and rating signals through the CLI and the rest built and checked directly (2); a person's step from its schema, files and hints (3); the renderable subset and `renderable: false` (4); hints checked at load and carried as advice (5); `interactions`, `interaction`, `--item`, and `request_id` in `status` and `board` (6); `answer` for a choice, fields, questions and a person's result, stale refused, stamped `request_id` and `via` (7); the Director's conversation (the skill and the MCP scenario) and the answer file (8); `decide` and `submit` unchanged and unstamped (9); nothing requires a renderer: every request answers through conversation or the file (10); manual and design current (11). The last test added (every kind of pending decision is a valid request) covers criterion 2 beyond the kinds the CLI tests reach.
+- **Follows:** `2026-11-interaction-ui` (the first graphical renderer) no longer waits on this change; `2026-11-ai-delegates` builds on it (0170, item 5).
