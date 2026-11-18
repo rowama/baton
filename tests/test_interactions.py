@@ -404,3 +404,54 @@ def test_hints_name_dotted_fields_and_need_an_output_schema(tmp_path):
     (r / "h.yaml").write_text("{}", encoding="utf-8")
     _, issues = validate_recipe(r)
     assert [i.code for i in issues if i.severity == "error"] == ["interaction.needs_output_schema"]
+
+
+# -- Slice 3: the Director renders requests ----------------------------------------------
+
+
+def test_the_director_answers_a_table_row_by_row_in_conversation_over_mcp(tmp_path, monkeypatch):
+    """The scenario of the Request: a person matches receipt lines to items, row by row with the Director."""
+    import asyncio
+
+    from mcp import Client
+
+    from baton.mcp_server import build_server
+
+    cli, project, run = person_run(tmp_path)
+    monkeypatch.setenv("BATON_HOME", str(cli.home))
+    photo = tmp_path / "receipt.png"
+    photo.write_bytes(b"png")
+    rows = [{"line": "Widget A", "item": "i1"}, {"line": "Widget B", "item": "i2"}]
+
+    async def main():
+        async with Client(build_server(project, cli.director)) as c:
+            listed = (await c.call_tool("interactions", {"run": run})).structured_content["requests"]
+            req = (await c.call_tool("interaction", {"request": listed[0]["id"]})).structured_content
+            refused = await c.call_tool("answer", {"request": req["id"], "values": {"matches": rows, "checked": True},
+                                                    "artifacts": {"photo": str(photo)}})  # no words
+            done = await c.call_tool("answer", {
+                "request": req["id"], "values": {"matches": rows, "checked": True},
+                "words": {"matches": "A is the first item, B the second. Yes, both right."},
+                "artifacts": {"photo": str(photo)},
+                "note": "Yes, that's all of them, and here is the photo."})
+            return req, refused, done
+
+    req, refused, done = asyncio.run(main())
+    assert req["kind"] == "person_step" and req["hints"]["fields"]["matches"]["widget"] == "table"
+    assert refused.is_error and "answer.note_required" in refused.content[0].text
+    out = done.structured_content
+    assert out["via"] == "conversation" and out["outcome"] == "needs_human"
+    res = json.loads(next(project.glob(f".baton/runs/{run}/**/result/result.json")).read_text(encoding="utf-8"))
+    assert res["output"]["matches"] == rows
+    assert res["notes"] == "Yes, that's all of them, and here is the photo.\nmatches: A is the first item, B the second. Yes, both right."
+
+
+def test_the_director_skill_renders_requests():
+    from conftest import ROOT
+
+    text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
+    part = text[text.index("## Answering requests"):text.index("## Two perspectives")]
+    for phrase in ("`interactions`", "`interaction <id>`", "one row at a time", "confirm back the whole set",
+                   "answer <id> --template", "--via answer_file", "always `--note", "`interaction.stale`", "renderable: false"):
+        assert phrase in part, phrase
+    assert "answer <id> --choice <decision>" in text and "--attach <name>=<path>" in text

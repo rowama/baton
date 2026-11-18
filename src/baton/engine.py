@@ -4306,6 +4306,9 @@ class Api:
                 raise EngineError("answer.invalid", "partial is only for a blocked step's questions")
             ia.check_values(req["answer"]["schema"], values)
             words = ia.words_for(note, via)
+            per = ans.get("words") or {}
+            if per:  # what the person said for a field is kept with their words, in the result's notes
+                words += "".join(f"\n{k}: {v}" for k, v in per.items())
             import tempfile
 
             manifest = json.loads((self._ctx(rid).attempt_dir(req["ref"], req["attempt"]) / "packet" / "manifest.json").read_text(encoding="utf-8"))
