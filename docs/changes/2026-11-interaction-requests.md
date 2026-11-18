@@ -1,7 +1,7 @@
 ---
 id: 2026-11-interaction-requests
 title: "Everything Baton asks the owner is a renderer-neutral interaction request, which any client may show in its own way"
-status: proposed
+status: accepted
 level: major
 decisions: ["0169", "0170", "0031", "0121", "0125", "0161"]
 touches: [principles.md, design/recipes.md, design/packets.md, design/runtime.md, design/director-interface.md, design/versioning.md]
@@ -72,7 +72,7 @@ All eleven were answered as suggested (Decision [0170](../decisions/0170-interac
 
 ## Design
 
-For the owner's approval, with the Request.
+Approved by the owner with the Request, 2026-11-18.
 
 ### Shape
 
@@ -167,3 +167,9 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** The eight open questions were put to the owner with their suggested answers, plus three raised on review: which owner acts become requests (the draft named only some of the pending decisions), when a request's id changes (it would not have changed when a pending act changed while open), and how a person's step returns files. The owner accepted 1 to 8 and 11 at once, and 9 and 10 after they were explained with examples. Recorded as Decision 0170; criteria 2 and 7, the Design's ids, files and confirmation, the slices and the manual list now cite it. No code changed.
 - **Owner decision:** 2026-11-18, "1-8 concur. 11 concur."; on 9 and 10, "I concur." (0170).
 - **Accepted:** No; awaiting approval of Request and Design.
+
+### Request and Design approved
+
+- **Summary:** The owner approved the Request and Design as updated with Decision 0170, including **Interaction request** as a new concept in principles §2. No code changed.
+- **Owner decision:** 2026-11-18, "Approved."
+- **Accepted:** Yes.
