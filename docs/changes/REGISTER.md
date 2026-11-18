@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-waiting-steps](2026-11-waiting-steps.md) | A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | On hold: recorded 2026-11-16 (Decision 0161); to be designed after the recipe-builder changes of Decision 0155 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |
@@ -38,6 +37,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-tailoring-axes](2026-11-tailoring-axes.md) | A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects | done | major | |
 | [2026-11-tool-steps](2026-11-tool-steps.md) | A step can be run by a script the recipe ships, with pinned dependencies and a record of what ran | done | major | |
 | [2026-11-user-help](2026-11-user-help.md) | One manual serves every owner and administrator question, in context from the page, as a guide, and as a reference, and stays current with every change | done | major | |
+| [2026-11-waiting-steps](2026-11-waiting-steps.md) | A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it | done | major | |
 | [2026-11-windows-harness-version-change](2026-11-windows-harness-version-change.md) | A harness upgrade is noticed on Windows, so observed capability states return to likely | done | minor | |
 | [2026-11-windows-real-use-timeout](2026-11-windows-real-use-timeout.md) | The multi-session real-use scenario finishes on the Windows runner instead of hitting its own deadline | done | minor | |
 | [2026-11-windows-running-marker](2026-11-windows-running-marker.md) | A supervisor on Windows survives a Director reading its running marker | done | minor | |

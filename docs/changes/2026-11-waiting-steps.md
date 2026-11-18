@@ -1,7 +1,7 @@
 ---
 id: 2026-11-waiting-steps
 title: "A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it"
-status: in-progress
+status: done
 level: major
 decisions: ["0165", "0154", "0156", "0058", "0059"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/workers.md, design/director-interface.md, design/platform-and-security.md]
@@ -150,7 +150,7 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Design docs:** `principles.md` (the "not a general scheduler" non-goal reworded); `design/recipes.md` §5.9; `design/runtime.md` §8.1, §8.2, §8.7, §8.8; `design/workers.md` §6.3; `design/director-interface.md` §13.1.
 - **Decisions:** none new (0165 applied).
 - **Tests:** `tests/test_waiting_steps.py`: met at dispatch goes on as any tool step; not met, the step waits with no running marker, the hook says `waiting`, `resume` and `wait` leave it alone, a not-met check adds nothing to the log and keeps the last-checked time, a later met check is taken in, gated and passed, and the next step is ready; at the deadline the step escalates with `needs_human`, `skip` is refused without `on_expire: skip`, and `retry` then a dispatch waits another period on attempt 2; an optional wait is skipped and satisfies its dependent; failed checks are counted outside the log, a good check resets the count, the third escalates with the last reason and hook `failed`; a check without `met` fails; a longer `until` is cut to `waits.max`; two checks never overlap; the state edges and records; the load rules and the published schema; the labels; the cache and the lock. `tests/test_state.py` guards the new `escalated → skipped` edge. Not covered by a test: a supervisor that died after its check wrote `not_met.json` (the same `start_wait` as the supervisor's path), and the re-triage rule for a wait-skipped step.
-- **Accepted:** Yes, pending the full suite on this commit.
+- **Accepted:** Yes; the full suite was green on `222b0af`.
 
 ### Slice 2: the owner can see and schedule it
 
@@ -160,4 +160,10 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Decisions:** none new (0165 items 3, 4, 6 and 7 applied).
 - **Tests:** `tests/test_waiting_steps.py`: the interval and cron specs; cron install keeps other lines and replaces its own, remove; WSL plans a Task Scheduler task inside WSL, a cron entry alone does not count there and the notice says so; Windows plans `schtasks` daily past a day; a missing scheduler is reported; end to end (with a fake scheduler): `status` (JSON and plain words), `board`, the step record and `doctor` show the wait and that nothing checks it, `waits schedule` prints without installing, `--install` installs and the notices go, `--remove` removes; `start` reports a wait cut to `waits.max`; something outside hands in a waiting step's result. `tests/test_director_surface.py`: the MCP tool list. The real `crontab` and `schtasks` are never run by the tests; the Windows and WSL entries are checked as built commands only.
 - **Repair:** the full suite on `7c1d221` was red: `status` reused the name `waiting` that already held the steps waiting on a document binding, so in a run with project documents the waiting-steps list held binding entries and `start`'s text failed. Fixed by renaming; covered by `tests/test_project_documents.py` and `tests/test_quick_run.py`, which caught it.
-- **Accepted:** Yes, once the full suite on the repair commit is green.
+- **Accepted:** Yes; the full suite was green on `0d44a69`.
+
+### Done
+
+- **Summary:** Every acceptance criterion is shown by `tests/test_waiting_steps.py`. The owner accepted the worked example in the administrator's manual topic as the plan's "shipped example"; no shipped recipe has a waiting step.
+- **Owner decision:** 2026-11-17, "manual is enough."
+- **Accepted:** Yes.
