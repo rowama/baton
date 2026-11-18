@@ -24,23 +24,23 @@ You work in the project; commit your work.
    output as a required input, with the ids `generated` names. The target is a run input of the
    recipe, never a fixed value.
 5. For each stage the design gives to a `tool`, write the tool and the step that runs it (§5.9 of
-   the format; `spreadsheet-reconcile`'s `tools/csv_diff/` is a worked example):
-   - `tools/<id>/<id>.py`: one file, the Python standard library only, no network, no secrets. It
+   the format; `spreadsheet-reconcile`'s `programs/csv_diff/` is a worked example):
+   - `programs/<id>/<id>.py`: one file, the Python standard library only, no network, no secrets. It
      reads the inputs file named by its first argument (one JSON object keyed by input name; a
      file input is `{"path", "media_type"}`), writes `output.json` (a JSON object) and any
      artifacts (`<artifact>.<ext>`) into the folder named by its second argument, and nothing else.
      On input it cannot handle it prints a plain reason on stderr and exits 1. It does exactly what
      the design's `tool.does` says, no more.
-   - `tools/<id>/tool.yaml`: `id`, `description` (the design's `does`), `runtime: { kind: python,
-     version: ">=3.10" }`, `entry: ["python", "{tool}/<id>.py", "{input}", "{output}"]`,
+   - `programs/<id>/program.yaml`: `id`, `description` (the design's `does`), `runtime: { kind: python,
+     version: ">=3.10" }`, `entry: ["python", "{program}/<id>.py", "{input}", "{output}"]`,
      `dependencies: { lock: requirements.lock }` and `reach` from the design
      (`{ workspace: none, network: false, secrets: [] }` unless the design says otherwise).
-   - `tools/<id>/requirements.lock`: empty (a simple tool needs only the standard library).
-   - each of the design's examples as `tools/<id>/examples/<name>/`: `input.json` (the JSON
+   - `programs/<id>/requirements.lock`: empty (a simple program needs only the standard library).
+   - each of the design's examples as `programs/<id>/examples/<name>/`: `input.json` (the JSON
      inputs), `inputs/<input name>.<ext>` (each file input), `expected.json` (the output, exactly)
      and `expected/<artifact>.<ext>` (each artifact, byte for byte; Python's `csv` module ends
      lines with `\r\n`).
-   - the step: `tool: <id>` in place of `requires` and `prompt`, `workspace` equal to the tool's
+   - the step: `program: <id>` in place of `requires` and `prompt`, `workspace` equal to the program's
      `reach.workspace`, its inputs, an `output_schema` for `output.json`, its artifacts and a
      `schema` gate. A tool that spends money or changes something others depend on runs only after
      a step where the owner approves (a `human` gate before it).

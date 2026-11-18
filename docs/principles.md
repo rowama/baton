@@ -77,12 +77,12 @@ These are all the concepts a recipe author, Director or owner may encounter. Add
 | **Project** | One repository using Baton. Holds runs, project configuration, platform facts. |
 | **Recipe** | A versioned, model-neutral process package: steps, inputs, gates, schemas, prompts, templates. |
 | **Run** | One **work item** (feature, increment, fix) following one recipe. Has its own event log and position. |
-| **Step** | One unit of work in a recipe, done by one worker or one tool per attempt. |
+| **Step** | One unit of work in a recipe, done by one worker or one program per attempt. |
 | **Group** | A step containing steps (a sub-process). Expands into **instances** (`foreach`) and/or repeats in **iterations** (`repeat_until`). |
 | **Attempt** | One try at a step. A failed gate may trigger another attempt. |
 | **Packet / Result** | The files a worker receives / returns. |
 | **Gate** | A check a step must pass: schema, script, review findings, human approval (plus implicit provenance, workspace and protected-file checks). |
-| **Tool** | A script a recipe ships (`tools/<id>/`) that does a step with no model: the step names it instead of requirements, so it is the step's one executor, with its dependencies pinned by a lock file and what it may touch declared (§5.9). It is part of the recipe, vendored and hashed with it. It earns its place because work that plain code does better (a calculation, a conversion, a backtest) otherwise costs a model call and varies between runs (Decisions: [0154](decisions/0154-tool-steps.md), [0156](decisions/0156-tool-steps-details.md)). |
+| **Program** | A script a recipe ships (`programs/<id>/`) that does a step with no model: the step names it instead of requirements, so it is the step's one executor, with its dependencies pinned by a lock file and what it may touch declared (§5.9). It is part of the recipe, vendored and hashed with it. It earns its place because work that plain code does better (a calculation, a conversion, a backtest) otherwise costs a model call and varies between runs (Decisions: [0154](decisions/0154-tool-steps.md), [0156](decisions/0156-tool-steps-details.md)). It was called a *tool* until Decision [0166](decisions/0166-tools-renamed-programs.md): in Baton, a tool is only something a model or a harness calls (tool calling, harness tools, MCP tools). |
 | **Worker profile** | Machine-local definition of one worker: adapter, model or CLI, capabilities, auth, environment. |
 | **Capability** | A named ability from a versioned vocabulary; recipes require them, profiles claim them. A claim is `likely` until the work shows it `verified` or `absent` on this machine: a capability that should be there is usable, and the work checks it (Decision: [0084](decisions/0084-capability-states.md)). |
 | **Director** | The coordinating agent. Process expert; never does step work. |

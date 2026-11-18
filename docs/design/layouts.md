@@ -70,7 +70,7 @@ baton/
 <recipe>/
 ├── recipe.yaml       # id, version, format version, steps (§5)
 ├── schemas/*.json    prompts/*.md    templates/*.md.j2    static/…
-├── tools/<id>/       # optional: a tool a step names (§5.9): tool.yaml, its lock file, its scripts
+├── programs/<id>/       # optional: a program a step names (§5.9): program.yaml, its lock file, its scripts
 └── crosswalks/*.yaml # optional, for adopting projects from a known prior process (§11.3)
 ```
 
@@ -129,7 +129,7 @@ baton/
 ├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
-├── tools/            # tools' environments, <lock sha256>-py<x.y>/ (venv/, env.json), built by uv from the lock (§6.3, §5.9)
+├── programs/            # programs' environments, <lock sha256>-py<x.y>/ (venv/, env.json), built by uv from the lock (§6.3, §5.9); a `tools/` folder left by an earlier Baton is no longer used and may be deleted (Decision: [0167](../decisions/0167-program-steps-details.md), item 4)
 ├── homes/<profile>/  # optional relocated CLI config homes [VERIFY per CLI]
 ├── mcp.yaml          # `token: secret:<name>`: the bearer token for `baton mcp --http` (§13.2)
 ├── launcher.yaml     # optional: where the launcher installs runtime versions from (`source`, `extras`, `python`; §14.1)

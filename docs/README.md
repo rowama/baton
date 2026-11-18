@@ -59,7 +59,7 @@ The design files:
 | §5.6 | [design/recipes.md](design/recipes.md) | Capability vocabulary (`baton-capabilities/1`) |
 | §5.7 | [design/recipes.md](design/recipes.md) | Shipped example recipes |
 | §5.8 | [design/recipes.md](design/recipes.md) | Identifiers |
-| §5.9 | [design/recipes.md](design/recipes.md) | Tools in a recipe |
+| §5.9 | [design/recipes.md](design/recipes.md) | Programs in a recipe |
 | §6 | [design/workers.md](design/workers.md) | Worker Profiles and Execution |
 | §6.1 | [design/workers.md](design/workers.md) | Profiles (`~/.baton/workers.yaml`, overridable by `.baton/workers.local.yaml`) |
 | §6.2 | [design/workers.md](design/workers.md) | Environment and PATH |

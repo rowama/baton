@@ -4,7 +4,7 @@
 
 ```
 .baton/runs/<run_id>/steps/<step_path>/attempt-<n>/packet/
-├── manifest.json   INSTRUCTIONS.md   output_schema.json      (a tool step's packet has no INSTRUCTIONS.md)
+├── manifest.json   INSTRUCTIONS.md   output_schema.json      (a program step's packet has no INSTRUCTIONS.md)
 └── inputs/<name>.json | <name>.<ext> | <name>/<n>.<ext>   (the last: each document of a `many` role, §5.1)
 ```
 
@@ -46,7 +46,7 @@
 
 `INSTRUCTIONS.md` contains: role and step title; the rendered step prompt (small JSON inputs inlined, large ones referenced by path); protocol rules (where inputs are, where to write, echo `packet_sha256`, write `result.json` last, do not modify `packet/`, do not modify protected paths); the output schema; prior feedback; for reviewers, the earlier findings with the rule "reuse an id you still see, leave out a resolved one, check each disposition's evidence"; for steps shown findings, how to write `dispositions`.
 
-A tool step's packet (§5.9) differs in two ways, and only a tool step's: it has no `INSTRUCTIONS.md` (a tool reads no instructions; its runner reads the manifest, §6.3), and its manifest carries `tool {id, sha256, lock_sha256}`. Its runner, not the tool, writes the result below; the tool writes only `output.json` and its artifacts (Decision: [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md)).
+A program step's packet (§5.9) differs in two ways, and only a program step's: it has no `INSTRUCTIONS.md` (a program reads no instructions; its runner reads the manifest, §6.3), and its manifest carries `program {id, sha256, lock_sha256}`. Its runner, not the program, writes the result below; the program writes only `output.json` and its artifacts (Decision: [0159](../decisions/0159-tool-runs-env-inputs-build-outputs.md)).
 
 ### 7.2 Result (worker → runtime)
 
