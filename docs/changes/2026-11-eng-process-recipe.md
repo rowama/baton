@@ -1,14 +1,16 @@
 ---
 id: 2026-11-eng-process-recipe
 title: "An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow"
-status: proposed            # ON HOLD: after 2026-11-project-policy (2026-11-project-documents and 2026-11-tailoring-axes are done)
+status: abandoned           # superseded by 2026-11-software-recipe (Decision 0172)
 level: major
-decisions: ["0138", "0139", "0149", "0142", "0146", "0144", "0147", "0143", "0050"]
+decisions: ["0138", "0139", "0149", "0172", "0142", "0146", "0144", "0147", "0143", "0050"]
 touches: [design/recipes.md, design/gates-and-reviews.md, design/adoption-and-framing.md]
 manual: [recipes/eng-process.md, recipes/software-feature.md]
 ---
 
 # An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow
+
+> **Abandoned** (2026-11-18). It ported the eng-process kit into Baton with a parity table. Superseded by [2026-11-software-recipe](2026-11-software-recipe.md): Baton's one software recipe, named `software`, designed fresh by a recipe-builder run with eng-process as evidence (Decision [0172](../decisions/0172-software-recipe.md)).
 
 ## Request
 
@@ -160,3 +162,9 @@ Provisional slices; refine after Request and Design approval. Each implementatio
   - Still on hold, now only for `2026-11-project-policy`. No code changed.
 - **Owner decision:** 2026-11-14, "Write the B, D, E and F change proposals". The Request is not yet accepted; open questions 1 to 9 are unanswered.
 - **Accepted:** No; proposal only.
+
+### Abandoned
+
+- **Summary:** Superseded by `2026-11-software-recipe`. The source inspection, the four axes, the six example scenarios and the approved-spec gap carry over; the parity table and the porting of the kit's machinery do not.
+- **Owner decision:** 2026-11-18, "I want to start from scratch on the software engineering recipe, but still have my old process carry weight"; "Change name and use recipe-builder." (0172).
+- **Accepted:** No; abandoned.
