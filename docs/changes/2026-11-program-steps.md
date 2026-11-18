@@ -1,7 +1,7 @@
 ---
 id: 2026-11-program-steps
 title: "A recipe's tool is renamed a program, so \"tool\" means only what a model or a harness calls"
-status: accepted
+status: done
 level: standard
 decisions: ["0166", "0167", "0154", "0155", "0085"]
 touches: [principles.md, design/recipes.md, design/layouts.md, design/workers.md, design/packets.md, design/runtime.md, design/director-interface.md, design/platform-and-security.md, design/adoption-and-framing.md]
@@ -153,4 +153,9 @@ Each slice leaves the repository passing its tests.
   - the v4 and v5 fixtures' `tool.does`: those versions' own design field.
   A wider search for the bare word in the design docs found only the kept senses (harness tools and tool maps, tooling capabilities, `tool_use`, MCP tools, `tool_evidence`, `uv tool install`, the repository's `tools/` folder) and decision-record file names.
 - **Tests:** `tests/test_docs.py` (every § reference and link resolves; the register matches); the quick gate.
+- **Accepted:** Yes.
+
+### Done
+
+- **Summary:** Every acceptance criterion is shown by a test: the format and the old spelling's errors (`test_program_steps`), the commands (`test_program_examples`, `test_program_readiness`, `test_engineered_program_checks`), the records and codes (`test_program_runs`, `test_waiting_steps`, `test_program_readiness`), environments under `~/.baton/programs/` (`test_program_readiness`, `test_program_runs`), the shipped recipes (`test_spreadsheet_reconcile`, `test_recipe_builder`, `test_recipe_builder_runs`), the docs and the manual (`test_docs`, `test_manual`, `test_manual_gen`, `test_director_surface`'s skill check), the kept senses (`test_harness_tools`, `test_tool_evidence`, `test_harness`), and nothing else changed (the full suite). History (criterion 9) was left as written: no file under `docs/decisions/`, `docs/history/` or a finished change doc was edited.
 - **Accepted:** Yes.
