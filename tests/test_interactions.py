@@ -1,4 +1,4 @@
-"""Interaction requests (``baton-interaction/1``; Decisions 0169, 0170), Slice 1.
+"""Interaction requests (``baton-interaction/1``; Decisions 0169, 0170).
 
 - Every pending decision is a request with an id that ``status`` and ``board`` give; ``interactions`` lists them
   and ``interaction`` returns one, valid against the published format.
@@ -6,6 +6,9 @@
   note, or a fixed phrase naming a renderer other than conversation.
 - A blocked step's questions are the fields of its ``retry`` choice; framing's ``select`` takes its parts.
 - A request's id changes whenever what it asks changes; an answer to an old id is refused as stale.
+- A person's step is a request built from its output schema, files and hints; answered with values and files, it
+  is taken in as ``submit`` would. Gates show what was produced. The renderable subset, hints checked at load, and
+  the answer file written by ``answer --template``.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator
 
 from baton import engine, interactions
@@ -21,7 +25,7 @@ from baton.data import path as data_path
 
 from projectkit import FIT_INPUTS, GOOD_PROFILE, Cli
 from test_conversation import QUESTIONS, fresh, frame_output, manual, status, _frame
-from runkit import write_result
+from runkit import make_recipe, write_result
 from test_tailoring_axes import WRITER, ctx, rated, signal, store  # noqa: F401 (fixtures)
 
 pytestmark = pytest.mark.slow
@@ -213,3 +217,190 @@ def test_a_step_blocked_again_is_a_new_request(tmp_path):
     assert new != old
     out = cli.run("answer", old, "--file", str(f), "--note", "Yes.", expect=1)
     assert out["error"] == "interaction.stale" and new in out["message"]  # the open one is named
+
+
+# -- Slice 2: a person's step, hints and the answer file -------------------------------
+
+
+MATCH_SCHEMA = {
+    "type": "object", "required": ["matches"], "additionalProperties": False,
+    "properties": {
+        "matches": {"type": "array", "title": "Receipt lines", "items": {
+            "type": "object", "required": ["line", "item"], "additionalProperties": False,
+            "properties": {"line": {"type": "string"}, "item": {"type": "string", "enum": ["i1", "i2"]}}}},
+        "checked": {"type": "boolean", "title": "Checked against the photo", "default": True},
+    },
+}
+HINTS = {"order": ["checked", "matches"], "fields": {"matches": {"widget": "table", "help": "One row per receipt line"}},
+         "summary": ["matches"]}
+
+
+def person_recipe(root: Path, *, hints=HINTS, schema=MATCH_SCHEMA) -> Path:
+    r = make_recipe(root, [{
+        "id": "match", "title": "Match the receipt to the items",
+        "requires": {"capabilities": ["human_judgment"]},
+        "output_schema": "schemas/match.json",
+        "artifacts": [{"name": "photo", "required": True}],
+        "interaction": {"hints": "hints/match.yaml"},
+        "gates": [{"type": "human", "prompt": "Is the matching right?", "interaction": {"hints": "hints/match.yaml"}}],
+    }], schemas={"match.json": schema}, run_inputs={"type": "object", "properties": {"title": {"type": "string"}}})
+    (r / "hints").mkdir(exist_ok=True)
+    (r / "hints" / "match.yaml").write_text(yaml.safe_dump(hints), encoding="utf-8")
+    return r
+
+
+def person_run(tmp_path: Path, **kw) -> tuple[Cli, Path, str]:
+    cli, project = fresh(tmp_path, bare=True)
+    cli.run("vendor", str(person_recipe(tmp_path / "toy", **kw)))
+    run = cli.run("start", "toy", "--inputs", json.dumps({"title": "Receipts"}))["run_id"]
+    cli.run("dispatch", run, "match", "--worker", "owner")
+    return cli, project, run
+
+
+
+def test_a_persons_step_is_a_request_with_its_schema_files_and_hints(tmp_path):
+    cli, project, run = person_run(tmp_path)
+    st = status(cli, run)
+    assert st["pending_decisions"] == []  # nothing about the step changes: it is work being done, not a decision
+    rid = st["running"][0]["request_id"]
+    listed = cli("interactions", expect=4).payload["requests"]
+    assert [(r["id"], r["kind"], r["ref"]) for r in listed] == [(rid, "person_step", "match")]
+    req = valid(cli.run("interaction", rid))
+    assert req["title"] == "Match the receipt to the items" and req["choices"] == []
+    assert req["answer"]["schema"] == {"$schema": "https://json-schema.org/draft/2020-12/schema", **MATCH_SCHEMA}
+    assert req["answer"]["renderable"] is True and req["answer"]["prefill"] == {"checked": True}
+    assert req["files"] == [{"name": "photo", "required": True}]
+    assert req["hints"] == HINTS
+    item = cli.run("interaction", rid, "--item", "instructions")
+    assert "Do the match step." in item["text"] and item["path"].endswith("INSTRUCTIONS.md")
+    assert cli.run("interaction", rid, "--item", "../../etc", expect=1)["error"] == "interaction.unknown_item"
+
+
+def test_a_persons_step_is_answered_with_values_and_files(tmp_path):
+    cli, project, run = person_run(tmp_path)
+    rid = status(cli, run)["running"][0]["request_id"]
+    photo = tmp_path / "receipt.jpg"
+    photo.write_bytes(b"\xff\xd8 not really a jpeg")
+    f = tmp_path / "a.yaml"
+    f.write_text(yaml.safe_dump({"values": {"matches": [{"line": "Widget A", "item": "i1"}]}}), encoding="utf-8")
+    out = cli.run("answer", rid, "--file", str(f), "--note", "x", expect=1)
+    assert out["error"] == "answer.invalid" and "photo" in out["message"]  # the required file
+    f.write_text(yaml.safe_dump({"values": {"matches": [{"line": "Widget A", "item": "i9"}]}}), encoding="utf-8")
+    assert cli.run("answer", rid, "--file", str(f), "--attach", f"photo={photo}", "--note", "x", expect=1)["error"] == "answer.invalid"
+    f.write_text(yaml.safe_dump({"values": {"matches": [{"line": "Widget A", "item": "i1"}], "checked": True}}), encoding="utf-8")
+    out = cli("answer", rid, "--file", str(f), "--attach", f"photo={photo}", "--via", "answer_file", expect=4).payload
+    assert out["outcome"] == "needs_human" and out["request_id"] == rid and out["via"] == "answer_file"
+    ev = events(project, run)
+    sub = next(e for e in ev if e["type"] == "result_submitted")
+    assert sub["data"]["request_id"] == rid and sub["data"]["via"] == "answer_file"
+    res = json.loads(next(project.glob(f".baton/runs/{run}/**/result/result.json")).read_text(encoding="utf-8"))
+    assert res["output"] == {"matches": [{"line": "Widget A", "item": "i1"}], "checked": True}
+    assert res["artifacts"] == [{"name": "photo", "path": "artifacts/photo.jpg"}] and res["notes"] == "confirmed in answer_file"
+    assert cli.run("answer", rid, "--file", str(f), "--attach", f"photo={photo}", "--note", "x", expect=1)["error"] == "interaction.stale"
+
+    # The human gate that follows shows what was produced, with the gate's hints.
+    (gate,) = status(cli, run)["pending_decisions"]
+    greq = valid(cli.run("interaction", gate["request_id"]))
+    assert greq["hints"] == HINTS
+    ids = [c["id"] for c in greq["context"]]
+    assert ids == ["output", "file:photo"]
+    out_item = cli.run("interaction", gate["request_id"], "--item", "output")
+    assert json.loads(out_item["text"])["matches"][0]["item"] == "i1"
+    assert cli.run("interaction", gate["request_id"], "--item", "file:photo")["path"].endswith("photo.jpg")
+
+
+def test_submit_still_works_for_a_persons_step(tmp_path):
+    cli, project, run = person_run(tmp_path)
+    pdir = next(project.glob(f".baton/runs/{run}/**/packet"))
+    from projectkit import write_result as play
+
+    play(pdir, {"matches": []})
+    rdir = pdir.parent / "result"
+    (rdir / "artifacts").mkdir(parents=True, exist_ok=True)
+    (rdir / "artifacts" / "p.jpg").write_bytes(b"x")
+    res = json.loads((rdir / "result.json").read_text(encoding="utf-8"))
+    (rdir / "result.json").write_text(json.dumps({**res, "artifacts": [{"name": "photo", "path": "artifacts/p.jpg"}]}), encoding="utf-8")
+    cli("submit", run, "match", expect=4)
+    sub = next(e for e in events(project, run) if e["type"] == "result_submitted")
+    assert "request_id" not in sub["data"]
+
+
+def test_the_answer_template_holds_every_field_with_its_prefill_and_comments(tmp_path):
+    cli, project, run = person_run(tmp_path)
+    rid = status(cli, run)["running"][0]["request_id"]
+    target = tmp_path / "answer.yaml"
+    out = cli.run("answer", rid, "--template", "--out", str(target))
+    assert out["template"] == str(target)
+    text = target.read_text(encoding="utf-8")
+    assert "# Answer for: Match the receipt to the items" in text
+    assert text.index("checked: true") < text.index("matches:")  # the hints' order
+    assert "# One row per receipt line" in text and "# photo (required): the path of the file" in text
+    assert not [e for e in events(project, run) if e["type"] == "result_submitted"]  # nothing recorded
+    assert cli.run("answer", rid, "--template", "--out", str(target), expect=2)["error"] == "answer.template_exists"
+    doc = yaml.safe_load(text)
+    photo = tmp_path / "p.png"
+    photo.write_bytes(b"png")
+    doc["values"]["matches"] = [{"line": "Widget A", "item": "i2"}]
+    doc["artifacts"]["photo"] = str(photo)
+    target.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    out = cli("answer", rid, "--file", str(target), "--note", "Widget A pays for item 2. Yes.", expect=4).payload
+    assert out["outcome"] == "needs_human"
+
+
+def test_the_blocked_template_prefills_best_guesses(tmp_path):
+    cli, project = fresh(tmp_path)
+    run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
+    manual(cli, project, run, "describe", None, status="blocked", questions_for_human=QUESTIONS)
+    rid = status(cli, run)["pending_decisions"][0]["request_id"]
+    target = tmp_path / "t.yaml"
+    cli.run("answer", rid, "--template", "--out", str(target))
+    doc = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert doc["choice"] is None and doc["values"] == {"site": "One machine per site at first", "permits": None, "hours": None}
+    assert "Suggestions (you may write something else): One machine; Several" in target.read_text(encoding="utf-8")
+
+
+def test_a_schema_outside_the_subset_is_marked_not_renderable(tmp_path):
+    odd = {"type": "object", "properties": {"x": {"anyOf": [{"type": "string"}, {"type": "integer"}]}}}
+    cli, project, run = person_run(tmp_path, hints={}, schema=odd)
+    rid = status(cli, run)["running"][0]["request_id"]
+    assert cli.run("interaction", rid)["answer"]["renderable"] is False
+
+
+@pytest.mark.parametrize("schema, ok", [
+    ({"type": "object", "properties": {"a": {"type": "string", "enum": ["x"]}, "b": {"type": "integer", "minimum": 0}}}, True),
+    ({"type": "object", "properties": {"d": {"type": "string", "format": "date"}, "t": {"type": "boolean"}}}, True),
+    ({"type": "object", "properties": {"c": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}, "uniqueItems": True}}}, True),
+    ({"type": "object", "properties": {"g": {"type": "object", "properties": {"n": {"type": "number"}}}}}, True),
+    ({"type": "object", "properties": {"r": {"$ref": "#/defs/x"}}}, False),
+    ({"type": "object", "properties": {"a": {"type": "string"}}, "if": {}, "then": {}}, False),
+    ({"type": "object", "properties": {"m": {"type": ["string", "null"]}}}, False),
+    ({"type": "object", "properties": {"t": {"type": "array", "items": {"type": "object", "properties": {"x": {"type": "array", "items": {"type": "string"}}}}}}}, False),
+    ({"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": {"type": "string"}}, False),
+])
+def test_the_renderable_subset(schema, ok):
+    assert interactions.renderable(schema) is ok, interactions.subset_problems(schema)
+
+
+@pytest.mark.parametrize("hints, problem", [
+    ({"order": ["nope"]}, "'nope' is not a field"),
+    ({"fields": {"matches": {"widget": "carousel"}}}, "widget must be one of"),
+    ({"fields": {"matches.item": {"label": "Item"}}, "colour": "red"}, "unknown hint 'colour'"),
+    ({"groups": [{"title": "A"}]}, "groups[0] must be {title, fields}"),
+])
+def test_hints_are_checked_at_load(tmp_path, hints, problem):
+    from baton.recipe import validate_recipe
+
+    _, issues = validate_recipe(person_recipe(tmp_path / "r", hints=hints))
+    bad = [i for i in issues if i.code == "interaction.bad_hints"]
+    assert bad and any(problem in i.message for i in bad), issues
+
+
+def test_hints_name_dotted_fields_and_need_an_output_schema(tmp_path):
+    from baton.recipe import validate_recipe
+
+    loaded, issues = validate_recipe(person_recipe(tmp_path / "r", hints={"fields": {"matches.item": {"label": "Item"}}}))
+    assert loaded is not None and not [i for i in issues if i.severity == "error"]
+    r = make_recipe(tmp_path / "n", [{"id": "a", "interaction": {"hints": "h.yaml"}}])
+    (r / "h.yaml").write_text("{}", encoding="utf-8")
+    _, issues = validate_recipe(r)
+    assert [i.code for i in issues if i.severity == "error"] == ["interaction.needs_output_schema"]

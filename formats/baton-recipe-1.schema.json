@@ -379,6 +379,17 @@
           "default": null,
           "title": "Applies To"
         },
+        "interaction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interaction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "labels": {
           "anyOf": [
             {
@@ -489,6 +500,22 @@
         "from"
       ],
       "title": "Input",
+      "type": "object"
+    },
+    "Interaction": {
+      "additionalProperties": false,
+      "description": "How a step's or human gate's interaction request may be shown: a hints file in the package (\u00a75.3; Decision 0170, item 8).",
+      "properties": {
+        "hints": {
+          "minLength": 1,
+          "title": "Hints",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hints"
+      ],
+      "title": "Interaction",
       "type": "object"
     },
     "Parent": {
@@ -1095,6 +1122,17 @@
           },
           "title": "Inputs",
           "type": "array"
+        },
+        "interaction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Interaction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "max_attempts": {
           "anyOf": [

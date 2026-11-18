@@ -125,6 +125,35 @@ A part applies when any axis it lists is rated at one of its values; a part with
 baton plan path/to/recipe --rating discovery=low --rating assurance=high
 ```
 
+## How a person's part is shown {#interaction-hints}
+
+When a person does a part (a step a `manual` worker takes), or approves one at a human gate, Baton asks through an interaction request: what to fill in is the step's output schema, and the files it asks for are its declared artifacts. Any client may show it: the assistant in conversation, the answer file (`baton answer <id> --template`), or a page. A recipe may add advice on how to show it, in a hints file of its own:
+
+```yaml
+steps:
+  - id: match
+    output_schema: schemas/match.json
+    artifacts: [{name: photo}]
+    interaction: {hints: hints/match.yaml}
+    gates:
+      - type: human
+        prompt: "Is the matching right?"
+        interaction: {hints: hints/match.yaml}   # how to show what was produced
+```
+
+```yaml
+# hints/match.yaml
+order: [checked, matches]
+groups: [{title: "The receipt", fields: [matches]}]
+fields:
+  matches: {widget: table, help: "One row per receipt line", label: "Receipt lines"}
+summary: [matches]            # what to show before the owner confirms
+```
+
+The hints are `order`, `groups`, `fields` (each with `widget`: `radio`, `dropdown`, `checkboxes`, `textarea`, `table` or `slider`; `help`; `label`) and `summary`. They are advice: a client that ignores them still produces a valid answer. A field inside a group or a table row is named with a dot (`matches.item`). `baton vendor` refuses a hints file that names a field the step's output schema does not have, an unknown hint or widget, or a step without `output_schema` (`interaction.bad_hints`, `interaction.needs_output_schema`). A recipe ships no script for showing anything.
+
+A form can hold: named fields; text (with choices, suggestions, a date); numbers with bounds; yes or no; several choices; a table of rows; a group of fields. An output schema that needs more (a `$ref`, conditions, a field of two types) still works: its request is marked `renderable: false`, and the person writes the values by hand in the answer file.
+
 ## Guidance documents {#guides}
 
 A guide tells a worker how to produce one document well enough to use, without a full process: a lean business plan, a marketing plan, a standard operating procedure, a project charter, a decision record. Baton comes with these five; a project keeps its own in `guides/<id>.md`, beside its other files. `baton guides` lists both.

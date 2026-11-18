@@ -98,6 +98,9 @@
           "label": {
             "type": "string"
           },
+          "media_type": {
+            "type": "string"
+          },
           "ref": {
             "description": "Fetched through interaction(id, item)",
             "type": "string"
@@ -124,6 +127,29 @@
     "extensions": {
       "description": "extensions.<renderer kind>: ignored by every other renderer",
       "type": "object"
+    },
+    "files": {
+      "description": "A person's step: the files it declares, given by path in the answer (artifacts: {name: path})",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "required"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     },
     "format": {
       "const": "baton-interaction/1"

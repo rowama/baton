@@ -763,15 +763,24 @@ def interactions(
 @app.command()
 def interaction(
     request: Annotated[str, typer.Argument(help="Request id (from interactions, status or board).")],
+    item: Annotated[Optional[str], typer.Option("--item", help="One context item's material, by its id in the request.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Show one open request in full (format baton-interaction/1)."""
+    """Show one open request in full (format baton-interaction/1), or one of its context items."""
+    if item is not None:
+        got = _call(as_json, lambda: _api().interaction(request, item))
+        _done(got, as_json, got.get("text") if got.get("text") is not None else f"{got.get('label')}: {got.get('path')}", EXIT_OK)
+        return
     out = _call(as_json, lambda: _api().interaction(request))
     lines = [f"{out['title']} ({out['run']} {out['ref']}, {out['kind']})", out["message"]]
     lines += [f"  {c['label']}: {c['text']}" for c in out["context"] if c.get("kind") == "text"]
     for c in out["choices"]:
         fields = f"  (fields: {', '.join(c['answer']['schema'].get('properties', {}))})" if c.get("answer") else ""
         lines.append(f"  [{c['decision']}] {c['label']}: {c['effect']}{fields}")
+    if out.get("answer"):
+        lines.append(f"  fields: {', '.join(out['answer']['schema'].get('properties', {}))}")
+    lines += [f"  file {f['name']} ({'required' if f['required'] else 'optional'})" for f in out.get("files") or []]
+    lines += [f"  item {c['id']}: {c['label']}" for c in out["context"] if c.get("ref")]
     _done(out, as_json, "\n".join(lines), EXIT_OK)
 
 
@@ -791,15 +800,35 @@ def answer(
     choice: Annotated[Optional[str], typer.Option("--choice", help="The choice made, one of the request's choices.")] = None,
     file: Annotated[Optional[Path], typer.Option("--file", help="An answer file (YAML or JSON): {choice, values, words, partial}.")] = None,
     note: Annotated[str, typer.Option("--note", help="The owner's words, including their confirmation, recorded verbatim.")] = "",
-    via: Annotated[Optional[str], typer.Option("--via", help="The renderer the owner answered in (default: conversation).")] = None,
+    via: Annotated[Optional[str], typer.Option("--via", help="Where the owner answered: conversation (the default, which needs --note), or e.g. answer_file when the owner filled in the file themselves.")] = None,
+    attach: Annotated[Optional[list[str]], typer.Option("--attach", help="A person's step: a file it asks for, as <name>=<path> (repeat).")] = None,
+    template: Annotated[bool, typer.Option("--template", help="Write an answer file to fill in (answer-<id>.yaml, or --out) and record nothing.")] = False,
+    out_path: Annotated[Optional[Path], typer.Option("--out", help="With --template: where to write the answer file.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Answer an open request: checked against it, then recorded as decide would record it."""
+    """Answer an open request: checked against it, then recorded as decide or submit would record it."""
+    if template:
+        from .interactions import answer_template
+
+        req = _call(as_json, lambda: _api().interaction(request))
+        target = out_path or Path(f"answer-{request}.yaml")
+        if target.exists():
+            _fail(as_json, EXIT_USAGE, "answer.template_exists", f"{target} already exists; name another with --out")
+        target.write_text(answer_template(req), encoding="utf-8")
+        _done({"request_id": request, "template": str(target)}, as_json,
+              f"Wrote {target}: fill it in, then: baton answer {request} --file {target} --note \"<the owner's words>\"", EXIT_OK)
+        return
     ans: Any = _read_answer_file(file, as_json) if file is not None else {}
     if not isinstance(ans, dict):
-        _fail(as_json, EXIT_USAGE, "answer.invalid", f"{file}: an answer file holds an object {{choice, values, words, partial}}")
+        _fail(as_json, EXIT_USAGE, "answer.invalid", f"{file}: an answer file holds an object {{choice, values, words, partial, artifacts}}")
     if choice is not None:
         ans = {**ans, "choice": choice}
+    for a in attach or []:
+        name, sep, fpath = a.partition("=")
+        if not sep or not name or not fpath:
+            _fail(as_json, EXIT_USAGE, "answer.invalid", f"--attach takes <name>=<path>, got {a!r}")
+        ans = {**ans, "artifacts": {**(ans.get("artifacts") or {}), name: fpath}}
+
     out = _call(as_json, lambda: _api().answer(request, ans, note, via=via))
     if out.get("outcome") == "selected":
         _done(out, as_json, f"Framing {out['framing']}: selected {', '.join(out['selected']) or 'nothing'} ({out['decision_id']}); {out['state']}")

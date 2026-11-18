@@ -38,6 +38,12 @@ Nothing from the conversation is recorded until you confirm what was understood.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
+## Answering in a file {#answer-file}
+
+Some things are easier to fill in than to talk through, such as matching twenty receipt lines to twenty items. Ask your assistant for an answer file. It is a plain text file with every question or field in it, a short note on each, and the best guess already filled in where there is one. Fill it in with any text editor, and add any files the work asks for (a photo, a signed page) by writing where they are on your computer. Then tell your assistant it is done. It checks what you wrote and tells you what will be recorded; nothing is recorded until then. If something does not fit (a choice that is not offered, a needed answer left empty), it says what, and you can fix the file.
+
+If you do a part of the work yourself, it can be answered the same way: what it asks for becomes the fields of the file.
+
 ## If a question changed before you answered {#changed}
 
 While you think, the work can move on: another part may add a reason to a question, or a part that was tried again may come back with new questions. Your answer always goes to the question as you saw it. If that question has changed since, nothing is recorded; your assistant shows you the question as it is now, and you answer that one.

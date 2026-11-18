@@ -39,7 +39,7 @@ Explained in the manual: [Bring in an existing project](user.bring-an-existing-p
 
 ## baton answer {#baton-answer}
 
-Answer an open request: checked against it, then recorded as decide would record it.
+Answer an open request: checked against it, then recorded as decide or submit would record it.
 
 Explained in the manual: [Answer questions and decide](user.answer-questions-and-decide#here-now).
 
@@ -49,7 +49,10 @@ Explained in the manual: [Answer questions and decide](user.answer-questions-and
 | `--choice <str>` | The choice made, one of the request's choices. |
 | `--file <path>` | An answer file (YAML or JSON): {choice, values, words, partial}. |
 | `--note <str>` | The owner's words, including their confirmation, recorded verbatim. |
-| `--via <str>` | The renderer the owner answered in (default: conversation). |
+| `--via <str>` | Where the owner answered: conversation (the default, which needs --note), or e.g. answer_file when the owner filled in the file themselves. |
+| `--attach <str>` | A person's step: a file it asks for, as `<name>`=`<path>` (repeat). |
+| `--template` | Write an answer file to fill in (answer-`<id>`.yaml, or --out) and record nothing. |
+| `--out <path>` | With --template: where to write the answer file. |
 | `--json` | Machine-readable output. |
 
 ## baton ask-sme {#baton-ask-sme}
@@ -362,13 +365,14 @@ Explained in the manual: [Getting started](user.getting-started#here-now).
 
 ## baton interaction {#baton-interaction}
 
-Show one open request in full (format baton-interaction/1).
+Show one open request in full (format baton-interaction/1), or one of its context items.
 
 Explained in the manual: [Answer questions and decide](user.answer-questions-and-decide#here-now).
 
 | Argument or option | What it does |
 |---|---|
 | `request <str>` | Request id (from interactions, status or board). |
+| `--item <str>` | One context item's material, by its id in the request. |
 | `--json` | Machine-readable output. |
 
 ## baton interactions {#baton-interactions}

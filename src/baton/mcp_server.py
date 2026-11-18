@@ -253,18 +253,22 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(lambda api: api.interactions(run))
 
     @tool
-    def interaction(request: str) -> dict[str, Any]:
-        """One open request in full: message, context, choices with their effects, and any fields a choice needs."""
-        return t.call(lambda api: api.interaction(request))
+    def interaction(request: str, item: str | None = None) -> dict[str, Any]:
+        """One open request in full: message, context, choices with their effects, and any fields a choice or a person's
+        step needs; with item, one context item's material (text inline, or the file's path)."""
+        return t.call(lambda api: api.interaction(request, item))
 
     @tool
-    def answer(request: str, choice: str, note: str = "", values: dict[str, Any] | None = None,
-               words: dict[str, str] | None = None, partial: bool = False, via: str | None = None) -> dict[str, Any]:
-        """Answer an open request after the owner confirmed it (note = the owner's words): the choice, the values its
-        fields take, the owner's words per field (words), and the renderer used (via; default conversation).
-        Recorded as decide would record it; a stale request (answered, or changed since) is refused."""
-        ans: dict[str, Any] = {"choice": choice, **({"values": values} if values else {}), **({"words": words} if words else {}),
-                               **({"partial": True} if partial else {})}
+    def answer(request: str, choice: str | None = None, note: str = "", values: dict[str, Any] | None = None,
+               words: dict[str, str] | None = None, partial: bool = False, via: str | None = None,
+               artifacts: dict[str, str] | None = None) -> dict[str, Any]:
+        """Answer an open request after the owner confirmed it (note = the owner's words): the choice (none for a
+        person's step), the values its fields take, the owner's words per field (words), a person's step's files as
+        {name: path} (artifacts), and the renderer used (via; default conversation). Recorded as decide or submit would
+        record it; a stale request (answered, or changed since) is refused."""
+        ans: dict[str, Any] = {**({"choice": choice} if choice is not None else {}), **({"values": values} if values else {}),
+                               **({"words": words} if words else {}), **({"partial": True} if partial else {}),
+                               **({"artifacts": artifacts} if artifacts else {})}
         return t.call(lambda api: api.answer(request, ans, note, via=via))
 
     @tool

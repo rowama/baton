@@ -2835,6 +2835,8 @@ class Api:
                 }
                 if disp.get("adapter") != "manual" and disp.get("dispatch_id"):
                     item["liveness"] = supervisor.liveness(self.project.baton, disp["dispatch_id"]).as_dict()
+                if disp.get("adapter") == "manual":
+                    item["request_id"] = self._person_request_id(ctx, path, st.attempt)  # a person's step is a request (Decision 0170)
                 running.append(item)
         from . import waits
 
@@ -4231,61 +4233,94 @@ class Api:
 
     # -- interaction requests (Decisions 0169, 0170) -------------------------
 
-    def _open_requests(self, run_id: str | None = None) -> list[tuple[str, dict[str, Any]]]:
-        """``(run id, pending decision)`` for every open request: one run's, or every active run's."""
-        out = []
+    def _open_requests(self, run_id: str | None = None) -> list[tuple[str, dict[str, Any], dict[str, Any] | None]]:
+        """``(run id, request, pending decision or None)`` for every open request: one run's, or every active run's.
+
+        A pending decision's request, or a person's step's (which is no pending decision: it is work being done).
+        """
+        from . import interactions as ia
+
+        out: list[tuple[str, dict[str, Any], dict[str, Any] | None]] = []
         for rid in [run_id] if run_id else self.project.store.run_ids():
             try:
                 ctx = self._ctx(rid)
                 if ctx.log.state().state != "active":
                     continue
-                out += [(rid, p) for p in self._pending(ctx)]
-            except (EngineError, StoreError):
+                out += [(rid, ia.build(self, ctx, p), p) for p in self._pending(ctx)]
+                out += [(rid, ia.build_person_step(ctx, path, n, seq), None) for path, n, seq in ia.person_steps(ctx)]
+            except (EngineError, StoreError, OSError, ValueError):
                 if run_id:
                     raise
         return out
+
+    def _person_request_id(self, ctx: RunContext, path: str, n: int) -> str | None:
+        from . import interactions as ia
+
+        hit = next(((p, a, seq) for p, a, seq in ia.person_steps(ctx) if p == path and a == n), None)
+        try:
+            return ia.build_person_step(ctx, *hit)["id"] if hit else None
+        except (OSError, ValueError):  # expected: a packet that cannot be read has no request to give
+            return None
 
     def interactions(self, run_id: str | None = None) -> dict[str, Any]:
         """The open interaction requests, of one run or of every active run (§13.1)."""
         from . import interactions as ia
 
-        reqs = [ia.summary(ia.build(self, self._ctx(rid), p)) for rid, p in self._open_requests(run_id)]
+        reqs = [ia.summary(req) for _, req, _ in self._open_requests(run_id)]
         return {"format": ia.FORMAT, "requests": reqs, "needs_owner": bool(reqs)}
 
-    def _find_request(self, request_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+    def _find_request(self, request_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
         open_ = self._open_requests(run_id)
-        hit = next(((rid, p) for rid, p in open_ if p.get("request_id") == request_id), None)
+        hit = next((o for o in open_ if o[1]["id"] == request_id), None)
         if hit is None:
-            listed = ", ".join(f"{p['request_id']} ({rid} {p.get('ref')})" for rid, p in open_) or "none"
+            listed = ", ".join(f"{req['id']} ({rid} {req['ref']})" for rid, req, _ in open_) or "none"
             raise EngineError("interaction.stale",
                               f"request {request_id} is not open: it was answered, is no longer pending, or what it asks has changed. "
                               f"Open requests: {listed}")
         return hit
 
-    def interaction(self, request_id: str, run_id: str | None = None) -> dict[str, Any]:
-        """One open request in full (``baton-interaction/1``)."""
+    def interaction(self, request_id: str, item: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+        """One open request in full (``baton-interaction/1``), or with ``item`` one of its context items' material."""
         from . import interactions as ia
 
-        rid, p = self._find_request(request_id, run_id)
-        return ia.build(self, self._ctx(rid), p)
+        rid, req, _ = self._find_request(request_id, run_id)
+        if item is not None:
+            return ia.fetch(self._ctx(rid), req, item)
+        return req
 
     def answer(self, request_id: str, answer: dict[str, Any], note: str = "", *, via: str | None = None,
                run_id: str | None = None) -> dict[str, Any]:
-        """Answer an open request: checked against it, then recorded as ``decide`` (or the command its choice names)
-        would record it, with ``request_id`` and ``via`` (§13.1; Decision 0170)."""
+        """Answer an open request: checked against it, then recorded as ``decide`` or ``submit`` (or the command its
+        choice names) would record it, with ``request_id`` and ``via`` (§13.1; Decision 0170)."""
         from . import interactions as ia
 
         ans = ia.parse_answer(answer)
         via = via or ans.get("via") or ia.DEFAULT_VIA
-        rid, p = self._find_request(request_id, run_id)
-        req = ia.build(self, self._ctx(rid), p)
+        rid, req, p = self._find_request(request_id, run_id)
+        values = ans.get("values") or {}
+        partial = bool(ans.get("partial"))
+        if p is None:  # a person's step: the values are its output, the files its artifacts
+            if ans.get("choice") is not None:
+                raise EngineError("answer.invalid", "a person's step takes values and files, not a choice")
+            if partial:
+                raise EngineError("answer.invalid", "partial is only for a blocked step's questions")
+            ia.check_values(req["answer"]["schema"], values)
+            words = ia.words_for(note, via)
+            import tempfile
+
+            manifest = json.loads((self._ctx(rid).attempt_dir(req["ref"], req["attempt"]) / "packet" / "manifest.json").read_text(encoding="utf-8"))
+            with tempfile.TemporaryDirectory(prefix="baton-answer-") as tmp:
+                ia.write_result(manifest, values, ans.get("artifacts") or {}, req["files"], words, tmp)
+                with ia.answering(request_id, via):
+                    out = self.submit(rid, req["ref"], tmp)
+            return {**out, "request_id": request_id, "via": via}
+        if ans.get("artifacts"):
+            raise EngineError("answer.invalid", "files are only for a person's step")
         choice = ans.get("choice")
         names = [c["decision"] for c in req["choices"]]
         if choice not in names:
             raise EngineError("answer.invalid", f"choice must be one of {names}, got {choice!r}")
         spec = next(c for c in req["choices"] if c["decision"] == choice).get("answer")
-        values = ans.get("values") or {}
-        partial = bool(ans.get("partial"))
         if spec is None:
             if values:
                 raise EngineError("answer.invalid", f"{choice!r} takes no values")

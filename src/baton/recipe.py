@@ -79,6 +79,7 @@ class LoadedRecipe:
     warnings: list[Issue] = field(default_factory=list)
     schemas: dict[str, dict] = field(default_factory=dict)  # recipe-relative path -> schema
     programs: dict[str, programs.LoadedProgram] = field(default_factory=dict)  # program id -> checked program (§5.9)
+    hints: dict[str, dict] = field(default_factory=dict)  # recipe-relative path -> checked interaction hints (§5.3)
 
 
 def load_recipe(root: str | Path) -> LoadedRecipe:
@@ -125,6 +126,7 @@ class _Checker:
         self.root = root
         self.issues: list[Issue] = []
         self.schemas: dict[str, dict] = {}
+        self.hints: dict[str, dict] = {}
         self.recipe: Recipe
         self.vocab: Vocabulary
         self.places: dict[str, _Place] = {}
@@ -189,6 +191,7 @@ class _Checker:
             warnings=[i for i in self.issues if i.severity == "warning"],
             schemas=self.schemas,
             programs={k: v for k, v in self.programs.items() if v is not None},
+            hints=self.hints,
         )
 
     def _read(self) -> Any:
@@ -690,6 +693,8 @@ class _Checker:
             self._file(step.doc_template, f"{w}.doc_template", "doc template")
         if step.output_schema:
             self._schema(step.output_schema, f"{w}.output_schema")
+        if step.interaction is not None:
+            self._check_hints(step, step.interaction.hints, f"{w}.interaction.hints")
 
         _dupes(self, [i.name for i in step.inputs], "step.duplicate_input", f"{w}.inputs", "input")
         _dupes(self, [a.name for a in step.artifacts], "step.duplicate_artifact", f"{w}.artifacts", "artifact")
@@ -946,7 +951,30 @@ class _Checker:
             self.error("recipe.several_proposing_steps", "steps",
                        "only one step may propose runs: " + ", ".join(repr(s.id) for s, _ in found))
 
+    def _check_hints(self, step: Step, rel: str, where: str) -> None:
+        """An ``interaction: {hints}`` file: readable, and naming only fields of the step's output schema (§5.3)."""
+        from . import interactions
+
+        if not step.output_schema:
+            self.error("interaction.needs_output_schema", where, "interaction hints describe the step's output: declare output_schema")
+            return
+        full = self._file(rel, where, "hints file")
+        if full is None:
+            return
+        try:
+            hints = interactions.load_hints(full)
+        except (YamlError, ValueError, UnicodeDecodeError) as e:
+            self.error("interaction.bad_hints", where, f"{rel}: not readable YAML or JSON ({e})")
+            return
+        problems = interactions.hint_problems(hints, self._schema(step.output_schema, where))
+        for p in problems:
+            self.error("interaction.bad_hints", where, f"{rel}: {p}")
+        if not problems:
+            self.hints[rel] = hints
+
     def _check_gate(self, step: Step, place: _Place, gate: Any, where: str) -> None:
+        if isinstance(gate, HumanGate) and gate.interaction is not None:
+            self._check_hints(step, gate.interaction.hints, f"{where}.interaction.hints")
         if gate.type == "schema" and not step.output_schema:
             self.error("gate.schema_without_output_schema", where, "a schema gate needs the step to declare output_schema")
         if isinstance(gate, FindingsGate) and step.output_schema != FINDINGS_SCHEMA_REF:

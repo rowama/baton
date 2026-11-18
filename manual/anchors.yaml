@@ -71,6 +71,7 @@ published:
 - admin.recipes-and-vendoring#axes
 - admin.recipes-and-vendoring#guides
 - admin.recipes-and-vendoring#here-now
+- admin.recipes-and-vendoring#interaction-hints
 - admin.recipes-and-vendoring#programs
 - admin.recipes-and-vendoring#project-inputs
 - admin.recipes-and-vendoring#review
@@ -347,6 +348,7 @@ published:
 - reference.project-settings
 - reference.project-settings#here-now
 - user.answer-questions-and-decide
+- user.answer-questions-and-decide#answer-file
 - user.answer-questions-and-decide#changed
 - user.answer-questions-and-decide#confirm-back
 - user.answer-questions-and-decide#confusing

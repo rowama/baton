@@ -113,6 +113,12 @@ class FindingsGate(_GateBase):
     block_on: list[Severity] | None = None
 
 
+class Interaction(_Strict):
+    """How a step's or human gate's interaction request may be shown: a hints file in the package (§5.3; Decision 0170, item 8)."""
+
+    hints: str = Field(min_length=1)  # recipe-relative YAML or JSON file, checked at load against the step's output schema
+
+
 class HumanGateLabels(_Strict):
     """A recipe's own plain-language labels for a human gate's options (§13.8)."""
 
@@ -124,6 +130,7 @@ class HumanGate(_GateBase):
     type: Literal["human"]
     prompt: str = Field(min_length=1)
     labels: HumanGateLabels | None = None
+    interaction: Interaction | None = None  # hints for showing the gated step's output (§5.3)
 
 
 Gate = Annotated[
@@ -173,6 +180,7 @@ class Step(_Strict):
     doc_template: str | None = None
     proposes_runs: bool = False  # its output proposes runs the owner chooses from (§5.1, §11.6; Decision 0152)
     tool_calls: int | None = Field(default=None, ge=1)  # the tool-call limit when Baton's API runner offers tools (§5.6; Decision 0168, item 5)
+    interaction: Interaction | None = None  # hints for a person's step's interaction request (§5.3; Decision 0170, item 8)
 
     @property
     def is_group(self) -> bool:
