@@ -252,6 +252,7 @@ published:
 - reference.commands
 - reference.commands#baton-abandon
 - reference.commands#baton-adopt
+- reference.commands#baton-answer
 - reference.commands#baton-ask-sme
 - reference.commands#baton-attest
 - reference.commands#baton-bind
@@ -276,6 +277,8 @@ published:
 - reference.commands#baton-help
 - reference.commands#baton-ingest-revision
 - reference.commands#baton-init
+- reference.commands#baton-interaction
+- reference.commands#baton-interactions
 - reference.commands#baton-lease
 - reference.commands#baton-mcp
 - reference.commands#baton-migrate
@@ -344,6 +347,7 @@ published:
 - reference.project-settings
 - reference.project-settings#here-now
 - user.answer-questions-and-decide
+- user.answer-questions-and-decide#changed
 - user.answer-questions-and-decide#confirm-back
 - user.answer-questions-and-decide#confusing
 - user.answer-questions-and-decide#documents

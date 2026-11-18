@@ -281,7 +281,14 @@ def published_schemas() -> dict[str, dict[str, Any]]:
         "baton-findings-1.schema.json": findings_json_schema(),
         "baton-crosswalk-1.schema.json": crosswalk_json_schema(),
         "baton-proposals-1.schema.json": proposals_json_schema(),
+        "baton-interaction-1.schema.json": _interaction_schema(),
     }
+
+
+def _interaction_schema() -> dict[str, Any]:
+    from .interactions import json_schema
+
+    return json_schema()
 
 
 def dump(schema: dict[str, Any]) -> str:

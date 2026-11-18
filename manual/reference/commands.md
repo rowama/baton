@@ -37,6 +37,21 @@ Explained in the manual: [Bring in an existing project](user.bring-an-existing-p
 | `--scope <str>` | Limit research to this path (repeatable). |
 | `--json` | Machine-readable output. |
 
+## baton answer {#baton-answer}
+
+Answer an open request: checked against it, then recorded as decide would record it.
+
+Explained in the manual: [Answer questions and decide](user.answer-questions-and-decide#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `request <str>` | Request id (from interactions, status or board). |
+| `--choice <str>` | The choice made, one of the request's choices. |
+| `--file <path>` | An answer file (YAML or JSON): {choice, values, words, partial}. |
+| `--note <str>` | The owner's words, including their confirmation, recorded verbatim. |
+| `--via <str>` | The renderer the owner answered in (default: conversation). |
+| `--json` | Machine-readable output. |
+
 ## baton ask-sme {#baton-ask-sme}
 
 Consult an expert by subject; the runtime assembles what it sees.
@@ -343,6 +358,28 @@ Explained in the manual: [Getting started](user.getting-started#here-now).
 |---|---|
 | `path <path>` | Project root (default: current directory). |
 | `--bare` | Vendor no starter recipes (fit-check is vendored by default). |
+| `--json` | Machine-readable output. |
+
+## baton interaction {#baton-interaction}
+
+Show one open request in full (format baton-interaction/1).
+
+Explained in the manual: [Answer questions and decide](user.answer-questions-and-decide#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `request <str>` | Request id (from interactions, status or board). |
+| `--json` | Machine-readable output. |
+
+## baton interactions {#baton-interactions}
+
+List the open requests for the owner (every active run's, or one run's).
+
+Explained in the manual: [Answer questions and decide](user.answer-questions-and-decide#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--run <str>` | Only this run's requests. |
 | `--json` | Machine-readable output. |
 
 ## baton lease {#baton-lease}

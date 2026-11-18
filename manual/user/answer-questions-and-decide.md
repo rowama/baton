@@ -38,6 +38,10 @@ Nothing from the conversation is recorded until you confirm what was understood.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
+## If a question changed before you answered {#changed}
+
+While you think, the work can move on: another part may add a reason to a question, or a part that was tried again may come back with new questions. Your answer always goes to the question as you saw it. If that question has changed since, nothing is recorded; your assistant shows you the question as it is now, and you answer that one.
+
 ## Sizing the work {#sizing}
 
 Early on, the work is sized, so that it gets as much care as it needs and no more. Some processes give one size (small, standard, large). Others rate the work on a few separate things, such as how much is still unknown and how carefully the result must be checked, each with the reason for the rating. You are shown all of them together and asked once whether they are right. If one is off, say which and why; the sizing is redone with your words.

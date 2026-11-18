@@ -750,6 +750,64 @@ def decide(
 
 
 @app.command()
+def interactions(
+    run: Annotated[Optional[str], typer.Option("--run", help="Only this run's requests.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """List the open requests for the owner (every active run's, or one run's)."""
+    out = _call(as_json, lambda: _api().interactions(run))
+    lines = [f"{r['id']}  {r['run']} {r['ref']}  {r['title']}: {r['message']}" for r in out["requests"]] or ["Nothing waits on the owner."]
+    _done(out, as_json, "\n".join(lines))
+
+
+@app.command()
+def interaction(
+    request: Annotated[str, typer.Argument(help="Request id (from interactions, status or board).")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Show one open request in full (format baton-interaction/1)."""
+    out = _call(as_json, lambda: _api().interaction(request))
+    lines = [f"{out['title']} ({out['run']} {out['ref']}, {out['kind']})", out["message"]]
+    lines += [f"  {c['label']}: {c['text']}" for c in out["context"] if c.get("kind") == "text"]
+    for c in out["choices"]:
+        fields = f"  (fields: {', '.join(c['answer']['schema'].get('properties', {}))})" if c.get("answer") else ""
+        lines.append(f"  [{c['decision']}] {c['label']}: {c['effect']}{fields}")
+    _done(out, as_json, "\n".join(lines), EXIT_OK)
+
+
+def _read_answer_file(p: Path, as_json: bool) -> Any:
+    import yaml
+
+    try:
+        text = p.read_text(encoding="utf-8-sig")
+        return json.loads(text) if p.suffix.lower() == ".json" else yaml.safe_load(text)
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        _fail(as_json, EXIT_USAGE, "answer.unreadable", f"cannot read answer file {p}: {e}")
+
+
+@app.command()
+def answer(
+    request: Annotated[str, typer.Argument(help="Request id (from interactions, status or board).")],
+    choice: Annotated[Optional[str], typer.Option("--choice", help="The choice made, one of the request's choices.")] = None,
+    file: Annotated[Optional[Path], typer.Option("--file", help="An answer file (YAML or JSON): {choice, values, words, partial}.")] = None,
+    note: Annotated[str, typer.Option("--note", help="The owner's words, including their confirmation, recorded verbatim.")] = "",
+    via: Annotated[Optional[str], typer.Option("--via", help="The renderer the owner answered in (default: conversation).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Answer an open request: checked against it, then recorded as decide would record it."""
+    ans: Any = _read_answer_file(file, as_json) if file is not None else {}
+    if not isinstance(ans, dict):
+        _fail(as_json, EXIT_USAGE, "answer.invalid", f"{file}: an answer file holds an object {{choice, values, words, partial}}")
+    if choice is not None:
+        ans = {**ans, "choice": choice}
+    out = _call(as_json, lambda: _api().answer(request, ans, note, via=via))
+    if out.get("outcome") == "selected":
+        _done(out, as_json, f"Framing {out['framing']}: selected {', '.join(out['selected']) or 'nothing'} ({out['decision_id']}); {out['state']}")
+        return
+    _done(out, as_json, _outcome_text(out) if "outcome" in out else f"Recorded ({out['request_id']}).")
+
+
+@app.command()
 def waive(
     run: Annotated[str, typer.Argument(help="Run id.")],
     step: Annotated[str, typer.Argument(help="Step path.")],

@@ -248,6 +248,26 @@ def build_server(project: str | Path | None = None, director: str | None = None)
         return t.call(body)
 
     @tool
+    def interactions(run: str | None = None) -> dict[str, Any]:
+        """The open requests for the owner (baton-interaction/1 summaries), of one run or of every active run."""
+        return t.call(lambda api: api.interactions(run))
+
+    @tool
+    def interaction(request: str) -> dict[str, Any]:
+        """One open request in full: message, context, choices with their effects, and any fields a choice needs."""
+        return t.call(lambda api: api.interaction(request))
+
+    @tool
+    def answer(request: str, choice: str, note: str = "", values: dict[str, Any] | None = None,
+               words: dict[str, str] | None = None, partial: bool = False, via: str | None = None) -> dict[str, Any]:
+        """Answer an open request after the owner confirmed it (note = the owner's words): the choice, the values its
+        fields take, the owner's words per field (words), and the renderer used (via; default conversation).
+        Recorded as decide would record it; a stale request (answered, or changed since) is refused."""
+        ans: dict[str, Any] = {"choice": choice, **({"values": values} if values else {}), **({"words": words} if words else {}),
+                               **({"partial": True} if partial else {})}
+        return t.call(lambda api: api.answer(request, ans, note, via=via))
+
+    @tool
     def waive(run: str, step: str, gate: str, reason: str) -> dict[str, Any]:
         """Waive one gate occurrence; reason is the owner's decision, verbatim (only with the owner's approval)."""
         return t.call(lambda api: api.waive(run, step, gate, reason))

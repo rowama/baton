@@ -71,6 +71,9 @@ commands:
   status: user.check-on-your-work
   summary: user.check-on-your-work
   decide: user.answer-questions-and-decide
+  interactions: user.answer-questions-and-decide
+  interaction: user.answer-questions-and-decide
+  answer: user.answer-questions-and-decide
   resume: user.long-running-work
   push: user.what-baton-may-do
   permission: user.what-baton-may-do

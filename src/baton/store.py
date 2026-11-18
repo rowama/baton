@@ -32,6 +32,7 @@ import os
 import secrets
 import sqlite3
 import stat
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -52,6 +53,10 @@ from .state import IllegalTransition, RunState, StepState
 
 BATON_DIR = ".baton"
 EVENTS_FILE = "events.jsonl"
+#: Set while an interaction request is answered (``interactions.answering``): every ``human_decision`` and
+#: ``result_submitted`` recorded meanwhile carries ``request_id`` and ``via`` (§8.2; Decision 0170).
+DECISION_STAMP: ContextVar[dict[str, str] | None] = ContextVar("baton_decision_stamp", default=None)
+STAMPED_EVENTS = ("human_decision", "result_submitted")
 CACHE_SCHEMA_VERSION = "2"  # 2: step_limits (program steps, §5.9)
 
 
@@ -405,6 +410,9 @@ class EventLog:
                 f"event type {etype!r} " + ("does not belong in a " + self.kind + " log" if known else "is unknown"),
                 [Issue(code="events.wrong_log" if known else "events.unknown_type", message=etype)],
             )
+        stamp_ = DECISION_STAMP.get()
+        if stamp_ and etype in STAMPED_EVENTS:
+            data = {**(data or {}), **stamp_}
         ev: dict[str, Any] = {
             "format": versions.current_format("events"),
             "seq": last_seq + 1,

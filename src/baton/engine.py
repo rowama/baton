@@ -1686,7 +1686,8 @@ def rating_signals(ctx: RunContext) -> list[dict[str, Any]]:
         why = "; ".join(f"{e.step_path} suggests {e.data.get('suggested')}: {e.data.get('reason')}" for e in sigs)
         out.append({
             "ref": f"rating:{axis}", "step_path": None, "kind": "rating_signal", "axis": axis, "rating": ratings.get(axis),
-            "signals": [{"step_path": e.step_path, "attempt": e.attempt, "suggested": e.data.get("suggested"), "reason": e.data.get("reason")}
+            "signals": [{"step_path": e.step_path, "attempt": e.attempt, "suggested": e.data.get("suggested"), "reason": e.data.get("reason"),
+                         "seq": e.seq}
                         for e in sigs],
             "prompt": f"The work may need {name} changed from {ratings.get(axis)} ({why}). Re-assess it, or keep it as it is?",
             "options": labels.options("rating_signal", RATING_DECISIONS),
@@ -2392,10 +2393,13 @@ class Api:
         return Leases(ctx.log, self.director, self.project.branch(), self.project.config.leases.minutes)
 
     def _pending(self, ctx: RunContext) -> list[dict[str, Any]]:
-        """``pending_decisions`` with the options' ``next`` where the record decides it (Decision 0071)."""
+        """``pending_decisions`` with each one's ``request_id`` (Decision 0170) and the options' ``next`` where the record
+        decides it (Decision 0071)."""
         from .frame import annotate_next
 
-        return annotate_next(self, ctx, pending_decisions(ctx))
+        from .interactions import stamp
+
+        return annotate_next(self, ctx, stamp(ctx, pending_decisions(ctx)))
 
     def _ctx(self, run_id: str) -> RunContext:
         return self.project.context(run_id)
@@ -4224,6 +4228,87 @@ class Api:
             return {"run_id": ctx.run_id, **_outcome_dict(outcome)}
 
         return self._mutate(run_id, body, extra=extra)
+
+    # -- interaction requests (Decisions 0169, 0170) -------------------------
+
+    def _open_requests(self, run_id: str | None = None) -> list[tuple[str, dict[str, Any]]]:
+        """``(run id, pending decision)`` for every open request: one run's, or every active run's."""
+        out = []
+        for rid in [run_id] if run_id else self.project.store.run_ids():
+            try:
+                ctx = self._ctx(rid)
+                if ctx.log.state().state != "active":
+                    continue
+                out += [(rid, p) for p in self._pending(ctx)]
+            except (EngineError, StoreError):
+                if run_id:
+                    raise
+        return out
+
+    def interactions(self, run_id: str | None = None) -> dict[str, Any]:
+        """The open interaction requests, of one run or of every active run (§13.1)."""
+        from . import interactions as ia
+
+        reqs = [ia.summary(ia.build(self, self._ctx(rid), p)) for rid, p in self._open_requests(run_id)]
+        return {"format": ia.FORMAT, "requests": reqs, "needs_owner": bool(reqs)}
+
+    def _find_request(self, request_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        open_ = self._open_requests(run_id)
+        hit = next(((rid, p) for rid, p in open_ if p.get("request_id") == request_id), None)
+        if hit is None:
+            listed = ", ".join(f"{p['request_id']} ({rid} {p.get('ref')})" for rid, p in open_) or "none"
+            raise EngineError("interaction.stale",
+                              f"request {request_id} is not open: it was answered, is no longer pending, or what it asks has changed. "
+                              f"Open requests: {listed}")
+        return hit
+
+    def interaction(self, request_id: str, run_id: str | None = None) -> dict[str, Any]:
+        """One open request in full (``baton-interaction/1``)."""
+        from . import interactions as ia
+
+        rid, p = self._find_request(request_id, run_id)
+        return ia.build(self, self._ctx(rid), p)
+
+    def answer(self, request_id: str, answer: dict[str, Any], note: str = "", *, via: str | None = None,
+               run_id: str | None = None) -> dict[str, Any]:
+        """Answer an open request: checked against it, then recorded as ``decide`` (or the command its choice names)
+        would record it, with ``request_id`` and ``via`` (§13.1; Decision 0170)."""
+        from . import interactions as ia
+
+        ans = ia.parse_answer(answer)
+        via = via or ans.get("via") or ia.DEFAULT_VIA
+        rid, p = self._find_request(request_id, run_id)
+        req = ia.build(self, self._ctx(rid), p)
+        choice = ans.get("choice")
+        names = [c["decision"] for c in req["choices"]]
+        if choice not in names:
+            raise EngineError("answer.invalid", f"choice must be one of {names}, got {choice!r}")
+        spec = next(c for c in req["choices"] if c["decision"] == choice).get("answer")
+        values = ans.get("values") or {}
+        partial = bool(ans.get("partial"))
+        if spec is None:
+            if values:
+                raise EngineError("answer.invalid", f"{choice!r} takes no values")
+        else:
+            ia.check_values(spec["schema"], values, partial=partial)
+        if partial and req["kind"] != "blocked":
+            raise EngineError("answer.invalid", "partial is only for a blocked step's questions")
+        words = ia.words_for(note, via)
+        ref, kind = req["ref"], req["kind"]
+        with ia.answering(request_id, via):
+            if kind == "baseline":
+                out = self.establish_baseline(rid, words)
+            elif kind == "drift" and choice == "ingest":
+                out = self.ingest_revision(rid, p["step_path"], p["artifact"], words)
+            elif kind == "blocked" and choice == "retry" and spec is not None:
+                per = ans.get("words") or {}
+                answers = [{"id": q, "answer": v, "owner_words": per.get(q) or words} for q, v in values.items()]
+                out = self.decide(rid, ref, "retry", words, answers=answers, partial=partial)
+            elif kind == "frame" and choice == "select":
+                out = self.decide(rid, ref, "select", words, items=list(values.get("items") or []))
+            else:
+                out = self.decide(rid, ref, choice, words, path=values.get("path"))
+        return {**out, "request_id": request_id, "via": via}
 
     def waive(self, run_id: str, step_path: str, gate: str, reason: str) -> dict[str, Any]:
         """Waive one gate occurrence (§9.3). The reason is the owner's decision; the director skill requires it."""

@@ -45,6 +45,9 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 |---|---|
 | `decide <run> <step> <decision> --note "<words>"` | Record an owner decision, with their words |
 | `decide <run> <step> select --items <ids> --note "<words>"` | Record which proposed pieces of work the owner chose (a breakdown's `frame` step, a project review's `recommend` step); the chosen ones start, with the documents they build on |
+| `interactions` | Every open request for the owner, in every active run (`--run` for one): its id, what it is about and its message. `status` and `board` give each pending decision's `request_id` too |
+| `interaction <id>` | One request in full, in the `baton-interaction/1` format: the message, what to show, the choices with what each does, and the fields a choice needs (a blocked part's questions, the pieces to choose from) |
+| `answer <id> --choice <choice> --note "<words>"` | Record the owner's answer to a request, as `decide` would; `--file <answer.yaml>` gives the fields (`{choice, values, words, partial}`), `--via` names where the owner answered (default: in conversation, where the owner's words are required). A request that was answered, or changed since it was read, is refused (`interaction.stale`) and the open ones are named |
 | `waive` | Waive one failed check, as an owner decision |
 | `disposition` | Record how a review finding was handled |
 | `revise` | Correct an earlier part of a run, with approval: a new attempt, and what depended on it becomes stale |

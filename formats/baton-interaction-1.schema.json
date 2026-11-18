@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "additionalProperties": false,
+      "description": "The fields an answer gives: a JSON Schema in the renderable subset, its prefilled values, and whether it is in the subset",
+      "properties": {
+        "prefill": {
+          "type": "object"
+        },
+        "renderable": {
+          "type": "boolean"
+        },
+        "schema": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "prefill",
+        "renderable"
+      ],
+      "type": "object"
+    },
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "choices": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "additionalProperties": false,
+            "description": "The fields an answer gives: a JSON Schema in the renderable subset, its prefilled values, and whether it is in the subset",
+            "properties": {
+              "prefill": {
+                "type": "object"
+              },
+              "renderable": {
+                "type": "boolean"
+              },
+              "schema": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "schema",
+              "prefill",
+              "renderable"
+            ],
+            "type": "object"
+          },
+          "decision": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "next": {}
+        },
+        "required": [
+          "decision",
+          "label",
+          "effect"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "context": {
+      "items": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "table",
+              "document",
+              "image"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "ref": {
+            "description": "Fetched through interaction(id, item)",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "extensions": {
+      "description": "extensions.<renderer kind>: ignored by every other renderer",
+      "type": "object"
+    },
+    "format": {
+      "const": "baton-interaction/1"
+    },
+    "hints": {
+      "type": "object"
+    },
+    "id": {
+      "pattern": "^ir_[0-9a-f]{20}$",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The kind of ask, as defaults/labels.yaml keys it, or person_step",
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "needs_confirmation": {
+      "type": "boolean"
+    },
+    "ref": {
+      "description": "What is decided: as decide names it",
+      "minLength": 1,
+      "type": "string"
+    },
+    "run": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "step_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "run",
+    "ref",
+    "kind",
+    "title",
+    "message",
+    "context",
+    "choices",
+    "hints",
+    "extensions",
+    "needs_confirmation"
+  ],
+  "title": "baton-interaction/1",
+  "type": "object"
+}
