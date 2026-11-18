@@ -4,7 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-waiting-steps](2026-11-waiting-steps.md) | A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it | accepted | major | |
+| [2026-11-waiting-steps](2026-11-waiting-steps.md) | A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it | in-progress | major | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | On hold: recorded 2026-11-16 (Decision 0161); to be designed after the recipe-builder changes of Decision 0155 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | proposed | major | On hold: after 2026-11-project-policy |

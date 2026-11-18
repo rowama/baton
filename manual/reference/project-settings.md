@@ -27,6 +27,7 @@ These are the keys of `.baton/project.yaml`, which is committed and never holds 
 | `hooks.on_needs_human` | text | empty | A shell command run when work is waiting on the owner. Falls back to `on_complete`. |
 | `hooks.on_platform_failure` | text | empty | A shell command run when work fails because of the platform. Falls back to `on_complete`; on its own it wakes nobody for owner decisions. |
 | `limits.active_runs` | whole number (optional) | none | The most pieces of work that may be active at once; `start` refuses beyond it. Unset means no limit. |
+| `waits.max` | text or number | `30d` | The longest any part may wait for something outside to happen, as a duration such as `30d` or `12h`. A recipe asking for longer is cut to it. Default `30d`, so a forgotten wait surfaces within a month. |
 | `sme` | mapping | none | Per subject (`project`, `platform`, `process`), the profiles tried first when an expert is consulted: `preferred_profiles: [...]`. |
 | `permissions.push.docs_only` | allow, ask or deny | `allow` | Pushing commits that change only documents (see `docs_only_globs`): `allow`, `ask` or `deny`. The permissions are part of the project policy: change them with `baton policy set`; a hand edit waits for the owner's confirmation. |
 | `permissions.push.after_verified` | allow, ask or deny | `allow` | Pushing commits that are Baton checkpoints, or that a passed step's own checks vouched for. |

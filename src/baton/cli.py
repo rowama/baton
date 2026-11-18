@@ -658,6 +658,8 @@ def _outcome_text(out: dict) -> str:
         "waiver_pending": f"{out['step_path']}: waiver recorded",
         "abandoned": f"{out['step_path']} abandoned",
         "running": f"{out['step_path']} is still running",
+        "waiting": f"{out['step_path']} is waiting: its check found the condition not met (no process stays running)",
+        "skipped": f"{out['step_path']} skipped: the work goes on without it",
         "confirmed": f"{out['step_path']} confirmed unchanged by the owner; its earlier result stands",
         "retriage_requested": f"{out['step_path']} is ready to re-triage; the new level then waits on the owner",
         "retriage_rejected": f"{out['step_path']}: the owner kept the current level; the earlier triage result stands",
@@ -1502,6 +1504,40 @@ def workers_status(as_json: JsonOpt = False) -> None:
     if out["available_not_generated"]:
         lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
     _emit(out, as_json, "\n".join(lines))
+
+
+waits_app = typer.Typer(no_args_is_help=True, help="Steps that wait for a condition, held with no process running (§8.7).")
+app.add_typer(waits_app, name="waits")
+
+
+@waits_app.command("check")
+def waits_check(
+    run: Annotated[Optional[str], typer.Option("--run", help="Check only this run's waiting steps (default: every run).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Check each waiting step once and exit: a met condition is taken in now, an expired wait goes to the owner."""
+    out = _call(as_json, lambda: _api().waits_check(run))
+    if out["busy"]:
+        _emit(out, as_json, "Another check is running; nothing was checked.")
+        raise typer.Exit(EXIT_OK)
+    lines = []
+    for c in out["checked"]:
+        where = f"{c['run_id']} {c['step_path']}"
+        r = c["result"]
+        if r == "not_met":
+            lines.append(f"{where}: not met yet; waits until {c['deadline']}")
+        elif r == "check_failed":
+            lines.append(f"{where}: the check failed ({c['failures']} in a row): {c['reasons'][0].splitlines()[0]}")
+        elif r == "met":
+            lines.append(f"{where}: met; {c['outcome'].replace('_', ' ')}")
+        elif r == "expired":
+            lines.append(f"{where}: stopped waiting at {c['deadline']}; the owner decides")
+        elif r == "escalated":
+            lines.append(f"{where}: escalated: {(c.get('reasons') or ['see its record'])[0].splitlines()[0]}")
+        else:
+            lines.append(f"{where}: already {c.get('state')}")
+    _emit(out, as_json, "\n".join(lines) or "No step is waiting.")
+    raise typer.Exit(EXIT_OK)
 
 
 tools_app = typer.Typer(no_args_is_help=True, help="Tools the vendored recipes ship: scripts run with no model (§5.9).")

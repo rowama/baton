@@ -47,6 +47,8 @@ class ToolAdapter:
             argv += ["--workspace", str(workspace)]
         if profile.auth.env:  # names only: the runner masks their values in the notes it records
             argv += ["--secret-names", json.dumps(sorted(profile.auth.env))]
+        if o.get("wait"):  # a waiting step's check reports met (§5.9; Decision 0165)
+            argv.append("--wait")
         return argv
 
     def preflight(self, profile: WorkerProfile, packet_dir: Path) -> list[str]:

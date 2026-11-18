@@ -299,6 +299,8 @@ published:
 - reference.commands#baton-upgrade
 - reference.commands#baton-vendor
 - reference.commands#baton-wait
+- reference.commands#baton-waits
+- reference.commands#baton-waits-check
 - reference.commands#baton-waive
 - reference.commands#baton-workers
 - reference.commands#baton-workers-assess

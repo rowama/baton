@@ -24,6 +24,10 @@ escalation:                # work that stopped and needs the owner
 blocked:                   # work that stopped because it needs the owner's answers
   retry:   { label: "Try again with your answers", effect: "This part picks up again with the answers you confirmed." }
   abandon: { label: "Set this aside for now", effect: "This part stops here; the rest of the work may not be able to finish without it." }
+wait_expired:              # a step waited for something that did not happen in time
+  retry:   { label: "Keep waiting", effect: "The condition is checked again now, and this part waits for another period." }
+  skip:    { label: "Go on without it", effect: "This part is skipped and the work goes on without it." }
+  abandon: { label: "Stop waiting and set this aside", effect: "This part stops here; the rest of the work may not be able to finish without it." }
 iteration_limit:           # a repeated piece of work that hasn't converged
   retry:   { label: "Give it another round", effect: "Another set of tries is allowed, with what you said as guidance." }
   abandon: { label: "Stop working on this piece", effect: "This piece stops here; the work as a whole can't finish until the plan changes." }

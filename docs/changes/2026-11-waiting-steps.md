@@ -1,11 +1,11 @@
 ---
 id: 2026-11-waiting-steps
 title: "A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it"
-status: accepted
+status: in-progress
 level: major
 decisions: ["0165", "0154", "0156", "0058", "0059"]
 touches: [principles.md, design/recipes.md, design/runtime.md, design/workers.md, design/director-interface.md, design/platform-and-security.md]
-manual: []
+manual: [admin/director-commands.md, context.yaml, reference-notes.yaml, reference/commands.md, reference/diagnostics.md, reference/environment.md, reference/project-settings.md, anchors.yaml]
 ---
 
 # A step can wait for a condition for days without a process running, and an optional helper run from a scheduler checks on it
@@ -97,7 +97,8 @@ Settled by the answers of Decision 0165. Approved by the owner with the Request 
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: an owner's topic on waiting steps, an administrator topic on scheduling the check, and the command reference.
+- Slice 1: `admin/director-commands.md` lists `waits check`; `context.yaml` maps the `waits` command to it; `reference-notes.yaml` describes `waits.max`, the hook outcome `waiting` and the diagnostics `waits.not_met`, `waits.check_failed` and `waits.cache_unreadable`; the generated reference pages (commands, diagnostics, environment, project settings) and `anchors.yaml` rebuilt.
+- Slice 2 (expected): an owner's topic on waiting steps, an administrator topic on scheduling the check, and `waits schedule` in the reference.
 
 ### Decisions
 
@@ -141,3 +142,12 @@ Slices as proposed; refined once the Request and Design are approved.
 - **Summary:** The owner approved the Request and Design as updated with Decision 0165's answers. No code changed.
 - **Owner decision:** 2026-11-17, "Approved."
 - **Accepted:** Yes.
+
+### Slice 1: a step waits as state
+
+- **Summary:** A tool step may declare `wait: {until, every?, on_expire?}`. Its check runs at dispatch under the supervisor as any tool run; the tool runner, given `--wait`, requires a boolean `met` in `output.json`, strips it when met, and writes `not_met.json` in place of `result.json` when not. The supervisor (and reconciliation of a dead supervisor) then records `wait_started` with the deadline, cut to `project.yaml` `waits.max` (default `30d`), fires the hook with outcome `waiting`, and leaves no process. New state `waiting` (`running → waiting → submitted | escalated`), records `wait_met` and `wait_expired`, and the edge `escalated → skipped` only with `cause: wait_expired`. `baton waits check [--run]` holds a non-blocking lock (a second check returns `busy`), and for each waiting step: past the deadline, `wait_expired` and `step_escalated {reason: wait_expired}`; else runs the check in the foreground into the attempt's `check/` folder; met, `wait_met`, then intake, gates, records, incidents, checkpoint and hooks as the supervisor's; not met, only the last-checked time in `.baton/cache/waits.json` and a diagnostic; failed, counted there, and the third in a row escalates (`wait_check_failed`). At expiry the owner's options are `retry` and `abandon`, plus `skip` where the step declares `on_expire: skip` (labels "Keep waiting", "Go on without it", "Stop waiting and set this aside"). Design choices made while building, told to the owner: a waiting step may not be `workspace: write` (`step.wait_workspace_write`), since a check only looks and a write step would hold the working tree for the whole wait; `retry` at expiry readies the step and the Director's next dispatch checks again and starts another period (a new attempt, with a fresh budget as after any owner decision), rather than restarting the wait in place; a re-triage never un-skips a step skipped after its wait; durations accept days (`14d`) everywhere.
+- **Modules:** `models.py` (`Wait`, `WaitsConfig`, the `waits` events, `d` durations), `state.py`, `recipe.py`, `groups.py` (`waiting` is in flight), `tool_runner.py`, `adapters/tool.py`, `engine.py` (`start_wait`, `expire_wait`, `checks_failed`, `Api.waits_check`, completion, reconciliation, hook outcomes, the expired-wait decisions, the checkpoint phrase), `waits.py` (new: the check cache and lock), `locks.py` (`try_file_lock`), `cli.py` (`waits check`), `defaults/labels.yaml`, `formats/baton-recipe-1.schema.json` (regenerated).
+- **Design docs:** `principles.md` (the "not a general scheduler" non-goal reworded); `design/recipes.md` §5.9; `design/runtime.md` §8.1, §8.2, §8.7, §8.8; `design/workers.md` §6.3; `design/director-interface.md` §13.1.
+- **Decisions:** none new (0165 applied).
+- **Tests:** `tests/test_waiting_steps.py`: met at dispatch goes on as any tool step; not met, the step waits with no running marker, the hook says `waiting`, `resume` and `wait` leave it alone, a not-met check adds nothing to the log and keeps the last-checked time, a later met check is taken in, gated and passed, and the next step is ready; at the deadline the step escalates with `needs_human`, `skip` is refused without `on_expire: skip`, and `retry` then a dispatch waits another period on attempt 2; an optional wait is skipped and satisfies its dependent; failed checks are counted outside the log, a good check resets the count, the third escalates with the last reason and hook `failed`; a check without `met` fails; a longer `until` is cut to `waits.max`; two checks never overlap; the state edges and records; the load rules and the published schema; the labels; the cache and the lock. `tests/test_state.py` guards the new `escalated → skipped` edge. Not covered by a test: a supervisor that died after its check wrote `not_met.json` (the same `start_wait` as the supervisor's path), and the re-triage rule for a wait-skipped step.
+- **Accepted:** Yes, pending the full suite on this commit.

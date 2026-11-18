@@ -455,5 +455,20 @@ A tool that reaches the workspace may add `workspace/`, copied as its workspace 
 
 **The owner approves tools with the recipe.** Vendoring a recipe that brings a tool the project has not approved (new, or with different files from every approved version of the same recipe) returns `needs_owner` with a flag `{code: tool, tool, does, needs, touches, sha256, changed}` per tool, in the owner's terms: what it does (its description), what it needs installed (the Python and the pinned packages) and what it may touch (files, the internet, the secrets it names); the owner's words approve it as for step-id flags (§14.2, `vendor --approved --note`). The lock entry of a recipe with tools records `tools {id: sha256}`, so an unchanged tool is not asked about again. Recipes without tools vendor and lock exactly as before.
 
+**A tool step may wait** for a condition outside the run: a price reaching a level, a signed contract coming back, enough answers arriving (Decisions: [0154](../decisions/0154-tool-steps.md), item 5; [0165](../decisions/0165-waiting-steps-details.md)). Its tool is then a *check*: it looks and reports, and is run again until the condition is met (§8.7).
+
+```yaml
+- id: price_reached
+  tool: price-check
+  workspace: none
+  wait: { until: 14d, every: 30m, on_expire: escalate }
+```
+
+- **`until`**: the longest wait, from the first check that found the condition not met; cut to the project's `waits.max` (default `30d`).
+- **`every`**: how often a check is worth running, as advice for a scheduler; Baton enforces no interval.
+- **`on_expire`**: `escalate` (default) or `skip`. With `skip` the owner may go on without the step when its wait ends: it is then `skipped`, which satisfies what depends on it, so inputs taken from it should not be `required`.
+
+A check writes `output.json` with `met: true` or `met: false`. Met, the rest of the object is the step's output, checked against its schema, with its artifacts as usual. Not met, nothing else is kept. A missing or non-boolean `met` fails the check. Durations are `30m`, `12h`, `14d` and the like. The loader rejects `wait` on a step that is not a tool step (`step.wait_needs_tool`), a duration that is not positive (`step.bad_wait_duration`), and a waiting step with `workspace: write` (`step.wait_workspace_write`): a check may look but not change anything, and a write step would hold the working tree for the whole wait. Only tool steps wait (Decision 0165, item 8).
+
 A tool step has one attempt unless it raises it with `max_attempts: <n>` (allowed only on a tool step: `step.max_attempts_needs_tool`; Decision 0156, item 4), and its effort is `S` unless it declares one (§8.7). `baton plan` shows a tool step as done `by tool <id>`. A tool step has no routing (§8.4): its tool is its one executor, and the Director cannot substitute a worker. How a tool runs (its environment, its inputs file, its output folder) is the `tool` adapter (§6.3); what `dispatched` records is in §8.2.
 

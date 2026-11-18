@@ -817,6 +817,23 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 | `--timeout <float>` | Give up after this many seconds (exit 1). |
 | `--json` | Machine-readable output. |
 
+## baton waits {#baton-waits}
+
+Steps that wait for a condition, held with no process running.
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+### baton waits check {#baton-waits-check}
+
+Check each waiting step once and exit: a met condition is taken in now, an expired wait goes to the owner.
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--run <str>` | Check only this run's waiting steps (default: every run). |
+| `--json` | Machine-readable output. |
+
 ## baton waive {#baton-waive}
 
 Waive one gate occurrence (owner decision): the failed one the step holds, else the next.

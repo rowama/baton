@@ -66,7 +66,7 @@ def test_tables_use_known_states_and_event_types():
 
 
 #: Edges legal only after an attempt: tested separately below.
-GUARDED = {("verification_started", "escalated")}
+GUARDED = {("verification_started", "escalated"), ("step_skipped", "escalated")}
 LEGAL_EDGES = [(etype, frm, to) for etype, edges in sm.TRANSITIONS.items() for frm, to in edges.items() if (etype, frm) not in GUARDED]
 
 

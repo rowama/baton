@@ -15,6 +15,7 @@ project_settings:
   hooks.on_needs_human: "A shell command run when work is waiting on the owner. Falls back to `on_complete`."
   hooks.on_platform_failure: "A shell command run when work fails because of the platform. Falls back to `on_complete`; on its own it wakes nobody for owner decisions."
   limits.active_runs: "The most pieces of work that may be active at once; `start` refuses beyond it. Unset means no limit."
+  waits.max: "The longest any part may wait for something outside to happen, as a duration such as `30d` or `12h`. A recipe asking for longer is cut to it. Default `30d`, so a forgotten wait surfaces within a month."
   sme: "Per subject (`project`, `platform`, `process`), the profiles tried first when an expert is consulted: `preferred_profiles: [...]`."
   permissions.push.docs_only: "Pushing commits that change only documents (see `docs_only_globs`): `allow`, `ask` or `deny`. The permissions are part of the project policy: change them with `baton policy set`; a hand edit waits for the owner's confirmation."
   permissions.push.after_verified: "Pushing commits that are Baton checkpoints, or that a passed step's own checks vouched for."
@@ -39,7 +40,7 @@ environment:
   BATON_LAUNCHED: {who: baton, text: "Set by the launcher on the runtime it starts, so a hook or check that runs `baton` again does not loop."}
   BATON_RUN_ID: {who: baton, text: "To a completion hook: the piece of work the outcome is about."}
   BATON_STEP_PATH: {who: baton, text: "To a completion hook: the part of it."}
-  BATON_OUTCOME: {who: baton, text: "To a completion hook: `passed`, `gate_failed`, `needs_human`, `needs_review`, `timed_out`, `failed`, `overdue`, `not_started` or `answered`."}
+  BATON_OUTCOME: {who: baton, text: "To a completion hook: `passed`, `gate_failed`, `needs_human`, `needs_review`, `timed_out`, `failed`, `overdue`, `not_started`, `answered` or `waiting` (a part's check found what it waits for has not happened yet)."}
   BATON_CLASSIFICATION: {who: baton, text: "To a completion hook: how a failure was classified, when it was."}
   BATON_INCIDENT: {who: baton, text: "To a completion hook: the platform incident the outcome opened, if any."}
   BATON_STEP_STATE: {who: baton, text: "To a completion hook: the part's state after the outcome."}
@@ -75,4 +76,7 @@ diagnostics:
   supervisor.marker_unreadable: "A running marker could not be read, so that dispatch is treated as not running here."
   tool_evidence.log_unreadable: "A helper's log could not be read to observe which tools it used; capability states are not updated from it."
   tool_evidence.tree_unreadable: "The project's working tree could not be read after a dispatch, so file changes were not observed."
+  waits.cache_unreadable: "The record of when waiting parts were last checked could not be read; it starts again empty. Harmless: the next check fills it in."
+  waits.check_failed: "A waiting part's check failed to run or to report (the site was down, the script crashed). Counted: the third failure in a row hands the part to the owner."
+  waits.not_met: "A waiting part was checked and what it waits for has not happened yet. Routine; kept only here, not in the work's record."
   ui.route_failed: "A request to the setup page failed on a bug; the page answered with a generic error and no request detail was recorded."

@@ -72,7 +72,7 @@ class Outcome:
 
     step_path: str
     attempt: int
-    outcome: str  # passed | needs_human | needs_review | retry | escalated | abandoned | next_iteration | iteration_limit | revised | recorded | waived | waiver_pending
+    outcome: str  # passed | needs_human | needs_review | retry | escalated | abandoned | next_iteration | iteration_limit | revised | recorded | waived | waiver_pending | waiting | skipped
     reasons: list[str] = field(default_factory=list)
     ready: list[str] = field(default_factory=list)  # steps that became ready as a result
     run_completed: bool = False
@@ -512,8 +512,9 @@ def _apply_retriage(ctx: RunContext, level: dict[str, str], req: Any, decision_s
             st = rs.step(path)
             new_in = included(node, level)
             if st.state == "skipped":
-                if new_in:
-                    unskip.append(path)
+                last = ctx.record().last("step_skipped", path)
+                if new_in and not (last is not None and last.data.get("cause") == "wait_expired"):
+                    unskip.append(path)  # a step the owner went on without after its wait stays skipped
                 continue
             if isinstance(node, Step):
                 if not new_in and _not_started(st):
@@ -711,8 +712,8 @@ def submit(
     step = _step(ctx, step_path)
     log = ctx.log
     current = log.state().step(step_path)
-    if current.state != "running":
-        raise EngineError("engine.not_running", f"{step_path} is {current.state}; only a running attempt can be submitted")
+    if current.state not in ("running", "waiting"):
+        raise EngineError("engine.not_running", f"{step_path} is {current.state}; only a running or waiting attempt can be submitted")
     n = current.attempt
     record = ctx.record()
     built = record.last("packet_built", step_path, n)
@@ -1251,6 +1252,69 @@ def finish_child(
     return Outcome(step_path, n, "escalated", reasons)
 
 
+# -- waiting steps (§8.7; Decisions 0154 item 5, 0165) --------------------------
+
+
+def check_not_met(ctx: RunContext, step_path: str, n: int, result_dir: Path | None = None) -> bool:
+    """Whether a waiting step's check reported its condition not met (``not_met.json``, no ``result.json``)."""
+    from .tool_runner import NOT_MET_FILE
+
+    r = result_dir or ctx.attempt_dir(step_path, n) / "result"
+    return (r / NOT_MET_FILE).is_file() and not (r / "result.json").is_file()
+
+
+def start_wait(ctx: RunContext, step_path: str, n: int, waits_config: Any, *, actor: str = "runtime",
+               workspace_changes: list[str] | None = None) -> Outcome:
+    """The first check found the condition not met: the step waits, with its deadline, and no process stays (criterion 2).
+
+    The wait is the step's ``until``, cut to the project's ``waits.max`` (Decision 0165, item 5).
+    A check that changed the working tree escalates at once, as any read or none step would.
+    """
+    from .models import duration_seconds
+    from .supervisor import fmt
+
+    step = _step(ctx, step_path)
+    w = step.wait
+    if w is None:  # pragma: no cover - only a waiting step's check reports not met
+        raise EngineError("engine.not_waiting", f"{step_path} does not wait")
+    asked = duration_seconds(w.until)
+    limit = waits_config.max_seconds()
+    until_s = min(asked, limit)
+    deadline = fmt(ctx.log.clock() + timedelta(seconds=until_s))
+    data: dict[str, Any] = {"until": w.until, "deadline": deadline, "tool": step.tool, "on_expire": w.on_expire}
+    if w.every:
+        data["every"] = w.every
+    if asked > limit:
+        data["cut_to"] = str(waits_config.max)  # the project's longest wait (the owner is told at start)
+    ctx.log.append("wait_started", actor=actor, step_path=step_path, attempt=n, data=data)
+    if workspace_changes:
+        reasons = _workspace_reasons(step_path, workspace_changes)
+        ctx.log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "workspace_modified", "changed": workspace_changes, "reasons": reasons})
+        return Outcome(step_path, n, "escalated", reasons)
+    return Outcome(step_path, n, "waiting", [f"{step_path} waits until {deadline}: its check found the condition not met"])
+
+
+def expire_wait(ctx: RunContext, step_path: str, n: int) -> Outcome:
+    """The deadline passed: the wait stops and the owner decides (criterion 7). Nothing waits forever."""
+    started = ctx.record().last("wait_started", step_path, n)
+    data = started.data if started else {}
+    ctx.log.append("wait_expired", step_path=step_path, attempt=n, data={"deadline": data.get("deadline")})
+    skip = data.get("on_expire") == "skip"
+    reasons = [f"{step_path} waited until {data.get('deadline')} and its condition was not met"
+               + ("; the recipe allows going on without it" if skip else "")]
+    ctx.log.append("step_escalated", step_path=step_path, attempt=n,
+                   data={"reason": "wait_expired", "on_expire": data.get("on_expire", "escalate"), "reasons": reasons})
+    return Outcome(step_path, n, "escalated", reasons)
+
+
+def checks_failed(ctx: RunContext, step_path: str, n: int, failures: int, last: str) -> Outcome:
+    """The check failed too many times in a row: a broken check must not look like a quiet market (Decision 0165, item 2)."""
+    reasons = [f"the check of {step_path} failed {failures} times in a row; the last time: {last}"]
+    ctx.log.append("step_escalated", step_path=step_path, attempt=n,
+                   data={"reason": "wait_check_failed", "failures": failures, "reasons": reasons})
+    return Outcome(step_path, n, "escalated", reasons)
+
+
 def resolve_effort(ctx: RunContext, node: Any, config: Any, step_path: str | None = None) -> tuple[str, str]:
     """The step's effort (``S`` | ``M`` | ``L``) and where it came from (§8.7).
 
@@ -1293,7 +1357,7 @@ def tool_step_attempts(loaded: Any) -> dict[str, int]:
     return out
 
 
-def tool_profile(tool: Any, env: Any) -> WorkerProfile:
+def tool_profile(tool: Any, env: Any, *, wait: bool = False) -> WorkerProfile:
     """The profile a tool step runs under (§6.3 ``tool``): a clean environment with only the secrets the tool names."""
     from .adapters.tool import PROFILE_PREFIX  # noqa: F401  (the name is ``tool:<id>``)
     from .models import ProfileAuth
@@ -1302,7 +1366,8 @@ def tool_profile(tool: Any, env: Any) -> WorkerProfile:
     auth = ProfileAuth(mode="api_key", env={n: f"secret:{n}" for n in secrets_}) if secrets_ else ProfileAuth(mode="none")
     return WorkerProfile(
         adapter="tool", creator="tool", env_mode="clean", auth=auth,
-        options={"tool": tool.id, "tool_dir": str(tool.root), "bin_dir": str(env.bin_dir), "entry": list(tool.spec.entry)},
+        options={"tool": tool.id, "tool_dir": str(tool.root), "bin_dir": str(env.bin_dir), "entry": list(tool.spec.entry),
+                 **({"wait": True} if wait else {})},
     )
 
 
@@ -1365,6 +1430,16 @@ def escalate_no_worker(ctx: RunContext, step_path: str, excluded: list[dict[str,
 
 GATE_DECISIONS = ("approve", "reject")
 ESCALATION_DECISIONS = ("retry", "abandon")
+#: An expired wait: wait another period, go on without it (only where the step declares on_expire: skip), or stop (Decision 0165, item 9).
+WAIT_EXPIRED_DECISIONS = ("retry", "skip", "abandon")
+
+
+def _escalation_decisions(ctx: RunContext, path: str) -> tuple[str, ...]:
+    """The decisions an escalated step takes: ``skip`` only after an expired wait whose step allows it."""
+    esc = ctx.record().last("step_escalated", path)
+    if esc is not None and esc.data.get("reason") == "wait_expired" and esc.data.get("on_expire") == "skip":
+        return WAIT_EXPIRED_DECISIONS
+    return ESCALATION_DECISIONS
 
 
 def _gate_options(ctx: RunContext, path: str, gate: Any) -> list[dict[str, Any]]:
@@ -1418,7 +1493,8 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
                 "ref": path, "step_path": path, "attempt": st.attempt, "kind": "escalation",
                 "reason": d.get("reason"), "reasons": d.get("reasons") or [],
                 "questions": recorded_questions(d.get("questions")),
-                "options": labels.options("blocked" if d.get("reason") == "blocked" else "escalation", ESCALATION_DECISIONS),
+                "options": labels.options("blocked" if d.get("reason") == "blocked" else "wait_expired" if d.get("reason") == "wait_expired" else "escalation",
+                                          _escalation_decisions(ctx, path)),
             }
             if d.get("reason") in ("platform", "unknown"):
                 from .sme import incident_for
@@ -2001,8 +2077,9 @@ def _decide_answers(ctx: RunContext, ref: str, decision: str, note: str, actor: 
 
 
 def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
-    if decision not in ESCALATION_DECISIONS:
-        raise EngineError("decide.bad_decision", f"{ref} is escalated; decision must be one of {ESCALATION_DECISIONS}, got {decision!r}")
+    allowed = _escalation_decisions(ctx, ref)
+    if decision not in allowed:
+        raise EngineError("decide.bad_decision", f"{ref} is escalated; decision must be one of {allowed}, got {decision!r}")
     log = ctx.log
     n = log.state().step(ref).attempt
     log.append(
@@ -2015,6 +2092,10 @@ def _decide_escalation(ctx: RunContext, ref: str, decision: str, note: str, acto
     if decision == "retry":
         log.append("step_ready", step_path=ref, data={"after_decision": True})
         return Outcome(ref, n, "retry", [note] if note else [])
+    if decision == "skip":
+        # Going on without an optional wait: skipped satisfies what depends on it (Decision 0165, item 9).
+        log.append("step_skipped", step_path=ref, data={"cause": "wait_expired"})
+        return Outcome(ref, n, "skipped", [note] if note else [], refresh(ctx), _completed(ctx))
     req = _review_request(ctx, ref) if reviews.split_review(ref) else None
     if req is not None and log.state().step(req[0]).state == "verifying" and log.state().step(req[0]).attempt == req[1]:
         # Abandoning a review fails the reviewed step's gate; the review stays escalated
@@ -2236,7 +2317,7 @@ def abandon_run(ctx: RunContext, reason: str, *, actor: str = "director") -> Non
 #: is included so a handoff travels through git.
 CHECKPOINT_TRIGGERS = (
     "human_decision", "step_passed", "step_escalated", "iteration_limit_reached", "run_completed", "run_abandoned", "lease_released",
-    "framing_started_later",
+    "framing_started_later", "wait_started",
 )
 
 
@@ -3084,7 +3165,7 @@ class Api:
             inc = self._open_incident({"run": ctx.run_id, "step_path": step_path, "attempt": None, "class": "platform",
                                        "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": worker})
             raise EngineError(e.code, f"{e} (platform incident {inc} opened)") from e
-        return tool_profile(tool, env), {
+        return tool_profile(tool, env, wait=node.wait is not None), {
             "id": tool.id, "sha256": tool.sha256, "lock_sha256": tool.lock_sha256,
             "runtime": tool.spec.runtime.model_dump(exclude_none=True), **env.describe(),
             "reach": tool.spec.reach.model_dump(),
@@ -3296,6 +3377,10 @@ class Api:
                 reasons.append(f"{e.data.get('class')} failure ({e.data.get('code')}): {e.data.get('message')}")
         if st.attempt == n and st.state in ("dispatched", "running"):
             outcome = "running"
+        elif st.attempt == n and st.state == "waiting":
+            outcome = "waiting"
+            started = record.last("wait_started", step_path, n)
+            reasons = [f"{step_path} waits until {started.data.get('deadline')}: its check found the condition not met"] if started else []
         elif "step_passed" in types:
             outcome = _passed_outcome(ctx, next(e for e in reversed(mine) if e.type == "step_passed"))
         elif st.attempt == n and st.state == "verifying" and any(e.type == "step_ready" and e.data.get("review_of") == step_path and e.data.get("attempt") == n for e in ctx.log.events()):
@@ -3367,6 +3452,9 @@ class Api:
                 if has_result:
                     outcome = submit(ctx, path, actor=f"worker:{d.get('profile')}", workspace_changes=changes)
                     action = "intake"
+                elif check_not_met(ctx, path, n):
+                    outcome = start_wait(ctx, path, n, self.project.config.waits, actor=f"worker:{d.get('profile')}", workspace_changes=changes)
+                    action = "wait_started"
                 else:
                     cls = classify.supervisor_died()
                     data: dict[str, Any] = {"supervisor": "dead", "marker": lv.marker is not None}
@@ -3388,6 +3476,152 @@ class Api:
             self._release_finished_holder(ctx)
         self.start_queued()
         return actions
+
+    # -- waiting steps (§8.7; Decisions 0154 item 5, 0165) --------------------
+
+    def waits_check(self, run_id: str | None = None) -> dict[str, Any]:
+        """Check every waiting step once (of one run, or the project) and exit (criterion 4).
+
+        Past its deadline a step stops waiting and the owner decides. Otherwise its
+        check runs in the foreground: met, the result is taken in, gated, recorded
+        and the hooks fire, as the supervisor would; not met, only the last-checked
+        time is kept; failed, the failure is counted and the third in a row
+        escalates. Two checks never overlap: a second one returns ``busy``.
+        """
+        from . import waits
+
+        with waits.check_lock(self.project.baton) as taken:
+            if not taken:
+                return {"busy": True, "checked": []}
+            ids = [run_id] if run_id is not None else self.project.store.run_ids()
+            checked: list[dict[str, Any]] = []
+            for rid in ids:
+                ctx = self._ctx(rid)
+                if ctx.log.state().state != "active":
+                    continue
+                for path, st in sorted(ctx.log.state().steps.items()):
+                    if st.state == "waiting":
+                        checked.append(self._check_wait(rid, path, st.attempt))
+            self.start_queued()
+            return {"busy": False, "checked": checked}
+
+    def _check_wait(self, run_id: str, path: str, n: int) -> dict[str, Any]:
+        from . import supervisor, waits
+
+        ctx = self._ctx(run_id)
+        started = ctx.record().last("wait_started", path, n)
+        deadline = started.data.get("deadline") if started else None
+        base: dict[str, Any] = {"run_id": run_id, "step_path": path, "attempt": n, "deadline": deadline}
+        if deadline is None or ctx.log.clock() >= supervisor.parse(deadline):
+            return base | self._end_wait(run_id, path, n, "expired", lambda c: expire_wait(c, path, n))
+        tmp, child, failure, changes = self._run_check(ctx, path, n)
+        worker = _last_data(ctx.log.events(), "dispatched", path, n).get("profile") or "tool"
+        baton = self.project.baton
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            st = ctx.log.state().step(path)
+            if ctx.log.state().state != "active" or st.state != "waiting" or st.attempt != n:
+                remove_tree(tmp)
+                return base | {"result": "moved_on", "state": st.state}  # handed in or decided meanwhile
+            stamp = supervisor.fmt(ctx.log.clock())
+            met = failure is None and (tmp / "result.json").is_file()
+            if not changes and failure is None and not met:
+                remove_tree(tmp)
+                waits.update(baton, run_id, path, n, last_checked=stamp, failures=0)
+                diag.note("waits.not_met", "engine:Api._check_wait", run=run_id, step_path=path, attempt=n)  # routine: diagnostics only
+                return base | {"result": "not_met", "last_checked": stamp}
+            if not changes and failure is not None:
+                remove_tree(tmp)
+                failures = int(waits.entry(baton, run_id, path, n).get("failures") or 0) + 1
+                waits.update(baton, run_id, path, n, last_checked=stamp, failures=failures, last_failure=failure)
+                diag.note("waits.check_failed", "engine:Api._check_wait", run=run_id, step_path=path, attempt=n, failures=failures, reason=failure)
+                if failures < waits.FAILED_CHECKS_LIMIT:
+                    return base | {"result": "check_failed", "failures": failures, "reasons": [failure]}
+
+        def body(c: RunContext) -> Outcome:
+            if changes:
+                remove_tree(tmp)
+                reasons = _workspace_reasons(path, changes)
+                c.log.append("step_escalated", step_path=path, attempt=n, data={"reason": "workspace_modified", "changed": changes, "reasons": reasons})
+                return Outcome(path, n, "escalated", reasons)
+            if not met:
+                remove_tree(tmp)
+                return checks_failed(c, path, n, waits.FAILED_CHECKS_LIMIT, str(failure))
+            c.log.append("wait_met", actor=f"worker:{worker}", step_path=path, attempt=n, data={"checked": supervisor.fmt(c.log.clock())})
+            result = c.attempt_dir(path, n) / "result"
+            remove_tree(result)
+            tmp.rename(result)
+            return submit(c, path, actor=f"worker:{worker}", worker_exit=child.as_dict() if child else None)
+
+        return base | self._end_wait(run_id, path, n, "met" if met and not changes else "escalated", body)
+
+    def _run_check(self, ctx: RunContext, path: str, n: int) -> tuple[Path, ChildResult | None, str | None, list[str]]:
+        """Run a waiting step's check in the foreground, its step's effort band as its limit (§6.3).
+
+        Returns the folder it wrote into, the child, why the check failed (None when it
+        reported met or not met) and any change it made to the working tree.
+        """
+        from . import adapters, gitops, supervisor, tool_env
+        from .profiles import SetupError, build_env
+
+        node = _step(ctx, path)
+        disp = _last_data(ctx.log.events(), "dispatched", path, n)
+        adir = ctx.attempt_dir(path, n)
+        tmp = adir / "check"
+        remove_tree(tmp)
+        tmp.mkdir(parents=True)
+        workspace = self.project.root if node.workspace != "none" else None
+        try:
+            tool = ctx.recipe.tools[node.tool]  # type: ignore[index]
+            profile = tool_profile(tool, tool_env.ensure(tool, self.project.home), wait=True)
+            env = build_env(profile, home=self.project.home, packet_dir=adir / "packet", result_dir=tmp, workspace=workspace,
+                            config_home_var=None, resolve=False)
+        except (tool_env.ToolSetupError, SetupError) as e:
+            return tmp, None, f"the check could not start: {redact_text(str(e))}", []
+        adapter = adapters.get("tool")
+        argv = adapter.command(profile, adir / "packet", tmp, workspace, node.workspace)
+        assert argv is not None
+        rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
+        exclude = [f"{rel_baton}/runs", f"{rel_baton}/project"]
+        before = gitops.tree_snapshot(self.project.root, exclude)
+        band_s = self.project.config.effort.seconds(disp.get("effort") or "S")
+        log_path = self.project.home / "logs" / ctx.run_id / path / f"attempt-{n}.check.log"
+        child = supervisor.run_child(argv, env=env.env, cwd=adir, log_path=log_path, timeout_s=band_s)
+        changes = gitops.tree_changes(before, gitops.tree_snapshot(self.project.root, exclude), self.project.root) if before is not None else []
+        if child.timed_out:
+            return tmp, child, f"the check ran over its time limit ({supervisor.duration_text(band_s)})", changes
+        if (tmp / "result.json").is_file():
+            try:
+                res = json.loads((tmp / "result.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                return tmp, child, f"the check wrote an unreadable result ({type(e).__name__})", changes
+            if res.get("status") != "completed":
+                return tmp, child, str(res.get("notes") or "the check reported failure"), changes
+            return tmp, child, None, changes
+        if check_not_met(ctx, path, n, tmp):
+            return tmp, child, None, changes
+        cls = classify_exit(child, getattr(adapter, "failure_signals", None))
+        return tmp, child, f"{cls['class']} failure ({cls['code']}): {cls['message']}", changes
+
+    def _end_wait(self, run_id: str, path: str, n: int, result: str, body: Callable[[RunContext], Outcome]) -> dict[str, Any]:
+        """Record how a wait ended under the run's lock, then records, incidents, checkpoint and hooks (as ``complete``)."""
+        from . import docs, waits
+
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            st = ctx.log.state().step(path)
+            if ctx.log.state().state != "active" or st.state != "waiting" or st.attempt != n:
+                return {"result": "moved_on", "state": st.state}
+            before = ctx.log.state().last_seq
+            outcome = body(ctx)
+            if result == "met":
+                observe_schema_gate(self.project, ctx, path, n)
+            self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
+            docs.write_records(ctx)
+        waits.forget(self.project.baton, run_id, path, n)
+        did = _last_data(ctx.log.events(), "dispatched", path, n).get("dispatch_id") or ""
+        self._fire_and_record(ctx, path, n, did, before=before)
+        return {"result": result, **_outcome_dict(outcome)}
 
     def _release_finished_holder(self, ctx: RunContext) -> None:
         """Release this run's hold on the working tree if its attempt is no longer in flight (e.g. a crashed ``submit``)."""
@@ -3445,6 +3679,8 @@ class Api:
                 outcome = self._capability_absent(ctx, step_path, attempt, child, denied, workspace_changes)
             elif exhausted:
                 outcome = self._quota_exhausted(ctx, step_path, attempt, child, worker, workspace_changes)
+            elif not child.timed_out and check_not_met(ctx, step_path, attempt):
+                outcome = start_wait(ctx, step_path, attempt, self.project.config.waits, actor=f"worker:{worker}", workspace_changes=workspace_changes)
             else:
                 outcome = finish_child(ctx, step_path, attempt, child, actor=f"worker:{worker}", signals=signals, workspace_changes=workspace_changes)
                 self._flag_rejected(ctx, step_path, attempt, worker)
@@ -3575,7 +3811,13 @@ class Api:
         passed_ev = next((e for e in reversed(mine) if e.type == "step_passed"), None)
         judged = _passed_outcome(ctx, passed_ev) if passed_ev is not None else None
         if outcome is None:
-            if judged == "iteration_limit":
+            if state == "waiting":
+                outcome = "waiting"  # the check found nothing yet; the step waits with no process (§8.7)
+            elif esc is not None and esc.data.get("reason") == "wait_expired":
+                outcome = "needs_human"
+            elif esc is not None and esc.data.get("reason") == "wait_check_failed":
+                outcome = "failed"
+            elif judged == "iteration_limit":
                 outcome = "needs_human"
             elif judged == "next_iteration":
                 outcome = "gate_failed"
@@ -5313,6 +5555,8 @@ def _checkpoint_message(ctx: RunContext, triggers: list[Any], new: list[Any]) ->
             phrases.append(f"{e.step_path} passed [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "step_escalated":
             phrases.append(f"{e.step_path} escalated ({e.data.get('reason')}) [attempt {e.attempt}, {profile(e)}]")
+        elif e.type == "wait_started":
+            phrases.append(f"{e.step_path} waiting until {e.data.get('deadline')} [attempt {e.attempt}, {profile(e)}]")
         elif e.type == "human_decision" and e.data.get("kind") == "sme":
             phrases.append(f"expert answer promoted ({e.data.get('consultation')}) as {e.data.get('decision_id')}")
         elif e.type == "human_decision" and e.data.get("kind") == "skip_notice":

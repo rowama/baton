@@ -58,6 +58,7 @@ commands:
   submit: admin.director-commands
   trace: admin.director-commands
   wait: admin.director-commands
+  waits: admin.director-commands
   waive: admin.director-commands
   ui: user.connect-an-account
   workers: user.connect-an-account

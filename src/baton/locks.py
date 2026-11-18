@@ -254,6 +254,36 @@ def file_lock(path: Path) -> Iterator[None]:
             entry[0].close()
 
 
+@contextlib.contextmanager
+def try_file_lock(path: Path) -> Iterator[bool]:
+    """An exclusive lock on ``path`` if no one holds it: yields True when taken, False at once when held.
+
+    Not reentrant: for a whole command that must not overlap with itself (``waits check``, §8.7).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a+b")
+    try:
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]
+            else:  # pragma: no cover - Windows CI
+                import msvcrt
+
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+        except OSError:  # expected: another holder; the caller reports it is busy
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            _os_unlock(f)
+    finally:
+        f.close()
+
+
 def run_lock(baton_dir: Path, run_id: str) -> contextlib.AbstractContextManager[None]:
     return file_lock(baton_dir / "cache" / "locks" / f"run-{run_id}.lock")
 

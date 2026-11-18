@@ -134,6 +134,17 @@ GATE_TYPES: tuple[str, ...] = ("schema", "script", "review", "findings", "human"
 IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected")
 
 
+class Wait(_Strict):
+    """A tool step that waits for a condition (§5.9): its tool is a check, run again until it is met.
+
+    Durations are strings such as ``30m``, ``12h`` or ``14d``; the loader checks them.
+    """
+
+    until: str  # how long to wait at most, from the first check that found the condition not met
+    every: str | None = None  # advice for the scheduler's interval; Baton enforces none (Decision 0165, item 4)
+    on_expire: Literal["escalate", "skip"] = "escalate"  # skip: the owner may go on without it (item 9)
+
+
 class Step(_Strict):
     """A leaf step: one unit of work done by one worker or tool per attempt.
 
@@ -149,6 +160,7 @@ class Step(_Strict):
     prompt: str | None = None
     tool: str | None = Field(default=None, pattern=STEP_ID)  # tools/<id>/ in the package (§5.9)
     max_attempts: int | None = Field(default=None, ge=1)  # a tool step only: its attempts (default 1; Decision 0156, item 4)
+    wait: Wait | None = None  # a tool step only: wait for a condition its tool checks (§5.9; Decision 0165)
     inputs: list[Input] = Field(default_factory=list)
     output_schema: str | None = None  # recipe-relative path, "baton:findings" or "baton:proposals"
     artifacts: list[Artifact] = Field(default_factory=list)
@@ -718,6 +730,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
         "step_timed_out", "attempt_orphaned", "failure_classified", "deadline_extended",
     ),
     "tailoring": ("complexity_set", "step_skipped", "step_unskipped", "retriage_requested", "retriage_applied", "rating_signal_recorded"),
+    "waits": ("wait_started", "wait_met", "wait_expired"),
     "groups": ("group_expanded", "iteration_started", "iteration_limit_reached"),
     "corrections": ("step_revised", "step_stale"),
     "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified"),
@@ -816,15 +829,15 @@ EFFORTS: tuple[str, ...] = ("S", "M", "L")
 
 
 def duration_seconds(value: str | int | float) -> float:
-    """``"45m"``, ``"2h"``, ``"90s"`` or a bare number of seconds."""
+    """``"45m"``, ``"2h"``, ``"90s"``, ``"14d"`` or a bare number of seconds."""
     if isinstance(value, (int, float)):
         return float(value)
     import re
 
-    m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(s|m|h)?\s*$", value)
+    m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(s|m|h|d)?\s*$", value)
     if not m:
-        raise ValueError(f"not a duration: {value!r} (use e.g. 90s, 45m, 2h)")
-    return float(m.group(1)) * {"s": 1, "m": 60, "h": 3600, None: 1}[m.group(2)]
+        raise ValueError(f"not a duration: {value!r} (use e.g. 90s, 45m, 2h, 14d)")
+    return float(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400, None: 1}[m.group(2)]
 
 
 class EffortConfig(_Strict):
@@ -853,6 +866,22 @@ class HooksConfig(_Strict):
     on_complete: str = ""
     on_needs_human: str = ""
     on_platform_failure: str = ""
+
+
+class WaitsConfig(_Strict):
+    """Waiting steps (§8.7; Decision 0165, item 5): the longest any step may wait in this project."""
+
+    max: str | float = "30d"
+
+    @field_validator("max")
+    @classmethod
+    def _max(cls, v: str | float) -> str | float:
+        if duration_seconds(v) <= 0:
+            raise ValueError("waits.max must be a positive duration")
+        return v
+
+    def max_seconds(self) -> float:
+        return duration_seconds(self.max)
 
 
 class LimitsConfig(_Strict):
@@ -946,6 +975,7 @@ class ProjectConfig(_Strict):
     effort: EffortConfig = Field(default_factory=EffortConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    waits: WaitsConfig = Field(default_factory=WaitsConfig)
     sme: dict[Literal["project", "platform", "process"], SmeSubjectConfig] = Field(default_factory=dict)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     policy: PolicyConfig = Field(default_factory=PolicyConfig)

@@ -39,3 +39,6 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `tool_evidence.log_unreadable` | A helper's log could not be read to observe which tools it used; capability states are not updated from it. |
 | `tool_evidence.tree_unreadable` | The project's working tree could not be read after a dispatch, so file changes were not observed. |
 | `ui.route_failed` | A request to the setup page failed on a bug; the page answered with a generic error and no request detail was recorded. |
+| `waits.cache_unreadable` | The record of when waiting parts were last checked could not be read; it starts again empty. Harmless: the next check fills it in. |
+| `waits.check_failed` | A waiting part's check failed to run or to report (the site was down, the script crashed). Counted: the third failure in a row hands the part to the owner. |
+| `waits.not_met` | A waiting part was checked and what it waits for has not happened yet. Routine; kept only here, not in the work's record. |

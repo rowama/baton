@@ -667,6 +667,9 @@ class _Checker:
         if step.tool is not None:
             self._check_tool_step(step, w)
         else:
+            if step.wait is not None:
+                self.error("step.wait_needs_tool", f"{w}.wait",
+                           "only a tool step can wait: its tool is the check that is run until the condition is met (§5.9)")
             if step.max_attempts is not None:
                 self.error("step.max_attempts_needs_tool", f"{w}.max_attempts",
                            "max_attempts on a step is for a tool step only; other steps use the recipe's defaults.max_attempts")
@@ -735,6 +738,28 @@ class _Checker:
                 f"the step is workspace: {step.workspace}, but tool {tool.id!r} declares reach.workspace: "
                 f"{tool.spec.reach.workspace}; they must match",
             )
+
+        if step.wait is not None:
+            self._check_wait(step, w)
+
+    def _check_wait(self, step: Step, w: str) -> None:
+        """A waiting step's durations, and its reach: a check looks and changes nothing (§5.9; Decision 0165)."""
+        from .models import duration_seconds
+
+        assert step.wait is not None
+        for key in ("until", "every"):
+            value = getattr(step.wait, key)
+            if value is None:
+                continue
+            try:
+                ok = duration_seconds(value) > 0
+            except ValueError:  # expected: not a duration; reported just below
+                ok = False
+            if not ok:
+                self.error("step.bad_wait_duration", f"{w}.wait.{key}", f"{value!r} is not a positive duration (use e.g. 30m, 12h, 14d)")
+        if step.workspace == "write":
+            self.error("step.wait_workspace_write", f"{w}.workspace",
+                       "a waiting step's check may look at the working tree but not change it: use workspace: read or none")
 
     def _tool(self, tool_id: str, where: str) -> tools.LoadedTool | None:
         if tool_id not in self.tools:

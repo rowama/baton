@@ -1192,6 +1192,17 @@
           "default": null,
           "title": "Tool"
         },
+        "wait": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Wait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "workspace": {
           "default": "none",
           "enum": [
@@ -1207,6 +1218,42 @@
         "id"
       ],
       "title": "Step",
+      "type": "object"
+    },
+    "Wait": {
+      "additionalProperties": false,
+      "description": "A tool step that waits for a condition (\u00a75.9): its tool is a check, run again until it is met.\n\nDurations are strings such as ``30m``, ``12h`` or ``14d``; the loader checks them.",
+      "properties": {
+        "every": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Every"
+        },
+        "on_expire": {
+          "default": "escalate",
+          "enum": [
+            "escalate",
+            "skip"
+          ],
+          "title": "On Expire",
+          "type": "string"
+        },
+        "until": {
+          "title": "Until",
+          "type": "string"
+        }
+      },
+      "required": [
+        "until"
+      ],
+      "title": "Wait",
       "type": "object"
     }
   },

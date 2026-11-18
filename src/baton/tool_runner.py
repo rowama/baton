@@ -1,6 +1,6 @@
 """Child-process entrypoint for tool steps (§6.3 ``tool``; Decisions 0154, 0158, 0159).
 
-``python -m baton.tool_runner --packet DIR --result DIR --tool-dir DIR --bin-dir DIR --entry JSON [--workspace DIR] [--secret-names JSON]``
+``python -m baton.tool_runner --packet DIR --result DIR --tool-dir DIR --bin-dir DIR --entry JSON [--workspace DIR] [--secret-names JSON] [--wait]``
 
 The runtime starts this under the tool's constructed environment (clean: only
 the secrets the tool names, a minimal PATH). The tool never sees the packet
@@ -20,6 +20,11 @@ protocol. This runner:
    lines of the tool's error output in ``notes`` (the values of the secrets
    it names masked, since notes enter the record). A tool cannot return
    ``blocked`` or ask questions. Intake and the gates judge the result.
+   A waiting step's check (``--wait``, §5.9; Decision 0165, item 2) must
+   also put ``met: true|false`` in ``output.json``. Met: the rest of it is
+   the step's output, taken in as above. Not met: ``not_met.json`` is
+   written in place of ``result.json`` and nothing else is kept. A
+   missing or non-boolean ``met`` fails the check.
 5. ends anything the tool left running once it has exited, and fails the
    result naming it (``run_contained``; Decision 0164, item 6): a tool
    keeps no service running (Decision 0155, item 4).
@@ -43,6 +48,8 @@ from typing import Any
 
 #: Lines of the tool's error output kept in a failed result's notes.
 TAIL_LINES = 20
+#: Written in place of ``result.json`` when a waiting step's check finds its condition not met.
+NOT_MET_FILE = "not_met.json"
 
 
 def _platform_failure(code: str, message: str) -> int:
@@ -124,7 +131,7 @@ def _tail(text: str, secrets: list[str]) -> str:
 
 
 def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry: list[str], workspace: str | None,
-        secret_names: list[str] | None = None) -> int:
+        secret_names: list[str] | None = None, wait: bool = False) -> int:
     manifest = json.loads((packet_dir / "manifest.json").read_text(encoding="utf-8"))
     command = shutil.which(entry[0], path=str(bin_dir))
     if command is None:
@@ -162,6 +169,14 @@ def run(packet_dir: Path, result_dir: Path, tool_dir: Path, bin_dir: Path, entry
             output, why = None, f"output.json is not valid JSON ({e})"
         else:
             why = "" if isinstance(output, dict) else "output.json must hold a JSON object"
+        if wait and not why:
+            met = output.pop("met", None)
+            if not isinstance(met, bool):
+                why = "a waiting step's check must report met: true or false in output.json"
+            elif not met:
+                result_dir.mkdir(parents=True, exist_ok=True)
+                (result_dir / NOT_MET_FILE).write_text(json.dumps({"met": False}), encoding="utf-8")
+                return 0
         found, problems = collect(out_dir, manifest)
         if why or problems:
             write(result_dir, envelope(manifest, "failed", None, [], "; ".join([w for w in [why] if w] + problems)))
@@ -312,8 +327,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--entry", required=True)
     ap.add_argument("--workspace")
     ap.add_argument("--secret-names", default="[]")
+    ap.add_argument("--wait", action="store_true")
     a = ap.parse_args(argv)
-    return run(Path(a.packet), Path(a.result), Path(a.tool_dir), Path(a.bin_dir), json.loads(a.entry), a.workspace, json.loads(a.secret_names))
+    return run(Path(a.packet), Path(a.result), Path(a.tool_dir), Path(a.bin_dir), json.loads(a.entry), a.workspace, json.loads(a.secret_names),
+               a.wait)
 
 
 if __name__ == "__main__":

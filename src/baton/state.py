@@ -41,6 +41,7 @@ STEP_STATES: tuple[str, ...] = (
     "ready",
     "dispatched",
     "running",
+    "waiting",
     "submitted",
     "verifying",
     "awaiting_human",
@@ -62,7 +63,7 @@ SATISFIES_DEPS = frozenset({"passed", "skipped", "imported"})
 #: States in which an attempt is in flight or just ended; attempt-scoped events
 #: arriving here must carry the current attempt number.
 ATTEMPT_STATES = frozenset(
-    {"dispatched", "running", "submitted", "verifying", "awaiting_human", "timed_out", "orphaned"}
+    {"dispatched", "running", "waiting", "submitted", "verifying", "awaiting_human", "timed_out", "orphaned"}
 )
 
 RUN_STATES: tuple[str, ...] = ("active", "completed", "abandoned")
@@ -86,7 +87,8 @@ TRANSITIONS: Mapping[str, Mapping[str, str]] = {
     },
     "dispatched": {"ready": "dispatched"},
     "step_running": {"dispatched": "running"},
-    "result_submitted": {"running": "submitted"},
+    "wait_started": {"running": "waiting"},  # a check found its condition not met (§8.7; Decision 0165)
+    "result_submitted": {"running": "submitted", "waiting": "submitted"},  # waiting: met, or handed in from outside
     "verification_started": {"submitted": "verifying", "escalated": "verifying"},  # escalated: a waiver of the failed gate (§9.3)
     "human_gate_opened": {"verifying": "awaiting_human"},
     "gate_passed": {"awaiting_human": "verifying"},  # the human gate's outcome
@@ -99,9 +101,11 @@ TRANSITIONS: Mapping[str, Mapping[str, str]] = {
         "verifying": "escalated",
         "timed_out": "escalated",
         "orphaned": "escalated",
+        "waiting": "escalated",  # expired, or its checks kept failing
     },
     "step_abandoned": {"escalated": "abandoned"},
-    "step_skipped": {"blocked_on_deps": "skipped", "ready": "skipped"},  # ready: approved re-triage, never dispatched
+    # ready: approved re-triage, never dispatched; escalated: an expired wait the owner goes on without (cause wait_expired)
+    "step_skipped": {"blocked_on_deps": "skipped", "ready": "skipped", "escalated": "skipped"},
     "step_unskipped": {"skipped": "blocked_on_deps"},  # approved re-triage
     "step_imported": {"blocked_on_deps": "imported"},
     "step_revised": {"passed": "superseded", "imported": "superseded"},
@@ -119,6 +123,8 @@ RECORDS: Mapping[str, frozenset[str]] = {
     "protected_path_modified": frozenset({"verifying"}),
     "failure_classified": frozenset({"verifying", "timed_out", "orphaned", "escalated"}),
     "deadline_extended": frozenset({"running"}),  # an overdue worker got one more band (§8.7)
+    "wait_met": frozenset({"waiting"}),  # a later check found the condition met; result_submitted follows
+    "wait_expired": frozenset({"waiting"}),  # the deadline passed; step_escalated follows
 }
 
 #: Events that carry the next attempt number (current + 1).
@@ -141,6 +147,9 @@ ATTEMPT_CURRENT = frozenset(
         "failure_classified",
         "step_escalated",
         "deadline_extended",
+        "wait_started",
+        "wait_met",
+        "wait_expired",
     }
 )
 
@@ -227,6 +236,8 @@ class RunState:
             if self.state != "active":
                 raise IllegalTransition(f"{etype} on {path}: run is {self.state}", code="state.run_closed")
             not_counted = etype == "step_ready" and bool((event.get("data") or {}).get("not_counted"))
+            if etype == "step_skipped" and self.step(path).state == "escalated" and (event.get("data") or {}).get("cause") != "wait_expired":
+                raise IllegalTransition("step_skipped from escalated is only for an expired wait (cause wait_expired)", code="state.not_a_wait")
             new_step = next_step_state(self.step(path), etype, attempt, self.limit_for(path), not_counted=not_counted)
         if path is not None and not _STEP_PATH.match(path):
             raise IllegalTransition(f"malformed step_path {path!r}", code="state.bad_step_path")

@@ -33,7 +33,7 @@ Variables **you** may set, then the ones **Baton** sets for the programs it star
 | `BATON_DISPATCH_ID` | To a completion hook: which hand-off the outcome came from. |
 | `BATON_INCIDENT` | To a completion hook: the platform incident the outcome opened, if any. |
 | `BATON_LAUNCHED` | Set by the launcher on the runtime it starts, so a hook or check that runs `baton` again does not loop. |
-| `BATON_OUTCOME` | To a completion hook: `passed`, `gate_failed`, `needs_human`, `needs_review`, `timed_out`, `failed`, `overdue`, `not_started` or `answered`. |
+| `BATON_OUTCOME` | To a completion hook: `passed`, `gate_failed`, `needs_human`, `needs_review`, `timed_out`, `failed`, `overdue`, `not_started`, `answered` or `waiting` (a part's check found what it waits for has not happened yet). |
 | `BATON_PACKET_DIR` | To a helper: the folder holding what it is to work from. |
 | `BATON_RECORD` | To a completion hook: the part's readable record, already regenerated. |
 | `BATON_REPO` | To a completion hook: the project's root. |

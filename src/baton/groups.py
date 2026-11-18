@@ -62,7 +62,7 @@ _ITER = re.compile(r"^i([1-9][0-9]*)$")
 #: Instance states (aggregate, never stored).
 INSTANCE_STATES = ("not_started", "active", "escalated", "passed", "abandoned", "superseded")
 #: Step states in which an attempt is in flight (refuse revise around them).
-IN_FLIGHT = frozenset({"dispatched", "running", "submitted", "verifying", "awaiting_human"})
+IN_FLIGHT = frozenset({"dispatched", "running", "waiting", "submitted", "verifying", "awaiting_human"})
 
 
 def new_instance_id() -> str:
