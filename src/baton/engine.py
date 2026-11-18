@@ -50,7 +50,7 @@ from .packet import (
 from .recipe import LoadedRecipe, build_plan, load_recipe
 from .routing import identity_record
 from .redact import redact_text
-from .runner_tools import DEFAULT_TOOL_CALLS, search_backend
+from .runner_tools import DEFAULT_TOOL_CALLS, SEARCH_KEY_VAR
 from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, StoreError, canonical_json
 from .supervisor import ChildResult
@@ -3115,9 +3115,13 @@ class Api:
                 if version:
                     extra["harness_version"] = version
             offered = runner_tools_for(profile, node)
+            search_argv: list[str] = []
             if offered:
                 extra["tools"] = {"runner": offered, "limit": getattr(node, "tool_calls", None) or DEFAULT_TOOL_CALLS,
-                                  **({"search": search_backend(profile.model)} if "search" in offered else {})}
+                                  **({"search": profile.search_via()} if "search" in offered else {})}
+                if "search" in offered and profile.search_via() not in (None, "provider") and env is not None:
+                    search_argv = self._declared_search_env(env)
+                    extra["env"] = env.describe()
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
@@ -3144,7 +3148,7 @@ class Api:
             log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{built.attempt}.log"
             if offered:
                 # The tool loop's messages stay on this machine, beside the attempt's log: they hold whole files.
-                argv += ["--transcript", str(log_path.with_suffix(".transcript.json"))]
+                argv += ["--transcript", str(log_path.with_suffix(".transcript.json")), *search_argv]
             # read / none steps may not change the tree; CLI flags cannot confine
             # writes to result/, so the runtime compares before and after (§6.3).
             # The runtime's own run and project records are excluded: they change
@@ -4002,6 +4006,26 @@ class Api:
             diag.note("known_workers.load_failed", "engine:Api._known_workers", error=f"{type(e).__name__}: {e}")
             return None
 
+    def _declared_search_env(self, env: Any) -> list[str]:
+        """Put the declared search service's key in the child's environment (redacted like any secret); its argv.
+
+        The provider and address go on the command line, not in the packet: they are this machine's, not the run's.
+        """
+        from . import resources
+        from .profiles import SetupError, resolve_value
+
+        backend = resources.declared_search(self.project.home)
+        if backend is None:
+            return []
+        if backend.credential:
+            try:
+                env.env[SEARCH_KEY_VAR] = resolve_value(backend.credential, self.project.home)
+            except SetupError as e:
+                raise EngineError(e.code, f"the declared search service's credential: {e}") from e
+            if SEARCH_KEY_VAR not in env.secrets:
+                env.secrets.append(SEARCH_KEY_VAR)
+        return ["--search-provider", backend.provider, *(["--search-base-url", backend.base_url] if backend.base_url else [])]
+
     def _tool_plan(self, profile: WorkerProfile, requires: Any, mode: str) -> Any:
         """The tool args a harness dispatch gets: on for the step's required tooling, off for the rest (0085)."""
         from . import adapters
@@ -4109,9 +4133,15 @@ class Api:
         return _resources_call(lambda: resources.setup(self.project.home, verify=verify))
 
     def workers_declare(self, name: str | None = None, *, profile: str | None = None, likely: list[str] | None = None,
-                        absent: list[str] | None = None, **fields: Any) -> dict[str, Any]:
-        """Declare a resource (``name``), or reset capability states on a ``profile`` (0084)."""
+                        absent: list[str] | None = None, search: str | None = None, **fields: Any) -> dict[str, Any]:
+        """Declare a resource (``name``), reset capability states on a ``profile`` (0084), or declare the ``search`` service (0168)."""
         from . import resources
+
+        if search is not None:
+            if name is not None or profile is not None:
+                raise EngineError("usage.declare", "declare the search service on its own")
+            keep = {k: fields.get(k) for k in ("credential", "base_url", "note")}
+            return _resources_call(lambda: resources.declare_search(self.project.home, search, remove=bool(fields.get("remove")), **keep))
 
         if profile is not None:
             claimed = None

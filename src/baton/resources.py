@@ -76,10 +76,24 @@ class SetupState(_Strict):
     nothing_more: bool = False
 
 
+class SearchBackend(_Strict):
+    """The machine's web search service for Baton's API runner (Decision 0168, item 3): any LiteLLM search provider.
+
+    ``credential`` only as ``secret:<name>``; a self-hosted SearXNG needs only ``base_url``.
+    """
+
+    provider: str
+    credential: str | None = Field(default=None, pattern=SECRET_REF)
+    base_url: str | None = None
+    note: str | None = None
+
+
 class Resources(_Strict):
     format: str = FORMAT
     resources: dict[str, WorkerResource] = Field(default_factory=dict)
     setup: dict[str, SetupState] = Field(default_factory=dict)
+    #: The search service declared with ``baton workers declare --search`` (one per machine).
+    search: SearchBackend | None = None
 
     def workers(self) -> dict[str, WorkerResource]:
         return {n: r for n, r in self.resources.items() if r.kind == "worker"}
@@ -89,6 +103,78 @@ class ResourcesError(Exception):
     def __init__(self, issues: list[Issue]):
         self.issues = issues
         super().__init__("\n".join(str(i) for i in issues))
+
+
+def search_providers() -> list[str] | None:
+    """The search providers LiteLLM's search interface knows, or ``None`` when LiteLLM is not installed."""
+    try:
+        from litellm.types.utils import SearchProviders  # optional dependency (baton[api])
+    except ImportError:  # expected: no LiteLLM: the provider name cannot be checked here
+        return None
+    return sorted(p.value for p in SearchProviders)
+
+
+def search_problems(provider: str, base_url: str | None, *, check_name: bool = True) -> list[str]:
+    """Why a search declaration is unusable; the provider name is checked against LiteLLM only when declaring (it loads LiteLLM)."""
+    known = search_providers() if check_name else None
+    out = []
+    if known is not None and provider not in known:
+        out.append(f"{provider!r} is not a search provider LiteLLM knows ({', '.join(known)})")
+    if provider == "searxng" and not base_url:
+        out.append("a SearXNG search needs --base-url, the address of your instance")
+    if base_url is not None and not re.match(r"^https?://", base_url):
+        out.append("--base-url must start with http:// or https://")
+    return out
+
+
+def declared_search(home: Path) -> SearchBackend | None:
+    """The machine's declared search service, or ``None``; a resources file that does not load has none (noted)."""
+    path = resources_path(home)
+    if not path.is_file():
+        return None
+    try:
+        raw = load_yaml(path) or {}
+        res, issues = validate_resources(raw, [], source=str(path))
+    except YamlError as e:
+        diag.note("resources.yaml_invalid", "resources:declared_search", error=f"{type(e).__name__}: {e}", path=str(path))
+        return None
+    if res is None:
+        # Problems elsewhere in the file (a machine-dependent capability check needs the known-workers data) leave search readable.
+        body = raw.get("search") if isinstance(raw, dict) else None
+        try:
+            return SearchBackend.model_validate(body) if isinstance(body, dict) else None
+        except ValidationError as e:
+            diag.note("resources.search_invalid", "resources:declared_search", error=f"{type(e).__name__}: {e}", path=str(path))
+            return None
+    return res.search
+
+
+def declare_search(home: Path, provider: str | None, *, credential: str | None = None, base_url: str | None = None,
+                   note: str | None = None, remove: bool = False) -> dict[str, Any]:
+    """Declare, change or remove the machine's search service (Decision 0168, item 3)."""
+    home = Path(home)
+    _data, _sha, res = _inputs(home)
+    if remove:
+        if res.search is None:
+            raise ResourcesError([Issue(code="resources.unknown", where="search", message="no search service is declared")])
+        res.search = None
+        return {"search_removed": True, "path": str(save_resources(home, res))}
+    prev = res.search.model_dump() if res.search else {}
+    body = {**prev, **{k: v for k, v in (("provider", provider), ("credential", credential), ("base_url", base_url), ("note", note)) if v is not None}}
+    if provider is not None and prev.get("provider") not in (None, provider):
+        body = {k: v for k, v in body.items() if k == "provider" or v in (credential, base_url, note)}  # a new provider starts afresh
+    if "provider" not in body:
+        raise ResourcesError([Issue(code="resources.search", where="search", message="name the search provider (`--search <provider>`)")])
+    problems = search_problems(body["provider"], body.get("base_url"))
+    try:
+        checked = SearchBackend.model_validate(body)
+    except ValidationError as e:
+        problems.append("credential is only ever a secret:<name> reference" if "credential" in str(e) else str(e))
+        checked = None
+    if problems or checked is None:
+        raise ResourcesError([Issue(code="resources.search", where="search", message=m) for m in problems])
+    res.search = checked
+    return {"search": checked.model_dump(mode="json", exclude_none=True), "path": str(save_resources(home, res))}
 
 
 def resources_path(home: Path) -> Path:
@@ -126,6 +212,15 @@ def validate_resources(raw: object, machine_dependent: list[str], source: str = 
             if cap not in machine_dependent:
                 issues.append(issue("capability", f"{where}.capabilities",
                                     f"only machine-dependent capabilities are declared here ({', '.join(machine_dependent) or 'none'}); {cap!r} comes from the known-workers data"))
+    search = raw.get("search")
+    if search is not None:
+        if not isinstance(search, dict) or not isinstance(search.get("provider"), str):
+            issues.append(issue("search", "search", "search names its provider (`baton workers declare --search <provider>`)"))
+        else:
+            if isinstance(search.get("credential"), str) and not re.fullmatch(SECRET_REF, search["credential"]):
+                issues.append(issue("literal_credential", "search.credential",
+                                    "a credential is only ever a secret:<name> reference (§6.1), never the value itself"))
+            issues += [issue("search", "search", m) for m in search_problems(search["provider"], search.get("base_url"), check_name=False)]
     for kind in raw.get("setup") or {}:
         if kind not in KINDS:
             issues.append(issue("unknown_kind", f"setup.{kind}", f"kind {kind!r} is not one this runtime knows ({', '.join(KINDS)})"))
@@ -681,14 +776,15 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
     states = _states_or_problem(home)
     claims = machine_claims(home)
     bodies = {name: body for name, (_p, body) in read_generated_dir(home).items() if isinstance(body, dict)}
+    search = res.search.provider if res.search is not None else None
     for name, g in gen.items():
         g["capabilities"] = cs_summary(states, name, claims.get(name, []))
         body = bodies.get(name, {})
-        provided = _runner_summary(states, name, body.get("adapter"), claims.get(name, []), body.get("model"))
+        provided = _runner_summary(states, name, body.get("adapter"), claims.get(name, []), body.get("model"), search)
         if provided:
             g["capabilities"].update(provided)
             g["provided_by_runner"] = sorted(provided)
-        web = _web_note(states, name, body, claims.get(name, []))
+        web = _web_note(states, name, body, claims.get(name, []), search)
         if web is not None:
             g["web_access"] = web
     return {
@@ -703,6 +799,7 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         "skipped": skipped,
         "providers": provider_summary(home),
         "capability_states": {n: {c: st.as_dict() for c, st in caps.items()} for n, caps in states.items()},
+        **({"search": res.search.model_dump(mode="json", exclude_none=True)} if res.search is not None else {}),
     }
 
 
@@ -920,15 +1017,17 @@ def declare(
     return {**changed, "path": str(path)}
 
 
-def _web_note(states: dict[str, Any], name: str, body: dict[str, Any], claimed: list[str]) -> dict[str, Any] | None:
+def _web_note(states: dict[str, Any], name: str, body: dict[str, Any], claimed: list[str], search: str | None = None) -> dict[str, Any] | None:
     """Whether an API profile has web access through Baton's runner, how, and why not (Decision 0168, item 9)."""
     from . import runner_tools
 
     tool_use = states.get(name, {}).get("tool_use")
-    return runner_tools.web_access_note(str(body.get("adapter")), claimed, tool_use is not None and tool_use.state == "absent", body.get("model"))
+    return runner_tools.web_access_note(str(body.get("adapter")), claimed, tool_use is not None and tool_use.state == "absent",
+                                        body.get("model"), search)
 
 
-def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: list[str], model: Any = None) -> dict[str, str]:
+def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: list[str], model: Any = None,
+                    search: str | None = None) -> dict[str, str]:
     """The capabilities Baton's API runner provides for a profile and their state words (``runner_tools.provided``).
 
     ``verified`` on Baton's basis, unless a state was recorded since (``workers declare``).
@@ -937,7 +1036,7 @@ def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: li
 
     tool_use = states.get(name, {}).get("tool_use")
     out = {}
-    for cap in runner_tools.provided(str(adapter), claimed, tool_use is not None and tool_use.state == "absent", model):
+    for cap in runner_tools.provided(str(adapter), claimed, tool_use is not None and tool_use.state == "absent", model, search):
         recorded = states.get(name, {}).get(cap)
         out[cap] = recorded.state if recorded is not None else "verified"
     return out

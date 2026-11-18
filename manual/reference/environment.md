@@ -39,6 +39,7 @@ Variables **you** may set, then the ones **Baton** sets for the programs it star
 | `BATON_REPO` | To a completion hook: the project's root. |
 | `BATON_RESULT_DIR` | To a helper: the folder it writes its result to. |
 | `BATON_RUN_ID` | To a completion hook: the piece of work the outcome is about. |
+| `BATON_SEARCH_API_KEY` | To an API model's runner, on a step that searches the web: the key of the search service declared with `baton workers declare --search`. Never recorded. |
 | `BATON_STEP_PATH` | To a completion hook: the part of it. |
 | `BATON_STEP_STATE` | To a completion hook: the part's state after the outcome. |
 | `BATON_WORKSPACE` | To a helper working in the project: the working folder (only for parts that use the project's files). |

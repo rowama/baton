@@ -65,6 +65,8 @@ NEVER_PROVIDED = ("shell", "code_exec", "repo_workspace", "file_write")
 #: declarations), xAI (``web_search_options`` dropped on chat completions), OpenAI's GPT-5 family (the parameter is not
 #: supported there). Each provider added here needs the same check.
 NATIVE_SEARCH_PROVIDERS = ("anthropic",)
+#: The variable that carries the declared search service's key into the runner child (never recorded; redacted).
+SEARCH_KEY_VAR = "BATON_SEARCH_API_KEY"
 #: The provider-native search sent with each call: at most one search per model call, so the step's limit bounds them.
 WEB_SEARCH_OPTIONS = {"search_context_size": "low"}
 #: The basis recorded for a capability the runner provides (Decisions 0084, 0088).
@@ -108,16 +110,16 @@ def catalog_entry(model: str | None) -> dict[str, Any]:
     return {}
 
 
-def search_backend(model: str | None) -> str | None:
-    """How a model searches the web in the loop: ``provider`` (its provider's own search), or ``None``."""
-    if not model or "/" not in model:
-        return None
-    if model.split("/", 1)[0] in NATIVE_SEARCH_PROVIDERS and catalog_entry(model).get("supports_web_search"):
+def search_backend(model: str | None, declared: str | None = None) -> str | None:
+    """How a model searches the web in the loop: ``provider`` (its provider's own search), else the declared
+    search service's provider name (``baton workers declare --search``), else ``None`` (Decision 0168, item 3)."""
+    if model and "/" in model and model.split("/", 1)[0] in NATIVE_SEARCH_PROVIDERS and catalog_entry(model).get("supports_web_search"):
         return "provider"
-    return None
+    return declared or None
 
 
-def provided(adapter: str, capabilities: Iterable[str], tool_use_absent: bool, model: str | None = None) -> dict[str, str]:
+def provided(adapter: str, capabilities: Iterable[str], tool_use_absent: bool, model: str | None = None,
+             declared: str | None = None) -> dict[str, str]:
     """Capabilities the runner provides for a profile: capability -> the evidence recorded for it.
 
     Only a ``litellm_api`` profile, and only when its model can call tools: it
@@ -128,27 +130,35 @@ def provided(adapter: str, capabilities: Iterable[str], tool_use_absent: bool, m
     if adapter != "litellm_api" or "tool_use" not in set(capabilities) or tool_use_absent:
         return {}
     out = {"workspace_read": "Baton's runner offers list_files and read_file to a model that calls tools"}
-    if search_backend(model) == "provider":
+    via = search_backend(model, declared)
+    if via == "provider":
         out["web_access"] = "Baton's runner offers fetch, and the provider's own web search (billed per search by the provider)"
+    elif via is not None:
+        out["web_access"] = f"Baton's runner offers fetch, and search through the search service declared on this machine ({via})"
     return out
 
 
-def web_access_note(adapter: str, capabilities: Iterable[str], tool_use_absent: bool, model: str | None) -> dict[str, Any] | None:
+def web_access_note(adapter: str, capabilities: Iterable[str], tool_use_absent: bool, model: str | None,
+                    declared: str | None = None) -> dict[str, Any] | None:
     """For ``doctor`` and the setup page: whether an API profile has web access through the runner, how, and why not."""
     if adapter != "litellm_api":
         return None
     caps = set(capabilities)
     if "tool_use" not in caps or tool_use_absent:
         return {"offered": False, "why_not": "its model does not call tools" + (" (recorded absent)" if tool_use_absent else "")}
-    if search_backend(model) == "provider":
+    via = search_backend(model, declared)
+    if via == "provider":
         return {"offered": True, "search": "provider", "billed_per_search": True,
                 "how": "its provider's own web search, billed per search by the provider, and Baton's fetch"}
+    if via is not None:
+        return {"offered": True, "search": via, "billed_per_search": False,
+                "how": f"the search service declared on this machine ({via}), and Baton's fetch"}
     provider = (model or "").split("/", 1)[0]
     if provider in NATIVE_SEARCH_PROVIDERS:
         why = "LiteLLM's model list does not show web search for this model"
     else:
         why = f"its provider's own search ({provider or 'unknown provider'}) cannot be used beside Baton's tools"
-    return {"offered": False, "why_not": why}
+    return {"offered": False, "why_not": why + "; `baton workers declare --search <provider>` gives it a search service"}
 
 
 def offered(needed: Iterable[str]) -> list[str]:
@@ -255,6 +265,10 @@ SPECS: dict[str, dict[str, Any]] = {
 }
 
 
+SPECS["search"] = {
+    "description": "Search the web. Returns at most ten results, each with a title, URL and snippet; fetch a URL to read the page.",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"], "additionalProperties": False},
+}
 SPECS["fetch"] = {
     "description": "Fetch a public web page by its http(s) URL and get its text (at most 50,000 characters). "
                    "Private and local addresses are refused; so are PDFs and other non-text content.",

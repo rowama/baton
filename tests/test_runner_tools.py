@@ -28,9 +28,9 @@ from runkit import make_recipe
 OUT_SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
 
 
-def api(caps=("structured_output", "tool_use"), *, absent_tool_use=False, **extra) -> WorkerProfile:
+def api(caps=("structured_output", "tool_use"), *, absent_tool_use=False, declared=None, **extra) -> WorkerProfile:
     p = WorkerProfile.model_validate({"adapter": "litellm_api", "creator": "acme", "model": "openai/acme-model", "capabilities": list(caps), "tier": "strong", **extra})
-    return p.with_provided(rt.provided(p.adapter, p.capabilities, absent_tool_use, p.model))
+    return p.with_provided(rt.provided(p.adapter, p.capabilities, absent_tool_use, p.model, declared), rt.search_backend(p.model, declared))
 
 
 def read_recipe(root: Path, **step) -> Path:
@@ -627,3 +627,123 @@ def test_doctor_says_which_api_models_have_web_access_and_why_the_others_do_not(
     assert notes["claude-api"]["offered"] and notes["claude-api"]["billed_per_search"]
     assert not notes["gpt-api"]["offered"] and "cannot be used beside" in notes["gpt-api"]["why_not"]
     assert not any("steps that search the web have no worker" in w for w in out["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Slice 3: a declared search service
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_declaring_a_search_service_once_per_machine(tmp_path):
+    from baton import resources
+
+    home = make_home(tmp_path / "home")
+    cli = Cli(make_git_project(tmp_path / "proj"), home)
+    out = cli.run("workers", "declare", "--search", "tavily", "--credential", "secret:tavily_key")
+    assert out["search"] == {"provider": "tavily", "credential": "secret:tavily_key"}
+    assert resources.declared_search(home).provider == "tavily"
+    assert "search:\n  provider: tavily" in (home / "resources.yaml").read_text(encoding="utf-8")
+    bad = cli("workers", "declare", "--search", "tavily", "--credential", "tvly-literal-key", expect=None).payload
+    assert not bad["ok"] and "secret:<name>" in bad["message"]
+    if resources.search_providers() is not None:
+        unknown = cli("workers", "declare", "--search", "google_serp_scraper", expect=None).payload
+        assert not unknown["ok"] and "not a search provider LiteLLM knows" in unknown["message"]
+    assert not cli("workers", "declare", "--search", "searxng", expect=None).payload["ok"]  # needs its address
+    out = cli.run("workers", "declare", "--search", "searxng", "--base-url", "http://192.168.1.20:8080")
+    assert out["search"] == {"provider": "searxng", "base_url": "http://192.168.1.20:8080"}  # a new provider starts afresh: no key carried over
+    assert resources.status(home, discover_fn=lambda h, d: {})["search"]["provider"] == "searxng"
+    assert cli("workers", "declare", "--search", "searxng", "--model", "x", expect=None).payload["ok"] is False
+    assert cli.run("workers", "declare", "--search", "searxng", "--remove")["search_removed"] is True
+    assert resources.declared_search(home) is None
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_a_declared_search_service_gives_any_tool_calling_api_model_web_access(web_catalog):
+    p = api(model="openai/gpt-test", declared="searxng")
+    assert p.claims("web_access") and p.search_via() == "searxng"
+    assert p.capability_record("web_access").by == rt.BASIS
+    assert api(model=WEB_MODEL, declared="searxng").search_via() == "provider"  # the provider's own search comes first (0168, item 3)
+    assert not api(("structured_output",), model="openai/gpt-test", declared="searxng").claims("web_access")
+    note = rt.web_access_note("litellm_api", ["tool_use"], False, "openai/gpt-test", "searxng")
+    assert note["offered"] and note["search"] == "searxng" and note["billed_per_search"] is False
+    assert "declare --search" in rt.web_access_note("litellm_api", ["tool_use"], False, "openai/gpt-test")["why_not"]
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_the_loop_searches_through_the_declared_service_and_its_results_count_as_found(tmp_path, web_catalog, monkeypatch):
+    store = Store(tmp_path / "proj")
+    ctx = engine.start(store, load_recipe(web_recipe(tmp_path / "recipe", workspace="read")), {}, run_id="r_20261101_ab12")
+    p = engine.begin_attempt(ctx, "find", "api", api(model="openai/gpt-test", declared="searxng"))
+    assert p.manifest["search"] == "searxng"
+    queries = []
+
+    def search_fn(q):
+        queries.append(q)
+        return [{"title": "Spec", "url": "https://found.example/spec", "snippet": "the spec"}]
+
+    monkeypatch.setattr(rt, "_get", lambda u, resolve, timeout: page("spec text", "text/plain"))
+    script = WebScript([call("search", {"query": "baton spec"}, "s1")], [call("fetch", {"url": "https://found.example/spec"}, "f1")],
+                       [finish({"answer": "x"})])
+    env = wr.run(p.dir, p.result_dir, "openai/gpt-test", {}, None, complete=script, workspace=tree(tmp_path), search_fn=search_fn)
+    assert env["status"] == "completed" and queries == ["baton spec"]
+    assert "web_search_options" not in script.calls[0]
+    assert [t["function"]["name"] for t in script.calls[0]["tools"]] == ["list_files", "read_file", "search", "fetch", "finish"]
+    rows = calls_log(p)
+    assert rows[0]["tool"] == "search" and rows[0]["by"] == "searxng" and "refused" not in rows[1]  # found by the search, so fetchable
+    assert engine._tool_calls_record(p.dir.parent)["searches"] == 1
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_the_litellm_search_wrapper_shapes_results_and_hides_failures():
+    seen = {}
+
+    def search(**kw):
+        seen.update(kw)
+        return SimpleNamespace(results=[SimpleNamespace(title="A", url="https://a.example/", snippet="s" * 900), SimpleNamespace(title="no url", url=None)])
+
+    out = wr.declared_search(search, "searxng", "http://10.0.0.2:8080", None)("q")
+    assert out == [{"title": "A", "url": "https://a.example/", "snippet": "s" * 500}]
+    assert seen["search_provider"] == "searxng" and seen["api_base"] == "http://10.0.0.2:8080" and seen["max_results"] == 10
+
+    def broken(**kw):
+        raise RuntimeError("401 for key tvly-SECRET at https://api.tavily.com")
+
+    with pytest.raises(rt.Refused) as e:
+        wr.declared_search(broken, "tavily", None, "tvly-SECRET")("q")
+    assert str(e.value) == "the search service failed (RuntimeError)"
+
+
+@pytest.mark.skipif(not HAVE_LITELLM, reason="litellm not installed (pip install baton[api])")
+@pytest.mark.slow
+def test_a_declared_search_key_reaches_only_the_runner_and_never_the_record(tmp_path):
+    sentinel = "BATON-SENTINEL-searchkey00001"
+    project = make_git_project(tmp_path / "proj")
+    home = make_home(tmp_path / "home")
+    cli = Cli(project, home)
+    cli.run("init", str(project))
+    cli.run("vendor", str(web_recipe(tmp_path / "toy")))
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "Adopt Baton")
+    (home / "secrets").mkdir()
+    (home / "secrets" / "model_key").write_text("BATON-SENTINEL-modelkey000001", encoding="utf-8")
+    (home / "secrets" / "tavily_key").write_text(sentinel, encoding="utf-8")
+    cli.run("workers", "declare", "--search", "tavily", "--credential", "secret:tavily_key")
+    args = json.dumps({"status": "completed", "output": {"answer": "found"}, "notes": ""})
+    options = {"mock_tool_calls": [{"id": "f1", "type": "function", "function": {"name": "finish", "arguments": args}}]}
+    (home / "workers.yaml").write_text(
+        "api:\n  adapter: litellm_api\n  creator: openai\n  model: openai/gpt-5\n  capabilities: [structured_output, tool_use]\n  tier: strong\n"
+        "  auth: { mode: api_key, env: { OPENAI_API_KEY: \"secret:model_key\" } }\n"
+        f"  options: {json.dumps(options)}\n", encoding="utf-8")
+    run = cli.run("start", "toy", "--inputs", json.dumps({"title": "Find"}))["run_id"]
+    assert [e["profile"] for e in cli.run("eligible", run, "find")["eligible"]] == ["api"]
+    d = cli.run("dispatch", run, "find", "--worker", "api", "--wait")
+    assert d["outcome"] == "passed", d
+    events = [json.loads(line) for line in (project / ".baton" / "runs" / run / "events.jsonl").read_text().splitlines()]
+    disp = next(e["data"] for e in events if e["type"] == "dispatched")
+    assert disp["tools"]["search"] == "tavily" and "BATON_SEARCH_API_KEY" in disp["env"]["secret_names"]
+    manifest = json.loads((project / ".baton" / "runs" / run / "steps" / "find" / "attempt-1" / "packet" / "manifest.json").read_text())
+    assert manifest["search"] == "tavily"
+    for f in project.rglob("*"):
+        if f.is_file() and ".git" not in f.parts:
+            assert sentinel.encode() not in f.read_bytes(), f

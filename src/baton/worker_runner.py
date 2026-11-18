@@ -277,7 +277,7 @@ def _message_dict(msg: Any) -> dict[str, Any]:
 def tool_loop(
     complete: Completion, model: str, messages: list[dict[str, Any]], schema: dict[str, Any], options: dict[str, Any],
     tools: list[str], scope: "Any", limit: int, calls_log: list[dict[str, Any]], *,
-    search: str | None = None, found: "Any" = None,
+    search: str | None = None, found: "Any" = None, search_fn: "Callable[[str], list[dict[str, Any]]] | None" = None,
 ) -> tuple[dict[str, Any] | None, str]:
     """Run the model with tools until it calls ``finish`` or the limit is reached.
 
@@ -306,6 +306,17 @@ def tool_loop(
         "read_file": lambda a: scope.read_file(a.get("path", "")),
         "fetch": lambda a: rt.fetch(a.get("url", ""), found=found if reads else None),
     }
+    if not native and "search" in tools and search_fn is not None:
+        def run_search(a: dict[str, Any]) -> str:
+            query = a.get("query")
+            if not isinstance(query, str) or not query.strip():
+                raise rt.Refused("give a query")
+            results = search_fn(query.strip())[: rt.SEARCH_RESULTS]
+            if found is not None:
+                found.add(r["url"] for r in results)
+            return json.dumps(results, ensure_ascii=False)
+
+        handlers["search"] = run_search
     used = 0
     nudges = 0
     while True:
@@ -392,6 +403,8 @@ def tool_loop(
                                    "ms": int((time.monotonic() - started) * 1000)}
             if refused is not None:
                 row["refused"] = refused
+            if name == "search":
+                row["by"] = search
             calls_log.append(row)
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": rt.untrusted(name, text)})
 
@@ -407,8 +420,12 @@ def run(
     supports_schema: Callable[[str], bool] = lambda m: False,
     workspace: Path | None = None,
     transcript: Path | None = None,
+    search_fn: Callable[[str], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Do one attempt. Raises ``WorkerFailure`` for failures that are not the step's."""
+    """Do one attempt. Raises ``WorkerFailure`` for failures that are not the step's.
+
+    ``search_fn(query)`` searches through the machine's declared search service, ``[{title, url, snippet}]``.
+    """
     try:
         messages = build_messages(packet_dir, context_tokens)
     except InputError as e:
@@ -419,7 +436,7 @@ def run(
     schema = reply_schema(output_schema, names)
     tools = list(manifest.get("tools") or [])
     if tools:
-        return _run_with_tools(packet_dir, result_dir, model, options, messages, schema, tools, manifest, complete, workspace, transcript)
+        return _run_with_tools(packet_dir, result_dir, model, options, messages, schema, tools, manifest, complete, workspace, transcript, search_fn)
     text = call_model(complete, model, messages, schema, options, supports_schema(model))
     reply = parse_reply(text)
     return write_result(packet_dir, result_dir, reply, "" if reply is not None else "the model's reply was not a JSON object")
@@ -427,7 +444,7 @@ def run(
 
 def _run_with_tools(packet_dir: Path, result_dir: Path, model: str, options: dict[str, Any], messages: list[dict[str, Any]],
                     schema: dict[str, Any], tools: list[str], manifest: dict[str, Any], complete: Completion,
-                    workspace: Path | None, transcript: Path | None) -> dict[str, Any]:
+                    workspace: Path | None, transcript: Path | None, search_fn: Any = None) -> dict[str, Any]:
     from . import runner_tools as rt
 
     note = ("\nThis step reads the project and the web: fetch opens only URLs from your search results or the step's inputs."
@@ -439,13 +456,37 @@ def _run_with_tools(packet_dir: Path, result_dir: Path, model: str, options: dic
     calls: list[dict[str, Any]] = []
     try:
         reply, notes = tool_loop(complete, model, messages, schema, options, tools, scope, limit, calls,
-                                 search=manifest.get("search"), found=found)
+                                 search=manifest.get("search"), found=found, search_fn=search_fn)
     finally:
         rt.write_jsonl(packet_dir.parent / "tool_calls.jsonl", calls)
         if transcript is not None:
             transcript.parent.mkdir(parents=True, exist_ok=True)
             transcript.write_text(json.dumps({"model": model, "tools": tools, "messages": messages}, ensure_ascii=False, indent=1), encoding="utf-8")
     return write_result(packet_dir, result_dir, reply, notes)
+
+
+def declared_search(search: Callable[..., Any], provider: str, base_url: str | None, api_key: str | None) -> Callable[[str], list[dict[str, Any]]]:
+    """A ``search_fn`` over LiteLLM's search interface for the declared provider ([VERIFY] litellm 1.108.3 ``litellm.search``).
+
+    A failed search is refused back to the model, never a crash of the attempt; its message names only the error's type,
+    so no key or address of the service reaches the record.
+    """
+    from . import runner_tools as rt
+
+    def run(query: str) -> list[dict[str, Any]]:
+        try:
+            resp = search(query=query, search_provider=provider, max_results=rt.SEARCH_RESULTS, api_key=api_key, api_base=base_url,
+                          timeout=rt.FETCH_TIMEOUT)
+        except Exception as e:  # noqa: BLE001 - the model is told the search failed and may try another way
+            raise rt.Refused(f"the search service failed ({type(e).__name__})") from None
+        out = []
+        for r in getattr(resp, "results", None) or []:
+            url = getattr(r, "url", None)
+            if isinstance(url, str):
+                out.append({"title": str(getattr(r, "title", "") or ""), "url": url, "snippet": str(getattr(r, "snippet", "") or "")[:500]})
+        return out
+
+    return run
 
 
 def noop(model: str, options: dict[str, Any], complete: Completion) -> str:
@@ -480,6 +521,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--context-tokens", type=int, default=None)
     ap.add_argument("--workspace", type=Path, default=None, help="the working tree a read step's tools may read")
     ap.add_argument("--transcript", type=Path, default=None, help="where a tool loop keeps its messages")
+    ap.add_argument("--search-provider", default=None, help="the declared search service's LiteLLM provider")
+    ap.add_argument("--search-base-url", default=None, help="the declared search service's address (SearXNG)")
     ap.add_argument("--noop", action="store_true", help="doctor's round trip; needs no packet")
     args = ap.parse_args(argv)
     os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")  # never fetch the remote model map
@@ -500,8 +543,12 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:  # expected: unknown model: fall back to the prompt; this is a standalone worker process and imports nothing from the runtime (noqa: BLE001 - unknown model: fall back to the prompt)
                 return False
 
+        from .runner_tools import SEARCH_KEY_VAR
+
+        search_fn = (declared_search(litellm.search, args.search_provider, args.search_base_url, os.environ.get(SEARCH_KEY_VAR))
+                     if args.search_provider else None)
         env = run(args.packet, args.result, args.model, options, args.context_tokens, complete=litellm.completion, supports_schema=supports,
-                  workspace=args.workspace, transcript=args.transcript)
+                  workspace=args.workspace, transcript=args.transcript, search_fn=search_fn)
     except WorkerFailure as f:
         return _report(f)
     print(f"baton-worker: result written (status {env['status']})")

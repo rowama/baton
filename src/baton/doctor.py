@@ -605,9 +605,13 @@ def _api_web_access(project: Any, profiles: dict[str, Any]) -> dict[str, dict[st
             continue
     if not has_web:
         return {}
+    from .resources import declared_search
+
+    backend = declared_search(project.home)
     out = {}
     for name, p in sorted(profiles.items()):
-        note = web_access_note(p.adapter, p.capabilities, p.capability_state("tool_use") == "absent" and "tool_use" in p.capabilities, p.model)
+        note = web_access_note(p.adapter, p.capabilities, p.capability_state("tool_use") == "absent" and "tool_use" in p.capabilities, p.model,
+                               backend.provider if backend is not None else None)
         if note is not None:
             out[name] = note
     return out

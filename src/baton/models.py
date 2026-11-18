@@ -576,6 +576,8 @@ class WorkerProfile(_Strict):
     #: Capabilities Baton's API runner provides for this profile (``runner_tools.provided``): capability -> evidence.
     #: Facts about Baton's code, attached by ``Project.profiles``; never in a profile file, never hashed.
     _provided: dict[str, str] = PrivateAttr(default_factory=dict)
+    #: How the runner searches for this profile: ``provider``, a declared search provider's name, or ``None``.
+    _search_via: str | None = PrivateAttr(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -630,11 +632,15 @@ class WorkerProfile(_Strict):
             return CapabilityState(state="verified", by="baton_runner", evidence=self._provided[capability])
         return st
 
-    def with_provided(self, provided: dict[str, str]) -> "WorkerProfile":
-        """A copy carrying the capabilities Baton's runner provides for it."""
+    def with_provided(self, provided: dict[str, str], search_via: str | None = None) -> "WorkerProfile":
+        """A copy carrying the capabilities Baton's runner provides for it, and how it searches."""
         out = self._copy_private()
         out._provided = dict(provided)
+        out._search_via = search_via if "web_access" in provided else None
         return out
+
+    def search_via(self) -> str | None:
+        return self._search_via
 
     def _copy_private(self) -> "WorkerProfile":
         out = self.model_copy()
@@ -642,6 +648,7 @@ class WorkerProfile(_Strict):
         out._quota_until = self._quota_until
         out._switched_off = self._switched_off
         out._provided = dict(self._provided)
+        out._search_via = self._search_via
         return out
 
     def with_capability_states(self, states: dict[str, Any]) -> "WorkerProfile":

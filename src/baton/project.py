@@ -336,9 +336,14 @@ class Project:
         off = resources.switched_off(self.home)
         from . import runner_tools
 
+        declared = resources.declared_search(self.home)
+        search = declared.provider if declared is not None else None
+
         def provided(p: WorkerProfile, recorded: dict[str, Any]) -> WorkerProfile:
             tool_use = recorded.get("tool_use")
-            return p.with_provided(runner_tools.provided(p.adapter, p.capabilities, tool_use is not None and tool_use.state == "absent", p.model))
+            absent = tool_use is not None and tool_use.state == "absent"
+            return p.with_provided(runner_tools.provided(p.adapter, p.capabilities, absent, p.model, search),
+                                   runner_tools.search_backend(p.model, search))
 
         shaped = {n: (lambda q: q.with_quota(until[n]) if n in until else q)(provided(p, states.get(n, {})).with_capability_states(states.get(n, {})))
                   for n, p in out.items()}

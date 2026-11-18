@@ -911,6 +911,7 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 
 Add, change or remove a resource discovery cannot find, or say there is nothing more.
 With --profile: reset a capability to likely, or declare it absent.
+With --search: the web search service Baton's runner gives API models.
 
 Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
 
@@ -928,6 +929,7 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 | `--profile <str>` | Set capability states on this profile instead (with --likely / --absent). |
 | `--likely <str>` | Reset this capability to likely, so it is tried again (repeatable). |
 | `--absent <str>` | Declare this capability absent on the profile (repeatable). |
+| `--search <str>` | Declare the machine's web search service for API models: a LiteLLM search provider, e.g. tavily, brave, exa_ai or searxng (with --credential, or --base-url for SearXNG; --remove to drop it). |
 | `--json` | Machine-readable output. |
 
 ### baton workers disable {#baton-workers-disable}

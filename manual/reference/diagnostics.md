@@ -31,6 +31,7 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `permissions.run_unreadable` | A run could not be read when deciding whether commits were vouched for; it vouches for nothing. |
 | `profiles.keyring_failed` | The OS keyring failed or is missing, so the secret file store was used instead. |
 | `queue.dequeue_run_unreadable` | A queued dispatch belonged to a run that is gone or unreadable, so there was nothing to record the drop in. |
+| `resources.search_invalid` | The search service under `search:` in `~/.baton/resources.yaml` could not be read, so API models have no declared search. Declare it again with `baton workers declare --search`. |
 | `resources.unreadable` | `~/.baton/resources.yaml` or the directory data could not be read when listing switched-off accounts. |
 | `resources.yaml_invalid` | A machine resources file is not valid YAML; its declarations are ignored until fixed. |
 | `sme.profiles_unreadable` | Profiles could not be read when listing experts. |

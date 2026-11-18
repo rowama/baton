@@ -1867,11 +1867,23 @@ def workers_declare(
     profile: Annotated[Optional[str], typer.Option("--profile", help="Set capability states on this profile instead (with --likely / --absent).")] = None,
     likely: Annotated[Optional[list[str]], typer.Option("--likely", help="Reset this capability to likely, so it is tried again (repeatable).")] = None,
     absent: Annotated[Optional[list[str]], typer.Option("--absent", help="Declare this capability absent on the profile (repeatable).")] = None,
+    search: Annotated[Optional[str], typer.Option("--search", help="Declare the machine's web search service for API models: a LiteLLM search provider, e.g. tavily, brave, exa_ai or searxng (with --credential, or --base-url for SearXNG; --remove to drop it).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Add, change or remove a resource discovery cannot find, or say there is nothing more.
-    With --profile: reset a capability to likely, or declare it absent (§6.1)."""
+    With --profile: reset a capability to likely, or declare it absent (§6.1).
+    With --search: the web search service Baton's runner gives API models (§6.4)."""
     from . import resources
+
+    if search is not None:
+        if name is not None or profile is not None or any(v not in (None, False) for v in (provider, model, capability, nothing_more, likely, absent)):
+            _fail(as_json, EXIT_USAGE, "usage.declare", "--search takes only --credential, --base-url, --note or --remove")
+        out = _resources(as_json, lambda h: resources.declare_search(h, search, credential=credential, base_url=base_url, note=note, remove=remove))
+        text = ["search service removed"] if out.get("search_removed") else [f"search: {out['search']['provider']}"
+                + (f" at {out['search']['base_url']}" if out["search"].get("base_url") else "")
+                + (f" (key {out['search']['credential']})" if out["search"].get("credential") else "")]
+        _emit(out, as_json, "\n".join(text + [f"saved {out['path']}"]))
+        return
 
     if profile is not None or likely or absent:
         if profile is None or not (likely or absent):

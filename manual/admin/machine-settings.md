@@ -74,5 +74,6 @@ An API profile (`litellm_api`) whose model calls tools (`tool_use`) can also rea
 - `~/.baton/launcher.yaml`: `source`, `extras` and `python` for the launcher.
 - `~/.baton/diag.yaml`: diagnostics limits (`raw_days`, `raw_max_bytes`, `count_days`, `burst`).
 - `~/.baton/known-workers.local.yaml`: models you have assessed, merged over Baton's shipped data.
+- `~/.baton/resources.yaml`, under `search:`: the web search service API models search through, written by `baton workers declare --search`. See [giving API models web access](admin.web-access#declare).
 
 The environment variables that also configure Baton are in the [environment reference](reference.environment#here-now).

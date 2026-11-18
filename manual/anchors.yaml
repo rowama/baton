@@ -93,6 +93,12 @@ published:
 - admin.troubleshooting#exit-codes
 - admin.troubleshooting#here-now
 - admin.troubleshooting#logs
+- admin.web-access
+- admin.web-access#declare
+- admin.web-access#fetch
+- admin.web-access#here-now
+- admin.web-access#provider-search
+- admin.web-access#searxng
 - providers.anthropic
 - providers.anthropic#about
 - providers.anthropic#command-line
