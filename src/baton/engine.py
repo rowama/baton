@@ -50,7 +50,7 @@ from .packet import (
 from .recipe import LoadedRecipe, build_plan, load_recipe
 from .routing import identity_record
 from .redact import redact_text
-from .runner_tools import DEFAULT_TOOL_CALLS
+from .runner_tools import DEFAULT_TOOL_CALLS, search_backend
 from .state import SATISFIES_DEPS, IllegalTransition
 from .store import Store, StoreError, canonical_json
 from .supervisor import ChildResult
@@ -708,7 +708,11 @@ def _tool_calls_record(adir: Path) -> dict[str, Any]:
         return {}
     data = f.read_bytes()
     rows = [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
-    return {"tool_calls": sum(1 for r in rows if r.get("tool") != "finish"), "tool_calls_sha256": hashlib.sha256(data).hexdigest()}
+    out = {"tool_calls": sum(1 for r in rows if r.get("tool") != "finish"), "tool_calls_sha256": hashlib.sha256(data).hexdigest()}
+    searches = sum(1 for r in rows if r.get("tool") == "search")
+    if searches:
+        out["searches"] = searches  # a provider may bill each one (Decision 0168, item 9)
+    return out
 
 
 def submit(
@@ -3112,7 +3116,8 @@ class Api:
                     extra["harness_version"] = version
             offered = runner_tools_for(profile, node)
             if offered:
-                extra["tools"] = {"runner": offered, "limit": getattr(node, "tool_calls", None) or DEFAULT_TOOL_CALLS}
+                extra["tools"] = {"runner": offered, "limit": getattr(node, "tool_calls", None) or DEFAULT_TOOL_CALLS,
+                                  **({"search": search_backend(profile.model)} if "search" in offered else {})}
             built = begin_attempt(
                 ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
                 guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,

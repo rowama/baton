@@ -1165,3 +1165,38 @@ def test_a_program_that_does_not_pass_in_three_rounds_is_simplified_at_the_owner
     assert any(e["type"] == "iteration_limit_reached" for e in evs)
     expanded = [e for e in evs if e["type"] == "group_expanded" and e["step_path"] == "build_programs"]
     assert expanded[-1]["data"].get("superseded")
+
+
+@pytest.mark.slow
+def test_research_runs_on_an_api_model_through_batons_tool_loop(project_with):
+    """change 2026-11-step-tool-harness, Slice 2: the research step, which needs web_access, done by an API model.
+
+    The model is reached through the real runner child and LiteLLM, offline: its ``mock_tool_calls`` answers with ``finish``.
+    """
+    from baton import runner_tools
+
+    model = "anthropic/claude-sonnet-4-6"
+    if runner_tools.search_backend(model) != "provider":
+        pytest.skip(f"this LiteLLM's model list does not show web search for {model}")
+    ledger = [GOAL, BED, SOIL]
+    research = {"discovery": [NONE_NEEDED], "ledger": ledger, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "R1"}]}
+    cli, project, _ = project_with({"profile": profile("standard", [GOAL, BED]), "design": design(ledger), "audit": CLEAN, "generate": generated(ledger)})
+    (cli.home / "secrets").mkdir(exist_ok=True)
+    (cli.home / "secrets" / "anthropic_key").write_text("BATON-SENTINEL-researchkey01", encoding="utf-8")
+    finish = {"status": "completed", "output": research, "notes": "searched and read"}
+    options = {"mock_tool_calls": [{"id": "f1", "type": "function", "function": {"name": "finish", "arguments": json.dumps(finish)}}]}
+    with (cli.home / "workers.yaml").open("a", encoding="utf-8") as f:
+        f.write(f"api-research:\n  adapter: litellm_api\n  creator: anthropic\n  model: {model}\n"
+                "  capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use]\n  tier: strong\n"
+                "  context_tokens: 200000\n  auth: { mode: api_key, env: { ANTHROPIC_API_KEY: \"secret:anthropic_key\" } }\n"
+                f"  options: {json.dumps(options)}\n")
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = Director(cli, project, run, route=lambda p: "api-research" if p == "research" else route(p))
+    st = d.drive()
+    assert st["steps"]["research"]["state"] == "passed"
+    evs = run_events(project, run)
+    disp = next(e["data"] for e in evs if e["type"] == "dispatched" and e["step_path"] == "research")
+    assert disp["profile"] == "api-research" and disp["tools"] == {"runner": ["search", "fetch"], "limit": 40, "search": "provider"}
+    sub = next(e["data"] for e in evs if e["type"] == "result_submitted" and e["step_path"] == "research")
+    assert sub["tool_calls"] == 0 and "searches" not in sub
+    assert_package_is_ready(cli, project)

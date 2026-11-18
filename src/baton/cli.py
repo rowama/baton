@@ -943,6 +943,8 @@ def doctor(
     lines = [out["line"]] if out["ok"] else [f"PROBLEM {p}" for p in out["problems"]]
     lines += _blocking_lines(out)
     lines += [f"quota {n}: {q}" for n, q in (out.get("worker_setup") or {}).get("quota", {}).items()]
+    if out.get("web_advice"):  # silent when healthy (§1.1): why each API model cannot do the web, only when nothing here can
+        lines += [f"web access {n}: no: {w['why_not']}" for n, w in (out.get("api_web_access") or {}).items() if not w["offered"]]
     lines += [f"WARNING {w}" for w in out["warnings"]]
     _emit({**out}, as_json, "\n".join(lines))
     raise typer.Exit(EXIT_OK if out["ok"] else EXIT_PROBLEM)

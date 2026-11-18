@@ -276,13 +276,18 @@ def _message_dict(msg: Any) -> dict[str, Any]:
 
 def tool_loop(
     complete: Completion, model: str, messages: list[dict[str, Any]], schema: dict[str, Any], options: dict[str, Any],
-    tools: list[str], scope: "Any", limit: int, calls_log: list[dict[str, Any]],
+    tools: list[str], scope: "Any", limit: int, calls_log: list[dict[str, Any]], *,
+    search: str | None = None, found: "Any" = None,
 ) -> tuple[dict[str, Any] | None, str]:
     """Run the model with tools until it calls ``finish`` or the limit is reached.
 
     Returns the reply (``None`` when there is none) and notes for a ``failed``
     result. ``messages`` grows in place: it is the transcript. Each call is
-    appended to ``calls_log``.
+    appended to ``calls_log``. ``search == "provider"``: the provider searches on
+    its side (``web_search_options``); its searches arrive as calls named
+    ``web_search`` that were already run, so they are recorded and counted, never
+    run or answered, and their results go back as outside data. ``found``: the URLs
+    ``fetch`` may open on a step that also reads the project (Decision 0168, item 6).
     """
     import time
 
@@ -292,12 +297,20 @@ def tool_loop(
     if bad:
         raise WorkerFailure("configuration", "fallbacks_not_allowed",
                             f"profile options {', '.join(bad)} would let another model answer within one attempt; remove them")
-    defs = rt.specs(tools, schema)
+    native = search == "provider" and "search" in tools
+    defs = rt.specs(tools, schema, native_search=native)
+    extra = {"web_search_options": dict(rt.WEB_SEARCH_OPTIONS)} if native else {}
+    reads = "read_file" in tools
+    handlers = {
+        "list_files": lambda a: scope.list_files(a.get("path", "")),
+        "read_file": lambda a: scope.read_file(a.get("path", "")),
+        "fetch": lambda a: rt.fetch(a.get("url", ""), found=found if reads else None),
+    }
     used = 0
     nudges = 0
     while True:
         try:
-            resp = complete(model=model, messages=messages, tools=defs, **options)
+            resp = complete(model=model, messages=messages, tools=defs, **extra, **options)
             msg = resp.choices[0].message
         except WorkerFailure:
             raise
@@ -306,8 +319,37 @@ def tool_loop(
         except Exception as e:  # noqa: BLE001 - classified, never swallowed
             raise classify_exception(e) from e
         entry = _message_dict(msg)
+        results = rt.provider_search_results(msg) if native else []
+        if found is not None:
+            found.add(r["url"] for r in results)
+        searched = [c for c in entry.get("tool_calls") or [] if native and c["function"]["name"] == "web_search"]
+        if searched:
+            # Already run by the provider: keep them out of the history sent back, which would otherwise need a reply for each.
+            entry["tool_calls"] = [c for c in entry["tool_calls"] if c not in searched] or None
+            if entry["tool_calls"] is None:
+                del entry["tool_calls"]
+            if not entry.get("content") and "tool_calls" not in entry:
+                entry["content"] = "[searched the web]"
         messages.append(entry)
+        if searched or results:
+            shown = json.dumps(results[: rt.SEARCH_RESULTS], ensure_ascii=False)
+            size, sha = rt.digest(shown)
+            for i, c in enumerate(searched):
+                try:
+                    query = json.loads(c["function"]["arguments"] or "{}")
+                except json.JSONDecodeError:  # expected: the provider's own call record is not ours to judge; keep its text
+                    query = {"raw": str(c["function"]["arguments"])[:200]}
+                row = {"n": len(calls_log) + 1, "tool": "search", "by": "provider", "args": query, "bytes": size if i == 0 else 0,
+                       "sha256": sha, "ms": 0, "results": len(results) if i == 0 else 0}
+                calls_log.append(row)
+                used += 1
+            if results:
+                messages.append({"role": "user", "content": rt.untrusted("search", shown)})
+            if used > limit:
+                return None, f"the tool-call limit ({limit}) was reached without finish"
         calls = entry.get("tool_calls") or []
+        if not calls and searched:
+            continue  # the model searched and has not answered yet
         if not calls:
             if nudges >= MAX_NUDGES:
                 return None, "the model replied without calling finish"
@@ -334,9 +376,9 @@ def tool_loop(
                 args = json.loads(raw) if raw.strip() else {}
                 if not isinstance(args, dict):
                     raise rt.Refused("arguments must be a JSON object")
-                if name not in tools:
+                if name not in tools or name not in handlers:
                     raise rt.Refused(f"no tool {name!r} is offered to this step")
-                text = getattr(scope, name)(**{k: v for k, v in args.items() if k == "path"})
+                text = handlers[name](args)
             except json.JSONDecodeError:  # expected: malformed arguments are refused back to the model and recorded
                 args, refused = {"raw": raw[:200]}, "arguments were not JSON"
             except rt.Refused as e:
@@ -388,12 +430,16 @@ def _run_with_tools(packet_dir: Path, result_dir: Path, model: str, options: dic
                     workspace: Path | None, transcript: Path | None) -> dict[str, Any]:
     from . import runner_tools as rt
 
-    messages[0] = {"role": "system", "content": SYSTEM_TOOLS}
+    note = ("\nThis step reads the project and the web: fetch opens only URLs from your search results or the step's inputs."
+            if "fetch" in tools and "read_file" in tools else "")
+    messages[0] = {"role": "system", "content": SYSTEM_TOOLS + note}
     scope = rt.ReadScope.of(packet_dir, workspace if manifest.get("workspace") == "read" else None)
     limit = int(manifest.get("tool_calls") or rt.DEFAULT_TOOL_CALLS)
+    found = rt.FoundUrls.from_packet(packet_dir) if "fetch" in tools and "read_file" in tools else None
     calls: list[dict[str, Any]] = []
     try:
-        reply, notes = tool_loop(complete, model, messages, schema, options, tools, scope, limit, calls)
+        reply, notes = tool_loop(complete, model, messages, schema, options, tools, scope, limit, calls,
+                                 search=manifest.get("search"), found=found)
     finally:
         rt.write_jsonl(packet_dir.parent / "tool_calls.jsonl", calls)
         if transcript is not None:

@@ -274,7 +274,8 @@ def _tool_call_lines(ctx: RunContext, step_path: str, n: int, d: dict[str, Any])
     """The tool calls Baton's API runner made for an attempt, from ``tool_calls.jsonl`` when its hash still matches."""
     import hashlib
 
-    lines = [f"- Tool calls: {d['tool_calls']} (`tool_calls.jsonl` `{d.get('tool_calls_sha256')}`)"]
+    searches = f", {d['searches']} web search(es)" if d.get("searches") else ""
+    lines = [f"- Tool calls: {d['tool_calls']}{searches} (`tool_calls.jsonl` `{d.get('tool_calls_sha256')}`)"]
     f = ctx.attempt_dir(step_path, n) / "tool_calls.jsonl"
     data = f.read_bytes() if f.is_file() else b""
     if hashlib.sha256(data).hexdigest() != d.get("tool_calls_sha256"):
@@ -283,7 +284,8 @@ def _tool_call_lines(ctx: RunContext, step_path: str, n: int, d: dict[str, Any])
         r = json.loads(line)
         args = "" if r.get("args") is None else " " + json.dumps(r["args"], ensure_ascii=False, sort_keys=True)
         refused = f" — refused: {r['refused']}" if r.get("refused") else ""
-        lines.append(f"  - {r['n']}. `{r['tool']}`{args}: {r['bytes']} bytes, {r['ms']} ms{refused}")
+        by = f" (by the provider, {r.get('results', 0)} result(s))" if r.get("by") == "provider" else ""
+        lines.append(f"  - {r['n']}. `{r['tool']}`{args}{by}: {r['bytes']} bytes, {r['ms']} ms{refused}")
     return lines
 
 

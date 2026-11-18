@@ -680,13 +680,17 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         gen[name].update(detail)
     states = _states_or_problem(home)
     claims = machine_claims(home)
-    adapters = {name: body.get("adapter") for name, (_p, body) in read_generated_dir(home).items() if isinstance(body, dict)}
+    bodies = {name: body for name, (_p, body) in read_generated_dir(home).items() if isinstance(body, dict)}
     for name, g in gen.items():
         g["capabilities"] = cs_summary(states, name, claims.get(name, []))
-        provided = _runner_summary(states, name, adapters.get(name), claims.get(name, []))
+        body = bodies.get(name, {})
+        provided = _runner_summary(states, name, body.get("adapter"), claims.get(name, []), body.get("model"))
         if provided:
             g["capabilities"].update(provided)
             g["provided_by_runner"] = sorted(provided)
+        web = _web_note(states, name, body, claims.get(name, []))
+        if web is not None:
+            g["web_access"] = web
     return {
         "catalog": {"path": str(kw_mod.default_path()), "sha256": kw_sha},
         "setup_complete": state.completed is not None,
@@ -916,7 +920,15 @@ def declare(
     return {**changed, "path": str(path)}
 
 
-def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: list[str]) -> dict[str, str]:
+def _web_note(states: dict[str, Any], name: str, body: dict[str, Any], claimed: list[str]) -> dict[str, Any] | None:
+    """Whether an API profile has web access through Baton's runner, how, and why not (Decision 0168, item 9)."""
+    from . import runner_tools
+
+    tool_use = states.get(name, {}).get("tool_use")
+    return runner_tools.web_access_note(str(body.get("adapter")), claimed, tool_use is not None and tool_use.state == "absent", body.get("model"))
+
+
+def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: list[str], model: Any = None) -> dict[str, str]:
     """The capabilities Baton's API runner provides for a profile and their state words (``runner_tools.provided``).
 
     ``verified`` on Baton's basis, unless a state was recorded since (``workers declare``).
@@ -925,7 +937,7 @@ def _runner_summary(states: dict[str, Any], name: str, adapter: Any, claimed: li
 
     tool_use = states.get(name, {}).get("tool_use")
     out = {}
-    for cap in runner_tools.provided(str(adapter), claimed, tool_use is not None and tool_use.state == "absent"):
+    for cap in runner_tools.provided(str(adapter), claimed, tool_use is not None and tool_use.state == "absent", model):
         recorded = states.get(name, {}).get(cap)
         out[cap] = recorded.state if recorded is not None else "verified"
     return out

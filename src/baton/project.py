@@ -338,7 +338,7 @@ class Project:
 
         def provided(p: WorkerProfile, recorded: dict[str, Any]) -> WorkerProfile:
             tool_use = recorded.get("tool_use")
-            return p.with_provided(runner_tools.provided(p.adapter, p.capabilities, tool_use is not None and tool_use.state == "absent"))
+            return p.with_provided(runner_tools.provided(p.adapter, p.capabilities, tool_use is not None and tool_use.state == "absent", p.model))
 
         shaped = {n: (lambda q: q.with_quota(until[n]) if n in until else q)(provided(p, states.get(n, {})).with_capability_states(states.get(n, {})))
                   for n, p in out.items()}

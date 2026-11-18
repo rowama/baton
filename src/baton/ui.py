@@ -116,6 +116,7 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
             "price": ({"free": bool(price.get("free")), "input": price.get("input"), "output": price.get("output")} if price else None),
             "subscription": (body.get("auth") or {}).get("mode") == "cli_login",
             "capabilities": g.get("capabilities", {}), "verified": g.get("verified"), "flag": g.get("flag"), "ownership": g.get("ownership"),
+            "search_billed_per_search": bool((g.get("web_access") or {}).get("billed_per_search")),
         })
     return rows
 

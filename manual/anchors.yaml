@@ -42,6 +42,7 @@ published:
 - admin.machine-settings#profiles
 - admin.network-and-security
 - admin.network-and-security#api-model-reading
+- admin.network-and-security#api-model-web
 - admin.network-and-security#diagnostics
 - admin.network-and-security#helper-permissions
 - admin.network-and-security#here-now

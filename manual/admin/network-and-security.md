@@ -15,7 +15,7 @@ Baton runs no daemon, server or database of its own. It is files, git and proces
 
 - **Providers you connect.** Model API calls, and the model-list read that checks a key, go to the endpoint of each provider you connected (for a directory provider, its address is in its [provider page](providers.openrouter#here-now); for your own endpoint, the address you gave).
 - **Coding assistants you use as helpers.** Each is a program on the machine that talks to its own service with its own login.
-- **The web, only when a helper searches it.** Baton tells the owner before work that searches the web starts, if no helper on the machine can.
+- **The web, only when a helper searches it.** A coding assistant searches with its own tools. A model reached through an API key searches with its provider's own search, and Baton fetches the pages it asks for (see [what an API model may fetch](admin.network-and-security#api-model-web)). Baton tells the owner before work that searches the web starts, if no helper on the machine can.
 - **The install source.** `uv` fetches a runtime version the first time a project pins it (`~/.baton/launcher.yaml` names the source).
 
 Nothing else leaves the machine. Packets and results travel as files between Baton and a helper's process.
@@ -50,6 +50,16 @@ A model reached through an API key does nothing on the machine by itself. When a
 - A step allows 40 tool calls unless its recipe sets another limit; a model that reaches the limit without answering fails the attempt.
 
 Each call is listed in the step's record. The full conversation is kept on the machine only, beside the attempt's log in `~/.baton/logs/`, because it holds whole files.
+
+## What an API model may fetch {#api-model-web}
+
+A step that needs the web can go to an API model when its provider's own search can be used beside Baton's tools; today that is Anthropic's. The provider runs the searches, and bills each one. Baton fetches the pages the model asks for:
+
+- Only `http` and `https`, and only public addresses: a name that resolves to this machine, the local network or a link-local address is refused, and so is every redirect, checked the same way, five at most. The connection goes to the address that was checked.
+- At most 2 MiB downloaded, at most 50,000 characters of text returned, with a time limit. Web pages, plain text and JSON are read; PDFs and other files are refused.
+- On a step that reads the project and the web at once, a page could tell the model to send the project's contents somewhere. So on such a step Baton fetches only addresses that came from a search in this attempt or are written in the step's inputs, never one that a fetched page mentions.
+
+Baton never scrapes a search engine's result pages.
 
 ## The setup page and MCP over HTTP {#local-servers}
 

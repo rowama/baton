@@ -569,6 +569,9 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         out["diag_unusual"] = diag_unusual
     if web is not None:
         out["web_advice"] = web
+    api_web = _api_web_access(project, profiles) if only is None else {}
+    if api_web:
+        out["api_web_access"] = api_web
     if programs:
         out["programs"] = programs
     return out
@@ -586,6 +589,27 @@ def _programs(project: Any) -> list[dict[str, Any]]:
             continue
         for tid, program in sorted(loaded.programs.items()):
             out.append({"recipe": ref, **program_env.readiness(program, project.home).as_dict()})
+    return out
+
+
+def _api_web_access(project: Any, profiles: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """For each API profile, whether Baton's runner gives it web access, how and why not; only when a vendored recipe has web steps (0168, item 9)."""
+    from .routing import web_steps
+    from .runner_tools import web_access_note
+
+    has_web = False
+    for ref in project.vendored():
+        try:
+            has_web = has_web or bool(web_steps(project.recipe(ref).recipe))
+        except EngineError:  # expected: a recipe that does not load is reported by check
+            continue
+    if not has_web:
+        return {}
+    out = {}
+    for name, p in sorted(profiles.items()):
+        note = web_access_note(p.adapter, p.capabilities, p.capability_state("tool_use") == "absent" and "tool_use" in p.capabilities, p.model)
+        if note is not None:
+            out[name] = note
     return out
 
 

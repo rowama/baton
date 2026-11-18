@@ -21,7 +21,7 @@ related: [user.connect-an-account, user.connect-a-subscription]
 |---|---|
 | Model | The provider's name for it, and Baton's short name for it underneath |
 | Provider | Which provider, or subscription, reaches it |
-| Price | What the provider lists, per million tokens in and out (a token is roughly a short word). **free** and **subscription** are shown as such. **unknown** means the provider did not say |
+| Price | What the provider lists, per million tokens in and out (a token is roughly a short word). **free** and **subscription** are shown as such. **unknown** means the provider did not say. **web search billed per search** means the provider also charges for each web search the model makes |
 | Context | How much text it can take at once |
 | Tier | How capable Baton believes it to be: a rough guide, not a promise |
 | Capabilities | What it can do, each marked **likely**, **verified** or **absent** |

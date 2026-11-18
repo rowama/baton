@@ -394,7 +394,8 @@ def eligible_workers(
 WEB_ADVICE = (
     "Some steps of this work search the web, and no worker on this machine can. The simplest fix is a subscription "
     "coding assistant: install Claude Code (then run `claude` once and log in) or the Codex CLI (then `codex login`), "
-    "and run `baton workers setup`. Baton turns on their web tools for exactly the steps that need them."
+    "and run `baton workers setup`. Baton turns on their web tools for exactly the steps that need them. "
+    "An API model whose provider's own web search Baton can use (Anthropic's, billed per search) also does these steps."
 )
 
 

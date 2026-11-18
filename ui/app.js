@@ -43,9 +43,10 @@ async function load() {
 
 function price(m) {
   if (m.subscription) return "subscription";
-  if (!m.price) return "unknown";
-  if (m.price.free) return "free";
-  return "$" + m.price.input + " in / $" + m.price.output + " out per million";
+  const search = m.search_billed_per_search ? "; web search billed per search" : "";
+  if (!m.price) return "unknown" + search;
+  if (m.price.free) return "free" + search;
+  return "$" + m.price.input + " in / $" + m.price.output + " out per million" + search;
 }
 
 function copy(text, btn) {

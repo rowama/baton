@@ -42,7 +42,7 @@ from .data import read_text
 from .models import Event, FindingsGate, Group, HumanGate, ReviewGate, ScriptGate, Step, WorkerProfile, recorded_questions
 from .recipe import LoadedRecipe
 from .routing import requirement_gaps
-from .runner_tools import DEFAULT_TOOL_CALLS
+from .runner_tools import DEFAULT_TOOL_CALLS, search_backend
 from .state import SATISFIES_DEPS
 from .store import RunLog, Store, StoreError, canonical_json, ensure_dir
 
@@ -956,6 +956,8 @@ def build_packet(
         # Only packets for Baton's API runner with tools carry the keys: other packets are unchanged (criterion 11).
         manifest["tools"] = tools
         manifest["tool_calls"] = node.tool_calls or DEFAULT_TOOL_CALLS
+        if "search" in tools:
+            manifest["search"] = search_backend(profile.model)  # "provider": its provider's own search (Decision 0168)
     if reviews.is_reviewer(node):
         manifest["prior_findings"] = _prior_findings(ctx, record, node, loc)
     if node.program is not None:
