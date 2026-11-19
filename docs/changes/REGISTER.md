@@ -4,7 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | in-progress | major | Slices 1 and 2 done (checks, tiers from evaluations); slice 3 (track record and trial routing) next |
+| [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | in-progress | major | Slices 1 and 2 done; remaining proposal refined; awaiting six answers in 0179 before trial and shadow routing |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-first-use-feedback](2026-11-first-use-feedback.md) | Fixes and tweaks from the owner's first real use of Baton | proposed | standard | Collecting the owner's first-use feedback (six items so far); questions on F-2 and F-3 answered (0174), two open on F-6 |

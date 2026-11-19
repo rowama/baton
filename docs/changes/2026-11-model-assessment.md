@@ -3,7 +3,7 @@ id: 2026-11-model-assessment
 title: "Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work"
 status: in-progress
 level: major
-decisions: ["0175", "0176", "0177", "0178", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
+decisions: ["0175", "0176", "0177", "0178", "0179", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/platform-and-security.md]
 manual: [user/choose-models.md, admin/accounts-and-costs.md, admin/files-and-paths.md, context.yaml, reference/commands.md, reference/diagnostics.md, reference-notes.yaml, anchors.yaml]
 ---
@@ -25,7 +25,7 @@ The owner's direction (Decision [0175](../decisions/0175-model-assessment.md)): 
 
 ### Acceptance criteria
 
-1. **A capability check set ships.** For each capability a check can establish (`structured_output`, `tool_use`, `workspace_read`, `long_form_writing`, `technical_reasoning`, `vision`), a few short tasks with answers graded by code. The set has a version.
+1. **A capability check set ships.** For each capability a check can establish (`structured_output`, `tool_use`, `workspace_read`, `long_form_writing`, `technical_reasoning`), a few short tasks with answers graded by code. The set has a version. Vision checks wait for image input in the runner (Decision 0177).
 2. **Checks run once, on request.** From the setup page (one model, a selection, or every model of a provider or price class) or `baton workers check [<profile>…]`, after showing the estimated cost. A model and route already checked under the current set version is skipped unless the route is an alias, or the owner asks again.
 3. **Checks record evidence.** A pass records the capability `verified` with `by: check`, the set version and the date (§6.1). A failure records it `absent` with the task that failed, resettable as today; a failed task is run once more first, and only a second failure counts (Decision 0178, item 4). A check never adds a capability the profile does not claim, except `structured_output`, `tool_use` and `workspace_read`, which a pass may add to an unjudged model's profile (0176, item 3).
 4. **Tiers can rest on published evaluations.** A model's tier in the known-workers data or the owner's overlay may cite published evaluation results as its basis (`basis: evaluation`, with the evaluation's name, the score, its source and date). A shipped mapping from evaluation results to tiers makes this mechanical. An owner's assessment (Decision [0111](../decisions/0111-owner-run-assessment.md)), started from the setup page, can tier chosen models this way. A model with no evidence stays `basic`.
@@ -39,7 +39,7 @@ The owner's direction (Decision [0175](../decisions/0175-model-assessment.md)): 
 
 ### Open questions
 
-All nine answered as suggested: Decision [0176](../decisions/0176-model-assessment-details.md).
+The original nine questions below were answered as suggested: Decision [0176](../decisions/0176-model-assessment-details.md). Six further questions found while refining slices 3 and 4 are pending in Decision [0179](../decisions/0179-trial-and-shadow-routing-details.md): candidate and fallback trust, reversible effects, review-gated trials, budget enforcement, evidence identity and shadow gate effects. They were put to the owner together with suggestions and rationale on 2026-11-19. Their suggestions are not approved design.
 
 1. **Which published evaluations count?** *Suggested:* independent leaderboards that publish their method and test models themselves, preferred over figures a vendor reports about its own model; each tier cites at least one, and the shipped mapping names which evaluation informs which capability (coding evaluations for `technical_reasoning`, for example). *Rationale:* vendor-reported scores and leaked test items inflate results; naming the evaluation lets the owner judge it.
 2. **What do the checks look like?** *Suggested:* three to five tasks per capability, each a few hundred tokens, with deterministic grading: a reply matching a schema; a correct function call; an answer found only in a supplied file; a set of explicit constraints all followed; small reasoning problems with one right answer. `long_form_writing` is checked only for following length, structure and constraints, not quality. *Rationale:* cheap enough to run across many models once, and graded without another model.
@@ -60,15 +60,15 @@ All nine answered as suggested: Decision [0176](../decisions/0176-model-assessme
 
 ## Design
 
-For the owner's approval, with the Request.
+Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the remaining design needs the owner's answers in Decision 0179 before implementation. The shape below distinguishes the delivered interfaces from the remaining outline.
 
 ### Shape
 
-- **Check set.** `defaults/capability-checks/` with one file per capability (`format: baton-capability-checks/1`, a set `version`), each task a prompt, inputs and a grader (`json_schema`, `function_call`, `exact`, `contains_all`, `constraints`). Run through the worker runner (API routes) or the adapter (harness routes), one task per call.
-- **Command and page.** `baton workers check [<profile>…] [--all-free] [--again]` and a "Check capabilities" action on the setup page's models list, both returning `{estimate, results}`; the page's existing verify route gains the check option.
-- **Evidence.** Capability states gain `by: check {set_version, tasks_passed, tasks_failed}`; a pass also records `checked: {set_version, date}` on the model and route, which `workers check` uses to skip.
-- **Evaluation basis.** `capability_basis` and a new `tier_basis` accept `evaluation {name, score, source, retrieved}`; `defaults/evaluation-tiers.yaml` maps named evaluations to tiers and capabilities. The researcher and the owner's assessment write it; the validator requires a source.
-- **Track record.** `~/.baton/track-record.yaml`, keyed by model and route: counts by tier and capability for checks, shadows, trials and real steps, and recent outcomes for promotion.
+- **Check set (delivered).** `defaults/capability-checks.yaml`, one `version`, 17 tasks over five capabilities, with code graders. Each task is a tiny packet through the profile's own adapter; no vision check yet (0177). Slice 1's refinement and Log describe the actual format and execution.
+- **Command and page (delivered).** `baton workers check [<profile>…] [--free] [--provider <name>] [--all] [--again] [--yes]` and **Check abilities** on the setup page. `POST /api/models/check` returns an estimate before a separately confirmed run; the live verify route remains separate.
+- **Check evidence (delivered).** Capability states carry `by: check` and `set_version`. The last check, including completeness, date, outcomes, cost and time, is stored in the track record and used to skip a completed current-version check. A failed task is repeated once before failure counts (0178).
+- **Evaluation basis (delivered).** `tier_basis` carries deciding and optional supporting evaluation results (`name`, `version`, `score`, optional `configuration`, `source: {url, retrieved}`); a capability basis may cite one result. `defaults/evaluation-tiers.yaml` maps results to tiers and grants. The same validator checks shipped data, overlays and assessments (0178).
+- **Track record (remaining).** Extend `~/.baton/track-record.yaml` beyond its delivered last-check records to counts by tier and capability for checks, shadows, trials and real steps, plus recent outcomes for promotion. Model-and-route identity and migration from profile-name keys await 0179.
 - **Shadow attempts.** At dispatch of an eligible step, the runtime picks one candidate within budget and dispatches it with the same packet under a shadow dispatch id; its intake runs the schema and script gates only and records `shadow_result {profile, model_id, gates, cost}` on the step, never `step_passed`.
 - **Trials.** Routing places a candidate first for an eligible step; a failed gate records `trial_failed` and retries on the first proven worker with the attempt not counted; `worker_selected` carries `trial: true`.
 
@@ -96,6 +96,7 @@ For the owner's approval, with the Request.
 - [0176](../decisions/0176-model-assessment-details.md) (accepted): the nine answers.
 - [0177](../decisions/0177-capability-check-details.md) (accepted): no vision check yet; the runner records tokens, cost and response time.
 - [0178](../decisions/0178-evaluation-tiers.md) (accepted): the Artificial Analysis index decides tiers (50 and 25), LMArena supports, standard grants `technical_reasoning`, a failed check task runs once more.
+- [0179](../decisions/0179-trial-and-shadow-routing-details.md) (proposed): six unresolved rules for slices 3 and 4, with suggested answers and alternatives. No implementation of these choices until the owner answers.
 
 ## Plan
 
@@ -120,14 +121,26 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Outcome:** a below-strong step may go to a free or cheaper candidate, a failure falls back to a proven worker, and the candidate's record grows.
 - **Criteria:** the track record; eligibility rules; fallback without counting an attempt; promotion and demotion; budgets; the Director's words to the owner; the page's settings.
 - **Effort:** L
+- **Refinement pending (2026-11-19):** 0179 items 1–5 settle candidate and fallback trust, how reversibility is declared, whether blocking reviews participate immediately, what the daily budget guarantees and when evidence resets. Preserve current routing with assessment disabled. Count a candidate's pass only once its qualifying blocking gates finish; a schema pass while a review is pending is not success. Do not confuse provider or gate infrastructure failures with evidence of poor model quality.
+- **Validation to demonstrate:** assessment off leaves ordinary dispatch unchanged; tier, capability, exclusion and independence checks still apply under the chosen rule; a failed candidate falls back without consuming the recipe's attempt budget, including when its limit is one; no fallback is silently substituted inside an attempt; pending or failed reviews cannot produce a premature promotion; repeated intake does not duplicate evidence; concurrent runs cannot reserve the same budget; promotion, demotion and owner overrides are visible; changed identities cannot inherit trust accidentally.
 
 ### Slice 4: shadow attempts on strong steps
 
 - **Outcome:** a candidate shadows strong steps within budget, graded but never used, and can earn a strong record.
 - **Criteria:** candidate choice; shadow dispatch with the same packet; gates only; never used or counted; read and none steps only; budget; the track record and promotion.
 - **Effort:** L
+- **Refinement pending (2026-11-19):** 0179 items 4–6 govern budget reservations, evidence identity and gates safe to repeat. Define how the candidate receives the same task inputs while its dispatch retains its own identity: today's packet hash includes the worker profile and route-dependent tools. Specify how shadow grading depends on the primary worker's outcome (0176 item 4), including when either completes first or the primary fails.
+- **Validation to demonstrate:** no shadow result becomes `step_passed`, publishes a deliverable, supplies a dependent input or spends a primary attempt; write steps never shadow; candidate and primary completion order cannot alter the grade; gate evaluation cannot change the live project; shadow timeout or crash leaves the primary outcome intact; budget and identity rules hold across concurrent runs and restart.
 
 ## Log
+
+### Remaining proposal refined, 2026-11-19
+
+- **Summary:** Reviewed the approved remaining slices against `routing.py`, `models.py`, `engine.py`, `packet.py` and the delivered capability-check record. Recorded six questions, each with a suggestion and rationale, as proposed Decision 0179 and put them to the owner together. Added concrete validation requirements for trials and shadows. Reconciled the Design's descriptions of delivered checks and evaluation evidence with slices 1 and 2 and Decisions 0177 and 0178.
+- **Manual:** No user-visible implementation changed in this proposal refinement; the remaining slices retain their manual obligations above.
+- **Baseline:** HEAD's recorded full run was lost. A fresh full suite outside the sandbox passed: 2277 passed, 9 skipped. The sandboxed run was stopped after network restrictions and widespread failures; no tests were deselected.
+- **Validation:** Documentation checks passed (258 tests); the required quick gate passed (1808 passed, 3 skipped). The ledger now also reports the prior slice's exact SHA green.
+- **Accepted:** Pending the owner's answers to 0179. Request and Design approval of 2026-11-18 remains recorded; suggestions in 0179 are not owner decisions.
 
 ### Proposal drafted
 
