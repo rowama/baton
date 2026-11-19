@@ -142,6 +142,8 @@ Adapters never interpret results; intake does.
 
 ### 6.4 Worker setup
 
+**Approved assessment evidence identity, implementation pending** (change `2026-11-model-assessment`, slices 3 and 4). Promotion evidence belongs to a canonical model and its route configuration, not merely a profile name. A changed model, endpoint or harness version starts fresh. Mutable aliases may be checked but cannot earn lasting promotion. Preserve existing last-check records separately or migrate them compatibly; never transfer trust through reuse of a profile name. Decision: [0179](../decisions/0179-trial-and-shadow-routing-details.md), item 5.
+
 Writing profiles by hand needs knowledge that is not the owner's: model strings, capabilities, which adapter reaches which model. Three parts keep that work out of the owner's way, each with its own job (Decision: [0074](../decisions/0074-worker-research-and-resources-separate.md)): maintainers research models into shared data; the worker resource manager turns that data, plus what this machine has and what the owner declares, into profiles; `init` and `doctor` only confirm the machine is ready.
 
 **Known-workers data** (`defaults/known-workers.yaml`, `baton-known-workers/1`; Decision: [0080](../decisions/0080-known-workers-format.md)) ships with the runtime, read-only, beside the adapters (`known_workers.py` validates it):

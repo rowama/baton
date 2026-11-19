@@ -2,6 +2,8 @@
 
 ### 5.1 Example `recipe.yaml`
 
+**Approved assessment declarations, implementation pending** (change `2026-11-model-assessment`, slices 3 and 4). A step declares `effect: none|reversible|irreversible`; omission prevents trial routing. Only `none` and `reversible` may qualify, alongside the required blocking gates (§8.4). Shadow evaluation additionally requires an explicit declaration that repeated evaluation is safe, including its script gates; read or none workspace mode alone does not establish this. The implementation slice adds the declarations to the loader and authoring guidance. Decision: [0179](../decisions/0179-trial-and-shadow-routing-details.md), items 2 and 6.
+
 ```yaml
 id: software-feature
 version: 1

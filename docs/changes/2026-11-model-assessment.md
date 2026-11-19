@@ -33,13 +33,13 @@ The owner's direction (Decision [0175](../decisions/0175-model-assessment.md)): 
 6. **Shadow attempts on strong steps.** When enabled, a step requiring `strong` may also be dispatched, with the same packet, to one candidate model: a model rated `strong` by checks or evaluations but without a track record at that tier. The candidate's result is graded by the step's schema and script gates and kept in the record; it is never used, never feeds a later step and never counts as the step's result. Only steps that do not write to the workspace are shadowed. Shadowing has a budget the owner sets.
 7. **Trial routing on the other steps.** When enabled, a step below `strong` that a bad result cannot get past unnoticed (it has a schema gate and a script gate or a review, and its effect is not irreversible) may go to a candidate model. A failed gate retries on a proven model, without counting against the step's attempts. The Director tells the owner, in plain words, when a step was a trial.
 8. **Promotion.** A candidate that does well enough is treated as proven for that tier, and one that does badly is put back, by thresholds the owner can see: proven after 5 passes at a tier with no failure in the last 5, put back after 2 failures in the last 5 (0176, item 5). The owner can promote, demote or exclude a model by hand.
-9. **Cost stays visible and bounded.** Every check, shadow attempt and trial shows its cost in the track record; checks show an estimate first; shadowing and trials stop at their budget. Free models are tried first.
+9. **Cost stays visible and bounded.** Every check, shadow attempt and trial shows its cost in the track record; checks show an estimate first. Shadowing and trials reserve conservative estimated cost under a machine-wide lock and reconcile actual usage afterwards; no paid dispatch without a price and usable estimate, and no new reservation beyond the available budget. Provider charges can exceed estimates, which the page explains (0179). Free models are tried first.
 10. **Identity is never blurred.** Every shadow attempt and trial records its model as any dispatch does; nothing switches models silently inside an attempt (Decisions [0075](../decisions/0075-model-identity-separate-from-route.md), [0076](../decisions/0076-unknown-identity-not-independent.md)).
 11. **Manual and design are current.**
 
 ### Open questions
 
-The original nine questions below were answered as suggested: Decision [0176](../decisions/0176-model-assessment-details.md). Six further questions found while refining slices 3 and 4 are pending in Decision [0179](../decisions/0179-trial-and-shadow-routing-details.md): candidate and fallback trust, reversible effects, review-gated trials, budget enforcement, evidence identity and shadow gate effects. They were put to the owner together with suggestions and rationale on 2026-11-19. Their suggestions are not approved design.
+The original nine questions below were answered as suggested: Decision [0176](../decisions/0176-model-assessment-details.md). Six further questions found while refining slices 3 and 4 were answered as suggested in Decision [0179](../decisions/0179-trial-and-shadow-routing-details.md): candidate and fallback trust, reversible effects, review-gated trials, budget enforcement, evidence identity and shadow gate effects. They were put to the owner together with suggestions and rationale on 2026-11-19. The owner accepted all six suggestions for now on 2026-11-19: "for now, agree with all". No owner question remains from that batch.
 
 1. **Which published evaluations count?** *Suggested:* independent leaderboards that publish their method and test models themselves, preferred over figures a vendor reports about its own model; each tier cites at least one, and the shipped mapping names which evaluation informs which capability (coding evaluations for `technical_reasoning`, for example). *Rationale:* vendor-reported scores and leaked test items inflate results; naming the evaluation lets the owner judge it.
 2. **What do the checks look like?** *Suggested:* three to five tasks per capability, each a few hundred tokens, with deterministic grading: a reply matching a schema; a correct function call; an answer found only in a supplied file; a set of explicit constraints all followed; small reasoning problems with one right answer. `long_form_writing` is checked only for following length, structure and constraints, not quality. *Rationale:* cheap enough to run across many models once, and graded without another model.
@@ -60,7 +60,7 @@ The original nine questions below were answered as suggested: Decision [0176](..
 
 ## Design
 
-Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the remaining design needs the owner's answers in Decision 0179 before implementation. The shape below distinguishes the delivered interfaces from the remaining outline.
+Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the six remaining routing refinements were accepted in Decision 0179 on 2026-11-19. The shape below distinguishes the delivered interfaces from the remaining outline.
 
 ### Shape
 
@@ -68,16 +68,16 @@ Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the rema
 - **Command and page (delivered).** `baton workers check [<profile>…] [--free] [--provider <name>] [--all] [--again] [--yes]` and **Check abilities** on the setup page. `POST /api/models/check` returns an estimate before a separately confirmed run; the live verify route remains separate.
 - **Check evidence (delivered).** Capability states carry `by: check` and `set_version`. The last check, including completeness, date, outcomes, cost and time, is stored in the track record and used to skip a completed current-version check. A failed task is repeated once before failure counts (0178).
 - **Evaluation basis (delivered).** `tier_basis` carries deciding and optional supporting evaluation results (`name`, `version`, `score`, optional `configuration`, `source: {url, retrieved}`); a capability basis may cite one result. `defaults/evaluation-tiers.yaml` maps results to tiers and grants. The same validator checks shipped data, overlays and assessments (0178).
-- **Track record (remaining).** Extend `~/.baton/track-record.yaml` beyond its delivered last-check records to counts by tier and capability for checks, shadows, trials and real steps, plus recent outcomes for promotion. Model-and-route identity and migration from profile-name keys await 0179.
+- **Track record (remaining).** Extend `~/.baton/track-record.yaml` beyond its delivered last-check records to counts by tier and capability for checks, shadows, trials and real steps, plus recent outcomes for promotion. Evidence belongs to the canonical model and route configuration, resets when model, endpoint or harness version changes, and cannot confer lasting promotion on aliases (0179). Preserve last-check records separately or migrate them compatibly.
 - **Shadow attempts.** At dispatch of an eligible step, the runtime picks one candidate within budget and dispatches it with the same packet under a shadow dispatch id; its intake runs the schema and script gates only and records `shadow_result {profile, model_id, gates, cost}` on the step, never `step_passed`.
-- **Trials.** Routing places a candidate first for an eligible step; a failed gate records `trial_failed` and retries on the first proven worker with the attempt not counted; `worker_selected` carries `trial: true`.
+- **Trials.** The Director's normally selected worker is the fallback; a free or cheaper eligible candidate may be tried first without relaxing any tier, capability or independence requirement. The step must declare `effect: none` or `effect: reversible` and have qualifying blocking gates. A failed gate records `trial_failed` and readies a separate fallback attempt without charging the recipe's attempt budget; `worker_selected` carries `trial: true`. Blocking reviews participate immediately, with success pending their outcome (0179).
 
 ### Doc edits
 
 - `design/workers.md` §6.1 (`by: check`, `checked`), §6.4 (the check set, evaluation basis, track record, assessment from the page).
 - `design/runtime.md` §8.2 (`shadow_result`, `trial_failed`, `trial` on `worker_selected`), §8.4 (candidates in routing), §8.7 (shadow dispatch).
 - `design/director-interface.md` §13.1 (`workers check`, `workers status` with track records), §13.3 (telling the owner about trials), §13.9 (the page's check, assessment and settings).
-- `design/recipes.md` §5.6: tier basis.
+- `design/recipes.md` §5.1: explicit step effects and shadow evaluation safety; §5.6: tier basis.
 - `design/platform-and-security.md`: budgets and what shadow attempts may touch.
 
 ### Manual edits
@@ -96,7 +96,7 @@ Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the rema
 - [0176](../decisions/0176-model-assessment-details.md) (accepted): the nine answers.
 - [0177](../decisions/0177-capability-check-details.md) (accepted): no vision check yet; the runner records tokens, cost and response time.
 - [0178](../decisions/0178-evaluation-tiers.md) (accepted): the Artificial Analysis index decides tiers (50 and 25), LMArena supports, standard grants `technical_reasoning`, a failed check task runs once more.
-- [0179](../decisions/0179-trial-and-shadow-routing-details.md) (proposed): six unresolved rules for slices 3 and 4, with suggested answers and alternatives. No implementation of these choices until the owner answers.
+- [0179](../decisions/0179-trial-and-shadow-routing-details.md) (accepted): candidates retain every routing requirement; the normally selected worker is the fallback; explicit step effects; blocking reviews participate immediately; estimated budget reservations; evidence resets with identity or route changes; explicit shadow evaluation safety and scratch copies.
 
 ## Plan
 
@@ -121,7 +121,7 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Outcome:** a below-strong step may go to a free or cheaper candidate, a failure falls back to a proven worker, and the candidate's record grows.
 - **Criteria:** the track record; eligibility rules; fallback without counting an attempt; promotion and demotion; budgets; the Director's words to the owner; the page's settings.
 - **Effort:** L
-- **Refinement pending (2026-11-19):** 0179 items 1–5 settle candidate and fallback trust, how reversibility is declared, whether blocking reviews participate immediately, what the daily budget guarantees and when evidence resets. Preserve current routing with assessment disabled. Count a candidate's pass only once its qualifying blocking gates finish; a schema pass while a review is pending is not success. Do not confuse provider or gate infrastructure failures with evidence of poor model quality.
+- **Refined (2026-11-19, Decision 0179):** Items 1–5 settle candidate and fallback trust, how reversibility is declared, whether blocking reviews participate immediately, what the daily budget guarantees and when evidence resets. Preserve current routing with assessment disabled. Count a candidate's pass only once its qualifying blocking gates finish; a schema pass while a review is pending is not success. Do not confuse provider or gate infrastructure failures with evidence of poor model quality.
 - **Validation to demonstrate:** assessment off leaves ordinary dispatch unchanged; tier, capability, exclusion and independence checks still apply under the chosen rule; a failed candidate falls back without consuming the recipe's attempt budget, including when its limit is one; no fallback is silently substituted inside an attempt; pending or failed reviews cannot produce a premature promotion; repeated intake does not duplicate evidence; concurrent runs cannot reserve the same budget; promotion, demotion and owner overrides are visible; changed identities cannot inherit trust accidentally.
 
 ### Slice 4: shadow attempts on strong steps
@@ -129,10 +129,18 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Outcome:** a candidate shadows strong steps within budget, graded but never used, and can earn a strong record.
 - **Criteria:** candidate choice; shadow dispatch with the same packet; gates only; never used or counted; read and none steps only; budget; the track record and promotion.
 - **Effort:** L
-- **Refinement pending (2026-11-19):** 0179 items 4–6 govern budget reservations, evidence identity and gates safe to repeat. Define how the candidate receives the same task inputs while its dispatch retains its own identity: today's packet hash includes the worker profile and route-dependent tools. Specify how shadow grading depends on the primary worker's outcome (0176 item 4), including when either completes first or the primary fails.
+- **Refined (2026-11-19, Decision 0179):** Items 4–6 govern budget reservations, evidence identity and gates safe to repeat. Define how the candidate receives the same task inputs while its dispatch retains its own identity: today's packet hash includes the worker profile and route-dependent tools. Specify how shadow grading depends on the primary worker's outcome (0176 item 4), including when either completes first or the primary fails.
 - **Validation to demonstrate:** no shadow result becomes `step_passed`, publishes a deliverable, supplies a dependent input or spends a primary attempt; write steps never shadow; candidate and primary completion order cannot alter the grade; gate evaluation cannot change the live project; shadow timeout or crash leaves the primary outcome intact; budget and identity rules hold across concurrent runs and restart.
 
 ## Log
+
+### Remaining routing decisions accepted, 2026-11-19
+
+- **Owner decision:** "for now, agree with all" — all six suggested answers accepted as Decision 0179.
+- **Summary:** Set 0179 to accepted, record its date and the owner's words, remove rejected alternatives from its rules, and update the proposal and register. Write each approved rule into the relevant design sections, explicitly marked as awaiting slices 3 and 4. The budget is an estimate reservation limit, with possible provider overrun, rather than a guaranteed spending ceiling.
+- **Manual:** No runtime, command, configuration parser or page changed; implementation slices must supply the manual and authoring guidance for the new declarations and settings.
+- **Validation:** The required quick gate selected the documentation suite: all 258 tests passed. The register was reconciled against every change doc by the documentation checks; `git diff --check` passed.
+- **Accepted:** Yes, for now. Slices 3 and 4 remain unimplemented.
 
 ### Remaining proposal refined, 2026-11-19
 
