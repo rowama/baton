@@ -1,7 +1,7 @@
 ---
 id: 2026-11-builder-context-and-locks
 title: "Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired"
-status: in-progress
+status: done
 level: standard
 decisions: ["0173", "0172", "0142", "0037", "0149"]
 touches: [design/recipes.md, design/gates-and-reviews.md, design/runtime.md, design/adoption-and-framing.md, design/director-interface.md]
@@ -156,3 +156,7 @@ For the owner's approval, with the Request. Refined against `36352e7` and Decisi
 - **Design docs:** `design/recipes.md` §5.1 (`retired`), §5.2 (`catalog.summaries`), §5.3 (the load rules), §5.7 (no retired recipe yet; `software-feature` later); `design/adoption-and-framing.md` §11.6; `design/director-interface.md` §13.1 (`recipes()`, `vendor`, `start`).
 - **Manual:** `admin/recipes-and-vendoring.md` *Retiring a recipe*; `anchors.yaml`.
 - **Tests:** `tests/test_retired_recipes.py`: the key loads and cannot name its own recipe or an invalid id; a replacement must be known and not retired (and the shipped catalog is clean); `recipes()` and `catalog.summaries` mark it, framing's listing (both versions) leaves it out; a project that vendored an earlier version sees it retired by the catalog; a pinned retired recipe still starts, with a warning, while a recipe that is not retired starts with none; a proposal naming it is refused with its replacement; an unknown replacement warns.
+### Done
+
+- **Criteria:** 1 (Slice 1: the `context` role in `recipe-builder@7`, the three steps, the prompts, `@6` pinned); 2 and 3 (Slice 2: `locks`, recording, edited/added/deleted at intake and dispatch under `warn` and `fail`, re-approval and release, `status`/record/`explain`); 4 (Slice 3: `retired`, listings and `catalog.summaries`, proposals, `vendor`, pinned copies); 5 (a recipe without `locks` records nothing new and dispatches as before; one not retired starts with no warning; `@6` unchanged); 6 (the manual and design edits listed per slice).
+- **Next:** `2026-11-software-recipe` no longer waits on this change.
