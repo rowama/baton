@@ -17,7 +17,8 @@ changes no profile's content hash (0079) or ``worker_profile_sha256`` (§7.1)::
 * ``absent`` makes the profile ineligible for steps that need the capability
   (§8.4); ``verified`` is preferred over ``likely``.
 * ``by`` says who recorded it: ``observed`` (a real dispatch), ``owner``
-  (``baton workers declare``), ``probe`` (a passing probe, 0082).
+  (``baton workers declare``), ``probe`` (a passing probe, 0082), ``check``
+  (a capability check, with the check set's ``set_version``; 0175).
 
 Writes take a file lock beside the store, so concurrent runs on one machine
 never lose each other's observations.
@@ -59,6 +60,7 @@ class CapabilityState:
     attempt: int | None = None
     harness_version: str | None = None
     failures: int = 0
+    set_version: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v not in (None, 0) or k == "state"}
@@ -132,6 +134,7 @@ def record(
     step_path: str | None = None,
     attempt: int | None = None,
     harness_version: str | None = None,
+    set_version: int | None = None,
 ) -> tuple[CapabilityState, CapabilityState]:
     """Set one state; returns ``(before, after)``. ``before == after`` means nothing changed."""
     if state not in STATES:
@@ -143,8 +146,8 @@ def record(
         if state == "likely" and by == "owner":
             after = CapabilityState()  # a reset forgets the observation
         else:
-            after = CapabilityState(state, today.isoformat(), by, evidence, run, step_path, attempt, harness_version)
-        if _same(before, after):
+            after = CapabilityState(state, today.isoformat(), by, evidence, run, step_path, attempt, harness_version, set_version=set_version)
+        if _same(before, after) and by != "check":  # a check's evidence (its set, its tasks) is always kept fresh
             return before, before
         if after == CapabilityState():
             states.get(profile, {}).pop(capability, None)
@@ -181,7 +184,7 @@ def schema_gate(home: Path, profile: str, passed: bool, *, today: dt.date | None
             if not before.failures:
                 return before, before
             after = CapabilityState(before.state, before.date, before.by, before.evidence, before.run, before.step_path,
-                                    before.attempt, before.harness_version)
+                                    before.attempt, before.harness_version, set_version=before.set_version)
         else:
             failures = before.failures + 1
             if failures >= SCHEMA_FAILURES_ABSENT:
@@ -189,7 +192,7 @@ def schema_gate(home: Path, profile: str, passed: bool, *, today: dt.date | None
                                         run, step_path, attempt)
             else:
                 after = CapabilityState(before.state, before.date, before.by, before.evidence, before.run, before.step_path,
-                                        before.attempt, before.harness_version, failures)
+                                        before.attempt, before.harness_version, failures, before.set_version)
         if after == CapabilityState():
             states.get(profile, {}).pop(cap, None)
         else:
@@ -207,7 +210,7 @@ def reset_on_version(home: Path, profile: str, version: str) -> list[str]:
     with _lock(home):
         states = load(home)
         caps = states.get(profile, {})
-        stale = [c for c, st in caps.items() if st.by in ("observed", "probe") and st.harness_version and st.harness_version != version]
+        stale = [c for c, st in caps.items() if st.by in ("observed", "probe", "check") and st.harness_version and st.harness_version != version]
         for c in stale:
             caps.pop(c)
         if stale:

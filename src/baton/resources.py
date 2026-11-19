@@ -504,8 +504,11 @@ def plan_profiles(data: kw_mod.KnownWorkers, res: Resources, detected: dict[str,
 def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource], home: Path, planned: list[Planned],
                    skipped: list[dict[str, Any]]) -> None:
     """Profiles for listed models no researched route covers (Decisions 0109, 0110, 0112, 0113)."""
+    from .capability_check import added as check_added
+
     researched = {r.invocation: r.model_id for r in data.routes if r.invocation and r.model_id and not r.alias}
     have = {r.invocation for r in data.routes if r.invocation}
+    proven = check_added(home)  # capabilities a passed check added to an unjudged model (0176, item 3)
     for rname, r in sorted(declared.items()):
         prov = data.providers.get(r.provider)
         generic = prov is not None and prov.kind == "openai_compatible"
@@ -524,7 +527,8 @@ def _plan_listings(data: kw_mod.KnownWorkers, declared: dict[str, WorkerResource
             if c.model_id and not c.alias:
                 body["model_id"] = c.model_id
             body.update({"provider": r.provider, "model": invocation, "resource": rname,
-                         "capabilities": list(dict.fromkeys([*(known.capabilities if known else []), *c.capabilities, *r.capabilities])),
+                         "capabilities": list(dict.fromkeys([*(known.capabilities if known else []), *c.capabilities, *r.capabilities,
+                                                             *([] if known else proven.get(f"{_slug(rname)}-{_slug(c.id)}", []))])),
                          "tier": (known.tier if known and known.tier else "basic")})
             if c.context_tokens or (known and known.context_tokens):
                 body["context_tokens"] = c.context_tokens or known.context_tokens
@@ -762,6 +766,8 @@ def provider_summary(home: Path) -> dict[str, dict[str, Any]]:
 
 def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dict[str, Detection]] = discover) -> dict[str, Any]:
     """Read-only: what is discovered, declared and generated, and whether machine setup is complete."""
+    from .capability_check import summary as check_summary
+
     home = Path(home)
     data, kw_sha, res = _inputs(home)
     detected = discover_fn(home, data)
@@ -787,6 +793,9 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         web = _web_note(states, name, body, claims.get(name, []), search)
         if web is not None:
             g["web_access"] = web
+        checked = check_summary(home, name)
+        if checked is not None:
+            g["capability_check"] = checked
     return {
         "catalog": {"path": str(kw_mod.default_path()), "sha256": kw_sha},
         "setup_complete": state.completed is not None,

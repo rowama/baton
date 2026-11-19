@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
@@ -1621,8 +1622,8 @@ def workers_status(as_json: JsonOpt = False) -> None:
         if e.get("quota_line"):
             lines.append(f"  quota: {e['quota_line']}")
     for n, g in out["generated"].items():
-        if g.get("listed") and g["ownership"] == "untouched":
-            continue  # listing profiles are summarised above, not listed one by one (0113)
+        if g.get("listed") and g["ownership"] == "untouched" and not g.get("capability_check"):
+            continue  # listing profiles are summarised above, not listed one by one (0113), unless they were checked
         state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
         lines.append(f"profile {n}: {state}" + (f"; {g['flag']}" if g.get("flag") else ""))
         observed = {st: [c for c, s in g.get("capabilities", {}).items() if s == st] for st in ("verified", "absent")}
@@ -1630,6 +1631,8 @@ def workers_status(as_json: JsonOpt = False) -> None:
             lines.append("  " + "; ".join(f"{st}: {', '.join(cs)}" for st, cs in observed.items() if cs))
         if g.get("provided_by_runner"):
             lines.append(f"  provided by Baton's runner: {', '.join(g['provided_by_runner'])}")
+        if g.get("capability_check"):
+            lines.append("  " + _check_line(g["capability_check"]))
     for n, caps in out.get("capability_states", {}).items():
         if n not in out["generated"]:
             lines.append(f"profile {n}: " + "; ".join(f"{c} {s['state']}" for c, s in caps.items()))
@@ -1869,6 +1872,71 @@ def workers_assess(
     lines = [f"assessed {a['model_id']}: {a['tier']}. {a['summary']}" for a in out["assessed"]]
     lines += [f"not assessed {n['model_id']}: {n['reason']}" for n in out["not_assessed"]]
     lines.append(f"Wrote {out['overlay']}: {out['note']}")
+    _emit(out, as_json, "\n".join(lines))
+
+
+def _money(row: dict[str, Any]) -> str:
+    if row.get("cost"):
+        return str(row["cost"])
+    return "cost unknown" if row.get("cost_usd") is None else ("free" if row["cost_usd"] == 0 else f"${row['cost_usd']:.4f}")
+
+
+def _check_line(c: dict[str, Any]) -> str:
+    got = ", ".join(f"{cap} {r}" for cap, r in c.get("results", {}).items())
+    return (f"checked {c.get('date')} (set {c.get('set_version')}): {got}; {_money(c)}, {c.get('seconds', 0):.0f} s"
+            + ("" if c.get("complete", True) else "; some checks could not run, so it is due again"))
+
+
+@workers_app.command("check")
+def workers_check(
+    profiles: Annotated[Optional[list[str]], typer.Argument(help="Workers to check, as `baton workers status` lists them.")] = None,
+    free: Annotated[bool, typer.Option("--free", help="Every free model.")] = False,
+    provider: Annotated[Optional[str], typer.Option("--provider", help="Every model of one provider or account.")] = None,
+    every: Annotated[bool, typer.Option("--all", help="Every model Baton set up on this machine.")] = False,
+    again: Annotated[bool, typer.Option("--again", help="Check models already checked under this check set.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Run without asking (the estimate is still shown).")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Check what models can do, once: short tasks graded by code, after an estimate of their cost (§6.4)."""
+    from . import capability_check as cc
+
+    if not profiles and not (free or provider or every):
+        _fail(as_json, EXIT_PROBLEM, "check.nothing_chosen", "name the workers to check, or choose --free, --provider <name> or --all")
+    names = list(profiles) if profiles else None
+
+    def go(h: Path, run: bool) -> Any:
+        try:
+            return cc.check(h, names, free=free, provider=provider, again=again, run=run)
+        except cc.CheckError as e:
+            _fail(as_json, EXIT_PROBLEM, "check.set_invalid", str(e))
+
+    first = _resources(as_json, lambda h: go(h, False))
+    est = first["estimate"]
+    lines = [f"{s['profile']}: skipped, {s['reason']}" for s in first["skipped"]]
+    if not est["tasks"]:
+        _emit(first, as_json, "\n".join(lines + ["Nothing to check."]))
+        return
+    lines.append(f"{len(est['profiles'])} models, {est['tasks']} tasks, about ${est['cost_usd']:.4f} at list prices"
+                 + (f" (no price for {', '.join(est['unknown_price'])})" if est["unknown_price"] else "") + ".")
+    interactive = sys.stdin.isatty() and not as_json
+    if not yes and not (interactive and typer.confirm("\n".join(lines) + "\nRun the checks?", default=True)):
+        first["ran"] = False
+        _emit(first, as_json, "\n".join(lines + ["Not run. Add --yes to run them."]) if not interactive else "Not run.")
+        return
+    out = _resources(as_json, lambda h: go(h, True))
+    out["ran"] = True
+    lines = []
+    for r in out["results"]:
+        parts = [f"verified: {', '.join(r['verified'])}" if r["verified"] else "",
+                 f"absent: {', '.join(r['absent'])}" if r["absent"] else "",
+                 f"could not check: {', '.join(r['not_checked'])}" if r["not_checked"] else "",
+                 f"added: {', '.join(r['added'])}" if r["added"] else ""]
+        lines.append(f"{r['profile']}: " + "; ".join(x for x in parts if x) + f" ({_money(r)}, {r['seconds']:.0f} s)")
+        for cap, row in r["by_capability"].items():
+            for f in row.get("failed", []):
+                lines.append(f"  {cap}: {f['task']} failed: {f['reasons'][0]}")
+            if row.get("error"):
+                lines.append(f"  {cap}: {row['error']}")
     _emit(out, as_json, "\n".join(lines))
 
 

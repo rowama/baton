@@ -1,0 +1,251 @@
+# Baton's capability checks (baton-capability-checks/1; §6.4; Decisions 0175, 0176, 0177).
+#
+# Short tasks, graded by code only, that `baton workers check` and the setup page run
+# once per model and route. A capability is `verified` when every one of its tasks
+# passes, and `absent` (naming the tasks that failed) when one fails.
+#
+# Raise `version` whenever a task is added, removed or changed: every model is then
+# due for a check again. `vision` has no checks until the API runner can send images
+# (Decision 0177, item 1).
+#
+# A task:
+#   id, prompt               the instructions the worker gets
+#   output_schema            the reply's `output`, as for a step
+#   workspace: {path: text}  files of a working tree the worker may read (read mode)
+#   tools: [...]             the runner tools an API model is offered (it also gets `finish`)
+#   expect_tokens            output tokens assumed by the estimate (default 200)
+#   grade: [...]             every grader must pass:
+#     schema                         `output` matches output_schema
+#     equals {field, value}          a field equals the value (text: case and spaces ignored)
+#     contains_all {field, values}   the field's text contains every value (case ignored)
+#     excludes {field, values}       the field's text contains none of them (whole words, case ignored)
+#     words {field, min?, max?}      the field's text has that many words
+#     headings {field, count}        that many Markdown `## ` headings
+#     numbered {field, count}        that many numbered lines (`1.`, `2.`, …)
+#     tool_called {tool}             an API model's tool log shows the call (other routes: not applicable)
+format: baton-capability-checks/1
+version: 1
+checks:
+  structured_output:
+    - id: so-classify
+      prompt: |
+        Classify each support message, in order, as billing, technical or other:
+        1. "I was charged twice for March."
+        2. "The app crashes when I open the settings page."
+        3. "Do you have an office in Lisbon?"
+      output_schema:
+        type: object
+        required: [labels]
+        additionalProperties: false
+        properties:
+          labels: {type: array, minItems: 3, maxItems: 3, items: {type: string, enum: [billing, technical, other]}}
+      grade:
+        - {type: schema}
+        - {type: equals, field: labels, value: [billing, technical, other]}
+    - id: so-record
+      prompt: |
+        Extract the person described here as a record: "Maria Okafor, who is 34, speaks Igbo, English and French."
+        List the languages in the order given.
+      output_schema:
+        type: object
+        required: [name, age, languages]
+        additionalProperties: false
+        properties:
+          name: {type: string}
+          age: {type: integer}
+          languages: {type: array, items: {type: string}}
+      grade:
+        - {type: schema}
+        - {type: equals, field: name, value: Maria Okafor}
+        - {type: equals, field: age, value: 34}
+        - {type: equals, field: languages, value: [Igbo, English, French]}
+    - id: so-numbers
+      prompt: List the even integers from 1 to 9, in increasing order, as numbers.
+      output_schema:
+        type: object
+        required: [evens]
+        additionalProperties: false
+        properties:
+          evens: {type: array, items: {type: integer}}
+      grade:
+        - {type: schema}
+        - {type: equals, field: evens, value: [2, 4, 6, 8]}
+    - id: so-prime
+      prompt: Is 91 a prime number? Give its prime factors in increasing order (an empty list if it is prime).
+      output_schema:
+        type: object
+        required: [is_prime, factors]
+        additionalProperties: false
+        properties:
+          is_prime: {type: boolean}
+          factors: {type: array, items: {type: integer}}
+      grade:
+        - {type: schema}
+        - {type: equals, field: is_prime, value: false}
+        - {type: equals, field: factors, value: [7, 13]}
+  tool_use:
+    - id: tu-find
+      prompt: |
+        One file in the project's `notes` folder contains a line of the form `code: <word>`.
+        You are not told which file. Find it and report the word.
+      workspace:
+        notes/monday.txt: "Stand-up moved to 10:00.\n"
+        notes/tuesday.txt: "Review the draft.\ncode: heron\n"
+        notes/wednesday.txt: "Nothing new.\n"
+      tools: [list_files, read_file]
+      output_schema:
+        type: object
+        required: [word]
+        additionalProperties: false
+        properties: {word: {type: string}}
+      grade:
+        - {type: equals, field: word, value: heron}
+        - {type: tool_called, tool: list_files}
+        - {type: tool_called, tool: read_file}
+    - id: tu-sum
+      prompt: The project's files `a.txt` and `b.txt` each hold one whole number. Report their sum.
+      workspace:
+        a.txt: "1288\n"
+        b.txt: "4471\n"
+      tools: [read_file]
+      output_schema:
+        type: object
+        required: [sum]
+        additionalProperties: false
+        properties: {sum: {type: integer}}
+      grade:
+        - {type: equals, field: sum, value: 5759}
+        - {type: tool_called, tool: read_file}
+    - id: tu-finish
+      prompt: What is 17 multiplied by 23? Reply without reading any file.
+      tools: [read_file]
+      output_schema:
+        type: object
+        required: [product]
+        additionalProperties: false
+        properties: {product: {type: integer}}
+      grade:
+        - {type: equals, field: product, value: 391}
+        - {type: tool_called, tool: finish}
+  workspace_read:
+    - id: wr-port
+      prompt: In the project's working tree, the file `config/settings.ini` sets a port. Report it.
+      workspace:
+        config/settings.ini: "[server]\nhost = 0.0.0.0\nport = 8473\n"
+      tools: [read_file]
+      output_schema:
+        type: object
+        required: [port]
+        additionalProperties: false
+        properties: {port: {type: integer}}
+      grade:
+        - {type: equals, field: port, value: 8473}
+    - id: wr-rows
+      prompt: How many data rows (not counting the header) does the project's file `data/items.csv` have?
+      workspace:
+        data/items.csv: "sku,qty\nA1,3\nA2,0\nB7,12\nC3,5\nC4,1\nD9,8\nE2,2\n"
+      tools: [read_file]
+      output_schema:
+        type: object
+        required: [rows]
+        additionalProperties: false
+        properties: {rows: {type: integer}}
+      grade:
+        - {type: equals, field: rows, value: 7}
+    - id: wr-function
+      prompt: What is the name of the function defined in the project's file `src/app.py`?
+      workspace:
+        src/app.py: "TAX = 0.2\n\n\ndef compute_total_with_tax(items):\n    return sum(items) * (1 + TAX)\n"
+      tools: [read_file]
+      output_schema:
+        type: object
+        required: [name]
+        additionalProperties: false
+        properties: {name: {type: string}}
+      grade:
+        - {type: equals, field: name, value: compute_total_with_tax}
+  long_form_writing:
+    - id: lf-sections
+      prompt: |
+        Write a short guide, between 350 and 600 words, for a small charity planning its first fundraising dinner.
+        Give it exactly four sections, each starting with a Markdown heading of the form `## <title>`, and no other headings.
+        Use the words "budget", "volunteers" and "schedule" at least once each.
+      expect_tokens: 900
+      output_schema:
+        type: object
+        required: [document]
+        additionalProperties: false
+        properties: {document: {type: string}}
+      grade:
+        - {type: words, field: document, min: 350, max: 600}
+        - {type: headings, field: document, count: 4}
+        - {type: contains_all, field: document, values: [budget, volunteers, schedule]}
+    - id: lf-steps
+      prompt: |
+        Write instructions for repotting a houseplant as exactly five numbered steps (`1.` to `5.`), one per line,
+        in no more than 150 words in all. Do not use the word "very".
+      expect_tokens: 300
+      output_schema:
+        type: object
+        required: [document]
+        additionalProperties: false
+        properties: {document: {type: string}}
+      grade:
+        - {type: numbered, field: document, count: 5}
+        - {type: words, field: document, max: 150}
+        - {type: excludes, field: document, values: [very]}
+    - id: lf-summary
+      prompt: |
+        Summarise this paragraph in no more than 50 words, keeping the year and the river's name:
+
+        "In 1998 the town council voted to restore the old mill on the River Wend, which had stood empty for
+        forty years. Volunteers cleared the site over two summers, a grant paid for a new roof, and the mill
+        reopened as a museum and café. Visitor numbers have grown every year since, and the council now
+        cites the project as the model for its other restoration work along the river."
+      output_schema:
+        type: object
+        required: [summary]
+        additionalProperties: false
+        properties: {summary: {type: string}}
+      grade:
+        - {type: words, field: summary, max: 50}
+        - {type: contains_all, field: summary, values: ["1998", Wend]}
+  technical_reasoning:
+    - id: tr-schedule
+      prompt: A job runs every 40 minutes, first at 09:10. At what time is its first run at or after 13:00? Answer as HH:MM.
+      output_schema:
+        type: object
+        required: [time]
+        additionalProperties: false
+        properties: {time: {type: string}}
+      grade:
+        - {type: equals, field: time, value: "13:10"}
+    - id: tr-recursion
+      prompt: "f(n) is n when n <= 1, and f(n-1) + f(n-2) otherwise. What is f(15)?"
+      output_schema:
+        type: object
+        required: [value]
+        additionalProperties: false
+        properties: {value: {type: integer}}
+      grade:
+        - {type: equals, field: value, value: 610}
+    - id: tr-order
+      prompt: |
+        Four tasks have these dependencies: C needs A; B needs C; D needs both B and A.
+        There is exactly one order that does every task after the tasks it needs. Give it.
+      output_schema:
+        type: object
+        required: [order]
+        additionalProperties: false
+        properties: {order: {type: array, items: {type: string}}}
+      grade:
+        - {type: equals, field: order, value: [A, C, B, D]}
+    - id: tr-bits
+      prompt: How many bytes are needed to store 1,000,003 true/false flags packed one per bit, with no other data?
+      output_schema:
+        type: object
+        required: [bytes]
+        additionalProperties: false
+        properties: {bytes: {type: integer}}
+      grade:
+        - {type: equals, field: bytes, value: 125001}

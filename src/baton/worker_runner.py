@@ -29,6 +29,11 @@ its result sent back, marked as outside data, until the model calls ``finish``
 packet, and the messages in the ``--transcript`` file. One model throughout:
 nothing in the loop falls back to another (change 2026-11-step-tool-harness).
 
+Every attempt also writes ``usage.json`` beside the packet: the model calls it
+made, their input and output tokens, LiteLLM's cost figure where it has one, and
+the seconds the calls took (Decision 0177). It is a record, never a protocol:
+intake never reads it.
+
 Problems that are not the step's (authentication, network, provider errors,
 unknown models, a missing ``litellm``) write **no** result: the runner prints one
 line ``baton-worker: failure=<class> code=<code> message=<text>`` to stderr and
@@ -43,6 +48,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -503,6 +509,59 @@ def noop(model: str, options: dict[str, Any], complete: Completion) -> str:
     return text
 
 
+USAGE_FILE = "usage.json"
+
+
+class Meter:
+    """Wraps the completion function: counts each call's tokens, cost and seconds (Decision 0177).
+
+    The cost is LiteLLM's figure for the response (``_hidden_params["response_cost"]``,
+    [VERIFY] litellm 1.108.3), else ``cost_of(response)``; ``None`` when neither knows.
+    """
+
+    def __init__(self, complete: Completion, cost_of: Callable[[Any], Any] | None = None) -> None:
+        self.complete = complete
+        self.cost_of = cost_of
+        self.calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cost_usd: float | None = None
+        self.seconds = 0.0
+
+    def __call__(self, **kwargs: Any) -> Any:
+        started = time.monotonic()
+        try:
+            resp = self.complete(**kwargs)
+        finally:
+            self.calls += 1
+            self.seconds += time.monotonic() - started
+        usage = getattr(resp, "usage", None)
+        self.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
+        self.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
+        hidden = getattr(resp, "_hidden_params", None)
+        cost = hidden.get("response_cost") if isinstance(hidden, dict) else None
+        if cost is None and self.cost_of is not None:
+            try:
+                cost = self.cost_of(resp)
+            except Exception:  # expected: a model LiteLLM has no price for; the cost stays unknown (noqa: BLE001)
+                cost = None
+        if isinstance(cost, (int, float)):
+            self.cost_usd = (self.cost_usd or 0.0) + float(cost)
+        return resp
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
+                "cost_usd": self.cost_usd, "seconds": round(self.seconds, 3)}
+
+
+def write_usage(attempt_dir: Path, meter: Meter) -> None:
+    try:
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        (attempt_dir / USAGE_FILE).write_text(json.dumps(meter.as_dict(), indent=2), encoding="utf-8")
+    except OSError:  # expected: a read-only or vanished attempt directory; the record is not a protocol
+        pass
+
+
 def _report(f: WorkerFailure) -> int:
     from .redact import redact_text
 
@@ -547,8 +606,13 @@ def main(argv: list[str] | None = None) -> int:
 
         search_fn = (declared_search(litellm.search, args.search_provider, args.search_base_url, os.environ.get(SEARCH_KEY_VAR))
                      if args.search_provider else None)
-        env = run(args.packet, args.result, args.model, options, args.context_tokens, complete=litellm.completion, supports_schema=supports,
-                  workspace=args.workspace, transcript=args.transcript, search_fn=search_fn)
+        meter = Meter(litellm.completion, lambda r: litellm.completion_cost(completion_response=r))
+        try:
+            env = run(args.packet, args.result, args.model, options, args.context_tokens, complete=meter, supports_schema=supports,
+                      workspace=args.workspace, transcript=args.transcript, search_fn=search_fn)
+        finally:
+            if args.packet is not None:
+                write_usage(Path(args.packet).parent, meter)
     except WorkerFailure as f:
         return _report(f)
     print(f"baton-worker: result written (status {env['status']})")

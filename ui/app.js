@@ -182,6 +182,33 @@ function preferBox() {
   return h("div", { class: "row" }, cap, model, set, h("span", { class: "muted" }, now), helpBtn("ui.models.prefer", "preferring a model"));
 }
 
+function money(o) {
+  if (o.cost) return o.cost;
+  if (o.cost_usd === undefined || o.cost_usd === null) return "cost unknown";
+  return o.cost_usd === 0 ? "free" : "$" + Number(o.cost_usd).toFixed(4);
+}
+
+async function checkModels(btn, profiles) {
+  busy(btn, true);
+  try {
+    const first = await api("POST", "/api/models/check", { profiles, run: false });
+    const est = first.estimate;
+    if (!est.tasks) { notice(first.skipped.length ? first.skipped[0].profile + ": " + first.skipped[0].reason : "Nothing to check."); return; }
+    const ask = "Check " + est.profiles.length + " model" + (est.profiles.length === 1 ? "" : "s") + " with " + est.tasks + " short tasks? About $" +
+      Number(est.cost_usd).toFixed(4) + " at list prices" + (est.unknown_price.length ? " (no price for " + est.unknown_price.length + ")" : "") +
+      ". This can take a few minutes.";
+    if (!window.confirm(ask)) return;
+    notice("Checking " + est.profiles.length + " model" + (est.profiles.length === 1 ? "" : "s") + "…");
+    const out = await api("POST", "/api/models/check", { profiles, run: true });
+    notice(out.results.map((r) => (r.model_id || r.profile) + ": " +
+      [r.verified.length ? "verified " + r.verified.join(", ") : "", r.absent.length ? "absent " + r.absent.join(", ") : "",
+       r.not_checked.length ? "could not check " + r.not_checked.join(", ") : ""].filter(Boolean).join("; ") +
+      " (" + money(r) + ", " + Math.round(r.seconds) + " s)").join(" · ") || "Nothing was checked.");
+    await load();
+  } catch (e) { notice(e.message, true, e.code); }
+  finally { busy(btn, false); }
+}
+
 function modelRow(m) {
   const on = h("input", { type: "checkbox", "aria-label": "Use " + (m.model_id || m.profile) }); on.checked = m.enabled;
   on.addEventListener("change", () => act(on, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/enabled", { enabled: on.checked }),
@@ -189,11 +216,15 @@ function modelRow(m) {
   const check = h("button", { class: "quiet" }, "Check it works");
   check.addEventListener("click", () => act(check, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/verify"),
     (o) => o.verified.length ? (m.model_id || m.profile) + " works." : (o.failed[0] ? o.failed[0].reason : "Nothing was checked.")));
+  const abilities = h("button", { class: "quiet" }, "Check abilities");
+  abilities.addEventListener("click", () => checkModels(abilities, [m.profile]));
+  const c = m.capability_check;
   return h("tr", {},
     h("td", {}, on), h("td", {}, h("span", { class: "name" }, m.model_id || m.profile), h("div", { class: "muted" }, m.profile + (m.flag ? " · " + m.flag : ""))),
     h("td", {}, m.provider || ""), h("td", {}, price(m)), h("td", {}, m.context_tokens ? m.context_tokens.toLocaleString() : ""),
     h("td", {}, m.tier || ""), h("td", {}, Object.entries(m.capabilities).map(([c, st]) => c + " (" + st + ")").join(", ")),
-    h("td", {}, m.verified ? m.verified.date : "not yet", h("div", {}, check)));
+    h("td", {}, m.verified ? m.verified.date : "not yet", h("div", {}, check),
+      c ? h("div", { class: "muted" }, "abilities checked " + c.date + " (" + money(c) + ")") : "", h("div", {}, abilities)));
 }
 
 function renderModels() {
@@ -202,7 +233,11 @@ function renderModels() {
   box.append(preferBox());
   box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
     ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t, t === "Capabilities" ? helpBtn("ui.models.capabilities", "capabilities") : "")))), h("tbody", {}, shown.map(modelRow)))));
+  const all = h("button", { class: "quiet" }, "Check abilities of the " + shown.length + " shown");
+  all.disabled = !shown.length;
+  all.addEventListener("click", () => checkModels(all, shown.map((m) => m.profile)));
   box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown. ", helpBtn("ui.models.table", "reading the table")));
+  box.append(h("div", { class: "row" }, all, helpBtn("ui.models.check", "checking abilities")));
 }
 
 function render() { renderHarnesses(); renderProviders(); renderFilters(); renderModels(); }

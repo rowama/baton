@@ -129,6 +129,7 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
             "price": ({"free": bool(price.get("free")), "input": price.get("input"), "output": price.get("output")} if price else None),
             "subscription": (body.get("auth") or {}).get("mode") == "cli_login",
             "capabilities": g.get("capabilities", {}), "verified": g.get("verified"), "flag": g.get("flag"), "ownership": g.get("ownership"),
+            "capability_check": g.get("capability_check"),
             "search_billed_per_search": bool((g.get("web_access") or {}).get("billed_per_search")),
         })
     return rows
@@ -259,6 +260,19 @@ def _verify(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
 
     out = _core(lambda: resources.setup(home, verify=[args["profile"]]))
     return {"verified": out["verified"], "failed": out["failed"]}
+
+
+def _check(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """``baton workers check``: ``run`` false returns the estimate only; true runs the checks (§6.4)."""
+    from . import capability_check as cc
+
+    names = body.get("profiles")
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
+        raise UiError(400, "bad_request", "profiles must list at least one model's short name")
+    try:
+        return cc.check(home, names, again=bool(body.get("again")), run=bool(body.get("run")))
+    except cc.CheckError as e:
+        raise UiError(409, "check.set_invalid", str(e)) from e
 
 
 def _quit(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
@@ -570,6 +584,7 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/preferences"): _get_prefs,
     ("PUT", "/api/preferences"): _put_prefs,
     ("POST", "/api/models/<profile>/enabled"): _set_enabled,
+    ("POST", "/api/models/check"): _check,
     ("POST", "/api/models/<profile>/verify"): _verify,
     ("POST", "/api/quit"): _quit,
     ("GET", "/api/manual/tree"): _manual_tree,

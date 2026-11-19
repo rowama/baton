@@ -331,6 +331,7 @@ published:
 - reference.commands#baton-waive
 - reference.commands#baton-workers
 - reference.commands#baton-workers-assess
+- reference.commands#baton-workers-check
 - reference.commands#baton-workers-check-overlay
 - reference.commands#baton-workers-connect
 - reference.commands#baton-workers-declare
@@ -375,6 +376,7 @@ published:
 - user.check-on-your-work#waiting-on-you
 - user.check-on-your-work#whats-next
 - user.choose-models
+- user.choose-models#check-abilities
 - user.choose-models#here-now
 - user.choose-models#likely-verified-absent
 - user.choose-models#prefer-a-model

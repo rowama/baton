@@ -34,7 +34,7 @@ Connecting checks the key with one read of the provider's model list, stores it,
 
 ## Price, free models and quota {#price-and-quota}
 
-Each listed model carries the provider's price, and **free** and **subscription** are shown as such. A routing preference chooses cheapest first or most proven first (`baton workers prefs`). A model whose provider's own web search Baton uses is billed by that provider for each search as well as for tokens; the setup page says so beside its price, and each step's record counts its searches. When a route's quota is used up, Baton routes around it until it resets (`~/.baton/quota.yaml`), and the setup page shows an account's credit or free allowance when the provider reports one.
+Each listed model carries the provider's price, and **free** and **subscription** are shown as such. A routing preference chooses cheapest first or most proven first (`baton workers prefs`). A model whose provider's own web search Baton uses is billed by that provider for each search as well as for tokens; the setup page says so beside its price, and each step's record counts its searches. When a route's quota is used up, Baton routes around it until it resets (`~/.baton/quota.yaml`), and the setup page shows an account's credit or free allowance when the provider reports one. Checking what a model can do (**Check abilities** on the setup page, or `baton workers check`) costs a few short requests per model: Baton shows an estimate from list prices before it starts, and afterwards the real cost, where the provider reports it, and how long it took. Free models cost nothing to check, and a subscription's are included in it. See [checking what a model can do](user.choose-models#check-abilities).
 
 ## Reviewer independence {#independence}
 

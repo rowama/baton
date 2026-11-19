@@ -1,11 +1,11 @@
 ---
 id: 2026-11-model-assessment
 title: "Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work"
-status: accepted
+status: in-progress
 level: major
-decisions: ["0175", "0176", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
+decisions: ["0175", "0176", "0177", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/platform-and-security.md]
-manual: []
+manual: [user/choose-models.md, admin/accounts-and-costs.md, admin/files-and-paths.md, context.yaml, reference/commands.md, anchors.yaml]
 ---
 
 # Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work
@@ -82,7 +82,8 @@ For the owner's approval, with the Request.
 
 ### Manual edits
 
-To be listed when the change is accepted. Expected: an administrator topic on how Baton learns about models, `admin/accounts-and-costs.md`, `admin/machine-settings.md`, `reference/commands.md`.
+- Slice 1: `user/choose-models.md` gains **Check abilities** (`#check-abilities`): what the tasks cover, the estimate first, what verified and absent mean afterwards, checking once, and the terminal command; its table's **Checked** column also shows the last capability check. `admin/accounts-and-costs.md` says what checks cost and links there. `admin/files-and-paths.md` lists `~/.baton/track-record.yaml`. `context.yaml` maps the page's `ui.models.check` help to the new section. `reference/commands.md` is regenerated with `baton workers check`.
+- Later slices: `admin/machine-settings.md` (shadowing and trial settings and budgets), and an administrator topic on how Baton learns about models once tiers from evaluations land.
 
 ### Decisions
 
@@ -92,6 +93,7 @@ To be listed when the change is accepted. Expected: an administrator topic on ho
 - [0111](../decisions/0111-owner-run-assessment.md) (accepted): owner assessment, now startable from the page.
 - [0076](../decisions/0076-unknown-identity-not-independent.md), [0114](../decisions/0114-quota-exhausted-reroutes.md) (accepted): identity and re-routing.
 - [0176](../decisions/0176-model-assessment-details.md) (accepted): the nine answers.
+- [0177](../decisions/0177-capability-check-details.md) (accepted): no vision check yet; the runner records tokens, cost and response time.
 
 ## Plan
 
@@ -101,6 +103,7 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 
 - **Outcome:** the owner checks chosen models once from the setup page, and passed capabilities are verified.
 - **Criteria:** the check set and graders; estimate before running; skip when already checked; `by: check` states; added capabilities for unjudged models where 0176 allows; the page action and the CLI command.
+- **Refined against the code (2026-11-18):** one check-set file, `defaults/capability-checks.yaml`, with one version (simpler than a file per capability, and the version is the set's); each task runs as a tiny packet through the profile's own adapter, as `live_check` runs its no-op, so API and harness routes share one path; a task with files runs in read mode, so for an API route the runner's tool loop proves `tool_use` (and `finish` is itself a tool call) and `workspace_read` together; no `vision` check (0177); the runner writes `usage.json` per attempt (0177); the track record starts here, holding the last check per profile; checks cover generated profiles, the ones the page lists. The CLI flags are `--free`, `--provider`, `--all`, `--again`, `--yes`.
 - **Effort:** M
 
 ### Slice 2: tiers from published evaluations
@@ -134,3 +137,12 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Summary:** The owner concurred with all nine suggested answers (the ninth, on the concept budget, added this session under §0 rule 8) and approved the Request and Design. Recorded as Decision 0176; criteria 3 and 8 now cite it. No code changed.
 - **Owner decision:** 2026-11-18, "Concur on all."
 - **Accepted:** Yes.
+
+### Slice 1: capability checks, once, from the page
+
+- **Summary:** The check set (`defaults/capability-checks.yaml`, version 1: 17 tasks over five capabilities, eight graders) and `capability_check.py` (load and validate the set, plan who is due, estimate from list prices, run each task as a packet through the profile's adapter, six at a time, grade by code, record states and the track record). Capability states gain `by: check` with `set_version`, kept fresh on each check and reset with the harness version like observed ones. The API runner wraps its completion in a meter and writes `usage.json` (calls, tokens, LiteLLM's cost, seconds). `workers setup` adds check-proven `structured_output`/`tool_use` to unjudged listing profiles; `workers status` and the page rows show the last check. `baton workers check` shows the estimate and runs on confirmation or `--yes`; the page's **Check abilities** (per row, and for the models shown) asks with the estimate first, through `POST /api/models/check`.
+- **Owner decisions:** 2026-11-18, "A." and "B. as suggested but also record response time." (Decision 0177).
+- **Modules:** `capability_check.py` (new), `capability_states.py`, `worker_runner.py`, `resources.py`, `cli.py`, `ui.py`, `ui/app.js`; `defaults/capability-checks.yaml` (new).
+- **Docs:** `design/workers.md` §6.1 (`by: check`), §6.3 (usage record), §6.4 (capability checks, the track record); `design/director-interface.md` §13.1 (`workers check`, Director guidance, mirrored in `skills/baton-director/SKILL.md`), §13.9 (the route, the state row); `principles.md` §2 (no new concept, 0176 item 9); Decision 0177.
+- **Tests:** `tests/test_capability_check.py` (the shipped set is valid, covers five capabilities without vision and each task passes its own right answer; invalid sets refused; every grader; estimate before running and nothing run unasked; pass, fail and could-not-run each recorded correctly, with cost and time; skip when checked, again with `--again`, a new set version or an alias route; an unjudged model gains `tool_use` through setup and a failed one does not; the owner's `absent` is not argued with; filters; status and page rows; the command and the page route; the runner's meter; a check state across a schema pass and a harness upgrade; the packet the adapters read). `tests/test_api_worker.py`: one task through the real runner child against a local OpenAI-compatible server, graded and with its usage recorded.
+- **Accepted:** Yes (slice).

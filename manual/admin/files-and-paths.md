@@ -39,6 +39,7 @@ Commit what the process **is** and what it has **produced**; never commit who ru
 | `~/.baton/resources.yaml` | Declared accounts and setup state |
 | `~/.baton/preferences.yaml` | Machine-level routing preferences (a project's override them) |
 | `~/.baton/capability-states.yaml` | Each profile's capability states: likely, verified, absent |
+| `~/.baton/track-record.yaml` | What Baton has seen each model do on each route: its last capability check, with results, cost and time |
 | `~/.baton/listings/` | Cached provider model lists |
 | `~/.baton/quota.yaml` | Routes whose quota is used up, and until when |
 | `~/.baton/known-workers.local.yaml` | Your assessed models, merged over Baton's shipped data |

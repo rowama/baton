@@ -472,3 +472,34 @@ def test_an_openai_compatible_endpoint_needs_a_base_url(tmp_path):
     with pytest.raises(resources.ResourcesError) as e:
         resources.declare(home, "local", provider="openai_compatible")
     assert "needs --base-url" in str(e.value)
+
+
+@needs_litellm
+@pytest.mark.slow
+def test_a_capability_check_runs_through_the_real_runner_and_records_usage(tmp_path):
+    """Change 2026-11-model-assessment, slice 1: one task through the API adapter's child, graded, timed and costed (0177)."""
+    import yaml
+    from baton import capability_check as cc
+    from baton import capability_states as cs
+    from baton import resources
+
+    home = tmp_path / "home"
+    home.mkdir()
+    fake = _FakeOpenAI(["local-model-1"], json.dumps({"status": "completed", "output": {"evens": [2, 4, 6, 8]}}))
+    try:
+        resources.declare(home, "local", provider="openai_compatible", base_url=fake.url)
+        resources.refresh_listings(home)
+        resources.setup(home, discover_fn=lambda h, d: {})
+        raw = yaml.safe_load(cc.set_path().read_text(encoding="utf-8"))
+        raw["checks"] = {"structured_output": [t for t in raw["checks"]["structured_output"] if t["id"] == "so-numbers"]}
+        one = tmp_path / "one.yaml"
+        one.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        out = cc.check(home, ["local-local-model-1"], set_file=one)
+        r = out["results"][0]
+        assert r["verified"] == ["structured_output"], r
+        task = r["tasks"][0]
+        assert task["passed"] and task["seconds"] > 0 and task["usage"]["calls"] == 1 and task["usage"]["input_tokens"] == 1
+        assert cs.load(home)["local-local-model-1"]["structured_output"].by == "check"
+        assert ("POST", "/v1/chat/completions") in [(m, p) for m, p, _ in fake.seen]
+    finally:
+        fake.close()

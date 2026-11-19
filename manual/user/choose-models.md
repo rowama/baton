@@ -3,7 +3,7 @@ id: user.choose-models
 title: Choose which models Baton may use
 audience: owner
 order: 30
-summary: Filter the models table, turn models off, prefer cheaper or more proven ones, and check that one works.
+summary: Filter the models table, turn models off, prefer cheaper or more proven ones, check that one works and check what it can do.
 related: [user.connect-an-account, user.connect-a-subscription]
 ---
 
@@ -13,6 +13,7 @@ related: [user.connect-an-account, user.connect-a-subscription]
 
 - The **Use** box at the start of a row turns that model on or off for Baton's choices. Unticked means Baton will not pick it. Tick **turned off** in the filters to list the ones you switched off.
 - **Check it works** makes one real, small request to that model and records the result.
+- **Check abilities** gives a model a few short tasks, once, to learn what it can really do. See [Check abilities](#check-abilities).
 - **cheapest first** makes Baton pick the lowest-priced capable model; without it Baton picks the most proven one first.
 
 ## Reading the table {#reading-the-table}
@@ -25,12 +26,27 @@ related: [user.connect-an-account, user.connect-a-subscription]
 | Context | How much text it can take at once |
 | Tier | How capable Baton believes it to be: a rough guide, not a promise |
 | Capabilities | What it can do, each marked **likely**, **verified** or **absent** |
-| Checked | When a real request last confirmed it works, or **not yet** |
+| Checked | When a real request last confirmed it works, or **not yet**, and when its abilities were last checked, with what that cost |
 
 ## Likely, verified, absent {#likely-verified-absent}
 
-A capability starts as **likely**: it should be there, and Baton uses it. When real work shows it, it becomes **verified**. If it fails to work, it becomes **absent** and Baton stops choosing that model for steps that need it. You never have to set these by hand; **Check it works** is only a way to confirm one early.
+A capability starts as **likely**: it should be there, and Baton uses it. When real work shows it, it becomes **verified**. If it fails to work, it becomes **absent** and Baton stops choosing that model for steps that need it. You never have to set these by hand; **Check it works** and **Check abilities** are only ways to confirm them early.
 
 ## Prefer a model for one kind of work {#prefer-a-model}
 
 Above the table, **Prefer a model for…** lets you pick a capability, pick a model and choose **Save**. Baton tries that model first for steps that need that capability, and falls back to others if it cannot be used. These choices are kept for this computer.
+
+## Check abilities {#check-abilities}
+
+Most models start out unproven, so Baton keeps to the few it already trusts. **Check abilities** lets cheaper models earn real work. It gives each model a few short tasks, each with one right answer that Baton checks itself. No model marks another's work. The tasks cover:
+
+- replying in the exact form asked for
+- calling tools, and reading files it was pointed to
+- following instructions for the length and layout of a piece of writing (not how well it is written)
+- small reasoning problems
+
+Use **Check abilities** on a row for one model, or **Check abilities of the shown** under the table for every model the filters show (for example, tick **free only** first). Baton first shows how many tasks it will run and roughly what they will cost at the provider's prices, and starts only when you agree. Checks take a few minutes. Free models cost nothing, and a subscription's checks are included in it.
+
+Afterwards, each ability a model passed is **verified**. One it failed is **absent**, and Baton stops choosing that model for work that needs it. If a check could not run, for example because the provider was busy or a free allowance was used up, nothing is recorded and the model is due for a check again. A model Baton knew little about may gain an ability it proved, such as calling tools. Writing and reasoning, and how capable Baton judges a model overall (its tier), are never decided by these short tasks.
+
+A model is checked once. Baton skips models already checked unless Baton's tasks change, or the model's name can point to a different model over time. From a terminal: `baton workers check <model>`, `--free` or `--provider <account>`; add `--again` to repeat a check, and `--yes` to skip the question.

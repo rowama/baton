@@ -922,6 +922,22 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 | `--timeout <float>` | Seconds to wait for the worker. |
 | `--json` | Machine-readable output. |
 
+### baton workers check {#baton-workers-check}
+
+Check what models can do, once: short tasks graded by code, after an estimate of their cost.
+
+Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `profiles <str>` | Workers to check, as `baton workers status` lists them. |
+| `--free` | Every free model. |
+| `--provider <str>` | Every model of one provider or account. |
+| `--all` | Every model Baton set up on this machine. |
+| `--again` | Check models already checked under this check set. |
+| `--yes` | Run without asking (the estimate is still shown). |
+| `--json` | Machine-readable output. |
+
 ### baton workers check-overlay {#baton-workers-check-overlay}
 
 Say why Baton would refuse an overlay file (the validator `workers assess` gives its worker; ).
