@@ -130,3 +130,9 @@ Slices as proposed; refined once the Request and Design are approved. It starts 
 - **Summary:** The `context` role, approved file sets and recipe retirement moved to `2026-11-builder-context-and-locks`, which this change now waits on. Criteria, open questions, Design and Plan trimmed to preparing the material, the builder run and shipping. No code changed.
 - **Owner decision:** 2026-11-18, "Yes. break out the gap fix proposal".
 - **Accepted:** No; proposal only. Three open questions await the owner.
+
+### Slice 1 material prepared
+
+- **Summary:** At the owner's instruction, ahead of approving the Request and Design, the reference documents were put in the run project `D:\rob\projects\baton-recipes`, under `reference\`: `software-brief.md` (this change's brief), `eng-process\` (`PROCESS.md`, `LESSONS.md` and `SOURCES.md` from https://github.com/rowama/eng-process at `cd615b4`, with a README giving their hashes) and `sources-and-lessons-ledger.md` (73 rows: 13 lessons, 36 eng-process practices, 12 sources as eng-process recorded them, 12 current practices read 2026-11-18, each marked primary, secondary or as recorded; Decision and Reason left for the run). This follows open questions 1 and 3 as suggested. Not done here, by the owner's choice: attesting the documents, vendoring recipe-builder and starting the run, which the owner does in another session. Nothing was committed in the run project.
+- **Owner decision:** 2026-11-18, "implement the software-recipe proposal until the point of putting the reference files in d:\rob\projects\baton-recipes ... Don't vendor the recipe-builder".
+- **Accepted:** No; proposal only. Open question 2 (the builder's ratings) is decided in the run.

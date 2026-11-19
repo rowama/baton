@@ -16,3 +16,5 @@ A listing gives price, context and catalog-basis capabilities but not tier or ju
 ## Decision
 
 An unjudged listed model gets tier `basic` and only its catalog-basis capabilities. A step needing `technical_reasoning` or a higher tier never goes to it. Assessment (0111) lifts it. Tiers are not derived from listing `benchmarks`.
+
+Amended 2026-11-18 by Decision [0175](0175-model-assessment.md) (change 2026-11-model-assessment): a model with no evidence stays `basic`, but a tier may now rest on published evaluation results, cited with the evaluation and its date.
