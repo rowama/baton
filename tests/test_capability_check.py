@@ -61,7 +61,7 @@ def fake_runner(fail: set[str] = frozenset(), error: set[str] = frozenset(), cal
         if calls is not None:
             calls.append((name, task.id))
         if task.id in error:
-            return cc.TaskOutcome(task, error="platform (quota_exhausted): out of free requests", seconds=1.0)
+            return cc.TaskOutcome(task, error="platform (provider_unavailable): no answer", seconds=1.0)
         env = {"status": "completed", "output": {}} if task.id in fail else answer(task)
         log = [{"tool": t} for t in ("list_files", "read_file", "finish")]
         reasons = cc.grade(task, env, log)
@@ -166,7 +166,7 @@ def test_passes_verify_failures_mark_absent_and_errors_record_nothing(home):
     assert st["structured_output"].state == "verified" and st["structured_output"].by == "check" and st["structured_output"].set_version == 1
     assert st["tool_use"].state == "absent" and "tu-sum" in st["tool_use"].evidence
     assert "workspace_read" not in st  # it could not run: nothing is recorded
-    assert r["by_capability"]["workspace_read"]["error"].startswith("platform (quota_exhausted)")
+    assert r["by_capability"]["workspace_read"]["error"].startswith("platform (provider_unavailable)")
     rec = cc.load_record(home)["or-acme-big"]["checks"]
     assert rec["complete"] is False and rec["cost_usd"] == pytest.approx(0.0001 * (len(r["tasks"]) - 1))  # the task that could not run cost nothing known and rec["seconds"] > 0
     # an incomplete check is due again
@@ -302,3 +302,25 @@ def test_a_task_packet_is_what_the_adapters_read(tmp_path):
     assert wr.build_messages(packet)[1]["content"].startswith("# A capability check")
     packet, _r, _w = cc.write_packet(tmp_path / "harness", t, api=False)
     assert "tools" not in json.loads((packet / "manifest.json").read_text()) and "result.json" in (packet / "INSTRUCTIONS.md").read_text()
+
+
+def test_a_rate_limited_route_waits_retries_and_then_stops_hammering(home):
+    calls, waits = [], []
+    limited = {"so-classify": 1}  # limited once, then fine
+
+    def run(h, name, profile, t):
+        calls.append(t.id)
+        if limited.get(t.id, 0) > 0:
+            limited[t.id] -= 1
+            return cc.TaskOutcome(t, error="platform (quota_exhausted): rate-limited upstream")
+        if t.id == "tu-find":
+            return cc.TaskOutcome(t, error="platform (quota_exhausted): rate-limited upstream")
+        return fake_runner()(h, name, profile, t)
+
+    out = cc.check(home, ["or-acme-big"], runner=run, today=TODAY, sleep=waits.append)
+    r = out["results"][0]
+    assert calls.count("so-classify") == 2 and calls.count("tu-find") == 1 + cc.RATE_RETRIES
+    assert waits == [cc.RATE_WAIT_S, cc.RATE_WAIT_S, 2 * cc.RATE_WAIT_S]
+    assert r["verified"] == ["structured_output"] and r["not_checked"] == ["tool_use", "workspace_read"]
+    assert "wr-port" not in calls  # the tasks after a route stayed limited are not run
+    assert r["by_capability"]["workspace_read"]["error"].startswith("not run: the route stayed rate-limited")

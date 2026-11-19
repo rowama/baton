@@ -50,8 +50,12 @@ ADDABLE = ("structured_output", "tool_use")
 GRADERS = ("schema", "equals", "contains_all", "excludes", "words", "headings", "numbered", "tool_called")
 #: Seconds one task may take.
 TASK_TIMEOUT_S = 180
-#: Tasks run at once, across all the profiles being checked.
+#: Profiles checked at once. One profile's tasks run one at a time: free routes allow few requests at once.
 PARALLEL = 6
+#: A rate-limited task waits this many seconds and is tried again, at most ``RATE_RETRIES`` times;
+#: a route still limited after that is left for another day, its remaining tasks not run.
+RATE_WAIT_S = 20
+RATE_RETRIES = 2
 #: Input tokens assumed for the runner's system message and reply schema, per call.
 OVERHEAD_TOKENS = 700
 #: Model calls assumed for a task that offers tools.
@@ -531,7 +535,7 @@ def _harness_version(profile: Any, home: Path) -> str | None:
 
 def check(home: Path, names: list[str] | None = None, *, free: bool = False, provider: str | None = None, again: bool = False,
           run: bool = True, runner: Runner = run_task, today: dt.date | None = None, set_file: Path | None = None,
-          resetup: Callable[[Path], Any] | None = None) -> dict[str, Any]:
+          resetup: Callable[[Path], Any] | None = None, sleep: Callable[[float], Any] = time.sleep) -> dict[str, Any]:
     """Plan, estimate and (``run``) check. Returns ``{set_version, estimate, skipped, results}``.
 
     With ``run`` false nothing is called: the estimate is what the owner sees first.
@@ -548,12 +552,11 @@ def check(home: Path, names: list[str] | None = None, *, free: bool = False, pro
     if not run or not planned:
         return out
     profiles = {p.name: WorkerProfile.model_validate({k: v for k, v in p.body.items() if k != "generated"}) for p in planned}
-    jobs = [(p, t) for p in planned for t in p.tasks]
-    outcomes: dict[str, list[TaskOutcome]] = {p.name: [] for p in planned}
+    outcomes: dict[str, list[TaskOutcome]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL) as pool:
-        futures = {pool.submit(runner, home, p.name, profiles[p.name], t): p.name for p, t in jobs}
+        futures = {pool.submit(_run_profile, home, p, profiles[p.name], runner, sleep): p.name for p in planned}
         for f in concurrent.futures.as_completed(futures):
-            outcomes[futures[f]].append(f.result())
+            outcomes[futures[f]] = f.result()
     added_any = False
     with file_lock(home / RECORD_LOCK):
         record = load_record(home)
@@ -574,6 +577,28 @@ def check(home: Path, names: list[str] | None = None, *, free: bool = False, pro
         _save_record(home, record)
     if added_any:
         out["setup"] = (resetup or _resetup)(home)
+    return out
+
+
+def rate_limited(o: TaskOutcome) -> bool:
+    return bool(o.error) and "quota_exhausted" in str(o.error)
+
+
+def _run_profile(home: Path, p: Planned, profile: Any, runner: Runner, sleep: Callable[[float], Any]) -> list[TaskOutcome]:
+    """One profile's tasks, one at a time; a rate limit waits and retries, then leaves the rest unrun."""
+    out: list[TaskOutcome] = []
+    for i, task in enumerate(p.tasks):
+        o = runner(home, p.name, profile, task)
+        tries = 0
+        while rate_limited(o) and tries < RATE_RETRIES:
+            tries += 1
+            sleep(RATE_WAIT_S * tries)
+            o = runner(home, p.name, profile, task)
+        out.append(o)
+        if rate_limited(o):
+            why = f"not run: the route stayed rate-limited ({o.error[:160]})"
+            out += [TaskOutcome(t, error=why) for t in p.tasks[i + 1:]]
+            break
     return out
 
 

@@ -239,7 +239,7 @@ class ReadScope:
     def read_file(self, path: str) -> str:
         _, target = self.resolve(path)
         if not target.is_file():
-            raise Refused("not a file")
+            raise Refused("not a file: " + ("it is a folder; list_files shows what is in it" if target.is_dir() else "nothing is there; list_files shows what there is"))
         size = target.stat().st_size
         with open(target, "rb") as f:
             data = f.read(READ_LIMIT + 1)
