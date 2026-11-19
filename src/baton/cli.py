@@ -334,6 +334,7 @@ def vendor(
         text = f"Vendored {out['recipe']} ({out['sha256'][:12]})" + (f"; owner decision {out['decision_id']}" if out.get("decision_id") else "")
     else:
         text = f"{out['recipe']} is already vendored"
+    _warn(out, as_json)
     _done(out, as_json, text)
 
 
@@ -375,6 +376,7 @@ def recipes(as_json: JsonOpt = False) -> None:
     """List vendored recipes."""
     out = _call(as_json, lambda: _api().recipes())
     lines = [(f"{r['recipe']}  {r.get('description') or ''}" if r["ok"] else f"{r['recipe']}  ERROR: {r['error']}")
+             + (f"  [retired: {r['retired']['replaced_by']} replaces it]" if r.get("retired") else "")
              + (f"  [project policy: for {', '.join(r['governs'])}]" if r.get("governs") else "") for r in out["recipes"]]
     lines += [f"Project policy: {g['work']} goes through {g['recipe']} (not vendored yet)" for g in out.get("governing") or []]
     _done(out, as_json, "\n".join(lines) or "No recipes vendored.", EXIT_OK if all(r["ok"] for r in out["recipes"]) else EXIT_PROBLEM)
@@ -545,6 +547,7 @@ def start(
     values = _parse_inputs(inputs, as_json) if inputs is not None else None
     binds = _parse_binds(bind_ or [], as_json)
     out = _call(as_json, lambda: _api().start(recipe, values, title=title, from_plan=from_plan, bind=binds or None, note=note))
+    _warn(out, as_json)
     _done(out, as_json, f"Started {out['run_id']}\n" + _status_text(out))
 
 

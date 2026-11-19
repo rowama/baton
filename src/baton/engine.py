@@ -2739,6 +2739,7 @@ class Api:
             governs.setdefault(g["recipe"], []).append(g["work"])
         out = []
         ids: set[str] = set()
+        shipped: Any = None  # the catalog, loaded once for every vendored recipe's retirement
         for ref in self.project.vendored():
             entry = {"recipe": ref, "sha256": self.project.lock()["recipes"][ref]["sha256"]}
             rid = ref.split("@", 1)[0]
@@ -2748,6 +2749,13 @@ class Api:
             try:
                 loaded = self.project.recipe(ref)
                 entry["description"] = loaded.recipe.description
+                from .project import catalog, retirement
+
+                if shipped is None:
+                    shipped = catalog()
+                ret = retirement(self.project, rid, shipped)
+                if ret is not None:
+                    entry["retired"] = ret
                 if loaded.recipe.project_inputs:
                     entry["project_inputs"] = [p.model_dump(mode="json", exclude_none=True) for p in loaded.recipe.project_inputs]
                 entry["ok"] = True
@@ -2815,6 +2823,12 @@ class Api:
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
         self._add_wait_advice(out, loaded)
+        from .project import retired_text, retirement
+
+        ret = retirement(self.project, loaded.recipe.id)
+        if ret is not None:  # a pinned retired recipe still runs; the Director is told what replaces it (§5.3)
+            out["retired"] = ret
+            out.setdefault("warnings", []).append(retired_text(loaded.recipe.id, ret))
         if loaded.programs:  # warn, never refuse: a step the run's rating skips never blocks anything (Decision 0156, item 5)
             pending = programs_not_ready(loaded, self.project.home)
             if pending:

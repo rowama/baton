@@ -34,6 +34,25 @@ A published version is never edited in place; a change is a new version. When a 
 baton vendor path/to/recipe --approved --note "the owner's words"
 ```
 
+## Retiring a recipe {#retiring}
+
+When one recipe replaces another, the old one says so in a new version of its own:
+
+```yaml
+id: software-feature
+version: 3
+retired: { replaced_by: software }
+```
+
+From then on new work goes to the replacement, and nothing that already uses the old one breaks:
+
+- `baton recipes` marks it `[retired: software replaces it]`, and the list of processes your assistant and the builder read marks it too.
+- Framing and project reviews never propose it. A proposal that names it anyway is refused, naming the replacement.
+- `baton vendor` and `baton start` still work, with a warning naming the replacement; a project with the old recipe pinned keeps running it.
+- A new version shipped with Baton can retire a recipe your project vendored earlier: the newest version known to the project decides.
+
+A recipe cannot be replaced by itself. A recipe shipped with Baton is replaced only by another shipped recipe that is not retired itself; vendoring a recipe whose replacement is neither vendored nor shipped warns you.
+
 ## Programs a recipe ships {#programs}
 
 Some work is better done by plain code than by an AI worker: a calculation, a file conversion, a comparison. A recipe can ship a **program** for such a part: a Python script in `programs/<id>/` with a `program.yaml` and a lock file of exact dependency versions with their hashes. The part names it with `program: <id>`, and no worker can do that part instead.

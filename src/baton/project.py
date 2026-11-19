@@ -96,6 +96,32 @@ def catalog_dir() -> Path:
     return data.path("examples") / "recipes"
 
 
+def retirement(project: "Project | None", rid: str, shipped: dict[str, LoadedRecipe] | None = None) -> dict[str, str] | None:
+    """``{"replaced_by": id}`` when the newest known version of ``rid`` (vendored or shipped) is retired (§5.3).
+
+    ``shipped``: the catalog, when the caller already loaded it (a listing asks for every recipe).
+    """
+    newest: Any = (catalog() if shipped is None else shipped).get(rid)
+    if project is not None:
+        try:
+            refs = [r for r in project.vendored() if r.split("@", 1)[0] == rid]
+        except EngineError:  # expected: a bare store with no lockfile vendors nothing
+            refs = []
+        for ref in refs:
+            try:
+                loaded = project.recipe(ref)
+            except EngineError:  # expected: a broken vendored copy is reported by `recipes()`; the catalog's version decides
+                continue
+            if newest is None or loaded.recipe.version > newest.recipe.version:
+                newest = loaded
+    r = newest.recipe.retired if newest is not None else None
+    return {"replaced_by": r.replaced_by} if r is not None else None
+
+
+def retired_text(rid: str, ret: dict[str, str]) -> str:
+    return f"{rid} is retired: {ret['replaced_by']} replaces it, and new work should use that"
+
+
 def catalog() -> dict[str, LoadedRecipe]:
     """The shipped recipes (the catalog framing proposes from, §11.6), by recipe id; the highest version of each."""
     out: dict[str, LoadedRecipe] = {}
@@ -112,6 +138,24 @@ def catalog() -> dict[str, LoadedRecipe]:
         prev = out.get(loaded.recipe.id)
         if prev is None or loaded.recipe.version > prev.recipe.version:
             out[loaded.recipe.id] = loaded
+    bad = retirement_problems(out)
+    if bad:  # pragma: no cover - shipped recipes are tested
+        raise EngineError("recipe.invalid", "; ".join(bad))
+    return out
+
+
+def retirement_problems(recipes: dict[str, LoadedRecipe]) -> list[str]:
+    """A retired recipe's replacement must be one of ``recipes`` and not retired itself (§5.3)."""
+    out = []
+    for rid, loaded in sorted(recipes.items()):
+        r = loaded.recipe.retired
+        if r is None:
+            continue
+        repl = recipes.get(r.replaced_by)
+        if repl is None:
+            out.append(f"{rid} is retired in favour of {r.replaced_by}, which is not a known recipe")
+        elif repl.recipe.retired is not None:
+            out.append(f"{rid} is retired in favour of {r.replaced_by}, which is retired itself")
     return out
 
 
@@ -627,7 +671,15 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
     if loaded.recipe.capabilities_vocab not in lock.setdefault("vocab", []):
         lock["vocab"].append(loaded.recipe.capabilities_vocab)
     write_lock(project, lock)
-    return {"recipe": ref, "sha256": loaded.sha256, "changed": True, "flags": flags, "needs_owner": False}
+    out: dict[str, Any] = {"recipe": ref, "sha256": loaded.sha256, "changed": True, "flags": flags, "needs_owner": False}
+    ret = retirement(project, loaded.recipe.id)
+    if ret is not None:  # warn, never refuse: a pinned copy keeps working (§5.3; Decision 0173)
+        out["retired"] = ret
+        out["warnings"] = [retired_text(loaded.recipe.id, ret)]
+        known = {r.split("@", 1)[0] for r in project.vendored()} | set(catalog())
+        if ret["replaced_by"] not in known:
+            out["warnings"].append(f"{ret['replaced_by']} is neither vendored here nor shipped with Baton")
+    return out
 
 
 def write_lock(project: Project, lock: dict[str, Any]) -> None:

@@ -86,7 +86,7 @@ def proposal_errors(out: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _summary(loaded: Any, vendored: bool, with_scope: bool = False, with_axes: bool = True) -> dict[str, Any]:
+def _summary(loaded: Any, vendored: bool, with_scope: bool = False, with_axes: bool = True, mark_retired: bool = False) -> dict[str, Any]:
     r = loaded.recipe
     schema = loaded.schemas[r.run_inputs.schema_] if r.run_inputs is not None else None
     out = {
@@ -99,18 +99,22 @@ def _summary(loaded: Any, vendored: bool, with_scope: bool = False, with_axes: b
         out["axes"] = axes_summary(r.complexity)
     if with_scope:  # the `catalog.summaries` input (§5.2) also carries what the recipe covers (§5.1)
         out["scope"] = r.scope.model_dump(mode="json") if r.scope is not None else None
+        if mark_retired and r.retired is not None:  # never proposed: its replacement is (§5.3; Decision 0173)
+            out["retired"] = {"replaced_by": r.retired.replaced_by, "note": f"Retired: propose {r.retired.replaced_by} instead."}
         if r.project_inputs:  # and the project documents it can build on, by role (Decisions 0142, 0148)
             out["project_inputs"] = [p.model_dump(mode="json", exclude_none=True) for p in r.project_inputs]
     return out
 
 
 def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[str, str]] | None = None,
-                   with_axes: bool = True) -> list[dict[str, Any]]:
+                   with_axes: bool = True, retired: str = "mark") -> list[dict[str, Any]]:
     """Every recipe a part may propose: each vendored recipe (its newest version), then each shipped one not vendored.
 
     Also the ``catalog.summaries`` input of an ordinary step (§5.2; Decision 0106), which adds each recipe's ``scope``,
     and ``governs`` (the kinds of work the project policy's ``governing`` gives it, §13.7) for a recipe that has some.
     ``with_axes=False`` leaves out a recipe's ``axes``, for ``baton-frame@1``, whose published schema predates them.
+    ``retired``: ``omit`` leaves retired recipes out (framing's listing, whose published schemas have no place for the
+    mark, and which must not propose them); ``mark`` keeps them with ``retired {replaced_by, note}`` (``catalog.summaries``).
     """
     from .project import catalog
 
@@ -127,10 +131,21 @@ def recipe_listing(project: Any, with_scope: bool = False, governing: list[dict[
         loaded = project.recipe(ref)
         prev = out.get(loaded.recipe.id)
         if prev is None or loaded.recipe.version > prev["version"]:
-            out[loaded.recipe.id] = _summary(loaded, True, with_scope, with_axes)
-    for rid, loaded in catalog().items():
+            out[loaded.recipe.id] = _summary(loaded, True, with_scope, with_axes, retired == "mark")
+    shipped = catalog()
+    for rid, loaded in shipped.items():
         if rid not in out:
-            out[rid] = _summary(loaded, False, with_scope, with_axes)
+            out[rid] = _summary(loaded, False, with_scope, with_axes, retired == "mark")
+    from .project import retirement
+
+    for rid in list(out):
+        ret = retirement(project, rid, shipped)  # the newest known version decides: the catalog may retire an earlier vendored one
+        if ret is None:
+            continue
+        if retired == "omit":
+            del out[rid]
+        else:
+            out[rid]["retired"] = {"replaced_by": ret["replaced_by"], "note": f"Retired: propose {ret['replaced_by']} instead."}
     for g in governing or []:
         if g["recipe"] in out:
             out[g["recipe"]].setdefault("governs", []).append(g["work"])
@@ -166,7 +181,7 @@ def inputs_for(project: Any, words: str, ref: str | None = None) -> dict[str, An
     v2 = (ref or FRAME_RECIPE) != "baton-frame@1"
     out: dict[str, Any] = {
         "title": "Frame: " + (title if len(title) <= 60 else title[:57].rstrip() + "..."),
-        "words": words, "recipes": recipe_listing(project, with_scope=v2, with_axes=v2),
+        "words": words, "recipes": recipe_listing(project, with_scope=v2, with_axes=v2, retired="omit"),
     }
     if v2:
         out["documents"] = document_listing(project)
@@ -270,6 +285,11 @@ def _plan_part(api: Any, part: dict[str, Any], active: int) -> tuple[dict[str, A
             loaded, vendor_from = shipped, shipped.root
     if loaded is None:
         return None, f"the proposed process {rid!r} is neither in this project nor shipped with Baton"
+    from .project import retired_text, retirement
+
+    ret = retirement(project, loaded.recipe.id)
+    if ret is not None:  # deterministic: a retired recipe is never started from a proposal (§5.3; Decision 0173)
+        return None, f"{retired_text(loaded.recipe.id, ret)}: propose {ret['replaced_by']} for this part"
     if not isinstance(inputs, dict):
         return None, f"no starting details were proposed for {loaded.recipe.ref}"
     if loaded.recipe.run_inputs is not None:

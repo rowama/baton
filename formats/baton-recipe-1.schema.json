@@ -682,6 +682,22 @@
       "title": "Requires",
       "type": "object"
     },
+    "Retired": {
+      "additionalProperties": false,
+      "description": "This recipe is retired: new work goes to ``replaced_by`` (\u00a75.3; Decisions 0149, 0173). Pinned copies keep working.",
+      "properties": {
+        "replaced_by": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Replaced By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "replaced_by"
+      ],
+      "title": "Retired",
+      "type": "object"
+    },
     "ReviewGate": {
       "additionalProperties": false,
       "properties": {
@@ -1385,6 +1401,17 @@
       },
       "title": "Project Inputs",
       "type": "array"
+    },
+    "retired": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Retired"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "run_inputs": {
       "anyOf": [

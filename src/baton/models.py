@@ -316,6 +316,12 @@ class Scope(_Strict):
     varies_by: list[str] = Field(default_factory=list)
 
 
+class Retired(_Strict):
+    """This recipe is retired: new work goes to ``replaced_by`` (§5.3; Decisions 0149, 0173). Pinned copies keep working."""
+
+    replaced_by: str = Field(pattern=RECIPE_ID)
+
+
 class Parent(_Strict):
     """The recipe this one was built from (§5.1; Decision 0103). No runtime effect."""
 
@@ -345,6 +351,7 @@ class Recipe(_Strict):
     description: str | None = None
     scope: Scope | None = None
     parent: Parent | None = None  # null = built from scratch; absent = predates the field (see ``provenance``)
+    retired: Retired | None = None  # new work goes to its replacement (§5.3)
     run_inputs: RunInputs | None = None
     defaults: Defaults = Field(default_factory=Defaults)
     complexity: Complexity | None = None

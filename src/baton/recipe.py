@@ -170,6 +170,8 @@ class _Checker:
         self._check_graph()
         self._check_run_inputs()
         self._check_project_inputs()
+        if self.recipe.retired is not None and self.recipe.retired.replaced_by == self.recipe.id:
+            self.error("recipe.retired_by_itself", "retired.replaced_by", "a recipe cannot be replaced by itself")
         for node, place in self._walk():
             if isinstance(node, Group):
                 self._check_group(node, place)
