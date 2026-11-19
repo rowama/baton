@@ -145,6 +145,11 @@ def wanted(home: Path, data: kw_mod.KnownWorkers, ids: list[str]) -> list[dict[s
     return out
 
 
+def evaluation_mapping() -> dict[str, Any]:
+    """The shipped mapping from evaluation results to tiers (0178), which the worker cites and the validator applies."""
+    return kw_mod.load_evaluations().model_dump(mode="json")
+
+
 def litellm_facts(models: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         import importlib.metadata as md
@@ -183,6 +188,7 @@ def assess(home: Path, ids: list[str], profile: str, *, timeout: float | None = 
         "today": today.isoformat(),
         "capabilities": {"capabilities": voc.capabilities, "tiers": voc.tiers, "machine_dependent": data.machine_dependent},
         "litellm": litellm_facts(models),
+        "evaluations": evaluation_mapping(),
         "validator": validator_command(),
     }
     scratch = Path(tempfile.mkdtemp(prefix="baton-assessment-run-"))

@@ -2,7 +2,8 @@
 #
 # Short tasks, graded by code only, that `baton workers check` and the setup page run
 # once per model and route. A capability is `verified` when every one of its tasks
-# passes, and `absent` (naming the tasks that failed) when one fails.
+# passes, and `absent` (naming the tasks that failed) when one fails twice: a failed
+# task is run once more before it counts (Decision 0178, item 4).
 #
 # Raise `version` whenever a task is added, removed or changed: every model is then
 # due for a check again. `vision` has no checks until the API runner can send images

@@ -10,7 +10,8 @@ an estimate of their cost:
   harness routes take one path; a task with ``workspace`` files runs in read mode with
   those files as the working tree;
 * a capability is ``verified`` (``by: check``) when all of its tasks pass and ``absent``
-  when one fails, naming it; a task that could not run (no answer, an auth or quota
+  when one fails, naming it; a task that fails is run once more first, and only a second
+  failure counts (0178, item 4); a task that could not run (no answer, an auth or quota
   failure) records nothing, and the profile stays due;
 * a check never adds a capability, except ``structured_output`` and ``tool_use`` on an
   unjudged listing profile (0176, item 3): those are kept in the track record and
@@ -258,6 +259,8 @@ class TaskOutcome:
     error: str | None = None
     seconds: float = 0.0
     usage: dict[str, Any] | None = None
+    #: Set when the task failed once and was run again (0178, item 4): why it failed the first time.
+    first_reasons: list[str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"task": self.task.id, "passed": self.passed, "seconds": round(self.seconds, 2)}
@@ -267,6 +270,8 @@ class TaskOutcome:
             out["error"] = self.error
         if self.usage:
             out["usage"] = self.usage
+        if self.first_reasons is not None:
+            out["first_try"] = {"passed": False, "reasons": self.first_reasons}
         return out
 
 
@@ -587,18 +592,37 @@ def rate_limited(o: TaskOutcome) -> bool:
 def _run_profile(home: Path, p: Planned, profile: Any, runner: Runner, sleep: Callable[[float], Any]) -> list[TaskOutcome]:
     """One profile's tasks, one at a time; a rate limit waits and retries, then leaves the rest unrun."""
     out: list[TaskOutcome] = []
-    for i, task in enumerate(p.tasks):
+    def attempt(task: Task) -> TaskOutcome:
         o = runner(home, p.name, profile, task)
         tries = 0
         while rate_limited(o) and tries < RATE_RETRIES:
             tries += 1
             sleep(RATE_WAIT_S * tries)
             o = runner(home, p.name, profile, task)
+        return o
+
+    for i, task in enumerate(p.tasks):
+        o = attempt(task)
+        if not o.error and not o.passed:  # one bad answer is not decisive: run it once more (0178, item 4)
+            second = attempt(task)
+            second.first_reasons = o.reasons
+            second.seconds += o.seconds
+            second.usage = _add_usage(o.usage, second.usage)
+            o = second
         out.append(o)
         if rate_limited(o):
             why = f"not run: the route stayed rate-limited ({o.error[:160]})"
             out += [TaskOutcome(t, error=why) for t in p.tasks[i + 1:]]
             break
+    return out
+
+
+def _add_usage(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not a or not b:
+        return b or a
+    out = {k: (a.get(k) or 0) + (b.get(k) or 0) for k in ("calls", "input_tokens", "output_tokens", "seconds")}
+    costs = [x.get("cost_usd") for x in (a, b) if isinstance(x.get("cost_usd"), (int, float))]
+    out["cost_usd"] = sum(costs) if costs else None
     return out
 
 
@@ -657,12 +681,14 @@ def _cost(outcomes: list[TaskOutcome]) -> float | None:
     return round(sum(known), 6) if known else None
 
 
-def summary(home: Path, name: str) -> dict[str, Any] | None:
-    """A profile's last check, for ``workers status`` and the setup page."""
-    try:
-        rec = (load_record(home).get(name) or {}).get("checks")
-    except CheckError:  # expected: an unreadable track record shows no last check; `workers check` reports it
-        return None
+def summary(home: Path, name: str, record: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """A profile's last check, for ``workers status`` and the setup page (``record``: the track record, already read)."""
+    if record is None:
+        try:
+            record = load_record(home)
+        except CheckError:  # expected: an unreadable track record shows no last check; `workers check` reports it
+            return None
+    rec = (record.get(name) or {}).get("checks")
     if not isinstance(rec, dict):
         return None
     return {k: rec[k] for k in ("set_version", "date", "complete", "cost_usd", "cost", "seconds", "adds") if k in rec} | {

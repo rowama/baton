@@ -238,6 +238,19 @@ function renderModels() {
   all.addEventListener("click", () => checkModels(all, shown.map((m) => m.profile)));
   box.append(h("p", { class: "muted" }, shown.length + " of " + state.models.length + " models shown. ", helpBtn("ui.models.table", "reading the table")));
   box.append(h("div", { class: "row" }, all, helpBtn("ui.models.check", "checking abilities")));
+  const unrated = shown.filter((m) => m.listed && m.model_id && !m.judged).map((m) => m.model_id);
+  const ids = [...new Set(unrated)].slice(0, 10);
+  if (ids.length && state.researchers.length) {
+    const who = h("select", { "aria-label": "Researcher" }, state.researchers.map((r) => h("option", { value: r }, r)));
+    const rate = h("button", { class: "quiet" }, "Rate " + ids.length + " unrated model" + (ids.length === 1 ? "" : "s") + " from published evaluations");
+    rate.addEventListener("click", () => {
+      if (!window.confirm("Ask " + who.value + " to look up published evaluation results for " + ids.join(", ") +
+        "? It reads the web and costs one run of that model; Baton checks its answer before keeping it.")) return;
+      act(rate, () => api("POST", "/api/models/assess", { models: ids, profile: who.value }),
+        (o) => o.assessed.map((a) => a.model_id + ": " + a.tier).join(" · ") + (o.not_assessed.length ? " · not rated: " + o.not_assessed.map((n) => n.model_id).join(", ") : ""));
+    });
+    box.append(h("div", { class: "row" }, who, rate, helpBtn("ui.models.rate", "rating models")));
+  }
 }
 
 function render() { renderHarnesses(); renderProviders(); renderFilters(); renderModels(); }

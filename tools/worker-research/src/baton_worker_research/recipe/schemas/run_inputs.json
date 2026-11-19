@@ -54,6 +54,10 @@
       "type": "object",
       "description": "version, and entries: invocation -> the installed LiteLLM model-map fields for every API route in the data"
     },
+    "evaluations": {
+      "type": "object",
+      "description": "Baton's mapping from published evaluation results to tiers and capabilities (evaluation-tiers.yaml)"
+    },
     "validator": {
       "type": "string",
       "description": "A command; append a proposal file path to validate it as the tool will"

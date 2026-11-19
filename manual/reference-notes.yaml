@@ -72,6 +72,7 @@ diagnostics:
   queue.dequeue_run_unreadable: "A queued dispatch belonged to a run that is gone or unreadable, so there was nothing to record the drop in."
   resources.unreadable: "`~/.baton/resources.yaml` or the directory data could not be read when listing switched-off accounts."
   resources.yaml_invalid: "A machine resources file is not valid YAML; its declarations are ignored until fixed."
+  capability_check.record_invalid: "`~/.baton/track-record.yaml` could not be read, so no model's last capability check is shown. Checking a model again rewrites it."
   resources.search_invalid: "The search service under `search:` in `~/.baton/resources.yaml` could not be read, so API models have no declared search. Declare it again with `baton workers declare --search`."
   sme.profiles_unreadable: "Profiles could not be read when listing experts."
   sme.run_unreadable: "A run could not be read when indexing or counting expert consultations."

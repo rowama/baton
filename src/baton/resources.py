@@ -766,9 +766,15 @@ def provider_summary(home: Path) -> dict[str, dict[str, Any]]:
 
 def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dict[str, Detection]] = discover) -> dict[str, Any]:
     """Read-only: what is discovered, declared and generated, and whether machine setup is complete."""
+    from .capability_check import CheckError, load_record
     from .capability_check import summary as check_summary
 
     home = Path(home)
+    try:
+        record = load_record(home)
+    except CheckError as e:  # an unreadable track record shows no last checks; noted, and `workers check` says so when it writes
+        diag.note("capability_check.record_invalid", "resources:status", error=str(e))
+        record = {}
     data, kw_sha, res = _inputs(home)
     detected = discover_fn(home, data)
     planned, skipped = plan_profiles(data, res, detected, home)
@@ -793,7 +799,7 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         web = _web_note(states, name, body, claims.get(name, []), search)
         if web is not None:
             g["web_access"] = web
-        checked = check_summary(home, name)
+        checked = check_summary(home, name, record)
         if checked is not None:
             g["capability_check"] = checked
     return {

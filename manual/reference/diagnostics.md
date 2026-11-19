@@ -16,6 +16,7 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `accounts.check_failed` | Checking an account's key with its provider failed for a network or decoding reason. The page shows the reason without the key. |
 | `cache.replay` | The cache of a run's record was out of step with its log and was rebuilt by replaying the log. Harmless; recurring means something edits the cache or the log. |
 | `capability.version_check_skipped` | A helper's version could not be read, so its observed capability states were not reset after an upgrade. |
+| `capability_check.record_invalid` | `~/.baton/track-record.yaml` could not be read, so no model's last capability check is shown. Checking a model again rewrites it. |
 | `catalog.summaries_unavailable` | A recipe in the project would not load, so its summary was left out of the list offered to a part that wants the catalog. |
 | `docs.record_unreadable` | A stored result could not be read when writing a step record; the record is left out. |
 | `frame.profiles_unreadable` | Profiles could not be read while checking whether the work will need web search, so no advice about it was given. |

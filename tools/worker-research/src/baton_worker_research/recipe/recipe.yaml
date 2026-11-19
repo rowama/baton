@@ -1,7 +1,7 @@
 # Maintainer-only research recipe (§6.4, Decision 0083). Never shipped: tools/ is
 # outside the wheel. Run it with baton-worker-research.
 id: worker-research
-version: 1
+version: 2
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Research which models and routes Baton should know about, and propose an updated known-workers file.
@@ -23,6 +23,7 @@ steps:
       - { name: tooling_capabilities, from: run.inputs.tooling_capabilities, required: true }
       - { name: harness_docs,  from: run.inputs.harness_docs,  required: true }
       - { name: litellm,       from: run.inputs.litellm,       required: true }
+      - { name: evaluations,   from: run.inputs.evaluations,   required: false }
       - { name: validator,     from: run.inputs.validator,     required: true }
     output_schema: schemas/report.json
     artifacts:

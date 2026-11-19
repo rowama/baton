@@ -77,7 +77,7 @@ def test_a_harness_can_be_pinned_to_a_model(home):
     assert opus["creator"] == "anthropic" and opus["auth"] == {"mode": "cli_login"}
     assert opus["env_deny"] == ["ANTHROPIC_API_KEY"]
     assert {"shell", "file_write", "repo_workspace", "technical_reasoning"} <= set(opus["capabilities"])
-    assert opus["tier"] == "strong" and gen(home, "claude-code-claude-sonnet-5-5")["tier"] == "standard"
+    assert opus["tier"] == "strong" and gen(home, "claude-code-claude-haiku-5-5")["tier"] == "standard"  # Haiku 5.5: 36 on the index (0178)
     # The default-model profile stays an alias, with no model identity.
     default = gen(home, "claude-code")
     assert "model" not in default and "model_id" not in default

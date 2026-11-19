@@ -342,13 +342,14 @@ An optional client over the one core (§1.4 #13; Decisions: [0121](../decisions/
 
 | Route | Does | CLI equivalent |
 |---|---|---|
-| `GET /api/state` | Providers (directory entries, declared accounts, harnesses with login state, version and, if not ready, the install or login step for this platform), models (every generated profile with provider, price, context, tier, capability states, last verified, last capability check, switch) and preferences | `workers status --json` |
+| `GET /api/state` | Providers (directory entries, declared accounts, harnesses with login state, version and, if not ready, the install or login step for this platform), models (every generated profile with provider, price, context, tier, capability states, last verified, last capability check, whether it is listed and whether its model is rated in the data or the overlay, switch), the profiles that can research an assessment and preferences | `workers status --json` |
 | `POST /api/accounts` | Connect: check the key with one cheap read, store it (§6.1), declare the resource, run setup | `workers connect` |
 | `POST /api/accounts/<name>/key` | Replace the key: checked first, so a bad one leaves the old key working | `workers connect <name>` on an existing account |
 | `DELETE /api/accounts/<name>` | Disconnect: remove the declaration; the stored secret too only with `forget_key` | `workers disconnect` |
 | `POST /api/models/<profile>/enabled` | Turn a model off or on for routing (machine-level `exclude`) | `workers prefs --exclude / --include` |
 | `POST /api/models/<profile>/verify` | The one live check | `workers setup --verify` |
 | `POST /api/models/check` | Capability checks on the listed models (`{profiles, again?, run?}`): without `run`, the estimate only; the page shows it and asks before running | `workers check` |
+| `POST /api/models/assess` | Rate chosen listed models from published evaluations (`{models, profile}`): the owner's assessment through a strong researcher profile; the page offers it for the unrated listed models shown (at most ten) and the profiles that can research (`researchers` in the state) | `workers assess` |
 | `PUT /api/preferences` | Cheapest or most-verified first, per-capability preferred models | `workers prefs` |
 | `POST /api/quit` | End the process | |
 | `GET /api/manual/tree`, `GET /api/manual/topic/<id>[?anchor=]`, `GET /api/manual/search?q=`, `GET /api/manual/context` | The manual reader (§13.10): the navigation, one topic (or one section of it) with its neighbours, a search, and the context map. Read-only: they serve only the shipped manual, by topic id, never a path from the request | `baton help` |

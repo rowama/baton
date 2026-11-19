@@ -30,6 +30,7 @@ models:
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
     capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
+    tier_basis: { kind: judgment, reason: "Artificial Analysis publishes no result for it (2026-11-18); the creator's previous flagship, kept strong", supporting: [{ name: lmarena-text, version: "2026-11", score: 1502, configuration: "Max", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
@@ -42,6 +43,7 @@ models:
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
     capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 59, configuration: "Max, Default Fallback", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }], supporting: [{ name: lmarena-text, version: "2026-11", score: 1507, configuration: "High", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
@@ -52,7 +54,8 @@ models:
     category: llm
     capabilities: [structured_output, long_form_writing, technical_reasoning, tool_use, vision]
     capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
-    tier: standard
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 55, configuration: "Max, Default Fallback", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
@@ -61,9 +64,10 @@ models:
   anthropic/claude-haiku-5-5:
     creator: anthropic
     category: llm
-    capabilities: [structured_output, tool_use, vision]
-    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
-    tier: basic
+    capabilities: [structured_output, tool_use, vision, technical_reasoning]
+    capability_basis: { structured_output: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 36, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 36, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://platform.claude.com/docs/en/about-claude/models/overview", retrieved: 2026-11-06 }
@@ -103,7 +107,8 @@ models:
     category: llm
     capabilities: [long_form_writing, technical_reasoning, tool_use, vision]
     capability_basis: { long_form_writing: { kind: judgment, reason: "current OpenAI flagship-family LLMs normally write long-form text" }, technical_reasoning: { kind: judgment, reason: "current OpenAI flagship-family LLMs normally reason over technical material" }, tool_use: { kind: judgment, reason: "API models page lists function tools for the latest OpenAI models" }, vision: { kind: judgment, reason: "API models page: all latest OpenAI models accept image input" } }
-    tier: standard
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 51, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1050000
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-08 }
@@ -112,9 +117,10 @@ models:
   openai/gpt-6-luna:
     creator: openai
     category: llm
-    capabilities: [tool_use, vision]
-    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
-    tier: basic
+    capabilities: [tool_use, vision, technical_reasoning]
+    capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 28, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 28, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1050000
     sources:
       - { url: "https://developers.openai.com/api/docs/models", retrieved: 2026-11-06 }
@@ -127,7 +133,8 @@ models:
     # open-weight
     capabilities: [tool_use, technical_reasoning]
     capability_basis: { tool_use: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
-    tier: standard
+    tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 4, configuration: "High", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 131072
     sources:
       - { url: "https://huggingface.co/openai/gpt-oss-120b", retrieved: 2026-11-06 }
@@ -167,6 +174,7 @@ models:
     capabilities: [long_form_writing, technical_reasoning, vision]
     capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 50, configuration: "High", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }], supporting: [{ name: lmarena-text, version: "2026-11", score: 1521, configuration: "High", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
@@ -196,6 +204,7 @@ models:
     category: llm
     capabilities: []
     tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 12, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     sources:
       - { url: "https://aistudio.google.com/docs/models", retrieved: 2026-11-06 }
       - { url: "https://aistudio.google.com/docs/deprecations", retrieved: 2026-11-06 }
@@ -230,6 +239,7 @@ models:
     capabilities: [long_form_writing, technical_reasoning, vision]
     capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 26, configuration: "High", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     sources:
       - { url: "https://docs.mistral.ai/getting-started/models/", retrieved: 2026-11-06 }
       - { url: "https://docs.mistral.ai/inference/model-selection-guide", retrieved: 2026-11-06 }
@@ -255,7 +265,8 @@ models:
     category: llm
     capabilities: [long_form_writing, technical_reasoning]
     capability_basis: { long_form_writing: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
-    tier: strong
+    tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 23, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
@@ -268,6 +279,7 @@ models:
     capabilities: [technical_reasoning, vision]
     capability_basis: { technical_reasoning: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" }, vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 33, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 1000000
     sources:
       - { url: "https://api-docs.deepseek.com/quick_start/pricing.md", retrieved: 2026-11-06 }
@@ -308,6 +320,7 @@ models:
     capabilities: [vision]
     capability_basis: { vision: { kind: judgment, reason: "maintainer's reading of the cited sources (2026-11-06 seed)" } }
     tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 20, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
     context_tokens: 131072
     sources:
       - { url: "https://huggingface.co/Qwen", retrieved: 2026-11-06 }
@@ -363,6 +376,238 @@ models:
       - { url: "https://docs.z.ai/guides/llm/glm-5", retrieved: 2026-11-06 }
       - { url: "https://docs.z.ai/guides/overview/pricing", retrieved: 2026-11-06 }
     researched: 2026-11-06
+  # --- Tiered from published evaluations (2026-11-19 refresh; change 2026-11-model-assessment, Decision 0178) ---
+  # Keyed by each model's OpenRouter canonical slug, so the account's listed workers take this tier and keep
+  # their listing's price and context. Scores are Artificial Analysis Intelligence Index v5.0.1 results for the
+  # configuration named; a route run at a lower reasoning effort may do less well.
+  anthropic/claude-fable-5.2-20261109:
+    creator: anthropic
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 65, configuration: "Max, Default Fallback", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 65, configuration: "Max, Default Fallback", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1000000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  openai/gpt-6.2-astra-20261117:
+    creator: openai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 62, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 62, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1050000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  openai/gpt-6.2-sol-20261117:
+    creator: openai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 57, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 57, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1050000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  google/gemini-4-neon-20261118:
+    creator: google
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 61, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 61, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }], supporting: [{ name: lmarena-text, version: "2026-11", score: 1518, configuration: "High", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  google/gemini-4-carbon-20261110:
+    creator: google
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 60, configuration: "High", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 60, configuration: "High", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }], supporting: [{ name: lmarena-text, version: "2026-11", score: 1526, configuration: "High", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  google/gemini-4-hydrogen-20261112:
+    creator: google
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 54, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: strong
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 54, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  moonshotai/kimi-k3.1-pro-20261023:
+    creator: moonshotai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 46, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 46, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  qwen/qwen4-max-20261115:
+    creator: qwen
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 43, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 43, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1000000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  x-ai/grok-4.7-20260916:
+    creator: x-ai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 35, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 35, configuration: "Xhigh", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 500000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  tencent/hy4-20261104:
+    creator: tencent
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 35, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 35, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  z-ai/glm-5.3-20260816:
+    creator: z-ai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 32, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 32, configuration: "Max", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  xiaomi/mimo-v2.6-pro-20260921:
+    creator: xiaomi
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 30, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 30, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1050000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  stepfun/step-5-preview-20261008:
+    creator: stepfun
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 29, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 29, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1000000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  minimax/minimax-m3.1-flash-20261019:
+    creator: minimax
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 29, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 29, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  z-ai/glm-5.3-flash-20260826:
+    creator: z-ai
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 28, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 28, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }], supporting: [{ name: lmarena-text, version: "2026-11", score: 1475, configuration: "default", source: { url: "https://arena.ai/leaderboard/text", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  xiaomi/mimo-v2.6-flash-20260921:
+    creator: xiaomi
+    category: llm
+    capabilities: [technical_reasoning]
+    capability_basis: { technical_reasoning: { kind: evaluation, evaluation: { name: aa-intelligence-index, version: "5.0.1", score: 27, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } } } }
+    tier: standard
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 27, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1050000
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  minimax/minimax-m3-20260531:
+    creator: minimax
+    category: llm
+    capabilities: []
+    capability_basis: {}
+    tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 19, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  nvidia/nemotron-3.5-super-vl-20261015:
+    creator: nvidia
+    category: llm
+    capabilities: []
+    capability_basis: {}
+    tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 14, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
+  nvidia/nemotron-3.5-lightning-20260807:
+    creator: nvidia
+    category: llm
+    capabilities: []
+    capability_basis: {}
+    tier: basic
+    tier_basis: { kind: evaluation, evaluations: [{ name: aa-intelligence-index, version: "5.0.1", score: 6, configuration: "default", source: { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 } }] }
+    context_tokens: 1048576
+    sources:
+      - { url: "https://artificialanalysis.ai/leaderboards/models", retrieved: 2026-11-18 }
+      - { url: "https://openrouter.ai/api/v1/models", retrieved: 2026-11-18 }
+    researched: 2026-11-19
 
 providers:
   anthropic:

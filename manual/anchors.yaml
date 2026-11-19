@@ -380,6 +380,7 @@ published:
 - user.choose-models#here-now
 - user.choose-models#likely-verified-absent
 - user.choose-models#prefer-a-model
+- user.choose-models#rate-from-evaluations
 - user.choose-models#reading-the-table
 - user.connect-a-subscription
 - user.connect-a-subscription#here-now

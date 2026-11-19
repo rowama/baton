@@ -93,7 +93,10 @@ def _state(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
 
     try:
         out = resources.status(home) if _discover is None else resources.status(home, discover_fn=_discover)
-        known = kw.load(vocab.load(vocab.DEFAULT))
+        try:
+            known = kw.load_with_overlay(vocab.load(vocab.DEFAULT), home)  # the overlay adds models only; providers are the shipped ones
+        except kw.KnownWorkersError:  # expected: an invalid overlay; setup reports it, and here only shipped models count as rated
+            known = kw.load(vocab.load(vocab.DEFAULT))
     except Exception as e:  # noqa: BLE001 - the page shows the problem in words instead of a stack trace
         from .known_workers import KnownWorkersError
         from .resources import ResourcesError
@@ -104,6 +107,11 @@ def _state(home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
     for d in out["detected"]:
         d["step"] = harness_step(d)
     out["models"] = _models(home, out)
+    judged = set(known.models)
+    for m in out["models"]:
+        m["judged"] = bool(m["model_id"]) and m["model_id"] in judged
+    out["researchers"] = [m["profile"] for m in out["models"]
+                          if m["tier"] == "strong" and {"web_access", "file_write"} <= set(m["capabilities"]) and m["capabilities"].get("web_access") != "absent"]
     out["preferences"] = _prefs_core(lambda: prefs_mod.as_dict(prefs_mod.load(home)))
     for m in out["models"]:
         m["enabled"] = m["profile"] not in out["preferences"]["exclude"]
@@ -130,6 +138,7 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
             "subscription": (body.get("auth") or {}).get("mode") == "cli_login",
             "capabilities": g.get("capabilities", {}), "verified": g.get("verified"), "flag": g.get("flag"), "ownership": g.get("ownership"),
             "capability_check": g.get("capability_check"),
+            "listed": bool(g.get("listed")),
             "search_billed_per_search": bool((g.get("web_access") or {}).get("billed_per_search")),
         })
     return rows
@@ -273,6 +282,22 @@ def _check(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
         return cc.check(home, names, again=bool(body.get("again")), run=bool(body.get("run")))
     except cc.CheckError as e:
         raise UiError(409, "check.set_invalid", str(e)) from e
+
+
+def _assess(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """``baton workers assess <model_id>… --profile <name>``: rate models from published evaluations (§6.4; 0111, 0178)."""
+    from . import assess
+    from .packet import EngineError
+
+    ids, profile = body.get("models"), body.get("profile")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids) or not isinstance(profile, str) or not profile:
+        raise UiError(400, "bad_request", "models must list model ids, and profile must name the worker that does the research")
+    try:
+        return assess.assess(home, ids, profile)
+    except assess.AssessError as e:
+        raise UiError(409, "assess.refused", str(e)) from e
+    except EngineError as e:
+        raise UiError(409, e.code, str(e)) from e
 
 
 def _quit(_home: Path, _body: dict[str, Any], _args: dict[str, str]) -> Any:
@@ -585,6 +610,7 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("PUT", "/api/preferences"): _put_prefs,
     ("POST", "/api/models/<profile>/enabled"): _set_enabled,
     ("POST", "/api/models/check"): _check,
+    ("POST", "/api/models/assess"): _assess,
     ("POST", "/api/models/<profile>/verify"): _verify,
     ("POST", "/api/quit"): _quit,
     ("GET", "/api/manual/tree"): _manual_tree,

@@ -12,6 +12,7 @@
     "today": { "type": "string", "format": "date" },
     "capabilities": { "type": "object", "description": "The capability vocabulary: name -> meaning, tiers, machine-dependent ones" },
     "litellm": { "type": "object", "description": "version, and entries: listing id -> the installed LiteLLM model-map fields, where it knows the model" },
+    "evaluations": { "type": "object", "description": "Baton's mapping from published evaluation results to tiers and capabilities (evaluation-tiers.yaml)" },
     "validator": { "type": "string", "description": "A command; append an overlay file path to validate it as Baton will" }
   }
 }

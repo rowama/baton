@@ -106,6 +106,7 @@ def test_assess_runs_the_fetched_recipe_validates_and_writes_the_overlay(home, t
     packet = json.loads((tmp_path / "dump.json").read_text(encoding="utf-8"))
     text = "\n".join(packet.values())
     assert "acme/big-2" in text and "check-overlay" in text and "openrouter: acme/big" in text  # the worker got the listing facts and the validator
+    assert "aa-intelligence-index" in text and "decides_tier" in text  # and the evaluation mapping it must apply (0178)
     overlay = yaml.safe_load((home / "known-workers.local.yaml").read_text(encoding="utf-8"))
     assert overlay["models"]["acme/big-2"]["tier"] == "standard"
     assert json.loads((home / "assessments" / "2026-11-10.json").read_text(encoding="utf-8"))["requested"] == ["acme/big-2"]

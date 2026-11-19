@@ -251,6 +251,7 @@ def _main(argv: list[str] | None = None) -> int:
         "tooling_capabilities": list(TOOLING),
         "harness_docs": harness_docs(repo),
         "litellm": {"version": litellm_version, "entries": catalog},
+        "evaluations": known_workers.load_evaluations().model_dump(mode="json"),
         "validator": validator_command(repo),
         "known_workers": current,
         "today": args.today,

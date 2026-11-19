@@ -3,9 +3,9 @@ id: 2026-11-model-assessment
 title: "Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work"
 status: in-progress
 level: major
-decisions: ["0175", "0176", "0177", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
+decisions: ["0175", "0176", "0177", "0178", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/platform-and-security.md]
-manual: [user/choose-models.md, admin/accounts-and-costs.md, admin/files-and-paths.md, context.yaml, reference/commands.md, anchors.yaml]
+manual: [user/choose-models.md, admin/accounts-and-costs.md, admin/files-and-paths.md, context.yaml, reference/commands.md, reference/diagnostics.md, reference-notes.yaml, anchors.yaml]
 ---
 
 # Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work
@@ -27,7 +27,7 @@ The owner's direction (Decision [0175](../decisions/0175-model-assessment.md)): 
 
 1. **A capability check set ships.** For each capability a check can establish (`structured_output`, `tool_use`, `workspace_read`, `long_form_writing`, `technical_reasoning`, `vision`), a few short tasks with answers graded by code. The set has a version.
 2. **Checks run once, on request.** From the setup page (one model, a selection, or every model of a provider or price class) or `baton workers check [<profile>…]`, after showing the estimated cost. A model and route already checked under the current set version is skipped unless the route is an alias, or the owner asks again.
-3. **Checks record evidence.** A pass records the capability `verified` with `by: check`, the set version and the date (§6.1). A failure records it `absent` with the task that failed, resettable as today. A check never adds a capability the profile does not claim, except `structured_output`, `tool_use` and `workspace_read`, which a pass may add to an unjudged model's profile (0176, item 3).
+3. **Checks record evidence.** A pass records the capability `verified` with `by: check`, the set version and the date (§6.1). A failure records it `absent` with the task that failed, resettable as today; a failed task is run once more first, and only a second failure counts (Decision 0178, item 4). A check never adds a capability the profile does not claim, except `structured_output`, `tool_use` and `workspace_read`, which a pass may add to an unjudged model's profile (0176, item 3).
 4. **Tiers can rest on published evaluations.** A model's tier in the known-workers data or the owner's overlay may cite published evaluation results as its basis (`basis: evaluation`, with the evaluation's name, the score, its source and date). A shipped mapping from evaluation results to tiers makes this mechanical. An owner's assessment (Decision [0111](../decisions/0111-owner-run-assessment.md)), started from the setup page, can tier chosen models this way. A model with no evidence stays `basic`.
 5. **Each model has a track record.** Baton keeps, per model and route, what its checks, shadow attempts, trials and real steps showed: steps done, gates passed and failed, by tier and capability. The setup page and `workers status` show it.
 6. **Shadow attempts on strong steps.** When enabled, a step requiring `strong` may also be dispatched, with the same packet, to one candidate model: a model rated `strong` by checks or evaluations but without a track record at that tier. The candidate's result is graded by the step's schema and script gates and kept in the record; it is never used, never feeds a later step and never counts as the step's result. Only steps that do not write to the workspace are shadowed. Shadowing has a budget the owner sets.
@@ -83,6 +83,7 @@ For the owner's approval, with the Request.
 ### Manual edits
 
 - Slice 1: `user/choose-models.md` gains **Check abilities** (`#check-abilities`): what the tasks cover, the estimate first, what verified and absent mean afterwards, checking once, and the terminal command; its table's **Checked** column also shows the last capability check. `admin/accounts-and-costs.md` says what checks cost and links there. `admin/files-and-paths.md` lists `~/.baton/track-record.yaml`. `context.yaml` maps the page's `ui.models.check` help to the new section. `reference/commands.md` is regenerated with `baton workers check`.
+- Slice 2: `user/choose-models.md` gains **Rate from published evaluations** (`#rate-from-evaluations`): where tiers come from, the thresholds, what an unrated model is, the page's action and the command; the **Tier** column row points there, and **Check abilities** says a failed task gets a second try. `context.yaml` maps `ui.models.rate`. `reference-notes.yaml` explains the diagnostic `capability_check.record_invalid`, and the generated `reference/diagnostics.md` with it.
 - Later slices: `admin/machine-settings.md` (shadowing and trial settings and budgets), and an administrator topic on how Baton learns about models once tiers from evaluations land.
 
 ### Decisions
@@ -94,6 +95,7 @@ For the owner's approval, with the Request.
 - [0076](../decisions/0076-unknown-identity-not-independent.md), [0114](../decisions/0114-quota-exhausted-reroutes.md) (accepted): identity and re-routing.
 - [0176](../decisions/0176-model-assessment-details.md) (accepted): the nine answers.
 - [0177](../decisions/0177-capability-check-details.md) (accepted): no vision check yet; the runner records tokens, cost and response time.
+- [0178](../decisions/0178-evaluation-tiers.md) (accepted): the Artificial Analysis index decides tiers (50 and 25), LMArena supports, standard grants `technical_reasoning`, a failed check task runs once more.
 
 ## Plan
 
@@ -111,6 +113,7 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Outcome:** models are tiered from cited evaluations, in the shipped data and the owner's overlay, and the shipped data is refreshed with them.
 - **Criteria:** `tier_basis` and evaluation basis validated; the evaluation-to-tier mapping; assessment from the page; a refresh covering the models most used through OpenRouter, including current Fable and Opus versions.
 - **Effort:** M
+- **Refined (2026-11-19, Decision 0178):** the mapping is `defaults/evaluation-tiers.yaml`; a tier with an evaluation basis must equal what its deciding results give (lower median); new models are keyed by their OpenRouter canonical slug, with no routes, so listing profiles take the tier and keep their price.
 
 ### Slice 3: track record and trial routing
 
@@ -155,3 +158,13 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Docs:** `design/workers.md` §6.4.
 - **Tests:** `tests/test_capability_check.py`: a rate-limited route waits, retries and then stops without running its remaining tasks.
 
+### Slice 2: tiers from published evaluations
+
+- **Summary:** Research (2026-11-18) read the Artificial Analysis leaderboard and methodology (Intelligence Index v5.0.1, nine evaluations it runs itself), the LMArena text leaderboard (human preference votes, dated 2026-11-18) and OpenRouter's usage rankings. The owner chose the index to decide tiers at 50 and 25, LMArena as support, `technical_reasoning` granted at standard, and a second try for a failed check task (Decision 0178). The format gains `tier_basis` and the `evaluation` capability basis (still `baton-known-workers/1`); `defaults/evaluation-tiers.yaml` is the mapping, and the one validator enforces it for the shipped data, the overlay and assessments. The shipped data was refreshed: 12 existing models gained an evaluation basis, five of them with a new tier (Sonnet 5.5 and GPT-6.1 Terra up to `strong`, Haiku 5.5 and GPT-6 Luna up to `standard` with `technical_reasoning`, gpt-oss-120b and DeepSeek V4 Pro down to `basic`); Fable 5.1 keeps a judgment basis (no published index result) with LMArena support; 19 models were added, keyed by their OpenRouter canonical slug, among them Fable 5.2 (65, strong), GPT-6.2 Astra and Sol, Gemini 4 Neon, Carbon and Hydrogen (strong), Kimi K3.1 Pro, Qwen4 Max, Grok 4.7, Hy4, GLM 5.3 and 5.3 Flash, MiMo V2.6 Pro and Flash, Step 5 Preview, MiniMax M3.1 Flash (standard), and MiniMax M3, Nemotron 3.5 Super VL and Lightning (basic). The research and assessment recipes get the mapping as `evaluations` and are at version 2. The setup page offers **Rate … from published evaluations** for unrated listed models, through `POST /api/models/assess`. A failed check task now runs once more (0178, item 4).
+- **Not done:** Hy4 Flash (the second most used model this week) has no index result, so it stays unrated. Fable 5.2 has no Claude Code subscription route yet: its CLI model id was not researched, so the subscription keeps using Fable 5.1, and Fable 5.2 is reached through OpenRouter. Models whose index entry names a different version from the data (GPT-6 Astra, GPT-6.1 Sol, Kimi K3, GLM 5, Grok 4.20, Qwen 3.8 Max, Command A+) were left as they were rather than matched by guess.
+- **Owner decisions:** 2026-11-19, "Concur on the suggestions" (Decision 0178).
+- **Also fixed:** `workers status` read the track record once per profile (391 times on the owner's machine); it now reads it once, and an unreadable record is a diagnostic (`capability_check.record_invalid`). The page's state loads the model data once instead of three times, and `known_workers` keeps the parsed file while its size and modification time are unchanged (handing out copies): the refreshed file is larger, and parsing it four times made `/api/state` take 0.35 s, slow enough under a parallel test run to trip a page test's idle timer; it now takes 0.09 s.
+- **Modules:** `known_workers.py` (`EvaluationResult`, `TierBasis`, `EvaluationTiers`, the validation), `assess.py`, `capability_check.py`, `ui.py`, `ui/app.js`, `resources.py`; `defaults/evaluation-tiers.yaml` (new), `defaults/known-workers.yaml`, `defaults/capability-checks.yaml` (comment); `tools/worker-research` (both recipes, the research CLI).
+- **Docs:** `design/workers.md` §6.4; `design/recipes.md` §5.6; `design/director-interface.md` §13.9; Decision 0178.
+- **Tests:** `tests/test_evaluation_tiers.py` (the mapping; thresholds at 50 and 25; the lower median; supporting results never decide; unknown evaluations and versions refused; judgment needs a reason; `technical_reasoning` granted only at standard and never `long_form_writing`; an overlay tiered from results, and refused at another tier; the refreshed shipped data; the page's rating action and its state). `tests/test_capability_check.py`: a failed task runs once more and only a second failure counts. `tests/test_assess.py`: the mapping reaches the assessment packet.
+- **Accepted:** Yes (slice).

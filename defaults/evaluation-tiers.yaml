@@ -1,0 +1,42 @@
+# How published evaluations become tiers and capabilities (baton-evaluation-tiers/1; §6.4;
+# Decisions 0175, 0176 item 1, 0178).
+#
+# A model's tier in the known-workers data, or in the owner's overlay, may rest on
+# evaluation results (`tier_basis: {kind: evaluation, evaluations: [...]}`). The
+# validator computes the tier from the cited results with this mapping and refuses a
+# tier that does not match, so the mapping, not a researcher, decides.
+#
+# Per evaluation:
+#   title, url            what it is and where its method is published
+#   independent           true: the publisher tests the models itself; false: figures a
+#                         vendor reports about its own model (then a tier needs a reason)
+#   decides_tier          true: its results set the tier; false: cited as support only
+#   versions              per version of the evaluation: the lowest score for `strong` and
+#                         `standard` (below `standard` is `basic`). Scores of different
+#                         versions never compare, so a new version needs its own entry.
+#   grants                capability -> the lowest tier at which a result grants it
+#
+# With several deciding citations, the tier is the lower of the middle values.
+format: baton-evaluation-tiers/1
+evaluations:
+  aa-intelligence-index:
+    title: Artificial Analysis Intelligence Index
+    url: https://artificialanalysis.ai/methodology/intelligence-benchmarking
+    independent: true
+    decides_tier: true
+    # Nine evaluations Artificial Analysis runs itself: knowledge work, coding, science and
+    # general reasoning, 25% each (methodology page, retrieved 2026-11-18). Results are per
+    # configuration (reasoning effort); cite the configuration the score is for.
+    versions:
+      "5.0.1": { strong: 50, standard: 25 }
+    grants:
+      technical_reasoning: standard
+  lmarena-text:
+    title: LMArena text leaderboard
+    url: https://arena.ai/leaderboard/text
+    independent: true
+    decides_tier: false
+    # Human pairwise preference votes: which answer people prefer, not whether it is right
+    # (Decision 0178, item 1). Supporting evidence only.
+    versions:
+      "2026-11": {}

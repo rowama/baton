@@ -13,6 +13,7 @@ ui:
   ui.models.capabilities: user.choose-models#likely-verified-absent
   ui.models.prefer: user.choose-models#prefer-a-model
   ui.models.check: user.choose-models#check-abilities
+  ui.models.rate: user.choose-models#rate-from-evaluations
 errors:
   accounts.key_refused: user.connect-an-account#key-refused
   accounts.no_key: user.connect-an-account#here-now

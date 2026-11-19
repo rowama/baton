@@ -48,6 +48,16 @@ gaps. Never claim exhaustive coverage without evidence.
     already in the data; its version is recorded in the report.
   - `judgment`: the creator class's normal capabilities. Give a one-line
     `reason`.
+  - `evaluation`: a published result that grants it (the `evaluations`
+    input's `grants`; never `long_form_writing`).
+- **Tiers rest on published evaluations** where they exist (Decision 0178).
+  For each model, look up its current result on every evaluation in the
+  `evaluations` input that decides a tier, on the publisher's own page, and
+  give `tier_basis: {kind: evaluation, evaluations: [{name, version, score,
+  configuration, source}]}`, with results of supporting-only evaluations under
+  `supporting`. The tier is the one the mapping gives; the validator refuses
+  any other. With no published result, give `tier_basis: {kind: judgment,
+  reason}`. Never set a tier from vendor positioning alone.
 - Every model and every new route carries `sources` (`url`, `retrieved`:
   today) and models carry `researched`. **Never add or change `verified`**:
   that field records a live check you did not perform.

@@ -96,7 +96,7 @@ def test_new_models_appear_only_with_an_explicit_run(setup_home, tmp_path):
     home, change = setup_home
 
     def add(raw):
-        raw["models"]["anthropic/claude-newer-9-9"] = {**raw["models"]["anthropic/claude-sonnet-5-5"], "tier": "basic"}
+        raw["models"]["anthropic/claude-newer-9-9"] = {**{k: v for k, v in raw["models"]["anthropic/claude-sonnet-5-5"].items() if k != "tier_basis"}, "tier": "basic"}
         raw["routes"].append({"model_id": "anthropic/claude-newer-9-9", "provider": "anthropic", "adapter": "litellm_api",
                               "invocation": "anthropic/claude-newer-9-9", "supported": True})
     change(add)  # what installing a runtime with newer data amounts to

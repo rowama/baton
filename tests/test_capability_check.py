@@ -168,7 +168,7 @@ def test_passes_verify_failures_mark_absent_and_errors_record_nothing(home):
     assert "workspace_read" not in st  # it could not run: nothing is recorded
     assert r["by_capability"]["workspace_read"]["error"].startswith("platform (provider_unavailable)")
     rec = cc.load_record(home)["or-acme-big"]["checks"]
-    assert rec["complete"] is False and rec["cost_usd"] == pytest.approx(0.0001 * (len(r["tasks"]) - 1))  # the task that could not run cost nothing known and rec["seconds"] > 0
+    assert rec["complete"] is False and rec["cost_usd"] == pytest.approx(0.0001 * len(r["tasks"]))  # one task could not run (no cost) and the failed one ran twice and rec["seconds"] > 0
     # an incomplete check is due again
     assert cc.plan(home, cc.load_set(), ["or-acme-big"])[0]
 
@@ -324,3 +324,21 @@ def test_a_rate_limited_route_waits_retries_and_then_stops_hammering(home):
     assert r["verified"] == ["structured_output"] and r["not_checked"] == ["tool_use", "workspace_read"]
     assert "wr-port" not in calls  # the tasks after a route stayed limited are not run
     assert r["by_capability"]["workspace_read"]["error"].startswith("not run: the route stayed rate-limited")
+
+
+def test_a_failed_task_is_run_once_more_and_only_a_second_failure_counts(home):
+    seen: dict[str, int] = {}
+
+    def run(h, name, profile, t):
+        seen[t.id] = seen.get(t.id, 0) + 1
+        flaky = t.id == "tu-find" and seen[t.id] == 1           # fails once, then passes
+        broken = t.id == "so-prime"                              # fails both times
+        env = {"status": "completed", "output": {}} if (flaky or broken) else answer(t)
+        reasons = cc.grade(t, env, [{"tool": x} for x in ("list_files", "read_file", "finish")])
+        return cc.TaskOutcome(t, not reasons, reasons, None, 1.0, {"calls": 1, "input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001, "seconds": 1.0})
+
+    r = cc.check(home, ["or-acme-big"], runner=run, today=TODAY)["results"][0]
+    assert seen["tu-find"] == 2 and seen["so-prime"] == 2 and seen["so-classify"] == 1
+    assert "tool_use" in r["verified"] and r["absent"] == ["structured_output"]
+    flaky = next(x for x in r["tasks"] if x["task"] == "tu-find")
+    assert flaky["passed"] and flaky["first_try"]["passed"] is False and flaky["usage"]["calls"] == 2 and flaky["usage"]["cost_usd"] == pytest.approx(0.002)
