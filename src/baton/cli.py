@@ -172,7 +172,7 @@ def _pending_lines(payload: dict) -> list[str]:
             lines.append(f"Owner decision owed: {p['prompt']}  [{p['options'][0].get('command') or p['options'][0]['decision']}]")
         elif p["kind"] == "skip_notice":
             lines.append(f"Owner notice {p['ref']}: {p['prompt']}  [acknowledge]")
-        elif p["kind"] in ("publish_conflict", "drift"):
+        elif p["kind"] in ("publish_conflict", "drift", "locked_change"):
             lines.append(f"Owner decision owed on {p['ref']}: {p['prompt']}  [{' | '.join(_names(p['options']))}]")
         else:
             why = "; ".join(p.get("reasons") or [f"{q['id']}: {q['ask']}" for q in p.get("questions") or []]) or p.get("reason") or ""
@@ -460,6 +460,10 @@ def _status_text(s: dict) -> str:
     for u in s.get("upstream_changes") or []:
         what = {"newer_version": f"has a newer version ({u['current_version']})", "edited": "was edited", "deleted": "was deleted"}[u["change"]]
         lines.append(f"  {u['role']}: {u['path']} {what} since version {u['bound_version']} was bound; this run keeps that version unless the owner rebinds")
+    for lk in s.get("locks") or []:
+        diff = f"; changed: {', '.join(lk['changed'])}" if lk.get("changed") else ""
+        lines.append(f"  approved files locked by {lk['step_path']} (gate {lk['gate']}, decision {lk.get('decision_id') or '?'}): "
+                     f"{lk['files']} file(s) matching {', '.join(lk['globs'])}, {lk['mode']}{diff}")
     for w in s.get("waiting_on_binding") or []:
         lines.append(f"  {w['step_path']}: waits for a project document for {w['role']} ({w['description']}); bind one with `bind`")
     if s.get("policy_outdated"):
@@ -726,7 +730,7 @@ def submit(
 @app.command()
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
-    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, <step>#<finding>, skip:<seq>, publish:<step>.<artifact> or drift:<step>.<artifact>.")],
+    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>.")],
     decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite | keep | alternate (a publish conflict); leave (drift).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     path: Annotated[Optional[str], typer.Option("--path", help="alternate: the project path to publish at instead.")] = None,

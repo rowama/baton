@@ -232,7 +232,7 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     def decide(run: str, ref: str, decision: str, note: str = "", path: str | None = None,
                answers: list[dict[str, Any]] | str | None = None, partial: bool = False, items: list[str] | None = None) -> dict[str, Any]:
         """Record the owner's decision verbatim (note = the owner's words). ref: a step awaiting the owner, an instance path,
-        <step>#<finding>, skip:<seq>, publish:<step>.<artifact> or drift:<step>.<artifact>. answers (retry of a blocked
+        <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>. answers (retry of a blocked
         step): the owner's confirmed answers [{id, answer, owner_words}], or the path of a JSON file holding them;
         partial: a deliberately partial set. items (select, a framing run's frame gate): the chosen part ids."""
 

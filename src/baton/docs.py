@@ -340,6 +340,13 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
                 lines.append(f"    - `{r['id']}` not reported again (resolved{how})")
         elif ev.type == "protected_path_modified":
             lines.append(f"- Protected paths modified ({d.get('mode')}): {', '.join(d.get('changed') or [])}")
+        elif ev.type == "locked_path_modified":
+            for lk in d.get("locks") or []:
+                lines.append(f"- Approved files (locked at {lk.get('step_path')}) modified ({d.get('mode')}): {', '.join(lk.get('changed') or [])}")
+        elif ev.type == "files_locked":
+            how = {"approved": "the owner's approval", "change_approved": "the owner keeping a change", "change_accepted": "the owner accepting a change"}.get(d.get("cause"), d.get("cause"))
+            lines.append(f"- Files locked by {how}{' (' + d['decision_id'] + ')' if d.get('decision_id') else ''}: "
+                         f"{len(d.get('paths') or [])} file(s) matching {', '.join(d.get('globs') or [])} ({d.get('mode')})")
         elif ev.type == "step_passed" and d.get("confirmed"):
             lines.append(f"- Outcome: **confirmed unchanged by the owner** (stale after a revision; earlier result kept) at {ev.ts}")
         elif ev.type == "step_passed" and (d.get("condition") or {}).get("gates_passed") is False:

@@ -5,7 +5,7 @@ status: in-progress
 level: standard
 decisions: ["0173", "0172", "0142", "0037", "0149"]
 touches: [design/recipes.md, design/gates-and-reviews.md, design/runtime.md, design/adoption-and-framing.md, design/director-interface.md]
-manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, anchors.yaml]
+manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, anchors.yaml, admin/recipes-and-vendoring.md, user/answer-questions-and-decide.md, reference/commands.md]
 ---
 
 # Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired
@@ -47,7 +47,7 @@ For the owner's approval, with the Request. Refined against `36352e7` and Decisi
 
 - **recipe-builder@7.** A new version beside `@6` (projects pinned to `@6` keep it, §14): an optional project role `context` (many), bound as `quick-run` binds its own, and given to the profile, research and design steps as a `context` input. The profile prompt says to read the documents as evidence of how the owner works (their steps, roles, checks and lessons), and as a specification only when the owner says so in the idea or at the profile gate.
 - **Declaring a lock.** A `human` gate may declare `locks: [globs]` (on violation: `warn`) or `locks: {paths: [globs], on_violation: warn | fail}`, the shape `protect` has. The mode belongs to the lock, not to the steps it binds: most of those steps declare no `protect`, and only `workspace: write` steps may.
-- **Recording a lock.** When the owner approves the gate, Baton records `files_locked {gate, paths: [{path, sha256}], decision_seq}` on the gate's step, after its `gate_passed`. A waived gate locks nothing. When the step is revised or goes stale, `files_unlocked {gate, cause}` releases it.
+- **Recording a lock.** When the owner approves the gate, Baton records `files_locked {gate, paths: [{path, sha256}], decision_seq}` on the gate's step, after its `gate_passed`. A waived gate locks nothing. When the step is revised or goes stale, the lock is released; the release is read from `step_revised` / `step_stale`, so it has no event of its own (refined in Slice 2).
 - **Changes during a step (at its intake).** Every later step's dispatch records the live locks' current hashes, and its intake compares them, as the implicit `protected` gate does (§9.4): a difference records `locked_path_modified {lock, changed, mode}`. `warn`: the step waits on the owner, and approving keeps the change and records the set again (`files_locked` with the approving decision); `reject` fails the gate. `fail`: the gate fails. A pending `protected` waiver does not cover a lock: an approved set is changed only by the owner's decision.
 - **Changes between steps (at dispatch).** A difference found when the next step is dispatched (the files were changed outside any step, by the owner or the Director) cannot be blamed on an attempt, so it never fails one: dispatch is refused with `dispatch.locked_files_changed`, and `pending_decisions` shows a `locked_change` decision on the gate's step. The owner either has the files restored (dispatch then goes on) or accepts the change (`decide <ref> accept`), which records the set again.
 - **Publishing into a locked set.** A deliverable whose publish target is a locked file is held as a publish conflict (§10.4), which the owner decides as today; overwriting it records the set again.
@@ -66,7 +66,10 @@ For the owner's approval, with the Request. Refined against `36352e7` and Decisi
 
 - `recipe-sources/recipe-builder.md` (and the generated `recipes/recipe-builder.md`): a new section, *What you already have written down* (`#your-documents`), and a line under *What you will be asked* pointing to it. Slice 1.
 - `anchors.yaml`: the new anchor. Slice 1.
-- Still to come: `admin/recipes-and-vendoring.md`, `reference/commands.md`, and a line in the owner's topic on approvals (Slices 2 and 3).
+- `admin/recipes-and-vendoring.md`: a new section, *Files an approval locks* (`#approved-files`): declaring `locks`, what happens to a change, release, visibility. Slice 2.
+- `user/answer-questions-and-decide.md`: the **Keep the change** choice, and a section *Files you approved stay as you approved them* (`#approved-files`). Slice 2.
+- `reference/commands.md` (generated): `decide`'s `ref` names `lock:<step>#<gate>`. Slice 2.
+- Still to come: retirement in `admin/recipes-and-vendoring.md` and the commands (Slice 3).
 
 ### Decisions
 
@@ -138,3 +141,11 @@ For the owner's approval, with the Request. Refined against `36352e7` and Decisi
 - **Manual:** `recipe-sources/recipe-builder.md` *What you already have written down*; `anchors.yaml`.
 - **Other docs:** `2026-11-ai-delegates` now plans `recipe-builder@8` (Decision 0173, item 4).
 - **Tests:** `tests/test_recipe_builder.py` (the role and the three inputs, nothing else takes it; the prompts' guidance; v6 a frozen copy); `tests/test_recipe_builder_runs.py` (an attested procedures document bound at start reaches the profile, research and design packets byte for byte, and not audit or generate; a pinned `@6` still runs to completion); the `@6` references moved to `@7`.
+
+### Slice 2: approved file sets
+
+- **Summary:** A `human` gate may declare `locks` (`[globs]` or `{paths, on_violation}`). The owner's approval records `files_locked` with every matching file's sha256. Every later dispatch in the run lists the live locks and is refused (`dispatch.locked_files_changed`) when a set differs, with a `locked_change` pending decision (`lock:<step>#<gate>`, `accept`). At intake, the implicit `locked` gate (after `protected`) records `locked_path_modified`: `warn` waits on the owner (approve records the set again), `fail` fails the gate. A lock is released when its step is revised or goes stale. The lock's own deliverable, and a publish the owner decided, join the set; a publish over a locked file by another step is a publish conflict. No waiver covers a lock. `status`, `explain`, the step record and `plan` show locks. Refinement from the Design: the release has no `files_unlocked` event; it is read from `step_revised` / `step_stale`. Also: a lock's own step publishing its deliverable after approval would have conflicted with its own lock, so its deliverable joins the set instead.
+- **Modules:** `file_locks.py` (new); `models.py` (`HumanGate.locks`, the two events, the implicit gate type); `state.py` (`locked_path_modified`); `recipe.py` (`gate.lock_path`, the plan note); `engine.py` (dispatch check, the `locked` gate, recording on approval, `lock:` decisions, pending decisions, status, explain); `publish.py` (the conflict); `reviews.py` (`waive.not_waivable`); `interactions.py`, `defaults/labels.yaml` (`locked`, `locked_change`); `docs.py` (the step record); `cli.py`, `mcp_server.py` (status line, `decide` help); `formats/baton-recipe-1.schema.json` regenerated (an additive key: the format stays `baton-recipe/1`).
+- **Design docs:** `design/gates-and-reviews.md` §9.1, §9.4 (approved file sets, replacing the deferral); `design/runtime.md` §8.2 (the two events); `design/recipes.md` §5.3 (`gate.lock_path`); `design/director-interface.md` §13.1 (`decide lock:`, `status` and `explain`).
+- **Manual:** `admin/recipes-and-vendoring.md` *Files an approval locks*; `user/answer-questions-and-decide.md` *Files you approved stay as you approved them*; `reference/commands.md` regenerated; `anchors.yaml`.
+- **Tests:** `tests/test_file_locks.py`: the set recorded with hashes on approval and listed on the next dispatch; an edited, an added and a deleted file each caught at intake under `warn` (approve records the set again) and under `fail` (the gate fails); rejecting fails the attempt and the retry waits until the files are restored; an edited, added and deleted file each caught at the next dispatch, refused with nothing written, decided by `accept`; accepting keeps only the changed files; revision releases and re-approval records a fresh set; `status`, its text, `explain` and the step record (through the Api); no waiver; a publish over a locked file is a conflict and an owner's overwrite joins the set; the glob checks and the plan note; a recipe without locks records nothing new.

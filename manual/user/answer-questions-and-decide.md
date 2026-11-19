@@ -29,8 +29,13 @@ The wording changes with the situation. These are the choices, and what each doe
 | **Set this aside for now** | That part stops. The rest of the work may not be able to finish without it. |
 | **Give it another round** / **Stop working on this piece** | For a repeated piece of work that has not settled: allow another set of tries, or stop it. |
 | **Keep that change** / **Undo that change** | A change to files the process protects stays, or is undone and redone. |
+| **Keep the change** | Files you approved earlier were changed outside the work (by hand, say): the change stays and becomes what you approved. Otherwise, put the files back as they were, and the work carries on. See [files you approved](#approved-files). |
 | **Replace the existing file** / **Keep the existing file** / **Save the new one alongside** | What to do when the work wants to write a file that already exists. |
 | **Leave it as it is** / **Use my edited version** | After you edited a file Baton delivered: keep your edit as it is, or let later work build on it. |
+
+## Files you approved stay as you approved them {#approved-files}
+
+Some approvals also lock files: when you approve a set of acceptance specs, say, later parts of the work may not change them on their own. If a part changes one, you are asked (**Keep that change** / **Undo that change**), or, where the process says so, that part is simply redone. If someone changes one by hand between parts, the next part waits until you keep the change or the file is put back. Redoing the part you approved releases the lock; your next approval locks the files again.
 
 ## Confirming before anything is recorded {#confirm-back}
 

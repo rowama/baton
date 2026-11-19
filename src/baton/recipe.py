@@ -717,6 +717,16 @@ class _Checker:
                 f"{w}.protect",
                 f"protect is only allowed on workspace: write steps (this step is workspace: {step.workspace})",
             )
+        for gi, g in enumerate(step.gates):
+            if isinstance(g, HumanGate) and g.locks is not None:
+                for k, glob in enumerate(g.lock_globs()):
+                    norm = glob.replace("\\", "/")
+                    if not glob.strip() or norm.startswith("/") or (len(norm) > 1 and norm[1] == ":") or ".." in norm.split("/"):
+                        self.error("gate.lock_path", f"{w}.gates[{gi}].locks[{k}]",
+                                   f"{glob!r} must be a glob relative to the project root, inside it (§9.4)")
+                    elif norm.split("/")[0] in (".git", ".baton"):
+                        self.error("gate.lock_path", f"{w}.gates[{gi}].locks[{k}]",
+                                   f"{glob!r} is under {norm.split('/')[0]}, which a lock never matches (§9.4)")
         if step.effort is not None and step.effort_from is not None:
             self.error("step.effort_conflict", w, "declare effort or effort_from, not both")
         if step.effort_from is not None:
@@ -1692,7 +1702,7 @@ def _plan_gates(step: Step, ratings: dict[str, str] | None, included: bool, reci
         inc = included and tailoring.applies(g.applies_to, ratings)
         note = ""
         if isinstance(g, HumanGate):
-            note = g.prompt
+            note = g.prompt + (f" (approval locks {', '.join(g.lock_globs())}, {g.lock_mode()})" if g.locks is not None else "")
         elif isinstance(g, ScriptGate):
             note = g.run
         elif isinstance(g, ReviewGate):

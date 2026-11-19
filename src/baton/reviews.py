@@ -360,6 +360,8 @@ def resolve_gate(step: Step, spec: str) -> int | str:
     from .packet import EngineError
 
     s = str(spec).strip()
+    if s == "locked":
+        raise EngineError("waive.not_waivable", "an approved set of files is changed only by the owner's decision: approve the change when the step asks (§9.4)")
     if s in IMPLICIT_WAIVABLE:
         if s == "protected" and step.protect is None:
             raise EngineError("waive.unknown_gate", f"{step.id} protects no paths")

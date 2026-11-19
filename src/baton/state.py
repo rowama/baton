@@ -121,6 +121,7 @@ RECORDS: Mapping[str, frozenset[str]] = {
     "gate_failed": frozenset({"verifying"}),
     "findings_recorded": frozenset({"verifying"}),
     "protected_path_modified": frozenset({"verifying"}),
+    "locked_path_modified": frozenset({"verifying"}),
     "failure_classified": frozenset({"verifying", "timed_out", "orphaned", "escalated"}),
     "deadline_extended": frozenset({"running"}),  # an overdue worker got one more band (§8.7)
     "wait_met": frozenset({"waiting"}),  # a later check found the condition met; result_submitted follows
@@ -141,6 +142,7 @@ ATTEMPT_CURRENT = frozenset(
         "gate_failed",
         "findings_recorded",
         "protected_path_modified",
+        "locked_path_modified",
         "step_passed",
         "step_timed_out",
         "attempt_orphaned",

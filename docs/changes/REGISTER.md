@@ -4,7 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-builder-context-and-locks](2026-11-builder-context-and-locks.md) | Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired | in-progress | standard | Slice 1 done; before 2026-11-software-recipe |
+| [2026-11-builder-context-and-locks](2026-11-builder-context-and-locks.md) | Recipe builder takes reference documents, an approved set of files stays as approved, and a recipe can be retired | in-progress | standard | Slices 1 and 2 done; before 2026-11-software-recipe |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | abandoned | major | Superseded by 2026-11-software-recipe (Decision 0172) |

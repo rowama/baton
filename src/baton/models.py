@@ -131,6 +131,15 @@ class HumanGate(_GateBase):
     prompt: str = Field(min_length=1)
     labels: HumanGateLabels | None = None
     interaction: Interaction | None = None  # hints for showing the gated step's output (§5.3)
+    locks: list[str] | Protect | None = None  # files the owner's approval locks for the rest of the run (§9.4; Decision 0173)
+
+    def lock_globs(self) -> list[str]:
+        if self.locks is None:
+            return []
+        return list(self.locks) if isinstance(self.locks, list) else list(self.locks.paths)
+
+    def lock_mode(self) -> str:
+        return self.locks.on_violation if isinstance(self.locks, Protect) else "warn"
 
 
 Gate = Annotated[
@@ -138,7 +147,7 @@ Gate = Annotated[
     Field(discriminator="type"),
 ]
 GATE_TYPES: tuple[str, ...] = ("schema", "script", "review", "findings", "human")
-IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected")
+IMPLICIT_GATE_TYPES: tuple[str, ...] = ("provenance", "protected", "locked")
 
 
 class Wait(_Strict):
@@ -785,7 +794,8 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "waits": ("wait_started", "wait_met", "wait_expired"),
     "groups": ("group_expanded", "iteration_started", "iteration_limit_reached"),
     "corrections": ("step_revised", "step_stale"),
-    "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified"),
+    "reviews": ("findings_recorded", "finding_dispositioned", "gate_waived", "protected_path_modified",
+                "files_locked", "locked_path_modified"),
     "human": ("human_decision", "human_revision_ingested"),
     "project_documents": ("project_input_bound",),
     "deliverables": ("artifact_published", "drift_detected"),

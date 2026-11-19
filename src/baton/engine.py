@@ -657,6 +657,11 @@ def begin_attempt(
     large for an API model, §18 #1); the packet is then removed. Raises
     ``HandoffError`` or ``EngineError`` with nothing written.
     """
+    from . import file_locks
+
+    lock_refs, locked_why = file_locks.dispatch_problem(ctx.log.events(), ctx.store.root)
+    if locked_why:  # a change to approved files made outside any step: the owner decides before work goes on (§9.4)
+        raise EngineError("dispatch.locked_files_changed", f"{step_path} cannot start: {locked_why}")
     built = build_packet(ctx, step_path, profile_name, profile, deadline=deadline, guidance=guidance, effort=effort)
     if preflight is not None:
         problems = preflight(built)
@@ -671,6 +676,8 @@ def begin_attempt(
     if isinstance(node, Step) and node.protect is not None and "protected" not in dispatch_data:
         # Protected paths are hashed before the worker starts and compared at intake (§9.4).
         dispatch_data["protected"] = reviews.protected_snapshot(ctx.store.root, node.protect_paths())
+    if lock_refs and "locks" not in dispatch_data:
+        dispatch_data["locks"] = lock_refs  # the approved sets this attempt is bound by, checked at its intake (§9.4)
     if reviews.is_reviewer(node):
         head = reviews.repo_head(ctx.store.root)
         if head:
@@ -791,7 +798,57 @@ def submit(
         held = _protected_gate(ctx, step, step_path, n)
         if held is not None:
             return held
+    return _after_protected(ctx, step, step_path, n)
+
+
+def _after_protected(ctx: RunContext, step: Step, step_path: str, n: int) -> Outcome:
+    """The implicit ``locked`` gate, then the declared gates."""
+    held = _locked_gate(ctx, step_path, n)
+    if held is not None:
+        return held
     return _run_gates(ctx, step, step_path, n, 0)
+
+
+def _locked_gate(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
+    """The implicit ``locked`` gate (§9.4; Decision 0173): ``None`` to go on.
+
+    The approved sets this attempt was bound by at dispatch are compared with
+    the files now. A difference records ``locked_path_modified``. ``fail`` (any
+    changed lock declaring it): the gate fails. ``warn``: the step waits on the
+    owner; approving keeps the change and records the set again. No waiver
+    covers it: only the owner changes an approved set.
+    """
+    from . import file_locks
+
+    log = ctx.log
+    bound = _last_data(log.events(), "dispatched", step_path, n).get("locks")
+    if not bound:
+        return None
+    current = file_locks.live(log.events())
+    changed = []
+    for r in bound:
+        lk = current.get(r["key"])
+        if lk is None:
+            continue  # released since dispatch
+        diff = file_locks.differences(ctx.store.root, lk)
+        if diff:
+            changed.append({"ref": lk.ref, "step_path": lk.step_path, "gate": lk.gate, "mode": lk.mode, "changed": diff})
+    base = {"gate": "locked", "type": "locked", "implicit": True}
+    if not changed:
+        log.append("gate_passed", step_path=step_path, attempt=n, data=base)
+        return None
+    mode = "fail" if any(c["mode"] == "fail" for c in changed) else "warn"
+    log.append("locked_path_modified", step_path=step_path, attempt=n, data={"locks": changed, "mode": mode})
+    flat = [x for c in changed for x in c["changed"]]
+    shown = ", ".join(flat[:20]) + (f" and {len(flat) - 20} more" if len(flat) > 20 else "")
+    where = ", ".join(sorted({c["step_path"] for c in changed}))
+    reasons = [f"files approved at {where} were modified: {shown}"]
+    if mode == "fail":
+        log.append("gate_failed", step_path=step_path, attempt=n, data={**base, "locks": changed, "reasons": reasons})
+        return _gate_failed(ctx, step_path, n, "locked", reasons)
+    prompt = f"{step_path} changed files you approved at {where}: {shown}. Keep the change (reject: the attempt fails and the step is retried)?"
+    log.append("human_gate_opened", step_path=step_path, attempt=n, data={**base, "advisory": False, "prompt": prompt, "ref": step_path, "locks": changed})
+    return Outcome(step_path, n, "needs_human", [prompt])
 
 
 def _record_worker_feedback(ctx: RunContext, step_path: str, n: int, actor: str, items: list[Any]) -> None:
@@ -1468,7 +1525,7 @@ def _escalation_decisions(ctx: RunContext, path: str) -> tuple[str, ...]:
 
 def _gate_options(ctx: RunContext, path: str, gate: Any) -> list[dict[str, Any]]:
     """A human gate's options with labels: the implicit triage, protected and framing gates, or a recipe's gate."""
-    if gate in ("triage", "protected"):
+    if gate in ("triage", "protected", "locked"):
         return labels.options(gate, GATE_DECISIONS)
     if gate == "select":
         from .frame import FRAME_DECISIONS
@@ -1553,6 +1610,9 @@ def pending_decisions(ctx: RunContext) -> list[dict[str, Any]]:
         from . import publish
 
         out += publish.pending(ctx)
+        from . import file_locks
+
+        out += file_locks.pending(ctx)
     return out
 
 
@@ -1577,6 +1637,10 @@ def decide(
         return _decide_rating_signal(ctx, ref, decision, note, actor, extra)
     if ref.startswith(("publish:", "drift:")):
         return _decide_deliverable(ctx, ref, decision, note, actor, extra, path)
+    if ref.startswith("lock:"):
+        if path is not None:
+            raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
+        return _decide_locked_change(ctx, ref, decision, note, actor, extra)
     if path is not None:
         raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
     if answers is not None or partial:
@@ -1623,13 +1687,23 @@ def decide(
         base: dict[str, Any] = {"gate": "protected", "type": "protected", "implicit": True}
         if decision == "approve":
             log.append("gate_passed", step_path=ref, attempt=n, data={**base, "approved": True})
-            return _run_gates(ctx, step, ref, n, 0)
+            return _after_protected(ctx, step, ref, n)
         reasons = [f"the owner did not accept the change to protected paths: {note}" if note else "the owner did not accept the change to protected paths"]
         log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
         return _gate_failed(ctx, ref, n, "protected", reasons)
+    if gate_index == "locked":  # the implicit locked gate in warn mode (§9.4; Decision 0173)
+        return _decide_locked_gate(ctx, step, ref, n, decision, note, opened)
     base = {"gate": gate_index, "type": "human", "advisory": step.gates[gate_index].advisory}
     if decision == "approve":
         log.append("gate_passed", step_path=ref, attempt=n, data=base)
+        g = step.gates[gate_index]
+        if isinstance(g, HumanGate) and g.locks is not None:  # the owner's approval locks the set (§9.4; Decision 0173)
+            from . import file_locks
+
+            dec = ctx.record().last("human_decision", ref, n)
+            file_locks.record(log, ctx.store.root, key=file_locks.key_of(ctx.recipe.recipe.ref, ref, gate_index), step_path=ref,
+                              gate=gate_index, globs=g.lock_globs(), mode=g.lock_mode(), cause="approved", attempt=n,
+                              decision_id=f"d{dec.seq}" if dec else None)
         return _run_gates(ctx, step, ref, n, gate_index + 1)
     reasons = [f"the owner did not approve: {note}" if note else "the owner did not approve"]
     log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
@@ -1929,7 +2003,7 @@ def waive(ctx: RunContext, step_path: str, gate: str, reason: str, *, actor: str
         log.append("gate_waived", actor=actor, step_path=step_path, data={**base, "scope": "held", "attempt": n})
         log.append("verification_started", step_path=step_path, attempt=n, data={"after_waiver": decision_id})
         if g == "protected":
-            return _run_gates(ctx, step, step_path, n, 0)
+            return _after_protected(ctx, step, step_path, n)
         assert isinstance(g, int)
         return _run_gates(ctx, step, step_path, n, g + 1)
     if held == "judge":
@@ -1970,6 +2044,52 @@ def _decide_iteration_limit(ctx: RunContext, ref: str, decision: str, note: str,
         ctx.log.append("iteration_started", step_path=ref, data=data)
     ready = refresh(ctx)
     return Outcome(ref, cur, "next_iteration" if decision == "retry" else "abandoned", [note] if note else [], ready, _completed(ctx))
+
+
+def _decide_locked_gate(ctx: RunContext, step: Step, ref: str, n: int, decision: str, note: str, opened: Any) -> Outcome:
+    """The owner's answer at the implicit locked gate: approve keeps the change and records each set again."""
+    from . import file_locks
+
+    log = ctx.log
+    base: dict[str, Any] = {"gate": "locked", "type": "locked", "implicit": True}
+    if decision == "approve":
+        dec = ctx.record().last("human_decision", ref, n)
+        current = {lk.ref: lk for lk in file_locks.live(log.events()).values()}
+        for c in opened.data.get("locks") or []:
+            lk = current.get(c["ref"])
+            if lk is not None:
+                file_locks.record(log, ctx.store.root, key=lk.key, step_path=lk.step_path, gate=lk.gate, globs=lk.globs, mode=lk.mode,
+                                  decision_id=f"d{dec.seq}" if dec else None, cause="change_approved", base=lk,
+                                  accept=file_locks.changed_paths(c["changed"]))
+        log.append("gate_passed", step_path=ref, attempt=n, data={**base, "approved": True})
+        return _run_gates(ctx, step, ref, n, 0)
+    reasons = [f"the owner did not accept the change to approved files: {note}" if note else "the owner did not accept the change to approved files"]
+    log.append("gate_failed", step_path=ref, attempt=n, data={**base, "reasons": reasons})
+    return _gate_failed(ctx, ref, n, "locked", reasons)
+
+
+def _decide_locked_change(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any]) -> Outcome:
+    """``lock:<step>#<gate> accept``: a change to approved files made outside any step is kept; the set is recorded again."""
+    from . import file_locks
+
+    log = ctx.log
+    lk = file_locks.find(log.events(), ref)
+    if lk is None:
+        raise EngineError("decide.nothing_pending", f"{ref} is not a live approved set of this run")
+    if decision != "accept":
+        raise EngineError("decide.bad_decision", f"decision must be accept (or restore the files), got {decision!r}")
+    diff = file_locks.differences(ctx.store.root, lk)
+    if not diff:
+        raise EngineError("decide.nothing_pending", f"{ref}: the approved files are unchanged")
+    if lk.key in file_locks.in_flight_keys(ctx):
+        raise EngineError("decide.nothing_pending", f"{ref}: an attempt in flight changed these files; its own check decides")
+    decision_id = f"d{log.state().last_seq + 1}"
+    log.append("human_decision", actor=actor, step_path=lk.step_path, data={
+        "ref": ref, "kind": "locked_change", "decision": "accept", "note": note, "decision_id": decision_id, "changed": diff, **extra})
+    file_locks.record(log, ctx.store.root, key=lk.key, step_path=lk.step_path, gate=lk.gate, globs=lk.globs, mode=lk.mode,
+                      decision_id=decision_id, cause="change_accepted", base=lk, accept=file_locks.changed_paths(diff))
+    ready = refresh(ctx)
+    return Outcome(lk.step_path, None, "recorded", [f"accept: {', '.join(diff)}"], ready, _completed(ctx))
 
 
 def revise(ctx: RunContext, step_path: str, reason: str, *, actor: str = "director") -> Outcome:
@@ -2882,9 +3002,13 @@ class Api:
             roles, waiting = project_inputs_status(ctx, ready)
             project_inputs = {"project_inputs": roles, "waiting_on_binding": waiting,
                               "upstream_changes": documents.upstream_changes(self.project.store, run_id, events)}
+        from . import file_locks
+
+        lock_rows = file_locks.status(events, self.project.root)
         return {
             "run_id": run_id,
             **project_inputs,
+            **({"locks": lock_rows} if lock_rows else {}),  # only when a gate locked files, so other status output is unchanged
             "deliverables": deliverables,
             "drift": [x for x in drifted.values()],
             "possibly_stale": publish.possibly_stale_flags(events),
@@ -4952,12 +5076,18 @@ class Api:
             if bits:
                 lines.append(f"At {lv}: " + "; ".join(bits) + ".")
         lines += [f"Possible: {b}." for b in branches]
+        for lk in st.get("locks") or []:
+            lines.append(f"Locked: the {lk['files']} file(s) matching {', '.join(lk['globs'])}, approved at {lk['step_path']} "
+                         f"(decision {lk.get('decision_id') or '?'}); a later change waits on the owner"
+                         + (" or fails the step" if lk["mode"] == "fail" else "")
+                         + (f". Changed since: {', '.join(lk['changed'])}" if lk.get("changed") else "") + ".")
         if multi:
             extra_rt: dict[str, Any] = {"level": None, "levels": [], "ratings": ratings, "axes": tailoring.scales(cx)}
         else:
             extra_rt = {"level": level, "levels": levels}
         return {"run_id": run_id, "title": st["title"], "recipe": st["recipe"], "state": st["state"], **extra_rt,
                 "done": done, "position": position, "remaining": remaining, "other_levels": other_levels, "branches": branches,
+                **({"locks": st["locks"]} if st.get("locks") else {}),
                 "text": "\n".join(lines), "pending_decisions": st["pending_decisions"], "needs_owner": st["needs_owner"]}
 
     def _observed_fact(self, worker: str, resolved: Any) -> None:

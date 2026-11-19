@@ -401,6 +401,24 @@
           ],
           "default": null
         },
+        "locks": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/Protect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locks"
+        },
         "prompt": {
           "minLength": 1,
           "title": "Prompt",

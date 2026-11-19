@@ -67,6 +67,7 @@ published:
 - admin.project-settings#policy
 - admin.project-settings#test-command
 - admin.recipes-and-vendoring
+- admin.recipes-and-vendoring#approved-files
 - admin.recipes-and-vendoring#authors
 - admin.recipes-and-vendoring#axes
 - admin.recipes-and-vendoring#guides
@@ -351,6 +352,7 @@ published:
 - user.answer-questions-and-decide
 - user.answer-questions-and-decide#answer-file
 - user.answer-questions-and-decide#answer-on-a-page
+- user.answer-questions-and-decide#approved-files
 - user.answer-questions-and-decide#changed
 - user.answer-questions-and-decide#confirm-back
 - user.answer-questions-and-decide#confusing

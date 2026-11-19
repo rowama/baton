@@ -15,6 +15,11 @@ rating_signal:             # a worker suggests one of the work's ratings is wron
 protected:                 # a change to files the process protects
   approve: { label: "Keep that change", effect: "The change to the protected files stays and the work carries on." }
   reject:  { label: "Undo that change", effect: "The change is not accepted; it is reverted and the part is redone." }
+locked:                    # a part of the work changed files the owner approved earlier
+  approve: { label: "Keep that change", effect: "The change stays, and the files you approved are recorded again as they are now." }
+  reject:  { label: "Undo that change", effect: "The change is not accepted; it is reverted and the part is redone." }
+locked_change:             # files the owner approved were changed outside the process
+  accept:  { label: "Keep the change", effect: "The files you approved are recorded again as they are now, and the work carries on." }
 frame:                     # choosing which parts of a goal to start on
   select:  { label: "Include these", effect: "Each part you choose gets a first look, or starts its process if one fits; the others stay listed in your plan for later." }
   reject:  { label: "That's not quite it", effect: "The breakdown of your goal is redone with what you said." }

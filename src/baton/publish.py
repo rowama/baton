@@ -294,6 +294,13 @@ def due(ctx: RunContext) -> list[Due]:
 def conflict_reason(ctx: RunContext, step_path: str, target: str, sha: str) -> str | None:
     """``None`` when ``target`` may be written silently, else why not (§10.4)."""
     now = file_sha(project_root(ctx) / target)
+    if now != sha:
+        from . import file_locks
+        from .reviews import matches
+
+        for lk in file_locks.live(ctx.log.events()).values():
+            if lk.step_path != step_path and matches(target, lk.globs):  # the owner approved that set (§9.4; Decision 0173)
+                return f"{target} is one of the files you approved at {lk.step_path}"
     if now is None and not (project_root(ctx) / target).exists():
         return None
     if now is None:

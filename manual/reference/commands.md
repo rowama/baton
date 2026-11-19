@@ -143,7 +143,7 @@ Explained in the manual: [Answer questions and decide](user.answer-questions-and
 | Argument or option | What it does |
 |---|---|
 | `run <str>` | Run id. |
-| `ref <str>` | What is being decided: the step path awaiting the owner, an instance path at its iteration limit, `<step>`#`<finding>`, skip:`<seq>`, publish:`<step>`.`<artifact>` or drift:`<step>`.`<artifact>`. |
+| `ref <str>` | What is being decided: the step path awaiting the owner, an instance path at its iteration limit, `<step>`#`<finding>`, skip:`<seq>`, publish:`<step>`.`<artifact>`, drift:`<step>`.`<artifact>` or lock:`<step>`#`<gate>`. |
 | `decision <str>` | approve \| reject (gates); retry \| abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite \| keep \| alternate (a publish conflict); leave (drift). |
 | `--note <str>` | The owner's words, recorded verbatim. |
 | `--path <str>` | alternate: the project path to publish at instead. |

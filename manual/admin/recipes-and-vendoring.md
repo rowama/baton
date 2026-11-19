@@ -154,6 +154,25 @@ The hints are `order`, `groups`, `fields` (each with `widget`: `radio`, `dropdow
 
 A form can hold: named fields; text (with choices, suggestions, a date); numbers with bounds; yes or no; several choices; a table of rows; a group of fields. An output schema that needs more (a `$ref`, conditions, a field of two types) still works: its request is marked `renderable: false`, and the person writes the values by hand in the answer file.
 
+## Files an approval locks {#approved-files}
+
+A human gate may lock the files its approval covers, so that nothing later in the run changes them without the owner deciding. Acceptance specs approved with a plan are the usual case:
+
+```yaml
+gates:
+  - type: human
+    prompt: "Are these the acceptance specs?"
+    locks: { paths: ["tests/acceptance/specs/**"], on_violation: warn }   # or just: locks: ["tests/acceptance/specs/**"]
+```
+
+When the owner approves, Baton records every matching file with its hash. From then on, for the rest of the run:
+
+- a step that changes, adds or deletes a matching file is caught when it finishes. With `warn` (the default) it waits for the owner to keep or undo the change; with `fail` that attempt fails;
+- a change made between steps, by hand, stops the next step from starting until the owner keeps the change (`decide <run> lock:<step>#<gate> accept`) or the files are restored. The message names the commit to restore them from;
+- writing a delivered file over a locked one asks the owner first, as for any file already there.
+
+Revising the step whose gate locked the files releases the lock; approving it again locks the files as they are then. A lock cannot be waived. Globs follow the `protect` rules, are relative to the project and never match `.git` or `.baton`; `baton recipe check` refuses any other. `baton status` and `baton explain` show what is locked, by which approval, and any change found.
+
 ## Guidance documents {#guides}
 
 A guide tells a worker how to produce one document well enough to use, without a full process: a lean business plan, a marketing plan, a standard operating procedure, a project charter, a decision record. Baton comes with these five; a project keeps its own in `guides/<id>.md`, beside its other files. `baton guides` lists both.

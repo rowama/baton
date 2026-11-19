@@ -45,6 +45,8 @@ TITLES: dict[str, str] = {
     "gate": "Your approval is needed",
     "triage": "Is this the right size for the work?",
     "protected": "A change to files that are protected",
+    "locked": "A change to files you approved",
+    "locked_change": "Files you approved were changed",
     "frame": "Which parts to start",
     "escalation": "Some work stopped and needs you",
     "blocked": "Questions for you",
@@ -72,7 +74,7 @@ def kind_of(ctx: Any, p: dict[str, Any]) -> str:
     if k == "gate":
         opened = ctx.record().last("human_gate_opened", p["ref"], p.get("attempt"))
         gate = opened.data.get("gate") if opened else None
-        return {"triage": "triage", "protected": "protected", "select": "frame"}.get(gate, "gate") if isinstance(gate, str) else "gate"
+        return {"triage": "triage", "protected": "protected", "locked": "locked", "select": "frame"}.get(gate, "gate") if isinstance(gate, str) else "gate"
     if k == "escalation":
         return {"blocked": "blocked", "wait_expired": "wait_expired"}.get(p.get("reason") or "", "escalation")
     return str(k)
