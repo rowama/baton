@@ -4,9 +4,10 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | accepted | major | Request and Design approved (Decision 0176); slice 1 next |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
-| [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | abandoned | major | Superseded by 2026-11-software-recipe (Decision 0172) |
+| [2026-11-first-use-feedback](2026-11-first-use-feedback.md) | Fixes and tweaks from the owner's first real use of Baton | proposed | standard | Collecting the owner's first-use feedback (six items so far); questions on F-2 and F-3 answered (0174), two open on F-6 |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton notices when the owner is confused by a question and improves the recipe's wording, locally first | proposed | major | On hold: discussion stage, not ready for Design approval |
 | [2026-11-software-recipe](2026-11-software-recipe.md) | Baton's one software recipe, software, is designed fresh by recipe-builder, with the owner's eng-process as evidence | proposed | major | Reference documents prepared in the run project (slice 1 material); Request and Design not yet approved; the builder run is next, in the owner's session |
@@ -47,6 +48,5 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-windows-running-marker](2026-11-windows-running-marker.md) | A supervisor on Windows survives a Director reading its running marker | done | minor | |
 | [2026-11-windows-supervisor-console](2026-11-windows-supervisor-console.md) | A supervisor on Windows opens no console window | done | minor | |
 | [2026-11-worker-setup](2026-11-worker-setup.md) | Machine-wide worker resources are maintained separately from project setup | done | standard | |
-| [2026-11-first-use-feedback](2026-11-first-use-feedback.md) | Fixes and tweaks from the owner's first real use of Baton | proposed | standard | Collecting the owner's first-use feedback (six items so far); questions on F-2 and F-3 answered (0174), two open on F-6 |
-| [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | proposed | major | Awaiting the owner's answers to eight open questions, then approval of Request and Design |
+| [2026-11-eng-process-recipe](2026-11-eng-process-recipe.md) | An engineering recipe carries work from discovery through shipping and reflection using the eng-process workflow | abandoned | major | Superseded by 2026-11-software-recipe (Decision 0172) |
 | [2026-11-person-step-forms](2026-11-person-step-forms.md) | A person's step can show a form built from the step's data, when the Director's questions are not enough | abandoned | major | Superseded by 2026-11-interaction-requests (Decision 0169) |
