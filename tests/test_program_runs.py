@@ -164,11 +164,13 @@ def test_a_program_gets_only_what_it_declares(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
-def test_a_failing_program_fails_with_its_error_and_escalates_after_one_attempt(tmp_path):
-    s = Setup(tmp_path, script=FAILS)
+@pytest.mark.parametrize("attempts", [1, 2])
+def test_a_failing_program_escalates_with_its_error_regardless_of_attempt_budget(tmp_path, attempts):
+    s = Setup(tmp_path, script=FAILS, step={"max_attempts": attempts})
     s.parameters()
     out = s.backtest().payload
     assert out["outcome"] == "escalated"
+    assert s.last("step_escalated")["data"]["reason"] == "worker_failed"
     notes = json.dumps(s.events())
     assert "exited with code 2" in notes and "window must be positive" in notes
     assert [e["attempt"] for e in s.events() if e["type"] == "dispatched" and e["step_path"] == "backtest"] == [1]
@@ -176,7 +178,8 @@ def test_a_failing_program_fails_with_its_error_and_escalates_after_one_attempt(
 
 @pytest.mark.slow
 def test_a_recipe_may_raise_a_programs_attempts(tmp_path):
-    s = Setup(tmp_path, script=FAILS, step={"max_attempts": 2})
+    # A completed result that fails its schema still uses the recipe's retry budget.
+    s = Setup(tmp_path, script=PROBE.replace('"trades": 0', '"trades": "invalid"'), step={"max_attempts": 2})
     s.parameters()
     assert s.backtest().payload["outcome"] == "retry"
     assert s.backtest().payload["outcome"] == "escalated"
