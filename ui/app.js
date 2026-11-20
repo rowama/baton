@@ -161,11 +161,11 @@ function renderFilters() {
   off.addEventListener("change", () => { filter.off = off.checked; renderModels(); });
   const cheap = h("input", { type: "checkbox", id: "p-cheap" }); cheap.checked = state.preferences.cheapest_first;
   cheap.addEventListener("change", () => act(cheap, () => api("PUT", "/api/preferences", { cheapest_first: cheap.checked }),
-    () => cheap.checked ? "Baton will pick the cheapest capable model first." : "Baton will pick the most proven model first."));
+    () => cheap.checked ? "Baton will pick what you already pay for first, then free, then the cheapest capable model." : "Baton will pick the most proven model first."));
   f.append(h("span", {}, free, h("label", { for: "f-free" }, " free only")), max,
     select("Any capability", "capability", uniq((m) => Object.keys(m.capabilities))), select("Any tier", "tier", uniq((m) => [m.tier])),
     select("Any provider", "provider", uniq((m) => [m.provider])), h("span", {}, off, h("label", { for: "f-off" }, " turned off")),
-    h("span", {}, cheap, h("label", { for: "p-cheap" }, " cheapest first (otherwise most proven first)")));
+    h("span", {}, cheap, h("label", { for: "p-cheap" }, " by cost: your subscriptions, then free, then cheapest (otherwise most proven first)")));
 }
 
 function preferBox() {

@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 7
+version: 8
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
@@ -56,7 +56,7 @@ steps:
     title: Choose or write the guide for a quick run
     depends_on: [profile]
     applies_to: { approach: [quick] }
-    requires: { capabilities: [structured_output, long_form_writing], tier: strong }
+    requires: { capabilities: [structured_output, long_form_writing], tier: standard }   # adopt, adapt or write a short guide (0181)
     prompt: prompts/guide.md
     inputs:
       - { name: idea,    from: run.inputs.idea,      required: true }
@@ -127,7 +127,7 @@ steps:
     title: Build the recipe package
     depends_on: [shape]
     applies_to: { approach: [simple, standard, complex] }
-    requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: strong }
+    requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: standard }   # translates the approved design; its package review stays strong (0181)
     workspace: write
     prompt: prompts/generate.md
     inputs:
@@ -165,7 +165,7 @@ steps:
     title: Place the examples each program will be built to
     depends_on: [example_plan]
     applies_to: { software: [engineered] }
-    requires: { capabilities: [structured_output, file_write, repo_workspace], tier: strong }
+    requires: { capabilities: [structured_output, file_write, repo_workspace], tier: standard }   # places the examples the design names (0181)
     workspace: write
     prompt: prompts/examples.md
     inputs:
@@ -193,7 +193,7 @@ steps:
     steps:
       - id: implement
         title: Build the program to its examples
-        requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: strong }
+        requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: standard }   # built to fixed examples and reviewed independently (0181)
         workspace: write
         independence: { from_step: examples, level: different_vendor }   # not the worker that placed the examples (Decision 0164, item 4)
         protect: { paths: ["recipes/drafts/**/programs/*/examples/**"], on_violation: fail }   # the examples are never changed to fit the code

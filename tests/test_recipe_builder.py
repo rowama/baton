@@ -36,7 +36,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@7" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@8" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -283,8 +283,8 @@ def test_the_published_v3_still_loads_with_its_levels():
     assert "level" in json.loads((V3 / "schemas" / "profile_out.json").read_text(encoding="utf-8"))["properties"]
 
 
-def test_v7_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@7" and not loaded.warnings
+def test_v8_loads_and_plans_at_every_pair_of_ratings(loaded):
+    assert loaded.recipe.ref == "recipe-builder@8" and not loaded.warnings
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
@@ -654,3 +654,32 @@ def test_the_published_v6_is_a_frozen_copy_without_the_context_role():
     assert old.recipe.ref == "recipe-builder@6" and not old.warnings
     assert [r.role for r in old.recipe.project_inputs] == ["examples"]
     assert "context" not in (V6 / "prompts" / "profile.md").read_text(encoding="utf-8")
+
+
+# -- tiers per step (change 2026-11-first-use-feedback-batch-a, Slice 3; Decision 0181, item 4) --
+
+V7 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v7"
+
+
+def test_v8_asks_for_strong_only_where_judgment_is_needed(loaded):
+    def tiers(steps, prefix=""):
+        out = {}
+        for s in steps:
+            if getattr(s, "steps", None):
+                out.update(tiers(s.steps, f"{prefix}{s.id}/"))
+            elif s.requires is not None and s.requires.tier is not None:
+                out[f"{prefix}{s.id}"] = s.requires.tier
+        return out
+
+    assert tiers(loaded.recipe.steps) == {
+        "profile": "strong", "guide": "standard", "research": "strong", "shape/design": "strong", "shape/audit": "strong",
+        "generate": "standard", "examples": "standard", "build_programs/implement": "standard", "build_programs/review": "strong"}
+    generate = next(s for s in loaded.recipe.steps if s.id == "generate")
+    assert all(g.reviewer_requires.tier == "strong" for g in generate.gates if getattr(g, "reviewer_requires", None))
+
+
+def test_the_published_v7_is_a_frozen_copy_with_strong_everywhere():
+    """A project's pinned recipe-builder@7 is never edited (§5.8): v8 is a new version, the v7 package a frozen copy."""
+    old = load_recipe(V7)
+    assert old.recipe.ref == "recipe-builder@7" and not old.warnings
+    assert {s.requires.tier for s in old.recipe.steps if getattr(s, "requires", None) and s.requires.tier} == {"strong"}

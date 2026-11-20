@@ -2034,7 +2034,7 @@ def workers_prefs(
             out = {**prefs.as_dict(prefs.load(home)), "path": str(prefs.path(home))}
     except PreferencesError as e:
         _fail(as_json, EXIT_PROBLEM, "configuration.preferences", str(e))
-    lines = [f"order: {'cheapest first' if out['cheapest_first'] else 'most verified first'}",
+    lines = [f"order: {'by cost (your subscriptions, then free, then cheapest)' if out['cheapest_first'] else 'most verified first'}",
              "turned off: " + (", ".join(out["exclude"]) or "none")]
     lines += [f"prefer for {c}: {', '.join(n)}" for c, n in out["prefer_by_capability"].items()]
     _emit(out, as_json, "\n".join(lines))

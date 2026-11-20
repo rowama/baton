@@ -65,7 +65,7 @@ An API profile (`litellm_api`) whose model calls tools (`tool_use`) can also rea
 
 ## Preferences {#preferences}
 
-`~/.baton/preferences.yaml` (machine-wide) and `.baton/preferences.yaml` (per project, overriding) set routing preferences: cheapest or most proven first, and preferred models per capability. The setup page edits the machine file. See [choosing models](user.choose-models#here-now).
+`~/.baton/preferences.yaml` (machine-wide) and `.baton/preferences.yaml` (per project, overriding) set routing preferences: by cost (the default: subscriptions, then free, then cheapest; `cheapest_first: false` turns it off) or most proven first, and preferred models per capability. The setup page edits the machine file. See [choosing models](user.choose-models#here-now).
 
 ## Other machine files {#other-files}
 

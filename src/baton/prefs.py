@@ -37,8 +37,8 @@ def as_dict(p: Preferences) -> dict[str, Any]:
 
 def save(home: Path, p: Preferences) -> Path:
     body: dict[str, Any] = {}
-    if p.cheapest_first:
-        body["cheapest_first"] = True
+    if not p.cheapest_first:  # cost-aware is the default (0181); only the opt-out is written
+        body["cheapest_first"] = False
     if p.exclude:
         body["exclude"] = sorted(set(p.exclude))
     prefer = {k: v for k, v in {"by_step": p.prefer.by_step, "by_capability": p.prefer.by_capability}.items() if v}

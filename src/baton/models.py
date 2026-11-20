@@ -728,8 +728,9 @@ class Preferences(_Strict):
 
     prefer: PreferOrder = Field(default_factory=PreferOrder)
     exclude: list[str] = Field(default_factory=list)
-    #: Rank the rest of the eligible set cheapest first (0115); never makes an ineligible profile eligible.
-    cheapest_first: bool = False
+    #: Rank the rest of the eligible set by cost (0115): an included subscription, free, priced cheapest first, unpriced.
+    #: The default since Decision 0181; ``false`` keeps the most-verified-first order. Never makes an ineligible profile eligible.
+    cheapest_first: bool = True
     #: Names the machine-level file excludes (0124); set by the merge, never read from a file, so a reason can say which level excluded.
     _machine_exclude: set[str] = PrivateAttr(default_factory=set)
 

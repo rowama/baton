@@ -127,7 +127,28 @@ def test_cheapest_first_orders_free_then_cheap_then_dear_then_unpriced_and_never
     el = order(profiles, Preferences(cheapest_first=True))
     assert [e["profile"] for e in el.eligible] == ["free", "cheap", "dear", "unpriced"]  # the ineligible free one stays out
     assert [x["profile"] for x in el.excluded] == ["weak"]
-    assert [e["profile"] for e in order(profiles, Preferences()).eligible] == ["cheap", "dear", "free", "unpriced"]  # off: by name, as before
+    assert [e["profile"] for e in order(profiles, Preferences()).eligible] == ["free", "cheap", "dear", "unpriced"]  # the default (0181)
+    off = order(profiles, Preferences(cheapest_first=False)).eligible
+    assert [e["profile"] for e in off] == ["cheap", "dear", "free", "unpriced"]  # --verified-first: by name, as before
+
+
+def sub(name_caps=("structured_output",)):
+    return WorkerProfile.model_validate({"adapter": "claude_code", "creator": "anthropic", "capabilities": list(name_caps), "tier": "basic",
+                                         "auth": {"mode": "cli_login"}})
+
+
+def test_an_included_subscription_comes_before_free_and_priced_and_each_choice_says_its_cost():
+    """Decision 0181, item 1: cost-aware ordering by default, a subscription with quota left first."""
+    profiles = {"a-dear": prof({"input": 15.0, "output": 75.0}), "b-free": prof({"free": True}), "z-sub": sub(), "unpriced": prof()}
+    el = order(profiles, Preferences()).eligible
+    assert [e["profile"] for e in el] == ["z-sub", "b-free", "a-dear", "unpriced"]
+    assert {e["profile"]: e["cost"] for e in el} == {"z-sub": "included in your subscription", "b-free": "free",
+                                                       "a-dear": "15.0 in / 75.0 out per million tokens", "unpriced": "price unknown"}
+    assert "cost: included in your subscription" in el[0]["reasons"]
+    # An exhausted subscription is left out until it resets (0114), so it never leads.
+    until = dt.datetime(2030, 1, 1, tzinfo=dt.timezone.utc)
+    el2 = order({**profiles, "z-sub": sub().with_quota(until)}, Preferences()).eligible
+    assert [e["profile"] for e in el2] == ["b-free", "a-dear", "unpriced"]
 
 
 def test_worker_selected_records_the_price():
@@ -350,3 +371,42 @@ def test_the_workers_commands_refresh_disable_and_enable(keyed, monkeypatch):
     assert "no longer uses its workers" in r.invoke(app, ["workers", "disable", "or"]).output
     assert resources.switched_off(keyed) == {"or"}
     assert "uses its workers again" in r.invoke(app, ["workers", "enable", "or"]).output
+
+
+def test_the_director_skill_says_what_each_choice_costs():
+    from conftest import ROOT
+
+    text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
+    assert "say what each costs, from its `cost`" in text
+    assert "never offer one that charges per use ahead of one included in their subscription without saying why" in text
+
+
+def test_the_run_of_2026_11_18_now_picks_the_subscription_for_the_builders_first_step():
+    """F-6 of 2026-11-first-use-feedback-batch-a: recipe-builder's profile step went to Fable over OpenRouter, priced,
+    ahead of Opus through Claude Code, included in the owner's subscription. By name, "fable" sorted first."""
+    from conftest import ROOT
+    from baton.recipe import load_recipe
+
+    builder = load_recipe(ROOT / "examples" / "recipes" / "recipe-builder")
+    step = next(s for s in builder.recipe.steps if s.id == "profile")
+    caps = ["structured_output", "long_form_writing", "technical_reasoning", "workspace_read", "tool_use"]
+    profiles = {
+        "openrouter-main-claude-fable-5-1": WorkerProfile.model_validate(
+            {"adapter": "litellm_api", "creator": "anthropic", "model_id": "anthropic/claude-fable-5-1", "provider": "openrouter",
+             "model": "openrouter/anthropic/claude-fable-5-1", "capabilities": caps, "tier": "strong",
+             "price": {"input": 15.0, "output": 75.0}, "auth": {"mode": "api_key", "env": {"OPENROUTER_API_KEY": "secret:openrouter_main"}}}),
+        "claude-code-claude-opus-5-5": WorkerProfile.model_validate(
+            {"adapter": "claude_code", "creator": "anthropic", "model_id": "anthropic/claude-opus-5-5", "model": "claude-opus-5-5",
+             "capabilities": caps, "tier": "strong", "auth": {"mode": "cli_login"}}),
+    }
+    # As Project.profiles attaches it: Baton's runner provides workspace_read, verified, to an API model that calls tools.
+    from baton import runner_tools
+
+    fable = profiles["openrouter-main-claude-fable-5-1"]
+    profiles["openrouter-main-claude-fable-5-1"] = fable.with_provided(runner_tools.provided(fable.adapter, fable.capabilities, False, fable.model))
+    vocab = vocab_mod.load(vocab_mod.DEFAULT)
+    before = routing.eligible_workers(step, "profile", profiles, vocab, preferences=Preferences(cheapest_first=False))
+    assert before.eligible[0]["profile"] == "openrouter-main-claude-fable-5-1"  # what happened on 2026-11-18
+    now = routing.eligible_workers(step, "profile", profiles, vocab, preferences=Preferences())
+    assert [e["profile"] for e in now.eligible] == ["claude-code-claude-opus-5-5", "openrouter-main-claude-fable-5-1"]
+    assert [e["cost"] for e in now.eligible] == ["included in your subscription", "15.0 in / 75.0 out per million tokens"]

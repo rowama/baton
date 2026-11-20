@@ -14,7 +14,7 @@ related: [user.connect-an-account, user.connect-a-subscription]
 - The **Use** box at the start of a row turns that model on or off for Baton's choices. Unticked means Baton will not pick it. Tick **turned off** in the filters to list the ones you switched off.
 - **Check it works** makes one real, small request to that model and records the result.
 - **Check abilities** gives a model a few short tasks, once, to learn what it can really do. See [Check abilities](#check-abilities).
-- **cheapest first** makes Baton pick the lowest-priced capable model; without it Baton picks the most proven one first.
+- **by cost** is on unless you turn it off: Baton picks what you already pay for first (a subscription such as Claude Code or Codex, while it has quota left), then free models, then the cheapest capable model. Turned off, Baton picks the most proven one first. When your assistant offers you a choice of model, it says what each costs: included in your subscription, free, or its price.
 
 ## Reading the table {#reading-the-table}
 

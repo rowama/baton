@@ -5,7 +5,7 @@ status: in-progress
 level: standard
 decisions: ["0161", "0045", "0042", "0174", "0110", "0124", "0114", "0115", "0181"]
 touches: [design/workers.md, design/director-interface.md, design/runtime.md, design/recipes.md]
-manual: [user/answer-questions-and-decide.md, admin/project-settings.md, admin/director-commands.md, admin/troubleshooting.md, reference/project-settings.md, reference/commands.md, reference-notes.yaml, anchors.yaml]
+manual: [user/answer-questions-and-decide.md, admin/project-settings.md, admin/director-commands.md, admin/troubleshooting.md, reference/project-settings.md, reference/commands.md, reference-notes.yaml, anchors.yaml, user/choose-models.md, admin/accounts-and-costs.md, admin/machine-settings.md]
 ---
 
 # Fixes and tweaks from the owner's first real use of Baton; the first batch
@@ -77,12 +77,13 @@ None open. Questions 6 to 8, and the tiers of recipe-builder's steps, were answe
 - `design/workers.md` §6.1: the built-in owner profile and profiles for other people (F-2, F-3); §6.4: what `workers status` shows.
 - `design/director-interface.md` §13.3: the skill lines for F-1, F-3, F-4 and F-5; §13.4: `doctor` on person steps; §13.7: `policy.people` (F-3).
 - `design/runtime.md` §8.4: routing person steps to the recorded person (F-3); cost-aware ordering by default (F-6).
-- `design/workers.md` §6.4: lifting unjudged models (F-6).
+- `design/workers.md` §6.4: lifting unjudged models (F-6): moved to `2026-11-model-assessment` (Decision 0175); not edited here.
 - `design/recipes.md` §5.7: recipe-builder's tiers per step (F-6).
 
 ### Manual edits
 
 - Slice 2: `user/answer-questions-and-decide.md` gains **Parts of the work for a person** (`#person-steps`): the question asked once, yes by default, someone else named instead, the answer kept, decisions staying the owner's; its *Confirming before anything is recorded* says a request to the assistant is not a confirmation (F-1). `admin/project-settings.md` documents `policy.people.person_steps`, the built-in `owner` profile and `person-<name>`. `admin/director-commands.md`: `policy set --person-steps`. `admin/troubleshooting.md`: the new `doctor` warning for a person's step. `reference/project-settings.md` (generated; optional blocks such as `policy.people` are now listed key by key, its note in `reference-notes.yaml`) and `reference/commands.md` regenerated. `anchors.yaml` updated.
+- Slice 3: `user/choose-models.md` says routing is by cost unless turned off (subscriptions first, then free, then cheapest), and that the assistant says what each choice costs; `admin/accounts-and-costs.md` and `admin/machine-settings.md` give the default order and `--verified-first`.
 
 ### Decisions
 
@@ -175,5 +176,14 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Summary:** Built-in profiles for people (`Project.people_profiles`): `owner` on every machine, and `person-<slug>` for a person the project policy names, both under every other profile source so a profile of the same name replaces one (`WorkerProfile.builtin_person`). They take only steps for a person (`routing.is_person_step`: requires `human_judgment`) and are not listed for any other step. Project policy gains `people.person_steps` (`PeopleConfig`), absent until set so older policies keep their hash; `policy set --person-steps` (CLI, MCP, API; `yes`/`me` record `owner`). Routing sends a person's step only to the named person, reading the policy in force at routing time. `start` (and `start --from-plan`) returns `people {steps, default, ask, next}` while unanswered. `doctor` no longer counts a person's profile as an AI helper, and says plainly when a replaced `owner` profile cannot do a person's step. `workers status` shows `people.owner {builtin}`. The Director skill asks once, yes by default. The settings reference generator now lists the keys of an optional block.
 - **Tests:** `tests/test_person_steps.py` (the built-in profile and its replacement; person steps only; doctor coverage, the plain message and no setup offer suppressed; the question at start asked once and kept; a named person's profile and routing, and changing back; the policy value, file and hash; refusal of an empty name; the CLI option; `workers status`; the skill line). Existing routing and onboarding tests pass unchanged: a built-in profile is not listed for AI steps.
 - **Design:** §6.1 (built-in profiles for people), §8.4 (person steps routed to the named person), §13.1 (`start`'s `people`, `policy_set`'s `person_steps`), §13.3 (skill), §13.4 (doctor), §13.7 (`policy.people`).
+- **Review:** clean.
+- **Accepted:** Pending the owner.
+
+### Slice 3: cost-aware routing (F-6)
+
+- **Commit:** `2026-11-first-use-feedback-batch-a: Slice 3, cost-aware routing`
+- **Summary:** `Preferences.cheapest_first` now defaults to true, and `routing.price_rank` ranks an included route first (`routing.included`: a harness CLI on `cli_login`; an exhausted quota is already excluded), then free, then priced cheapest first, then unpriced, verified-first and name breaking ties; `cheapest_first: false` (`--verified-first`) keeps the old order, and only that opt-out is written to a preferences file. Every eligible entry carries `cost` (`routing.cost_label`) and a reason line with it. The Director skill says what each choice costs and never offers a per-use route ahead of an included one without saying why. `recipe-builder@8`: `guide`, `generate`, `examples` and `build_programs/implement` take `standard`; `@7` is frozen in `tests/fixtures/recipes/recipe-builder-v7`. The setup page's toggle reads "by cost". `2026-11-ai-delegates` now plans `recipe-builder@9`, by landing order (Decision 0173).
+- **Tests:** `tests/test_listings.py` (default and opt-out orders; an included subscription first with each `cost`; an exhausted one left out; the run of 2026-11-18 reproduced with the old order choosing Fable over OpenRouter and the new one choosing Opus through Claude Code; the skill line). `tests/test_recipe_builder.py` (the tiers per step, generate's package review still strong, the frozen `@7`). Builder run and page tests updated for `@8` and the new default.
+- **Design:** §5.7 (recipe-builder's tiers), §8.4 (cost-aware default, `cost`), §13.3 (skill).
 - **Review:** clean.
 - **Accepted:** Pending the owner.

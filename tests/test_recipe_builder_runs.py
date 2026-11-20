@@ -228,10 +228,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@7")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@7"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@8")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@8"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@7"
+    assert started["recipe"] == "recipe-builder@8"
 
 
 @pytest.mark.slow
@@ -1221,7 +1221,7 @@ PROCEDURES = "# How we plant a bed\n\n1. Test the soil.\n2. Plant in rows of fou
 
 @pytest.mark.slow
 def test_the_owners_procedures_reach_the_profile_the_research_and_the_design(project_with):
-    """recipe-builder@7: documents bound to `context` are given to the three steps that learn from them, byte for byte."""
+    """recipe-builder@7 and later: documents bound to `context` are given to the three steps that learn from them, byte for byte."""
     ledger = [GOAL, BED, SOIL]
     cli, project, _ = project_with({
         "profile": profile("standard", [GOAL, BED]),
@@ -1237,7 +1237,7 @@ def test_the_owners_procedures_reach_the_profile_the_research_and_the_design(pro
                   "--note", "Yes, learn from our manual.", expect=None)["run_id"]
     d = Director(cli, project, run, route=route, decisions={"audit": [("approve", "That is it.")]})
     st = d.drive()
-    assert st["recipe"] == "recipe-builder@7" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
+    assert st["recipe"] == "recipe-builder@8" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
     from projectkit import packet_dir
 
     inst = st["groups"]["shape"]["instances"][0]["id"]

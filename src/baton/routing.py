@@ -177,14 +177,39 @@ def identity_record(profile_name: str, profile: WorkerProfile) -> dict[str, Any]
     return out
 
 
+#: Adapters whose route is a person, a command or a recipe's program: never a subscription.
+NOT_SUBSCRIPTION = ("manual", "command", "program", "litellm_api")
+
+
+def included(profile: WorkerProfile) -> bool:
+    """A subscription route the owner already pays for: a harness CLI on its own login (Decision 0181).
+
+    An exhausted quota already excludes the route until it resets (0114), so an eligible one has quota left."""
+    return profile.auth.mode == "cli_login" and profile.adapter not in NOT_SUBSCRIPTION
+
+
 def price_rank(profile: WorkerProfile) -> tuple[int, float]:
-    """Cheapest first: a known price by input plus output per million tokens; an unpriced route after every priced one."""
+    """Cost-aware order (Decision 0181): an included subscription, then free, then priced (input plus output
+    per million tokens, cheapest first), then a route with no known price."""
+    if included(profile):
+        return (0, 0.0)
     pr = profile.price
     if not pr:
-        return (1, 0.0)
+        return (3, 0.0)
     if pr.get("free"):
-        return (0, 0.0)
-    return (0, float(pr.get("input", 0)) + float(pr.get("output", 0)))
+        return (1, 0.0)
+    return (2, float(pr.get("input", 0)) + float(pr.get("output", 0)))
+
+
+def cost_label(profile: WorkerProfile) -> str:
+    """What a dispatch to this route costs, in the words the Director gives the owner (Decision 0181)."""
+    if included(profile):
+        return "included in your subscription"
+    if profile.adapter == "manual":
+        return "a person's time"
+    if not profile.price:
+        return "price unknown"
+    return price_label(profile.price)
 
 
 def price_label(price: dict[str, Any]) -> str:
@@ -389,13 +414,13 @@ def eligible_workers(
     def verified_first(n: str) -> tuple[int, str]:
         return (-sum(st == "verified" for st in kept[n]["capabilities"].values()), n)
 
-    if prefs.cheapest_first:  # price first, unpriced last, then as before (0115)
+    if prefs.cheapest_first:  # the default: cost first, then as before (0115, 0181)
         ordered += sorted(rest, key=lambda n: (price_rank(profiles[n]), *verified_first(n)))
-        for n in rest:
-            if profiles[n].price is not None:
-                kept[n]["reasons"].append(f"price: {price_label(profiles[n].price)}")
-    else:
+    else:  # --verified-first: the order before 0181
         ordered += sorted(rest, key=verified_first)
+    for n in ordered:
+        kept[n]["cost"] = cost_label(profiles[n])
+        kept[n]["reasons"].append(f"cost: {kept[n]['cost']}")
     out.eligible = [kept[n] for n in ordered]
     return out
 

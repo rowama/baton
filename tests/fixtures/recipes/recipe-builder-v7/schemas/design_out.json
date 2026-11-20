@@ -1,0 +1,1099 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "summary",
+    "stages",
+    "ledger",
+    "discovery"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "done_by",
+          "traits",
+          "acceptance",
+          "needs",
+          "hands_on",
+          "on_failure"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "done_by": {
+            "enum": [
+              "program",
+              "automatic_check",
+              "person",
+              "ai"
+            ],
+            "description": "The simplest means that can do the stage: a program (a script the recipe ships), an automatic check, a person, or an AI worker"
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hands_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner_decision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "on_failure": {
+            "enum": [
+              "retry",
+              "revise",
+              "escalate",
+              "stop",
+              "accepted_risk"
+            ]
+          },
+          "failure_note": {
+            "type": "string"
+          },
+          "traits": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What the stage's work is like; the doer and the check follow from it (Decision 0162, item 1)",
+            "required": [
+              "rules",
+              "input",
+              "repeatable",
+              "effect",
+              "result",
+              "check",
+              "basis"
+            ],
+            "properties": {
+              "rules": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "none"
+                ],
+                "description": "Can complete rules be written for every input in scope?"
+              },
+              "input": {
+                "enum": [
+                  "structured",
+                  "open"
+                ],
+                "description": "The form of its input"
+              },
+              "repeatable": {
+                "enum": [
+                  "required",
+                  "not_required"
+                ],
+                "description": "Must the same input give the same result?"
+              },
+              "effect": {
+                "enum": [
+                  "none",
+                  "reversible",
+                  "irreversible"
+                ],
+                "description": "irreversible: spends money, changes something others depend on, or cannot be undone"
+              },
+              "result": {
+                "enum": [
+                  "certain",
+                  "uncertain"
+                ],
+                "description": "uncertain: a correct result can still be wrong about the world (a forecast, a reading of a scan)"
+              },
+              "check": {
+                "enum": [
+                  "mechanical",
+                  "source",
+                  "judgment"
+                ],
+                "description": "How its output can be checked"
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One line: why these traits"
+              }
+            }
+          },
+          "acceptance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "what"
+            ],
+            "description": "The stage's acceptance check and what it establishes",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "format",
+                  "rule",
+                  "source",
+                  "judgment"
+                ]
+              },
+              "what": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "program": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "does",
+              "input",
+              "output",
+              "reach"
+            ],
+            "description": "The script that does a program stage (\u00a75.9), within the program budget: simple (written in one pass to drafted examples) or engineered (built later to the owner's examples, Decision 0164)",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "kind": {
+                "enum": [
+                  "simple",
+                  "engineered"
+                ],
+                "description": "simple when absent; engineered only when the run's software rating is engineered"
+              },
+              "does": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What it does, in the owner's terms"
+              },
+              "input": {
+                "type": "string",
+                "minLength": 1
+              },
+              "output": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reach": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "workspace"
+                ],
+                "properties": {
+                  "workspace": {
+                    "enum": [
+                      "none",
+                      "read",
+                      "write"
+                    ]
+                  },
+                  "network": {
+                    "type": "boolean"
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "input",
+                    "expected",
+                    "says"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The JSON inputs, by input name (input.json)"
+                    },
+                    "files": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Each file input, as <input name>.<ext> and its exact text (inputs/)"
+                    },
+                    "expected": {
+                      "type": "object",
+                      "description": "What output.json must equal"
+                    },
+                    "artifacts": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Each expected artifact, as <artifact>.<ext> and its exact text (expected/)"
+                    },
+                    "says": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The example in the owner's words, for the design document"
+                    }
+                  }
+                }
+              },
+              "contract": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "input_schema",
+                  "output_schema",
+                  "packages",
+                  "budget_reason"
+                ],
+                "description": "An engineered program's contract: what it takes and gives, every package it needs and why, and why it is within the program budget",
+                "properties": {
+                  "input_schema": {
+                    "type": "object",
+                    "description": "JSON Schema of the inputs file"
+                  },
+                  "output_schema": {
+                    "type": "object",
+                    "description": "JSON Schema of output.json"
+                  },
+                  "packages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "why"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "why": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  "budget_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why it is one program: one command, inputs in and outputs out, nothing kept running, testable from examples"
+                  },
+                  "size_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only when it will be over 600 lines of code: why it is still one program"
+                  }
+                }
+              },
+              "examples_needed": {
+                "type": "array",
+                "minItems": 3,
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "awkward": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "awkward"
+                  ]
+                },
+                "description": "The examples the owner should supply for an engineered program, in plain words: at least three, one a case the owner finds awkward",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "what",
+                    "awkward"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "what": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What files go in and what result is expected, in the owner's terms"
+                    },
+                    "awkward": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "base": {
+                "enum": [
+                  "unchanged",
+                  "changed",
+                  "new"
+                ],
+                "description": "With a base recipe: whether this engineered program is the base recipe's unchanged, changed or new (unchanged programs are copied, not rebuilt)"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "engineered"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "contract",
+                    "examples_needed"
+                  ]
+                },
+                "else": {
+                  "required": [
+                    "examples"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "contract"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "examples_needed"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "executor_choice": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "could_be",
+              "reason",
+              "gives_up",
+              "would_cost"
+            ],
+            "description": "Why an AI worker does a stage software could do (Decision 0155, item 3)",
+            "properties": {
+              "could_be": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What could have done it"
+              },
+              "reason": {
+                "enum": [
+                  "ceiling",
+                  "owner_choice",
+                  "over_budget"
+                ],
+                "description": "ceiling: the owner's software rating; owner_choice: the owner chose an AI worker; over_budget: the work exceeds the program budget"
+              },
+              "gives_up": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The same result every time, no cost per run, no dependence on a harness"
+              },
+              "would_cost": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Building it, and the attention software needs"
+              },
+              "ledger_id": {
+                "type": "string",
+                "description": "The owner's confirmed ledger entry, when the owner chose"
+              }
+            },
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "owner_choice"
+                }
+              },
+              "required": [
+                "reason"
+              ]
+            },
+            "then": {
+              "required": [
+                "ledger_id"
+              ]
+            }
+          },
+          "delegation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "risky",
+              "reason"
+            ],
+            "description": "Whether handing this stage or decision to the owner's AI delegate is risky (Decision 0161)",
+            "properties": {
+              "risky": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why, in the owner's terms"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "program"
+                }
+              },
+              "required": [
+                "done_by"
+              ]
+            },
+            "then": {
+              "required": [
+                "program"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "program"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "ai"
+                },
+                "traits": {
+                  "properties": {
+                    "rules": {
+                      "const": "complete"
+                    },
+                    "input": {
+                      "const": "structured"
+                    }
+                  },
+                  "required": [
+                    "rules",
+                    "input"
+                  ]
+                }
+              },
+              "required": [
+                "done_by",
+                "traits"
+              ]
+            },
+            "then": {
+              "required": [
+                "executor_choice"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "done_by": {
+                  "const": "ai"
+                },
+                "traits": {
+                  "properties": {
+                    "repeatable": {
+                      "const": "required"
+                    }
+                  },
+                  "required": [
+                    "repeatable"
+                  ]
+                }
+              },
+              "required": [
+                "done_by",
+                "traits"
+              ]
+            },
+            "then": {
+              "required": [
+                "executor_choice"
+              ]
+            }
+          },
+          {
+            "if": {
+              "not": {
+                "properties": {
+                  "done_by": {
+                    "const": "ai"
+                  }
+                },
+                "required": [
+                  "done_by"
+                ]
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "executor_choice"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "done_by": {
+                      "const": "person"
+                    }
+                  },
+                  "required": [
+                    "done_by"
+                  ]
+                },
+                {
+                  "properties": {
+                    "owner_decision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "owner_decision"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "delegation"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "traits": {
+                  "properties": {
+                    "effect": {
+                      "const": "irreversible"
+                    }
+                  },
+                  "required": [
+                    "effect"
+                  ]
+                },
+                "delegation": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "traits",
+                "delegation"
+              ]
+            },
+            "then": {
+              "properties": {
+                "delegation": {
+                  "properties": {
+                    "risky": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "traits": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "effect": {
+                          "enum": [
+                            "reversible",
+                            "irreversible"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "effect"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "result": {
+                          "const": "uncertain"
+                        }
+                      },
+                      "required": [
+                        "result"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "traits"
+              ]
+            },
+            "then": {
+              "properties": {
+                "acceptance": {
+                  "properties": {
+                    "kind": {
+                      "not": {
+                        "const": "format"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Stated limits of this version"
+    },
+    "ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "kind",
+          "scope",
+          "status",
+          "basis"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "goal",
+              "requirement",
+              "constraint",
+              "assumption",
+              "decision",
+              "failure",
+              "limit"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "class",
+              "instance"
+            ],
+            "description": "class: true of every job the recipe will cover; instance: true of this job only"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "researched",
+              "inferred",
+              "open",
+              "excluded"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "description": "Why this is believed: the owner's words, a source, or the inference made"
+          },
+          "owner_words": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for a confirmed entry"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For an instance entry: the job's own value, kept for the example run input"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "discovery": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "target_status",
+          "timing",
+          "timing_reason",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "In the owner's terms"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What made this a question to investigate; never a technology choice"
+          },
+          "target_status": {
+            "enum": [
+              "none",
+              "firm_constraint",
+              "preference",
+              "example"
+            ],
+            "description": "How the owner named a target, if they did"
+          },
+          "named_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timing": {
+            "enum": [
+              "before_design",
+              "in_generated_recipe",
+              "settled",
+              "not_needed"
+            ]
+          },
+          "timing_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_effect": {
+            "type": "string",
+            "description": "before_design: which stages, workers, artifacts or checks would differ; in_generated_recipe: why one graph accommodates the alternatives"
+          },
+          "status": {
+            "enum": [
+              "to_research",
+              "researched",
+              "decided",
+              "deferred",
+              "closed"
+            ]
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "criteria",
+                  "options",
+                  "uncertainty",
+                  "recommendation"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "criteria": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Tied to the owner's requirements"
+                  },
+                  "options": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "kind",
+                        "requires_of_development",
+                        "tradeoffs",
+                        "sources"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "enum": [
+                            "existing_product",
+                            "framework",
+                            "standard",
+                            "manual_procedure",
+                            "custom",
+                            "other"
+                          ]
+                        },
+                        "requires_of_development": {
+                          "type": "string",
+                          "description": "What building the process would need to do differently for this option: stages, workers, artifacts, checks"
+                        },
+                        "tradeoffs": {
+                          "type": "string"
+                        },
+                        "sources": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "title",
+                              "read_on"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "title": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "url": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "read_on": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The date the source was read, and its version where that matters"
+                              },
+                              "supports": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "exclusions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "reason"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "uncertainty": {
+                    "type": "string"
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A recommendation is never the owner's choice"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "ledger_id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "ledger_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The confirmed `decision` ledger entry carrying the owner's words"
+          },
+          "generated": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "research_step",
+                  "decision_step",
+                  "consumers"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "research_step": {
+                    "type": "string"
+                  },
+                  "decision_step": {
+                    "type": "string"
+                  },
+                  "consumers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For timing in_generated_recipe: the stages that research, decide and use the choice"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "timing": {
+                  "const": "before_design"
+                }
+              },
+              "required": [
+                "timing"
+              ]
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "decided"
+                },
+                "decision": {
+                  "type": "object"
+                },
+                "comparison": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "comparison",
+                "decision"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "timing": {
+                  "const": "in_generated_recipe"
+                }
+              },
+              "required": [
+                "timing"
+              ]
+            },
+            "then": {
+              "required": [
+                "generated"
+              ],
+              "properties": {
+                "generated": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "description": "Implementation choices that matter to the goal, their timing and, where discovered, the comparison and the owner's decision (Decision 0141)"
+    }
+  },
+  "additionalProperties": false
+}

@@ -139,7 +139,7 @@ def test_the_cli_and_the_page_write_the_same_preferences_file(home, tmp_path, mo
         assert res.exit_code == 0, res.output
     assert (home / "preferences.yaml").read_text() == (other / "preferences.yaml").read_text()
     shown = CliRunner().invoke(cli.app, ["workers", "prefs"])
-    assert "cheapest first" in shown.output and "turned off: codex" in shown.output
+    assert "by cost (your subscriptions" in shown.output and "turned off: codex" in shown.output
     bad = CliRunner().invoke(cli.app, ["workers", "prefs", "--exclude", "nope", "--json"])
     assert bad.exit_code == 1 and "no worker profile named nope" in bad.output
     assert CliRunner().invoke(cli.app, ["workers", "prefs", "--prefer", "oops"]).exit_code == 2
@@ -155,4 +155,4 @@ def test_the_state_carries_what_the_models_table_filters_on(home):  # noqa: F811
     row = state["models"][0]
     for k in ("provider", "price", "context_tokens", "tier", "capabilities", "verified", "enabled", "subscription"):
         assert k in row
-    assert state["preferences"] == {"cheapest_first": False, "exclude": [], "prefer_by_capability": {}}
+    assert state["preferences"] == {"cheapest_first": True, "exclude": [], "prefer_by_capability": {}}
