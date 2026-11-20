@@ -161,3 +161,10 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Summary:** The owner renamed the change to the first batch (F-1 to F-8); the doc, the register and the references in other docs were made consistent. Q6's `[VERIFY]` was checked against the code: harness routes carry no price and rank last under `cheapest_first`. Questions 6 to 8 and recipe-builder's tiers per step were put to the owner with suggested answers and recorded as Decision 0181. Status set to in-progress. No code changed.
 - **Owner decision:** 2026-11-20, "Work on this first batch of issues"; chose each suggested answer (0181).
 - **Accepted:** Request accepted for work; slices follow.
+
+### Slice 1: the Director skill (F-1, F-4, F-5)
+
+- **Commit:** `2026-11-first-use-feedback-batch-a: Slice 1, the Director skill`
+- **Summary:** `skills/baton-director/SKILL.md` and its copy in §13.3 gain three lines: a hard rule that an instruction to the Director is not the owner's confirmation and never a run input (F-1); session item 4a, vendoring a shipped recipe the owner names after confirming back (F-5); and under *Questions*, reporting a `doctor`, `check` or `status` warning as stated and reading what the check tests before calling it wrong (F-4). `tests/test_director_surface.py` checks the lines. The live Director scenario (criterion: a transcript checked for each) is **not yet written**; it is left for the next session.
+- **Manual:** none: the skill is the Director's, not the owner's.
+- **Accepted:** Pending the live scenario.

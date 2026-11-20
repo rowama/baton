@@ -5,7 +5,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
 | [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | in-progress | major | Slices 1 and 2 done; six routing refinements accepted (0179); slice 3 next |
-| [2026-11-first-use-feedback-batch-a](2026-11-first-use-feedback-batch-a.md) | Fixes and tweaks from the owner's first real use of Baton; the first batch | in-progress | standard | All questions answered (0174, 0181); slice 1 next |
+| [2026-11-first-use-feedback-batch-a](2026-11-first-use-feedback-batch-a.md) | Fixes and tweaks from the owner's first real use of Baton; the first batch | in-progress | standard | Slice 1 skill lines done, its live scenario pending; slices 2 to 4 next |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
