@@ -57,3 +57,5 @@ See [exit codes](admin.directors#exit-codes).
 ## Reports and logs {#logs}
 
 Raw worker output is in `~/.baton/logs/` (unredacted, local only). A run's own record is under `.baton/runs/<run>/`, and `baton explain` and `baton trace` read it back.
+
+When a helper explicitly reports that it cannot complete a step, Baton pauses for review and shows its explanation. Review the cause before choosing **Retry**; the next attempt receives the failure reason and your guidance. Failed checks and invalid completed outputs still use their normal retry limits.

@@ -543,7 +543,8 @@ def test_a_second_signal_on_the_axis_joins_the_pending_one(ctx):
     engine.decide(ctx, "build", "approve", "")  # its human gate at assurance high
     p = engine.begin_attempt(ctx, "verify", "owner", WRITER)
     write_result(p, {}, status="failed", rating_signal={"axis": "assurance", "suggested": "medium", "reason": "no tenant data"})
-    assert engine.submit(ctx, "verify").outcome == "retry"  # a signal is recorded whatever the result
+    assert engine.submit(ctx, "verify").outcome == "escalated"  # a signal is recorded whatever the result
+    engine.decide(ctx, "verify", "retry", "Reviewed the failure")
     signal(ctx, "verify", "assurance", "medium", "only a log line changes")
     (inst,) = [p for p, st in ctx.log.state().steps.items() if p.startswith("checks/") and p.endswith("/probe") and st.state == "ready"]
     signal(ctx, inst, "discovery", "low", "same as now")  # the current rating: not shown

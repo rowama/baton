@@ -301,7 +301,8 @@ def discovery_script(ledger, **over):
     full = [*ledger, PRINTED]
     base = {
         "profile": {"output": {**profile("standard", ledger)["output"], "discovery": [BEFORE]}},
-        "research": [{"status": "blocked", "output": {}, "questions_for_human": [QUESTION]},
+        "research": [{"status": "blocked", "output": {"discovery": [{**BEFORE, "status": "researched", "comparison": CHOSEN["comparison"]}],
+                                                      "ledger": ledger, "sources": []}, "questions_for_human": [QUESTION]},
                      {"output": {"discovery": [CHOSEN], "ledger": full, "sources": [{"title": "A gardening handbook", "url": None, "what_it_supports": "D1"}]}}],
         "design": {"output": {**design(full)["output"], "discovery": [CHOSEN]}, "artifacts": design(full)["artifacts"]},
         "audit": CLEAN, "generate": generated(full, [CHOSEN]),
@@ -323,6 +324,17 @@ def test_a_choice_that_shapes_the_process_is_researched_and_the_owner_decides_be
     # The owner's confirmed words, recorded by the runtime, reach the retried research packet...
     manifest = json.loads((packet_dir(project, run, "research", 2) / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["prior_feedback"]["answers"] == ANSWER
+    first = packet_dir(project, run, "research", 1)
+    instructions = (first / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "When `status` is `completed`, `output` validates" in instructions
+    assert "The output schema and required artifacts apply only to `completed` results" in instructions
+    from jsonschema import Draft202012Validator
+
+    partial = discovery_script(ledger)["research"][0]["output"]
+    assert not Draft202012Validator(json.loads((first / "output_schema.json").read_text(encoding="utf-8"))).is_valid(partial)
+    research_events = [e for e in run_events(project, run) if e["step_path"] == "research"]
+    assert not [e for e in research_events if e["type"] == "result_rejected"]
+    assert [e["data"]["reason"] for e in research_events if e["type"] == "step_escalated"] == ["blocked"]
     # ...and the decision they produced reaches the design packet, with the comparison behind it.
     import re
 

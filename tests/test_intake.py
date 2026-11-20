@@ -163,21 +163,42 @@ def test_attempts_exhausted_escalates(store):
 
 
 @pytest.mark.not_slow("measured under 1 s")
-def test_blocked_escalates_with_questions(store):
+@pytest.mark.parametrize("output", [None, {}, {"discovery": [{"status": "researched"}]}])
+def test_blocked_escalates_with_questions(store, output):
     ctx = start(store, FIT_CHECK)
-    _, out = attempt(ctx, "describe", None, status="blocked", questions_for_human=["How often does it happen?"])
+    _, out = attempt(ctx, "describe", output, status="blocked", questions_for_human=["How often does it happen?"])
     assert out.outcome == "escalated"
     esc = ctx.record().last("step_escalated", "describe")
     assert esc.data["reason"] == "blocked"
     assert esc.data["questions"] == [{"id": "q1", "ask": "How often does it happen?", "why": "", "options": [],
                                       "multi_select": False, "priority": "needed"}]
+    submitted = ctx.record().last("result_submitted", "describe").data
+    assert submitted["output_sha256"] is None and not submitted["artifacts"]
 
 
 @pytest.mark.not_slow("measured under 1 s")
-def test_worker_failed_is_retried(store):
+def test_blocked_partial_output_still_requires_packet_provenance(store):
     ctx = start(store, FIT_CHECK)
-    _, out = attempt(ctx, "describe", None, status="failed", notes="could not reach the owner")
-    assert out.outcome == "retry" and "could not reach the owner" in out.reasons[0]
+    p = engine.begin_attempt(ctx, "describe", "owner", WRITER)
+    write_result(p, {}, status="blocked", packet_sha256="0" * 64, questions_for_human=["Which way?"])
+    out = engine.submit(ctx, "describe")
+    assert out.outcome == "retry" and any("packet_sha256" in reason for reason in out.reasons)
+
+
+@pytest.mark.not_slow("measured under 1 s")
+@pytest.mark.parametrize("notes", ["", "packet instructions contradict the schema", "could not reach the owner"])
+def test_worker_failed_escalates_until_an_explicit_retry(store, notes):
+    ctx = start(store, FIT_CHECK)
+    _, out = attempt(ctx, "describe", None, status="failed", notes=notes)
+    assert out.outcome == "escalated" and notes in out.reasons[0]
+    assert state(ctx, "describe") == "escalated"
+    pending = engine.pending_decisions(ctx)
+    assert len(pending) == 1 and pending[0]["reason"] == "worker_failed"
+    assert pending[0]["reasons"] == out.reasons
+    engine.decide(ctx, "describe", "retry", note="Retry after reviewing the failure")
+    assert state(ctx, "describe") == "ready"
+    p = engine.begin_attempt(ctx, "describe", "owner", WRITER)
+    assert p.manifest["prior_feedback"]["reasons"] == [*out.reasons, "the owner answered: Retry after reviewing the failure"]
 
 
 @pytest.mark.not_slow("measured under 1 s")

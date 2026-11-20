@@ -318,3 +318,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0177 Capability checks: no vision check until a step needs image input; each call's tokens, cost and response time are recorded](decisions/0177-capability-check-details.md) | accepted |
 | [0178 Tiers from evaluations: the Artificial Analysis index decides (strong 50+, standard 25+, per index version), LMArena supports; standard or better grants technical_reasoning; a failed check task is run once more](decisions/0178-evaluation-tiers.md) | accepted |
 | [0179 Trial and shadow routing: candidate selection, effects, reviews, budgets and evidence identity](decisions/0179-trial-and-shadow-routing-details.md) | accepted |
+| [0180 Explicit worker failures escalate for review instead of automatically retrying](decisions/0180-worker-failures-escalate.md) | accepted |

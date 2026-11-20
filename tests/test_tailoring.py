@@ -241,7 +241,8 @@ def test_ready_to_skipped_only_for_a_step_never_dispatched(ctx):
     engine.decide(ctx, "triage", "approve", "")
     p = engine.begin_attempt(ctx, "spec", "owner", WRITER)
     write_result(p, {}, status="failed")
-    engine.submit(ctx, "spec")  # back to ready for attempt 2
+    assert engine.submit(ctx, "spec").outcome == "escalated"
+    engine.decide(ctx, "spec", "retry", "Reviewed the failure")
     assert state(ctx, "spec") == "ready"
     with pytest.raises(IllegalTransition):
         ctx.log.append("step_skipped", step_path="spec")

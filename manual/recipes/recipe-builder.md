@@ -59,6 +59,8 @@ When it happens depends on the choice:
 - **Inside the finished process.** If one process fits every way (each job picks its own tool, say), the process itself includes a stage that compares the options for that job, a point where you decide, and the stages that use your decision, before any work that depends on it.
 - **Not at all.** If you already said how it must be done, or the work is plain, it does not compare anything.
 
+For an early choice, research pauses with its comparison and questions for you. It does not need a finished decision to ask. Your assistant confirms your answer and retries research with your words; only then does the decision go into the design. A recommendation never counts as your answer.
+
 If you name a product or a method, Baton asks whether it is a must, a preference or only an example. A must is not argued with, though it will tell you if what it finds contradicts it. Baton does not recommend one product over others as a rule, and it does not build exports for other tools or operate them. If it cannot reach current sources, it says so and asks rather than answering from memory.
 
 ## Who does each part {#who-does-each-part}

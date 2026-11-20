@@ -207,7 +207,7 @@ def test_a_signal_joining_a_pending_rating_decision_changes_its_id(ctx):
     assert rid == interactions.request_id(ctx, dict(first))  # stable while nothing changes
     p = engine.begin_attempt(ctx, "verify", "owner", WRITER)  # a failed attempt: the run stays active
     write_result(p, {}, status="failed", rating_signal={"axis": "assurance", "suggested": "high", "reason": "and it changes the audit log"})
-    assert engine.submit(ctx, "verify").outcome == "retry"
+    assert engine.submit(ctx, "verify").outcome == "escalated"
     (second,) = [p for p in engine.pending_decisions(ctx) if p["kind"] == "rating_signal"]
     assert second["ref"] == first["ref"] and interactions.request_id(ctx, second) != rid
 

@@ -98,7 +98,7 @@ File: `inputs/recipes.json` (application/json)
 ## Done when
 
 - Write result/result.json (status, output, artifacts), echoing packet_sha256 from manifest.json.
-- `output` validates against output_schema.json.
+- When `status` is `completed`, `output` validates against output_schema.json.
 - Afterwards the owner is asked (by the runtime, not by you; do not report `blocked` for it): Accept this verdict and its suggested next step?
 
 ## Protocol
@@ -114,7 +114,7 @@ File: `inputs/recipes.json` (application/json)
   "protocol": "baton-packet/1",
   "packet_sha256": "<copy from manifest.json>",
   "status": "completed | blocked | failed",
-  "output": "<an object matching output_schema.json>",
+  "output": "<matches output_schema.json when completed; partial output or {} otherwise>",
   "artifacts": [
     {
       "name": "<declared artifact name>",
@@ -129,6 +129,9 @@ File: `inputs/recipes.json` (application/json)
 
 - Use `blocked` with `questions_for_human` when only the owner can answer something; `failed` when
   you cannot do the step. Never guess or improvise around a mismatch: report it.
+- The output schema and required artifacts apply only to `completed` results. For `blocked` or `failed`,
+  return partial `output` or `{}` and list no artifacts. The result envelope, protocol and packet hash
+  must still be valid. An unanswered owner choice is `blocked`; never invent a decision to satisfy the schema.
 - Each question is `{"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?,
   "priority"?: "needed" | "helpful"}`, written in the owner's terms (never this process's vocabulary).
   Infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.

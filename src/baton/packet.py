@@ -462,7 +462,7 @@ def exit_criteria(step: Step, level: dict[str, str] | None) -> list[str]:
     """What "done" means for this step, rendered from its output contract and gates."""
     out = ["Write result/result.json (status, output, artifacts), echoing packet_sha256 from manifest.json."]
     if step.output_schema:
-        out.append("`output` validates against output_schema.json.")
+        out.append("When `status` is `completed`, `output` validates against output_schema.json.")
     for a in step.artifacts:
         if a.required:
             mt = f" ({a.media_type})" if a.media_type else ""
@@ -620,7 +620,7 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
                 "protocol": PROTOCOL,
                 "packet_sha256": "<copy from manifest.json>",
                 "status": "completed | blocked | failed",
-                "output": "<an object matching output_schema.json>",
+                "output": "<matches output_schema.json when completed; partial output or {} otherwise>",
                 "artifacts": [{"name": "<declared artifact name>", "path": "artifacts/<file>"}],
                 "notes": "",
                 "questions_for_human": [],
@@ -633,6 +633,9 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
         "",
         "- Use `blocked` with `questions_for_human` when only the owner can answer something; `failed` when",
         "  you cannot do the step. Never guess or improvise around a mismatch: report it.",
+        "- The output schema and required artifacts apply only to `completed` results. For `blocked` or `failed`,",
+        "  return partial `output` or `{}` and list no artifacts. The result envelope, protocol and packet hash",
+        "  must still be valid. An unanswered owner choice is `blocked`; never invent a decision to satisfy the schema.",
         "- Each question is `{\"id\", \"ask\", \"why\", \"best_guess\"?, \"options\"?: [{\"id\", \"label\"}], \"multi_select\"?,",
         "  \"priority\"?: \"needed\" | \"helpful\"}`, written in the owner's terms (never this process's vocabulary).",
         "  Infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.",

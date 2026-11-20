@@ -784,7 +784,8 @@ def submit(
     if sub.status == "failed":
         reasons = [f"the worker reported failure: {sub.notes}" if sub.notes else "the worker reported failure"]
         log.append("result_rejected", step_path=step_path, attempt=n, data={"reasons": reasons, "worker_status": "failed"})
-        return _failed(ctx, step_path, n, reasons)
+        log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "worker_failed", "reasons": reasons})
+        return Outcome(step_path, n, "escalated", reasons)
     for c in claims:
         log.append("finding_dispositioned", actor=actor, step_path=c.pop("step_path"), data=c)
     log.append(
