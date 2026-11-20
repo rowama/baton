@@ -1,7 +1,7 @@
 ---
 id: 2026-11-first-use-feedback-batch-a
 title: "Fixes and tweaks from the owner's first real use of Baton; the first batch"
-status: in-progress
+status: done
 level: standard
 decisions: ["0161", "0045", "0042", "0174", "0110", "0124", "0114", "0115", "0181"]
 touches: [design/workers.md, design/director-interface.md, design/runtime.md, design/recipes.md, design/packets.md]
@@ -48,7 +48,7 @@ The owner has started using Baton for real, beginning with a recipe-builder run 
 6. **F-6.**
    - Routing is cost-aware by default: a route the owner already pays for (a subscription CLI with quota left) comes before a pay-per-token route, and among the rest the cheaper first; price, not the profile's name, breaks ties.
    - recipe-builder asks for `strong` only on steps that need it; steps that assemble or transcribe take `standard`.
-   - Unjudged models can be lifted without the owner writing anything: the common ones judged in the shipped data, or a cheap check on request (see open question 5).
+   - Unjudged models can be lifted without the owner writing anything: the common ones judged in the shipped data, or a cheap check on request (see open question 5). *Handed over to `2026-11-model-assessment` (0175); the owner, 2026-11-20: "I'll finish the model-assessments later incl criterion 6."*
    - When the Director offers a choice of worker, it says what each costs (included in a subscription, or roughly how much credit), and never offers a pay-per-token route ahead of a paid-for one without saying why.
 7. **F-7.** Answers the owner gives to any step of a group's iteration reach the same step in every later iteration, and the reviews of that step, until the owner changes them (0181). A worker may ask again only about something the earlier answers do not cover, and must say what changed.
 8. **F-8.** When a step is retried after the owner answers its questions, the retry receives the blocked attempt's output as well as the answers. An answer that accepts something the worker proposed records what was accepted (the proposal, or a reference to it by content hash), so the decision stands on its own in the record.
@@ -170,7 +170,7 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Commit:** `2026-11-first-use-feedback-batch-a: Slice 1, the Director skill`
 - **Summary:** `skills/baton-director/SKILL.md` and its copy in §13.3 gain three lines: a hard rule that an instruction to the Director is not the owner's confirmation and never a run input (F-1); session item 4a, vendoring a shipped recipe the owner names after confirming back (F-5); and under *Questions*, reporting a `doctor`, `check` or `status` warning as stated and reading what the check tests before calling it wrong (F-4). `tests/test_director_surface.py` checks the lines. The live Director scenario is `tests/test_live_director_confirms.py` (opt-in, `BATON_LIVE=1`, about four Claude Code turns on the owner's subscription): the owner opens with an instruction to the Director, and the record must show recipe-builder vendored after the first turn with a note that is not the instruction, and a run `idea` that is the owner's description (F-1, F-5). F-4 is left to the owner's reading of the saved transcript and to the skill test. The live test has not been run yet.
 - **Manual:** none: the skill is the Director's, not the owner's.
-- **Accepted:** Pending the owner's live run of the scenario.
+- **Accepted:** Yes, 2026-11-20 ("I accept these 4 slices."); the live scenario was not run.
 
 ### Slice 2: who does the person steps (F-2, F-3)
 
@@ -179,7 +179,7 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Tests:** `tests/test_person_steps.py` (the built-in profile and its replacement; person steps only; doctor coverage, the plain message and no setup offer suppressed; the question at start asked once and kept; a named person's profile and routing, and changing back; the policy value, file and hash; refusal of an empty name; the CLI option; `workers status`; the skill line). Existing routing and onboarding tests pass unchanged: a built-in profile is not listed for AI steps.
 - **Design:** §6.1 (built-in profiles for people), §8.4 (person steps routed to the named person), §13.1 (`start`'s `people`, `policy_set`'s `person_steps`), §13.3 (skill), §13.4 (doctor), §13.7 (`policy.people`).
 - **Review:** clean.
-- **Accepted:** Pending the owner.
+- **Accepted:** Yes, 2026-11-20 ("I accept these 4 slices.").
 
 ### Slice 3: cost-aware routing (F-6)
 
@@ -189,7 +189,7 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Design:** §5.7 (recipe-builder's tiers), §8.4 (cost-aware default, `cost`), §13.3 (skill).
 - **Full suite:** the first run on the slice's SHA was red on `tests/test_harness_tools.py::test_a_web_step_turns_on_web_tools_and_a_used_tool_is_verified` (outcome `retry`, not `passed`). It passes alone, and it failed the same way on three earlier, unrelated commits (`f1c96e8`, `e558d53`, `632abdb`): a known flake under load, not this slice. A rerun on the same SHA was green; no code changed.
 - **Review:** clean.
-- **Accepted:** Pending the owner.
+- **Accepted:** Yes, 2026-11-20 ("I accept these 4 slices.").
 
 ### Slice 4: answers that last (F-7, F-8)
 
@@ -198,4 +198,10 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Tests:** `tests/test_lasting_answers.py`: the run of 2026-11-20 in miniature (a step blocked with a proposal, answered with "accept all as suggested", its retry receiving the proposal, the answers' record holding its hash; the review receiving the answers; round two's first attempt receiving them and told not to ask again); no earlier answers without answers; the worker skill.
 - **Design:** §7.1, §7.2, §13.8.
 - **Review:** clean.
-- **Accepted:** Pending the owner.
+- **Accepted:** Yes, 2026-11-20 ("I accept these 4 slices.").
+
+### Finished
+
+- **Commit:** `2026-11-first-use-feedback-batch-a: done`
+- **Summary:** The owner accepted the four slices (2026-11-20, "I accept these 4 slices."). Criteria 1 to 5, 7 to 9 and three of criterion 6's four parts are shown by the tests listed under each slice. Criterion 6's third part, lifting unjudged models, is handed over to `2026-11-model-assessment` (Decision 0175), which the owner will finish later. The opt-in live Director scenario (`tests/test_live_director_confirms.py`) was not run; it stays available.
+- **Accepted:** Yes.
