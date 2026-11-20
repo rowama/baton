@@ -1628,8 +1628,8 @@ def workers_status(as_json: JsonOpt = False) -> None:
         if e.get("quota_line"):
             lines.append(f"  quota: {e['quota_line']}")
     for n, g in out["generated"].items():
-        if g.get("listed") and g["ownership"] == "untouched" and not g.get("capability_check"):
-            continue  # listing profiles are summarised above, not listed one by one (0113), unless they were checked
+        if g.get("listed") and g["ownership"] == "untouched" and not g.get("capability_check") and not g.get("track_record"):
+            continue  # listing profiles are summarised above, not listed one by one (0113), unless they were checked or used
         state = "yours (edited, never changed)" if g["ownership"] != "untouched" else ("verified " + g["verified"]["date"] if g.get("verified") else "unverified")
         lines.append(f"profile {n}: {state}" + (f"; {g['flag']}" if g.get("flag") else ""))
         observed = {st: [c for c, s in g.get("capabilities", {}).items() if s == st] for st in ("verified", "absent")}
@@ -1639,11 +1639,11 @@ def workers_status(as_json: JsonOpt = False) -> None:
             lines.append(f"  provided by Baton's runner: {', '.join(g['provided_by_runner'])}")
         if g.get("capability_check"):
             lines.append("  " + _check_line(g["capability_check"]))
+        if g.get("track_record"):
+            lines.append("  " + _track_line(g["track_record"]))
     for n, caps in out.get("capability_states", {}).items():
         if n not in out["generated"]:
             lines.append(f"profile {n}: " + "; ".join(f"{c} {s['state']}" for c, s in caps.items()))
-        if g.get("track_record"):
-            lines.append("  " + _track_line(g["track_record"]))
     a = out.get("assessment") or {}
     if a:
         st, b = a["settings"], a["budget"]

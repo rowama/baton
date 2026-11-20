@@ -198,6 +198,9 @@ def test_the_assessment_and_standing_commands(tmp_path, monkeypatch):
     assert res.exit_code == 0 and json.loads(res.output)["standing"] == "put_back"
     profile = assessment.machine_profiles(home)["cheap"]
     assert assessment.put_back_tiers(assessment.load_models(home), profile, prefs.load(home).assessment, ["basic", "standard", "strong"]) == ["standard"]
+    status = CliRunner().invoke(cli.app, ["workers", "status"])
+    assert status.exit_code == 0, status.output
+    assert "put back: cheap at standard (by you)" in status.output and "trials: on" in status.output
     assert CliRunner().invoke(cli.app, ["workers", "standing", "cheap", "--tier", "standard"]).exit_code == 2
     assert CliRunner().invoke(cli.app, ["workers", "standing", "nope", "--tier", "basic", "--promote"]).exit_code != 0
     res = CliRunner().invoke(cli.app, ["workers", "standing", "cheap", "--tier", "standard", "--promote"])
