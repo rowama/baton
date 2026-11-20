@@ -14,7 +14,7 @@ manual: [user/choose-models.md, admin/accounts-and-costs.md, admin/files-and-pat
 
 ### Problem
 
-On the owner's first real run (`2026-11-first-use-feedback`, F-6), routing for recipe-builder's profile step could choose only among a few expensive models. The causes, checked against Baton at `6209125`:
+On the owner's first real run (`2026-11-first-use-feedback-batch-a`, F-6), routing for recipe-builder's profile step could choose only among a few expensive models. The causes, checked against Baton at `6209125`:
 
 - **Tiers come from vendor positioning.** The shipped known-workers data judges 29 models. Its tiers are a research worker's judgment: "Tier assignments for new entries are judgment from vendor positioning (flagship → strong, mid → standard, small/lite → basic), not from benchmarks" (worker-research report, 2026-11-06); one was recorded as "a guess" (report, 2026-11-08). The data also goes stale: `claude-fable-5-1` is judged `strong`, while `claude-fable-5-2` on OpenRouter is unjudged and so `basic`.
 - **Everything else is `basic`.** An unjudged listed model gets tier `basic` and only its catalog capabilities (Decision [0110](../decisions/0110-unjudged-model-default-tier.md)). Of 374 models OpenRouter listed for the owner, only a few reached `strong`.
@@ -56,7 +56,7 @@ The original nine questions below were answered as suggested: Decision [0176](..
 - **Replay of past work** (Decision 0175, item 5): a later change, once there is history to replay.
 - **Grading by a judge model.**
 - **Shadowing steps that write to the workspace.**
-- **Changing recipe tiers** (F-6 of `2026-11-first-use-feedback`).
+- **Changing recipe tiers** (F-6 of `2026-11-first-use-feedback-batch-a`).
 
 ## Design
 
@@ -152,7 +152,7 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 
 ### Proposal drafted
 
-- **Summary:** Written from the owner's direction of 2026-11-18 (Decision 0175), after F-6 of `2026-11-first-use-feedback`. Checked against Baton at `6209125`: the shipped data's 29 judged models and its research reports. No code changed.
+- **Summary:** Written from the owner's direction of 2026-11-18 (Decision 0175), after F-6 of `2026-11-first-use-feedback-batch-a`. Checked against Baton at `6209125`: the shipped data's 29 judged models and its research reports. No code changed.
 - **Owner decision:** 2026-11-18, "Concur checks once from setup and amending 0110. ... I want to start with 2 for the high stakes (i.e, strong) steps and 3 for the low stakes steps."
 - **Accepted:** No; proposal only. Eight open questions await the owner.
 

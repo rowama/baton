@@ -1,6 +1,6 @@
 ---
-id: 2026-11-first-use-feedback
-title: "Fixes and tweaks from the owner's first real use of Baton"
+id: 2026-11-first-use-feedback-batch-a
+title: "Fixes and tweaks from the owner's first real use of Baton; the first batch"
 status: proposed
 level: standard
 decisions: ["0161", "0045", "0042", "0174", "0110", "0124"]
@@ -8,13 +8,13 @@ touches: [design/workers.md, design/director-interface.md, design/runtime.md, de
 manual: []
 ---
 
-# Fixes and tweaks from the owner's first real use of Baton
+# Fixes and tweaks from the owner's first real use of Baton; the first batch
 
 ## Request
 
 ### Problem
 
-The owner has started using Baton for real, beginning with a recipe-builder run in `D:\rob\projects\baton-recipes` (run `r_20261119_8c96`, 2026-11-18, with Codex and then Grok Bot as Director). This change collects what that use shows needs fixing or adjusting, one item per finding, so the owner's feedback is caught in one place as it arrives. Each item records what happened, the evidence, and the proposed fix. Items are added as they come; when one grows large enough to need its own design, it moves to its own change and this doc links to it.
+The owner has started using Baton for real, beginning with a recipe-builder run in `D:\rob\projects\baton-recipes` (run `r_20261119_8c96`, 2026-11-18, with Codex and then Grok Bot as Director). This change is the first batch of what that use shows needs fixing or adjusting: items F-1 to F-8, one per finding. Each item records what happened, the evidence, and the proposed fix. Later feedback goes into a later batch; when an item grows large enough to need its own design, it moves to its own change and this doc links to it.
 
 ### Feedback items
 
@@ -34,6 +34,10 @@ The owner has started using Baton for real, beginning with a recipe-builder run 
 - With no preferences, eligible profiles are ordered by verified capabilities, then by name (§8.4); `cheapest_first` is off by default. "fable" sorts before "opus". An API profile counts the runner's `workspace_read` as verified, which probably ranked it above the Claude Code profile (inferred: the record keeps the exclusions, not the order of the eligible).
 - The Director took the first eligible worker and did not say what each option would cost.
 
+**F-7. The owner's answers do not reach the next round of a design-and-review loop.** In recipe-builder's `shape` group, the owner answered three design questions; the design's second attempt received them (`i1/design` attempt 2: `prior_feedback.answers`, 3 entries). The independent review then failed the design and a second round began. Its design step (`i2/design` attempt 1) received the review's findings (`open_findings.json`) but none of the owner's answers, so it asked again, with new option sets that no longer contained the owner's earlier choices (run `r_20261119_ee96`, 2026-11-20). Answers are given only to the next attempt of the step that asked (§13.8), and a new round's step is a new step.
+
+**F-8. Accepting a worker's suggestions keeps the word "accept", not the suggestions.** Recipe-builder's research step (attempt 4) suggested adopt, adapt or reject for every row of the sources-and-lessons ledger, in its own output (`comparison.recommendation`), and asked the owner to accept them. The owner chose "Accept all as suggested"; the recorded answer is `q1_rows: accept`. The retry (attempt 5) received the answers and the question's text but not attempt 4's output, so the row-by-row suggestions never reached it or the design, which rebuilt them from a summary and labelled them confirmed (review findings F17 and F20). A blocked attempt's output is not given to the attempt that follows its answers.
+
 ### Acceptance criteria
 
 1. **F-1.** Before `start`, `vendor`, `attest` or `bind`, the Director restates what it will record in the owner's terms and records only the owner's confirming words. It never reuses an instruction to the Director as the owner's confirmation, and never puts an instruction to the Director in a run input; a run's `idea` is the process in the owner's words, confirmed back.
@@ -46,8 +50,9 @@ The owner has started using Baton for real, beginning with a recipe-builder run 
    - recipe-builder asks for `strong` only on steps that need it; steps that assemble or transcribe take `standard`.
    - Unjudged models can be lifted without the owner writing anything: the common ones judged in the shipped data, or a cheap check on request (see open question 5).
    - When the Director offers a choice of worker, it says what each costs (included in a subscription, or roughly how much credit), and never offers a pay-per-token route ahead of a paid-for one without saying why.
-7. **Each later item** gets its criterion here when it is added.
-8. **Manual and design are current.**
+7. **F-7.** Answers the owner gives to any step of a group's iteration reach the same step in every later iteration, and any later step that declares it builds on them, until the owner changes them. A worker may ask again only about something the earlier answers do not cover, and must say what changed.
+8. **F-8.** When a step is retried after the owner answers its questions, the retry receives the blocked attempt's output as well as the answers. An answer that accepts something the worker proposed records what was accepted (the proposal, or a reference to it by content hash), so the decision stands on its own in the record.
+9. **Manual and design are current.**
 
 ### Open questions
 
@@ -58,10 +63,10 @@ None open for F-1 to F-5. The four questions on F-2 and F-3 were answered by the
 3. The owner's profile: `human_judgment`, `long_form_writing`, `vision`, `file_write`, tier `strong`.
 4. It is built in, present on every machine and shown by `workers status`, replaced by an owner's own profile of that name.
 
-Later items add their own questions here.
-
-5. **F-6: how are unjudged models lifted?** *Suggested:* both: the shipped data judges the models most used through OpenRouter, and the owner may ask for an assessment of chosen models (Decision 0111) or a small set of capability checks: now [2026-11-model-assessment](2026-11-model-assessment.md) (Decision 0175). *Rationale:* shipped judgments help every owner at no cost; checks cover the long tail when an owner wants a particular cheap model.
-6. **F-6: how is a subscription route priced?** *Suggested:* as "included" while its quota lasts, ranking before any priced route under cost-aware ordering; exhausted quota already re-routes (Decision 0114). **[VERIFY]** how such routes rank under `cheapest_first` today; as far as known, unpriced profiles rank last, which would push work off a subscription.
+5. **F-6: how are unjudged models lifted?** *Answered (2026-11-18, Decision [0175](../decisions/0175-model-assessment.md)):* moved to its own change. *Suggested at the time:* both: the shipped data judges the models most used through OpenRouter, and the owner may ask for an assessment of chosen models (Decision 0111) or a small set of capability checks: now [2026-11-model-assessment](2026-11-model-assessment.md) (Decision 0175). *Rationale:* shipped judgments help every owner at no cost; checks cover the long tail when an owner wants a particular cheap model.
+6. **F-6: how is a subscription route priced?** *Suggested:* as "included" while its quota lasts, ranking before any priced route under cost-aware ordering; exhausted quota already re-routes (Decision 0114). Checked against the code (2026-11-20): harness routes (`claude_code`, `codex`) carry no `price` in the shipped data, and `routing.price_rank` ranks an unpriced route after every priced one, so turning on `cheapest_first` today would push work off a subscription.
+7. **F-7: where do carried answers go?** *Suggested:* the runtime keeps a run's confirmed answers, keyed by the step that asked and its question ids, and gives every later attempt of that step, in any iteration, all of them (`prior_feedback.answers` gains `earlier: [...]` with the iteration each came from). *Rationale:* the owner's word should not depend on which round a step is in; keying by question id lets a worker see what is settled.
+8. **F-8: whole output, or only what was accepted?** *Suggested:* the retry receives the blocked attempt's whole output (`prior_output`), and an answer's record carries the content hash of the output it accepted. *Rationale:* the worker often needs its own earlier work, not just the accepted part; the hash makes the decision verifiable without copying the content into the event.
 
 ## Design
 
@@ -85,7 +90,6 @@ To be listed when the change is in progress. Expected: the owner's topic on what
 - [0174](../decisions/0174-first-use-feedback-people.md) (accepted): who does person steps, and the built-in owner profile (F-2, F-3).
 - [0110](../decisions/0110-unjudged-model-default-tier.md) (accepted): unjudged models default to tier `basic` (F-6).
 - [0124](../decisions/0124-machine-level-preferences.md) (accepted): routing preferences (F-6).
-- Later items add their own records.
 
 ## Plan
 
@@ -115,6 +119,12 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Criteria:** default ordering with included, priced and unpriced routes; price as tie-breaker; recipe-builder's tiers per step with its scenario tests passing; the Director skill; a scenario reproducing the run of 2026-11-18 that picks the Claude Code route.
 - **Effort:** M
 
+### Slice 4: answers that last (F-7, F-8)
+
+- **Outcome:** the owner never answers the same question twice in a run, and an accepted proposal is kept with the decision.
+- **Criteria:** answers reach every later iteration of the step that asked; a blocked attempt's output reaches its retry; the accepted output's hash in the answer's record; a scenario reproducing the recipe-builder run of 2026-11-20 in which round two asks nothing already answered.
+- **Effort:** M
+
 ## Log
 
 ### Started
@@ -134,3 +144,9 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Summary:** Added F-6 (routing kept choosing the most expensive model), from the run record of `r_20261119_ee96`, with criteria, two open questions and slice 3. No code changed.
 - **Owner decision:** 2026-11-18, "Yes, add F-6."
 - **Accepted:** No; proposal only. Open questions 5 and 6 await the owner.
+
+### F-7 and F-8 added
+
+- **Summary:** Added F-7 (answers do not reach the next round of a design-and-review loop) and F-8 (accepting a worker's suggestions keeps only "accept"), both checked against the packets and records of `r_20261119_ee96` in `baton-recipes`. Criteria, two open questions and a slice added. No code changed.
+- **Owner decision:** 2026-11-19, "Add both".
+- **Accepted:** No; proposal only. Open questions 5 to 8 await the owner.

@@ -11,7 +11,7 @@ sections: ["§6.1", "§6.4", "§8.4", "§13.9"]
 
 ## Context
 
-On the owner's first real run, routing could choose only among a few expensive models (`2026-11-first-use-feedback`, F-6). The shipped known-workers data judges 29 models, and its tiers are a research worker's judgment from vendor positioning ("flagship → strong, mid → standard, small/lite → basic, not from benchmarks", worker-research report of 2026-11-06). Every other listed model is tier `basic` with only catalog capabilities (Decision [0110](0110-unjudged-model-default-tier.md)), and a live check (Decision [0081](0081-live-verification-on-request.md)) proves only that a route answers. Evidence from use needs models to be used, and no owner wants to try an unproven model on an important step.
+On the owner's first real run, routing could choose only among a few expensive models (`2026-11-first-use-feedback-batch-a`, F-6). The shipped known-workers data judges 29 models, and its tiers are a research worker's judgment from vendor positioning ("flagship → strong, mid → standard, small/lite → basic, not from benchmarks", worker-research report of 2026-11-06). Every other listed model is tier `basic` with only catalog capabilities (Decision [0110](0110-unjudged-model-default-tier.md)), and a live check (Decision [0081](0081-live-verification-on-request.md)) proves only that a route answers. Evidence from use needs models to be used, and no owner wants to try an unproven model on an important step.
 
 ## Decision
 

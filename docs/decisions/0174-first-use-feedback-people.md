@@ -11,7 +11,7 @@ sections: ["§6.1", "§8.4", "§13.3", "§13.7"]
 
 ## Context
 
-The owner's first real run (`2026-11-first-use-feedback`, items F-2 and F-3) showed that a person's step has no worker unless a person's profile is written by hand, and that the Director should ask who will do the person steps, defaulting to the owner, who started the run (Decision [0161](0161-ai-delegates.md), item 6). Four questions were put to the owner with suggested answers; the owner concurred with each.
+The owner's first real run (`2026-11-first-use-feedback-batch-a`, items F-2 and F-3) showed that a person's step has no worker unless a person's profile is written by hand, and that the Director should ask who will do the person steps, defaulting to the owner, who started the run (Decision [0161](0161-ai-delegates.md), item 6). Four questions were put to the owner with suggested answers; the owner concurred with each.
 
 ## Decision
 
