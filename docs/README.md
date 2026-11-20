@@ -320,3 +320,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0179 Trial and shadow routing: candidate selection, effects, reviews, budgets and evidence identity](decisions/0179-trial-and-shadow-routing-details.md) | accepted |
 | [0180 Explicit worker failures escalate for review instead of automatically retrying](decisions/0180-worker-failures-escalate.md) | accepted |
 | [0181 First-use feedback: cost-aware routing by default with subscriptions first; answers carried across rounds; the blocked output reaches its retry; recipe-builder's tiers per step](decisions/0181-first-use-feedback-routing-and-answers.md) | accepted |
+| [0182 Model assessment: shadows graded by their own gates, shared failures forgiven; put back is one tier lower until promoted; $0 budget means free models only; shipped recipes declare effects where clear](decisions/0182-assessment-grading-put-back-budget.md) | accepted |

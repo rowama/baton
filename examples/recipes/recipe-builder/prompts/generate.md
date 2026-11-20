@@ -59,7 +59,14 @@ You work in the project; commit your work.
    `changed` and `new` ones; the gate reruns every program's examples. When a revision asks you to do a
    program's stage another way, remove that program's folder and step, write the stage as the revision
    says, with its `executor_choice` record, and leave the program out of `engineered_programs`.
-6. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
+6. For each worker step, declare what it may change, when that is clear from what it does: `effect:
+   none` for a step that only reads and writes its result, `effect: reversible` for one that changes
+   only files in the project (kept in git), `effect: irreversible` for one that spends money, sends
+   something or changes something outside the project. Leave `effect` out when you cannot tell (for
+   example a step that searches the web or calls another service). A step with `effect: none` whose
+   gates can be run again safely also gets `repeatable: true`. Baton tries cheaper models only on
+   steps declared `none` or `reversible`.
+7. Write the `walkthrough` artifact (markdown) for the owner: what the process does, who does each
    stage, what they decide, what happens when something fails, and what it covers and does not.
    Say plainly when and how the owner will choose how the work is done (decided now, in what they
    approved, or at a stage of the process before the work that depends on it), and what the process

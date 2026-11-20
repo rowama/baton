@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["commit_sha", "programs", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+    "programs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["program", "examples"],
+        "additionalProperties": false,
+        "properties": {
+          "program": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "examples": {
+            "type": "array",
+            "minItems": 3,
+            "contains": { "type": "object", "properties": { "awkward": { "const": true } }, "required": ["awkward"] },
+            "items": {
+              "type": "object",
+              "required": ["name", "source", "awkward", "says"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+                "source": { "enum": ["owner", "drafted"] },
+                "awkward": { "type": "boolean" },
+                "says": { "type": "string", "minLength": 1, "description": "The example in the owner's words: what goes in and what should come out" },
+                "stated": { "type": "boolean", "description": "Its expected result or plain values were written from the owner's words, not copied from a file" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "summary": { "type": "string" }
+  }
+}

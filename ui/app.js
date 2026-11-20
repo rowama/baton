@@ -140,6 +140,7 @@ function passes(m) {
   if (filter.tier && m.tier !== filter.tier) return false;
   if (filter.provider && m.provider !== filter.provider) return false;
   if (filter.off && m.enabled) return false;
+  if (filter.putBack && !(m.put_back || []).length) return false;
   return true;
 }
 
@@ -159,12 +160,15 @@ function renderFilters() {
   max.addEventListener("input", () => { filter.maxPrice = max.value; renderModels(); });
   const off = h("input", { type: "checkbox", id: "f-off" }); off.checked = filter.off;
   off.addEventListener("change", () => { filter.off = off.checked; renderModels(); });
+  const back = h("input", { type: "checkbox", id: "f-back" }); back.checked = !!filter.putBack;
+  back.addEventListener("change", () => { filter.putBack = back.checked; renderModels(); });
   const cheap = h("input", { type: "checkbox", id: "p-cheap" }); cheap.checked = state.preferences.cheapest_first;
   cheap.addEventListener("change", () => act(cheap, () => api("PUT", "/api/preferences", { cheapest_first: cheap.checked }),
     () => cheap.checked ? "Baton will pick what you already pay for first, then free, then the cheapest capable model." : "Baton will pick the most proven model first."));
   f.append(h("span", {}, free, h("label", { for: "f-free" }, " free only")), max,
     select("Any capability", "capability", uniq((m) => Object.keys(m.capabilities))), select("Any tier", "tier", uniq((m) => [m.tier])),
     select("Any provider", "provider", uniq((m) => [m.provider])), h("span", {}, off, h("label", { for: "f-off" }, " turned off")),
+    h("span", {}, back, h("label", { for: "f-back" }, " put back")),
     h("span", {}, cheap, h("label", { for: "p-cheap" }, " by cost: your subscriptions, then free, then cheapest (otherwise most proven first)")));
 }
 
@@ -219,17 +223,58 @@ function modelRow(m) {
   const abilities = h("button", { class: "quiet" }, "Check abilities");
   abilities.addEventListener("click", () => checkModels(abilities, [m.profile]));
   const c = m.capability_check;
+  const record = trackLine(m);
+  const promote = (m.put_back || []).map((t) => {
+    const b = h("button", { class: "quiet" }, "Promote at " + t);
+    b.addEventListener("click", () => act(b, () => api("POST", "/api/models/" + encodeURIComponent(m.profile) + "/standing", { tier: t, standing: "proven" }),
+      () => (m.model_id || m.profile) + " is treated as " + t + " again."));
+    return b;
+  });
   return h("tr", {},
     h("td", {}, on), h("td", {}, h("span", { class: "name" }, m.model_id || m.profile), h("div", { class: "muted" }, m.profile + (m.flag ? " · " + m.flag : ""))),
     h("td", {}, m.provider || ""), h("td", {}, price(m)), h("td", {}, m.context_tokens ? m.context_tokens.toLocaleString() : ""),
-    h("td", {}, m.tier || ""), h("td", {}, Object.entries(m.capabilities).map(([c, st]) => c + " (" + st + ")").join(", ")),
+    h("td", {}, m.tier || "", (m.put_back || []).length ? h("div", { class: "warn" }, "put back at " + m.put_back.join(", ")) : "",
+      record ? h("div", { class: "muted" }, record) : "", ...promote), h("td", {}, Object.entries(m.capabilities).map(([c, st]) => c + " (" + st + ")").join(", ")),
     h("td", {}, m.verified ? m.verified.date : "not yet", h("div", {}, check),
       c ? h("div", { class: "muted" }, "abilities checked " + c.date + " (" + money(c) + ")") : "", h("div", {}, abilities)));
+}
+
+function trackLine(m) {
+  const t = m.track_record;
+  if (!t) return "";
+  return Object.entries(t.by_tier).map(([tier, r]) => {
+    const n = Object.entries(r).filter(([, v]) => v && typeof v === "object" && "passed" in v)
+      .map(([k, v]) => k + " " + v.passed + "/" + (v.passed + v.failed)).join(", ");
+    return tier + ": " + r.standing.replace("_", " ") + (n ? " (" + n + ")" : "");
+  }).join(" · ");
+}
+
+function assessmentBox() {
+  const a = state.assessment;
+  if (!a) return "";
+  const st = a.settings;
+  const trials = h("input", { type: "checkbox", id: "a-trials" }); trials.checked = st.trials;
+  const shadows = h("input", { type: "checkbox", id: "a-shadows" }); shadows.checked = st.shadows;
+  const limit = h("input", { type: "number", min: "0", step: "0.01", "aria-label": "Daily limit in dollars", value: st.daily_limit_usd });
+  const save = h("button", { class: "quiet" }, "Save");
+  save.addEventListener("click", () => act(save, () => api("PUT", "/api/assessment",
+    { trials: trials.checked, shadows: shadows.checked, daily_limit_usd: Number(limit.value || 0) }),
+    (o) => "Trials " + (o.assessment.trials ? "on" : "off") + ", shadow attempts " + (o.assessment.shadows ? "on" : "off") +
+      (o.assessment.daily_limit_usd ? ", up to $" + Number(o.assessment.daily_limit_usd).toFixed(2) + " a day." : ", free models only.")));
+  const b = a.budget;
+  return h("div", { class: "row" },
+    h("span", {}, trials, h("label", { for: "a-trials" }, " try cheaper models on steps below strong")),
+    h("span", {}, shadows, h("label", { for: "a-shadows" }, " shadow strong steps with one candidate")),
+    h("label", {}, "daily limit $ ", limit), save,
+    h("span", { class: "muted" }, (st.daily_limit_usd ? "" : "$0: free models only. ") + "Today: $" + Number(b.reserved_or_spent_usd).toFixed(4) +
+      " reserved or spent. Estimates are conservative, but a provider can charge more than estimated."),
+    helpBtn("ui.models.assessment", "trying cheaper models"));
 }
 
 function renderModels() {
   const box = $("model-table"); box.replaceChildren();
   const shown = state.models.filter(passes);
+  box.append(assessmentBox());
   box.append(preferBox());
   box.append(h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {},
     ...["Use", "Model", "Provider", "Price", "Context", "Tier", "Capabilities", "Checked"].map((t) => h("th", {}, t, t === "Capabilities" ? helpBtn("ui.models.capabilities", "capabilities") : "")))), h("tbody", {}, shown.map(modelRow)))));

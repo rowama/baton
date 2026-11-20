@@ -155,4 +155,50 @@ def test_the_state_carries_what_the_models_table_filters_on(home):  # noqa: F811
     row = state["models"][0]
     for k in ("provider", "price", "context_tokens", "tier", "capabilities", "verified", "enabled", "subscription"):
         assert k in row
-    assert state["preferences"] == {"cheapest_first": True, "exclude": [], "prefer_by_capability": {}}
+    assert {k: v for k, v in state["preferences"].items() if k != "assessment"} == {"cheapest_first": True, "exclude": [], "prefer_by_capability": {}}
+    assert state["preferences"]["assessment"]["trials"] is False and state["preferences"]["assessment"]["shadows"] is False
+
+
+# -- trying cheaper models (change 2026-11-model-assessment, slice 3; Decisions 0176, 0179, 0182) --
+
+
+@pytest.mark.not_slow("loopback requests only")
+def test_the_page_turns_trials_on_with_a_daily_limit_and_shows_the_budget(home):  # noqa: F811
+    p = Page(home)
+    try:
+        state = json.loads(p.req("GET", "/api/state")[1])
+        assert state["assessment"]["settings"]["trials"] is False and state["assessment"]["budget"]["limit_usd"] == 0.0
+        out = json.loads(p.req("PUT", "/api/assessment", headers={"X-Baton-UI": "1"}, body={"trials": True, "daily_limit_usd": 0.5})[1])
+        assert out["assessment"]["trials"] is True and out["assessment"]["shadows"] is False and out["assessment"]["daily_limit_usd"] == 0.5
+        assert p.req("PUT", "/api/assessment", headers={"X-Baton-UI": "1"}, body={"daily_limit_usd": -1})[0].status == 400
+        assert p.req("PUT", "/api/assessment", headers={"X-Baton-UI": "1"}, body={"trials": "yes"})[0].status == 400
+        assert p.post("/api/models/codex/standing", {"tier": "huge", "standing": "proven"})[0].status == 400
+        assert p.post("/api/models/nope/standing", {"tier": "basic", "standing": "proven"})[0].status == 404
+    finally:
+        p.close()
+    assert yaml.safe_load((home / "preferences.yaml").read_text())["assessment"] == {"trials": True, "daily_limit_usd": 0.5}
+
+
+@pytest.mark.not_slow("in-process CLI runner")
+def test_the_assessment_and_standing_commands(tmp_path, monkeypatch):
+    from baton import assessment
+
+    home = tmp_path / "home"
+    (home / "workers").mkdir(parents=True)
+    (home / "workers" / "cheap.yaml").write_text(yaml.safe_dump({
+        "adapter": "litellm_api", "creator": "acme", "model_id": "acme/cheap", "provider": "openrouter", "model": "openrouter/acme/cheap",
+        "capabilities": ["structured_output"], "tier": "standard", "price": {"free": True},
+        "auth": {"mode": "api_key", "env": {"KEY": "secret:k"}}}), encoding="utf-8")
+    monkeypatch.setenv("BATON_HOME", str(home))
+    shown = CliRunner().invoke(cli.app, ["workers", "assessment"])
+    assert shown.exit_code == 0 and "trials: off" in shown.output and "free models only" in shown.output
+    out = json.loads(CliRunner().invoke(cli.app, ["workers", "assessment", "--trials", "--daily-limit", "2", "--json"]).output)
+    assert out["assessment"]["trials"] is True and out["budget"]["available_usd"] == 2.0
+    res = CliRunner().invoke(cli.app, ["workers", "standing", "cheap", "--tier", "standard", "--put-back", "--json"])
+    assert res.exit_code == 0 and json.loads(res.output)["standing"] == "put_back"
+    profile = assessment.machine_profiles(home)["cheap"]
+    assert assessment.put_back_tiers(assessment.load_models(home), profile, prefs.load(home).assessment, ["basic", "standard", "strong"]) == ["standard"]
+    assert CliRunner().invoke(cli.app, ["workers", "standing", "cheap", "--tier", "standard"]).exit_code == 2
+    assert CliRunner().invoke(cli.app, ["workers", "standing", "nope", "--tier", "basic", "--promote"]).exit_code != 0
+    res = CliRunner().invoke(cli.app, ["workers", "standing", "cheap", "--tier", "standard", "--promote"])
+    assert res.exit_code == 0 and "promoted" in res.output

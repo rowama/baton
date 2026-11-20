@@ -1072,6 +1072,23 @@
           "default": null,
           "title": "Doc Template"
         },
+        "effect": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "reversible",
+                "irreversible"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
         "effort": {
           "anyOf": [
             {
@@ -1240,6 +1257,11 @@
           ],
           "default": null,
           "title": "Protect"
+        },
+        "repeatable": {
+          "default": false,
+          "title": "Repeatable",
+          "type": "boolean"
         },
         "requires": {
           "anyOf": [

@@ -684,6 +684,12 @@ class _Checker:
             if step.max_attempts is not None:
                 self.error("step.max_attempts_needs_program", f"{w}.max_attempts",
                            "max_attempts on a step is for a program step only; other steps use the recipe's defaults.max_attempts")
+            if step.repeatable and step.workspace == "write":
+                self.error("step.repeatable_writes", f"{w}.repeatable",
+                           "a step that writes to the workspace cannot be evaluated again safely: only read and none steps are shadowed (§5.1; Decision 0179, item 6)")
+            if step.repeatable and step.effect != "none":
+                self.error("step.repeatable_needs_no_effect", f"{w}.repeatable",
+                           "repeatable needs effect: none: a step that may change something is not run a second time to grade a candidate (§5.1)")
             for key in ("requires", "prompt"):
                 if getattr(step, key) is None:
                     self.error("recipe.missing_key", f"{w}.{key}", f"required key {key!r} is missing (or name a program with 'program')")

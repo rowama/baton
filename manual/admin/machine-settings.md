@@ -67,6 +67,8 @@ An API profile (`litellm_api`) whose model calls tools (`tool_use`) can also rea
 
 `~/.baton/preferences.yaml` (machine-wide) and `.baton/preferences.yaml` (per project, overriding) set routing preferences: by cost (the default: subscriptions, then free, then cheapest; `cheapest_first: false` turns it off) or most proven first, and preferred models per capability. The setup page edits the machine file. See [choosing models](user.choose-models#here-now).
 
+The machine file alone also holds `assessment:` (a project's is ignored, since it spends the machine's budget): `trials` and `shadows` (both `false` until you turn them on), `daily_limit_usd` (0: free models only), and the thresholds `proven_after` (5), `put_back_after` (2) and `window` (5). `baton workers assessment` and the setup page edit it. See [trying cheaper models](user.choose-models#try-cheaper-models).
+
 ## Other machine files {#other-files}
 
 - `~/.baton/hooks.yaml`: machine-level completion hooks; may reference secrets.

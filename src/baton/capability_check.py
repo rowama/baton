@@ -393,11 +393,28 @@ def load_record(home: Path) -> dict[str, Any]:
 
 
 def _save_record(home: Path, profiles: dict[str, Any]) -> None:
+    save_section(home, "profiles", dict(sorted(profiles.items())))
+
+
+def save_section(home: Path, section: str, value: dict[str, Any]) -> None:
+    """Write one section of the track record (``profiles``: last checks; ``models``: evidence by route, ``assessment.py``),
+    keeping the other. The caller holds ``RECORD_LOCK``."""
     from .resources import _atomic_write
 
-    body = {"format": RECORD_FORMAT, "profiles": dict(sorted(profiles.items()))}
+    p = record_path(home)
+    raw: dict[str, Any] = {}
+    if p.is_file():
+        try:
+            got = load_yaml(p) or {}
+            raw = got if isinstance(got, dict) else {}
+        except YamlError:  # expected: an unreadable record is replaced by what the caller now knows
+            raw = {}
+    body = {"format": RECORD_FORMAT, "profiles": raw.get("profiles") or {}, "models": raw.get("models") or {}}
+    body[section] = value
+    if not body["models"]:
+        del body["models"]
     header = "# What Baton has seen each model do, per route (baton-track-record/1, §6.4). Written by Baton.\n"
-    _atomic_write(record_path(home), header + yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
+    _atomic_write(p, header + yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
 
 
 def added(home: Path) -> dict[str, list[str]]:

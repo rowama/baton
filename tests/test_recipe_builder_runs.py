@@ -228,10 +228,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@8")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@8"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@9")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@9"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@8"
+    assert started["recipe"] == "recipe-builder@9"
 
 
 @pytest.mark.slow
@@ -1237,7 +1237,7 @@ def test_the_owners_procedures_reach_the_profile_the_research_and_the_design(pro
                   "--note", "Yes, learn from our manual.", expect=None)["run_id"]
     d = Director(cli, project, run, route=route, decisions={"audit": [("approve", "That is it.")]})
     st = d.drive()
-    assert st["recipe"] == "recipe-builder@8" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
+    assert st["recipe"] == "recipe-builder@9" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
     from projectkit import packet_dir
 
     inst = st["groups"]["shape"]["instances"][0]["id"]

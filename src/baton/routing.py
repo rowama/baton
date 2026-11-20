@@ -115,6 +115,7 @@ def merge_preferences(machine: Preferences, project: Preferences) -> Preferences
                 "by_capability": {**machine.prefer.by_capability, **project.prefer.by_capability}},
         exclude=sorted(set(machine.exclude) | set(project.exclude)),
         cheapest_first=project.cheapest_first if "cheapest_first" in project.model_fields_set else machine.cheapest_first,
+        assessment=machine.assessment,  # machine-level only: trials and shadows spend the machine's budget (0176, item 7)
     )
     out._machine_exclude = set(machine.exclude)
     return out
@@ -339,6 +340,7 @@ def eligible_workers(
     source_own: bool | None = None,
     independence_waiver: str | None = None,
     person_steps: str | None = None,
+    put_back: dict[str, list[str]] | None = None,
 ) -> Eligibility:
     """The ordered eligible profiles with reasons, and every exclusion with its reasons.
 
@@ -346,6 +348,8 @@ def eligible_workers(
     group: the sibling in the same instance and iteration); default: the id.
     ``person_steps`` is who the project policy says does person steps (``owner`` or a
     name, Decision 0174): a step for a person goes to that person's profile only.
+    ``put_back`` maps a profile to the tiers at which its route was put back (``assessment.py``; Decision 0182, item 2):
+    for routing it is one tier below the lowest of them until the owner promotes it.
     """
     prefs = preferences or Preferences()
     out = Eligibility(step_path)
@@ -371,6 +375,13 @@ def eligible_workers(
                 waived = True
         if p.adapter == "program":
             reasons.append("the program adapter runs a recipe's own program steps only (§5.9)")
+        back = (put_back or {}).get(name) or []
+        if back and step.requires is not None:
+            need = step.requires.tier or vocab.tiers[0]
+            hit = [t for t in back if vocab.tier_rank(need) >= vocab.tier_rank(t)]
+            if hit:
+                reasons.append(f"put back at {hit[0]} after failing {hit[0]} steps it was tried on: treated as below {hit[0]} until promoted "
+                               f"(`baton workers standing {name} --tier {hit[0]} --promote`)")
         if person_steps and p.adapter == "manual" and person_step and p.person != person_slug(person_steps):
             reasons.append(f"the project policy says {person_steps} does the steps for a person "
                            "(`baton policy set --person-steps` with the owner's words changes it)")

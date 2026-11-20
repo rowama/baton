@@ -78,7 +78,7 @@ For the owner's approval, with the Request.
         - { recipe: quick-run, scope: run, note: "Fine for quick runs" }
   ```
   It is part of the policy's value (§13.7): hashed, changed only with words, pinned per run like the rest. The delegate's HTTP token lives in `~/.baton/mcp.yaml` under `delegate_token`, never in the project.
-- **Recipe.** `delegation` is allowed on a step and on a `human` or `review` gate; `risky` is a boolean, `reason` is required when `risky` is true. `generate` in `recipe-builder@9` copies the design's marks; the package review checks that every mark arrived.
+- **Recipe.** `delegation` is allowed on a step and on a `human` or `review` gate; `risky` is a boolean, `reason` is required when `risky` is true. `generate` in `recipe-builder@10` copies the design's marks; the package review checks that every mark arrived.
 - **Requests.** When an owner decision becomes pending (the same moment `status` would list it), and its kind is in `handles`:
   - not risky, or covered by a waiver: `delegate_requested {request_id, ref, kind, risky, waiver_id?, deadline}`;
   - risky with no waiver: nothing is offered. `status` lists the decision with `delegable_after_waiver {reason}`, and the Director asks the owner.
@@ -98,7 +98,7 @@ For the owner's approval, with the Request.
 ### Doc edits
 
 - `principles.md`: **Delegate**, a new concept: the owner's own AI assistant, named in policy, that may answer the owner's requests in a run.
-- `design/recipes.md` §5.3 (load rules for `delegation`), §5.7 (`recipe-builder@9` writes the marks).
+- `design/recipes.md` §5.3 (load rules for `delegation`), §5.7 (`recipe-builder@10` writes the marks).
 - `design/runtime.md` §8.2 (`delegate_requested`, `delegate_declined`, `delegate_expired`; the `delegate` actor; `human_decision` with `by`), §8.4 (a delegate's identity), §8.7 (the hook; expiry in `waits check`).
 - `design/director-interface.md` §13.1 (`delegate waive`, `delegated`; `status` and `board` fields), §13.2 (`baton mcp --delegate`), §13.3 (the skill), §13.7 (`policy.delegate`), §13.8 (delegate answers and the confirm-back).
 - `design/platform-and-security.md`: the delegate's server, its token, and what Baton can and cannot tell about who answered.
@@ -122,7 +122,7 @@ Slices as proposed; refined once the Request and Design are approved.
 
 ### Slice 1: marks and policy
 
-- **Outcome:** recipes carry delegation marks, `recipe-builder@9` writes them, and a project can name a delegate; nothing is offered yet.
+- **Outcome:** recipes carry delegation marks, `recipe-builder@10` writes them, and a project can name a delegate; nothing is offered yet.
 - **Criteria:** load rules for `delegation`; `generate` copies the marks and the package review checks them; `policy.delegate` validated, hashed, set and shown; standing waivers listed; `@6` pinned runs keep `@6`.
 - **Effort:** M
 

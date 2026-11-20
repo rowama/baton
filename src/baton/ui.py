@@ -138,6 +138,8 @@ def _models(home: Path, status: dict[str, Any]) -> list[dict[str, Any]]:
             "subscription": (body.get("auth") or {}).get("mode") == "cli_login",
             "capabilities": g.get("capabilities", {}), "verified": g.get("verified"), "flag": g.get("flag"), "ownership": g.get("ownership"),
             "capability_check": g.get("capability_check"),
+            "track_record": g.get("track_record"),
+            "put_back": sorted(t for t, r in ((g.get("track_record") or {}).get("by_tier") or {}).items() if r.get("standing") == "put_back"),
             "listed": bool(g.get("listed")),
             "search_billed_per_search": bool((g.get("web_access") or {}).get("billed_per_search")),
         })
@@ -261,6 +263,44 @@ def _set_enabled(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
         raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "enabled must be true or false")
     name = args["profile"]
     return _prefs_core(lambda: prefs.update(home, **({"include": [name]} if on else {"exclude": [name]})))
+
+
+def _put_assessment(home: Path, body: dict[str, Any], _args: dict[str, str]) -> Any:
+    """``baton workers assessment``: trials, shadow attempts and the daily limit (§6.4; Decisions 0176 item 6, 0182 item 4)."""
+    from . import prefs
+
+    changes: dict[str, Any] = {}
+    for key in ("trials", "shadows"):
+        if key in body:
+            if not isinstance(body[key], bool):
+                raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", f"{key} must be true or false")
+            changes[key] = body[key]
+    if "daily_limit_usd" in body:
+        v = body["daily_limit_usd"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "daily_limit_usd must be a number of dollars, 0 or more")
+        changes["daily_limit_usd"] = float(v)
+    return _prefs_core(lambda: prefs.update_assessment(home, **changes))
+
+
+def _set_standing(home: Path, body: dict[str, Any], args: dict[str, str]) -> Any:
+    """``baton workers standing``: promote, put back or clear a model at a tier (Decisions 0176 item 5, 0182 item 2)."""
+    from . import assessment
+    from . import vocab as vocab_mod
+
+    tier, value = body.get("tier"), body.get("standing")
+    if tier not in vocab_mod.load(vocab_mod.DEFAULT).tiers:
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "tier must be basic, standard or strong")
+    if value not in ("proven", "put_back", None):
+        raise UiError(HTTPStatus.BAD_REQUEST, "ui.body", "standing must be proven, put_back or null")
+    profiles = assessment.machine_profiles(home)
+    name = args["profile"]
+    if name not in profiles:
+        raise UiError(HTTPStatus.NOT_FOUND, "ui.unknown_profile", f"no worker profile {name!r} on this machine")
+    try:
+        return assessment.set_standing(home, name, profiles[name], tier, value)
+    except assessment.AssessmentError as e:
+        raise UiError(HTTPStatus.CONFLICT, "configuration.standing", str(e)) from e
 
 
 def _verify(home: Path, _body: dict[str, Any], args: dict[str, str]) -> Any:
@@ -609,6 +649,8 @@ ROUTES: dict[tuple[str, str], Route] = {
     ("GET", "/api/preferences"): _get_prefs,
     ("PUT", "/api/preferences"): _put_prefs,
     ("POST", "/api/models/<profile>/enabled"): _set_enabled,
+    ("PUT", "/api/assessment"): _put_assessment,
+    ("POST", "/api/models/<profile>/standing"): _set_standing,
     ("POST", "/api/models/check"): _check,
     ("POST", "/api/models/assess"): _assess,
     ("POST", "/api/models/<profile>/verify"): _verify,

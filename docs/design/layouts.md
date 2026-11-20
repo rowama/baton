@@ -118,7 +118,7 @@ baton/
 ~/.baton/
 ├── workers.yaml      # the owner's worker profiles; never written by Baton
 ├── workers/          # generated profiles, one <name>.yaml each, written only by `baton workers setup` (§6.4)
-├── preferences.yaml  # machine-level routing preferences, the project file's format; a project's overrides (§8.4)
+├── preferences.yaml  # machine-level routing preferences, the project file's format; a project's overrides (§8.4); `assessment:` (trials, shadows, the daily limit) is read from here only (§6.4)
 ├── ui.json           # the running `baton ui`: URL, pid, started; 0600, removed on exit (§13.9)
 ├── ui-projects.yaml  # the projects the local page serves: name -> folder; 0600, kept across restarts (§13.9; Decision 0171)
 ├── resources.yaml    # the owner's resource declarations and setup state (baton-resources/1, §6.4)
@@ -128,6 +128,8 @@ baton/
 ├── assessment/       # the assessment recipe fetched for this version, <version>/recipe (§6.4)
 ├── assessments/      # reports of owner-run assessments, <date>.json (§6.4)
 ├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
+├── track-record.yaml # what checks and real work showed: last checks by profile, evidence by route and tier (baton-track-record/1, §6.4)
+├── assessment-spend.yaml  # today's reservations and measured costs of trials and shadow attempts (§8.7)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
 ├── programs/            # programs' environments, <lock sha256>-py<x.y>/ (venv/, env.json), built by uv from the lock (§6.3, §5.9); a `tools/` folder left by an earlier Baton is no longer used and may be deleted (Decision: [0167](../decisions/0167-program-steps-details.md), item 4)

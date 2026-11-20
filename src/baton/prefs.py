@@ -32,7 +32,8 @@ def known_profiles(home: Path) -> set[str]:
 
 
 def as_dict(p: Preferences) -> dict[str, Any]:
-    return {"cheapest_first": p.cheapest_first, "exclude": sorted(p.exclude), "prefer_by_capability": dict(p.prefer.by_capability)}
+    return {"cheapest_first": p.cheapest_first, "exclude": sorted(p.exclude), "prefer_by_capability": dict(p.prefer.by_capability),
+            "assessment": p.assessment.model_dump()}
 
 
 def save(home: Path, p: Preferences) -> Path:
@@ -44,6 +45,9 @@ def save(home: Path, p: Preferences) -> Path:
     prefer = {k: v for k, v in {"by_step": p.prefer.by_step, "by_capability": p.prefer.by_capability}.items() if v}
     if prefer:
         body["prefer"] = prefer
+    assess = p.assessment.model_dump(exclude_defaults=True)
+    if assess:
+        body["assessment"] = assess
     target = path(home)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
@@ -73,6 +77,23 @@ def update(home: Path, *, exclude: list[str] | None = None, include: list[str] |
         else:
             by_cap.pop(cap, None)
     new = Preferences(prefer={"by_step": p.prefer.by_step, "by_capability": by_cap}, exclude=sorted(ex),
-                      cheapest_first=p.cheapest_first if cheapest_first is None else cheapest_first)
+                      cheapest_first=p.cheapest_first if cheapest_first is None else cheapest_first, assessment=p.assessment)
     save(home, new)
+    return {**as_dict(new), "path": str(path(home))}
+
+
+def update_assessment(home: Path, **changes: Any) -> dict[str, Any]:
+    """Change the trial and shadow settings (§6.4; Decisions 0176 item 6, 0182 item 4); ``None`` values are left as they are."""
+    from pydantic import ValidationError
+
+    from .models import AssessmentSettings
+
+    p = load(home)
+    body = {**p.assessment.model_dump(), **{k: v for k, v in changes.items() if v is not None}}
+    try:
+        settings = AssessmentSettings.model_validate(body)
+    except ValidationError as e:
+        raise PreferencesError("; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())) from e
+    new = p.model_copy(update={"assessment": settings})
+    save(Path(home), new)
     return {**as_dict(new), "path": str(path(home))}

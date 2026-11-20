@@ -190,6 +190,12 @@ class Step(_Strict):
     proposes_runs: bool = False  # its output proposes runs the owner chooses from (§5.1, §11.6; Decision 0152)
     tool_calls: int | None = Field(default=None, ge=1)  # the tool-call limit when Baton's API runner offers tools (§5.6; Decision 0168, item 5)
     interaction: Interaction | None = None  # hints for a person's step's interaction request (§5.3; Decision 0170, item 8)
+    #: What the step's work may do beyond its result (§5.1; Decision 0179, item 2): ``none``, ``reversible`` or
+    #: ``irreversible``. Undeclared means unknown: such a step is never tried on a candidate model.
+    effect: Literal["none", "reversible", "irreversible"] | None = None
+    #: The step, with its gates, is safe to evaluate more than once (§5.1; Decision 0179, item 6): a shadow attempt may
+    #: shadow it. A read-only workspace alone does not make it so.
+    repeatable: bool = False
 
     @property
     def is_group(self) -> bool:
@@ -723,6 +729,20 @@ class PreferOrder(_Strict):
     by_capability: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class AssessmentSettings(_Strict):
+    """Trial routing and shadow attempts (§6.4, §8.4; Decisions 0176, 0179, 0182): machine-level only, both off by default."""
+
+    trials: bool = False
+    shadows: bool = False
+    #: US dollars a day that trials and shadows may reserve (0179, item 4). 0: free models only (0182, item 4).
+    daily_limit_usd: float = Field(default=0.0, ge=0)
+    #: Proven at a tier after this many passes with no failure in the last ``window`` (0176, item 5).
+    proven_after: int = Field(default=5, ge=1)
+    #: Put back after this many failures in the last ``window`` (0176, item 5; 0182, item 2).
+    put_back_after: int = Field(default=2, ge=1)
+    window: int = Field(default=5, ge=1)
+
+
 class Preferences(_Strict):
     """``.baton/preferences.yaml``: reorder or exclude eligible profiles; never add one (§8.4)."""
 
@@ -731,6 +751,8 @@ class Preferences(_Strict):
     #: Rank the rest of the eligible set by cost (0115): an included subscription, free, priced cheapest first, unpriced.
     #: The default since Decision 0181; ``false`` keeps the most-verified-first order. Never makes an ineligible profile eligible.
     cheapest_first: bool = True
+    #: Trials and shadow attempts: read from the machine's file only (a project's is ignored), §6.4.
+    assessment: AssessmentSettings = Field(default_factory=AssessmentSettings)
     #: Names the machine-level file excludes (0124); set by the merge, never read from a file, so a reason can say which level excluded.
     _machine_exclude: set[str] = PrivateAttr(default_factory=set)
 
@@ -819,6 +841,7 @@ EVENT_TYPES_BY_AREA: dict[str, tuple[str, ...]] = {
     "human": ("human_decision", "human_revision_ingested"),
     "project_documents": ("project_input_bound",),
     "deliverables": ("artifact_published", "drift_detected"),
+    "assessment": ("trial_failed", "model_standing_changed", "shadow_dispatched", "shadow_result"),
     "adoption": ("situation_detected", "research_recorded", "step_imported", "baseline_established"),
     "framing": ("framing_selected", "framing_started_later"),
     "experts": ("sme_requested", "sme_answered", "sme_promoted"),

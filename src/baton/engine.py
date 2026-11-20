@@ -650,6 +650,7 @@ def begin_attempt(
     dispatch_data: dict[str, Any] | None = None,
     effort: str | None = None,
     excluded: list[dict[str, Any]] | None = None,
+    selected_extra: dict[str, Any] | None = None,
 ) -> BuiltPacket:
     """Build the packet for the step's next attempt and mark the attempt dispatched and running.
 
@@ -685,6 +686,8 @@ def begin_attempt(
     selected = identity_record(profile_name, profile)  # identity and route, for independence (§8.4, 0075)
     if excluded is not None:
         selected["excluded"] = excluded  # the profiles routing left out, with reasons: every dispatch, not only a failed one (§8.4)
+    if selected_extra:
+        selected.update(selected_extra)  # a trial: the candidate is recorded as any worker is, with its fallback (0075, 0179)
     log.append("worker_selected", actor=actor, step_path=step_path, attempt=n, data=selected)
     pb = {"packet_sha256": built.sha256, "profile": profile_name, "worker_profile_sha256": built.manifest["worker_profile_sha256"]}
     if guidance:
@@ -784,6 +787,8 @@ def submit(
     if sub.status == "failed":
         reasons = [f"the worker reported failure: {sub.notes}" if sub.notes else "the worker reported failure"]
         log.append("result_rejected", step_path=step_path, attempt=n, data={"reasons": reasons, "worker_status": "failed"})
+        if _trial(ctx, step_path, n) is not None:
+            return _failed(ctx, step_path, n, reasons)  # a candidate that gave up: its fallback does the step (0179)
         log.append("step_escalated", step_path=step_path, attempt=n, data={"reason": "worker_failed", "reasons": reasons})
         return Outcome(step_path, n, "escalated", reasons)
     for c in claims:
@@ -1182,8 +1187,44 @@ def _workspace_modified(ctx: RunContext, step_path: str, n: int, changes: list[s
     return Outcome(step_path, n, "escalated", reasons)
 
 
+def standing_notice(profile: str, change: dict[str, Any]) -> str:
+    """What the Director tells the owner when a model's standing changes (Decision 0182, item 2)."""
+    tier, after = change["tier"], change["after"]
+    if after == "put_back":
+        return (f"{profile} failed too many of the {tier} steps it was tried on, so Baton now treats it as below {tier} until you "
+                f"promote it (the setup page, or `baton workers standing {profile} --tier {tier} --promote`).")
+    if after == "proven":
+        return f"{profile} has done well on the {tier} steps it was tried on: it is now proven at {tier} and no longer tried."
+    return f"{profile} is again tried as a candidate at {tier}."
+
+
+def _trial(ctx: RunContext, step_path: str, n: int) -> dict[str, Any] | None:
+    """The trial data of attempt ``n`` (``worker_selected`` with ``trial``), or ``None`` for an ordinary attempt."""
+    ev = ctx.record().last("worker_selected", step_path, n)
+    return dict(ev.data) if ev is not None and ev.data.get("trial") else None
+
+
+def _trial_failed(ctx: RunContext, step_path: str, n: int, trial: dict[str, Any], reasons: list[str], *, counts: bool) -> Outcome:
+    """A trial did not pass: record it and ready the step for the fallback, the attempt not counted (Decision 0179, items 1 and 3)."""
+    log = ctx.log
+    log.append("trial_failed", step_path=step_path, attempt=n,
+               data={"profile": trial.get("profile"), "fallback": trial.get("fallback"), "counts": counts, "reasons": reasons[:10]})
+    log.append("step_ready", step_path=step_path, data={"retry_of": n, "not_counted": True, "after": "trial_failed", "fallback": trial.get("fallback")})
+    message = (f"{step_path} was tried on {trial.get('profile')}, a cheaper model, and its result did not pass; dispatch "
+               f"{trial.get('fallback')} to do it again (the try is not counted against the step's attempts)")
+    return Outcome(step_path, n, "retry", [message, *reasons])
+
+
 def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outcome:
-    """Back to ``ready`` for another attempt, or ``escalated`` when the budget is used."""
+    """Back to ``ready`` for another attempt, or ``escalated`` when the budget is used.
+
+    A trial attempt goes back to ``ready`` for its fallback without spending the budget; a trial that ran out of time
+    is not evidence about the model (Decision 0179).
+    """
+    trial = _trial(ctx, step_path, n)
+    if trial is not None:
+        timed_out = ctx.record().last("step_timed_out", step_path, n) is not None
+        return _trial_failed(ctx, step_path, n, trial, reasons, counts=not timed_out)
     try:
         ctx.log.append("step_ready", step_path=step_path, data={"retry_of": n})
         return Outcome(step_path, n, "retry", reasons)
@@ -1319,6 +1360,9 @@ def finish_child(
     log.append("attempt_orphaned", step_path=step_path, attempt=n, data=child.as_dict())
     log.append("failure_classified", step_path=step_path, attempt=n, data=cls)
     reasons = [f"{cls['class']} failure ({cls['code']}): {cls['message']}"]
+    trial = _trial(ctx, step_path, n)
+    if trial is not None and not workspace_changes:
+        return _trial_failed(ctx, step_path, n, trial, reasons, counts=False)  # not evidence about the model (0179)
     esc: dict[str, Any] = {"reason": cls["class"], "code": cls["code"], "reasons": reasons}
     if workspace_changes:
         reasons += _workspace_reasons(step_path, workspace_changes)
@@ -2572,6 +2616,9 @@ class Api:
         if ctx.log.state().state in ("completed", "abandoned") and leases.current() is not None:
             leases.release(actor="runtime")
         self._open_incidents(ctx, [e for e in ctx.log.events() if e.seq > before])
+        notices = self._learn(ctx, [e for e in ctx.log.events() if e.seq > before])
+        if notices:
+            out.setdefault("notices", []).extend(notices)
         paths = list(extra or []) + publish.deliverable_paths(ctx) + self._adoption_progress(ctx) + self._project_paths()
         docs.write_records(ctx)
         new = [e for e in ctx.log.events() if e.seq > before]
@@ -3121,8 +3168,145 @@ class Api:
         return eligible_workers(
             node, step_path, self._current_profiles(), ctx.recipe.vocab, events=events, preferences=prefs, source_path=source,
             source_own=own, independence_waiver=waiver.data.get("decision_id") if waiver is not None else None,
-            person_steps=self._person_steps(),
+            person_steps=self._person_steps(), put_back=self._put_back(ctx.recipe.vocab.tiers),
         ), waiver
+
+    # -- what Baton learns about models (§6.4; Decisions 0176, 0179, 0182) --------
+
+    def _assessment_settings(self) -> Any:
+        from . import prefs
+        from .models import AssessmentSettings
+        from .routing import PreferencesError
+
+        try:
+            return prefs.load(self.project.home).assessment
+        except PreferencesError as e:  # expected: routing refuses the file itself, which says so; trials stay off
+            diag.note("assessment.settings_unreadable", "engine:Api._assessment_settings", error=str(e))
+            return AssessmentSettings()
+
+    def _track_models(self) -> dict[str, Any]:
+        from . import assessment
+
+        try:
+            return assessment.load_models(self.project.home)
+        except assessment.AssessmentError as e:  # expected: an unreadable record gives no standing; `workers status` says so
+            diag.note("assessment.record_invalid", "engine:Api._track_models", error=str(e))
+            return {}
+
+    def _put_back(self, tiers: list[str]) -> dict[str, list[str]]:
+        """Profiles whose route was put back, with the tiers (Decision 0182, item 2)."""
+        from . import assessment
+
+        models = self._track_models()
+        if not models:
+            return {}
+        settings = self._assessment_settings()
+        out = {}
+        for name, p in self._current_profiles().items():
+            back = assessment.put_back_tiers(models, p, settings, tiers)
+            if back:
+                out[name] = back
+        return out
+
+    def _choose_trial(self, ctx: RunContext, node: Any, step_path: str, worker: str, routing: Any, dispatch_id: str) -> dict[str, Any] | None:
+        """A candidate to try this step on in place of ``worker``, its estimate reserved; ``None`` for an ordinary dispatch (0179)."""
+        from . import assessment
+        from .routing import cost_label
+
+        settings = self._assessment_settings()
+        if not settings.trials or not isinstance(node, Step):
+            return None
+        events = ctx.log.events()
+        already = any(e.type == "worker_selected" and e.step_path == step_path and (e.data or {}).get("trial") for e in events)
+        profiles = self._current_profiles()
+        home = self.project.home
+        try:
+            avail = assessment.available(home, settings)
+        except assessment.AssessmentError as e:  # expected: an unreadable spend file reserves nothing, so no paid trial
+            diag.note("assessment.spend_invalid", "engine:Api._choose_trial", error=str(e))
+            avail = 0.0
+        name, _why = assessment.trial_candidate(node, step_path, worker, routing.names(), profiles, settings, self._track_models(),
+                                                available_usd=avail, already_tried=already, level=ctx.record().ratings())
+        if name is None:
+            return None
+        p = profiles[name]
+        est = assessment.estimate_usd(p) or 0.0
+        if not assessment.reserve(home, dispatch_id, est, settings, kind="trial", profile=name, run=ctx.run_id, step_path=step_path):
+            return None  # another dispatch took what was left
+        cost = cost_label(p)
+        message = (f"{step_path} is being tried on {name} ({cost}), a cheaper model than {worker}, to learn whether it does this kind "
+                   f"of step well. If its result fails a check, {worker} does the step again, and the try does not count against "
+                   "the step's attempts.")
+        return {"profile": name, "_profile": p, "tier": assessment.tier_of(node.requires), "estimate_usd": est, "cost": cost, "message": message}
+
+    def _learn(self, ctx: RunContext, new: list[Any]) -> list[str]:
+        """Add what the new events show to the track record; reconcile trial reservations. Returns notices for the owner.
+
+        Repeated intake records once (outcome ids). Platform and configuration failures are not evidence (0179).
+        """
+        from . import assessment
+
+        ends = ("step_passed", "trial_failed", "gate_failed", "result_rejected", "step_escalated", "attempt_orphaned", "step_timed_out")
+        touched = sorted({(e.step_path, e.attempt) for e in new if e.type in ends and e.step_path and e.attempt})
+        if not touched:
+            return []
+        events = ctx.log.events()
+        settings = self._assessment_settings()
+        profiles = None
+        notices: list[str] = []
+        for path, n in touched:
+            sel = next((e for e in reversed(events) if e.type == "worker_selected" and e.step_path == path and e.attempt == n), None)
+            if sel is None:
+                continue
+            mine = [e for e in events if e.step_path == path and e.attempt == n]
+            types = {e.type for e in mine}
+            disp = _last_data(events, "dispatched", path, n)
+            trial = bool(sel.data.get("trial"))
+            if trial and types & {"step_passed", "trial_failed", "step_escalated", "attempt_orphaned"}:
+                try:
+                    assessment.reconcile(self.project.home, disp.get("dispatch_id") or "", assessment.usage_cost(ctx.attempt_dir(path, n)))
+                except assessment.AssessmentError as e:  # expected: an unreadable spend file; the estimate stands
+                    diag.note("assessment.spend_invalid", "engine:Api._learn", error=str(e))
+            infra = any(e.type == "failure_classified" and (e.data or {}).get("class") != "subject" for e in mine)
+            passed: bool | None = None
+            counted = True
+            if "step_passed" in types:
+                passed = True
+            elif trial and "trial_failed" in types:
+                tf = next(e for e in mine if e.type == "trial_failed")
+                passed, counted = False, bool(tf.data.get("counts", True))
+            elif not trial and not infra and any(e.type in ("result_rejected",) or (e.type == "gate_failed" and not (e.data or {}).get("advisory")) for e in mine):
+                passed = False
+            elif trial and not infra and any(e.type == "gate_failed" and (e.data or {}).get("type") == "workspace" for e in mine):
+                passed = False
+            if passed is None:
+                continue
+            if profiles is None:
+                profiles = self._current_profiles()
+            name = sel.data.get("profile")
+            p = profiles.get(name)
+            node = node_for(ctx.recipe, path)
+            if p is None or not isinstance(node, Step) or node.requires is None:
+                continue
+            from .routing import needed_capabilities
+
+            kind = "trial" if trial else "step"
+            outcome = {"id": f"{ctx.run_id}:{path}:{n}:{kind}", "kind": kind, "tier": assessment.tier_of(node.requires), "passed": passed,
+                       "counted": counted, "capabilities": needed_capabilities(node.requires, node.workspace),
+                       "run": ctx.run_id, "step_path": path, "attempt": n}
+            cost = assessment.usage_cost(ctx.attempt_dir(path, n))
+            if cost is not None:
+                outcome["cost_usd"] = cost
+            try:
+                change = assessment.record_outcome(self.project.home, name, p, outcome, settings=settings, harness_version=disp.get("harness_version"))
+            except assessment.AssessmentError as e:  # expected: an unreadable record; the step's own outcome is unaffected
+                diag.note("assessment.record_invalid", "engine:Api._learn", error=str(e))
+                continue
+            if change is None:
+                continue
+            ctx.log.append("model_standing_changed", step_path=path, data={"profile": name, "model_id": p.model_id, **change})
+            notices.append(standing_notice(name, change))
+        return notices
 
     def _person_steps(self) -> str | None:
         """Who the policy in force says does person steps (Decision 0174), or ``None`` when not yet asked."""
@@ -3266,29 +3450,34 @@ class Api:
             return out
 
         def _start(ctx: RunContext, dispatch_id: str, n_next: int, node: Any, mode: str, locked: bool) -> dict[str, Any]:
+            wkr, prof, adp = worker, profile, adapter
+            trial = self._choose_trial(ctx, node, step_path, worker, routing, dispatch_id) if program_info is None else None
+            if trial is not None:  # tried on a cheaper model; the Director's choice is the fallback (Decision 0179, item 1)
+                wkr, prof = trial["profile"], trial["_profile"]
+                adp = adapters.get(prof.adapter)
             adir = ctx.attempt_dir(step_path, n_next)
             workspace = self.project.root if mode != "none" else None
             env = None
             try:
-                adapter.check_profile(profile)
-                if adapter.name != "manual":
+                adp.check_profile(prof)
+                if adp.name != "manual":
                     env = build_env(
-                        profile, home=self.project.home, packet_dir=adir / "packet", result_dir=adir / "result",
-                        workspace=workspace, config_home_var=adapter.config_home_var, resolve=adapter.needs_executable,
+                        prof, home=self.project.home, packet_dir=adir / "packet", result_dir=adir / "result",
+                        workspace=workspace, config_home_var=adp.config_home_var, resolve=adp.needs_executable,
                     )
             except SetupError as e:
                 if e.failure_class == "platform":
                     # Nothing was dispatched; the step stays ready and the incident says why (§12.3).
                     inc = self._open_incident({"run": ctx.run_id, "step_path": step_path, "attempt": None, "class": "platform",
-                                               "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": worker})
+                                               "code": e.code.split(".")[-1], "message": redact_text(str(e)), "worker": wkr})
                     raise EngineError(e.code, f"{e} (platform incident {inc} opened)") from e
                 raise EngineError(e.code, str(e)) from e
             if env is not None:
-                self._observed_fact(worker, env.resolved)
+                self._observed_fact(wkr, env.resolved)
             effort, effort_source = resolve_effort(ctx, node, self.project.config.effort, step_path)
             band_s = self.project.config.effort.seconds(effort)
             deadline = supervisor.fmt(ctx.log.clock() + timedelta(seconds=band_s))
-            extra: dict[str, Any] = {"auth_mode": profile.auth.mode, "workspace_mode": mode, "effort": effort, "deadline": deadline}
+            extra: dict[str, Any] = {"auth_mode": prof.auth.mode, "workspace_mode": mode, "effort": effort, "deadline": deadline}
             if waiver is not None:
                 # One waiver covers one dispatch (§9.3), whichever worker is chosen.
                 extra.update(waiver_seq=waiver.seq, independence_waived=waiver.data.get("decision_id"))
@@ -3298,39 +3487,53 @@ class Api:
                 extra["env"] = env.describe()
             if program_info is not None:
                 extra["program"] = program_info  # what ran: program, lock, runtime, environment (criterion 7)
-            tools = self._tool_plan(profile, getattr(node, "requires", None), mode)
+            tools = self._tool_plan(prof, getattr(node, "requires", None), mode)
             if tools is not None:
                 extra["tools"] = tools.describe()
-                version = self._harness_version(profile, env)
+                version = self._harness_version(prof, env)
                 if version:
                     extra["harness_version"] = version
-            offered = runner_tools_for(profile, node)
+            offered = runner_tools_for(prof, node)
             search_argv: list[str] = []
             if offered:
                 extra["tools"] = {"runner": offered, "limit": getattr(node, "tool_calls", None) or DEFAULT_TOOL_CALLS,
-                                  **({"search": profile.search_via()} if "search" in offered else {})}
-                if "search" in offered and profile.search_via() not in (None, "provider") and env is not None:
+                                  **({"search": prof.search_via()} if "search" in offered else {})}
+                if "search" in offered and prof.search_via() not in (None, "provider") and env is not None:
                     search_argv = self._declared_search_env(env)
                     extra["env"] = env.describe()
-            built = begin_attempt(
-                ctx, step_path, worker, profile, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adapter.name,
-                guidance=guidance, preflight=lambda b: adapter.preflight(profile, b.dir), dispatch_data=extra,
-                deadline=deadline, effort=effort, excluded=[{"profile": x["profile"], "reasons": list(x["reasons"])} for x in routing.excluded],
-            )
+            trial_data = None
+            if trial is not None:
+                trial_data = {"trial": True, "fallback": worker, "tier": trial["tier"], "estimate_usd": trial["estimate_usd"]}
+                extra["trial"] = {"fallback": worker, "tier": trial["tier"], "estimate_usd": trial["estimate_usd"], "reservation": dispatch_id}
+            try:
+                built = begin_attempt(
+                    ctx, step_path, wkr, prof, actor=self.director.actor, dispatch_id=dispatch_id, adapter=adp.name,
+                    guidance=guidance, preflight=lambda b: adp.preflight(prof, b.dir), dispatch_data=extra,
+                    deadline=deadline, effort=effort, excluded=[{"profile": x["profile"], "reasons": list(x["reasons"])} for x in routing.excluded],
+                    selected_extra=trial_data,
+                )
+            except BaseException:
+                if trial is not None:
+                    from . import assessment
+
+                    assessment.release(self.project.home, dispatch_id)
+                raise
             if queue_entry is not None:
                 ctx.log.append("dispatch_dequeued", step_path=step_path, data={"queue_id": queue_entry["queue_id"], "started": True, "dispatch_id": dispatch_id})
             out: dict[str, Any] = {
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
-                "worker": worker, "adapter": adapter.name, "packet_sha256": built.sha256,
+                "worker": wkr, "adapter": adp.name, "packet_sha256": built.sha256,
                 "packet": str(built.dir), "result": str(built.result_dir),
                 "effort": effort, "deadline": deadline,
-                "handoff": adapter.handoff(profile, built.dir, built.result_dir),
+                "handoff": adp.handoff(prof, built.dir, built.result_dir),
                 "warnings": [],
             }
             if locked:
                 out["workspace_lock"] = True
-            argv = adapter.command(profile, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
-                adapter.command(profile, built.dir, built.result_dir, workspace, mode)
+            if trial is not None:
+                out["trial"] = {"candidate": wkr, "fallback": worker, "cost": trial["cost"], "message": trial["message"]}
+            argv = adp.command(prof, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
+                adp.command(prof, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
                 return out  # a person does the work (no supervisor, no timeout); the Director submits
             if env.resolved is not None:
@@ -3343,12 +3546,12 @@ class Api:
             # writes to result/, so the runtime compares before and after (§6.3).
             # The runtime's own run and project records are excluded: they change
             # while the worker runs.
-            check_tree = getattr(adapter, "touches_files", False) and mode != "write"
+            check_tree = getattr(adp, "touches_files", False) and mode != "write"
             rel_baton = self.project.baton.resolve().relative_to(self.project.root.resolve()).as_posix()
             spec = {
                 "root": str(self.project.root), "home": str(self.project.home), "director": self.director.id,
                 "run_id": ctx.run_id, "step_path": step_path, "attempt": built.attempt, "dispatch_id": dispatch_id,
-                "worker": worker, "adapter": adapter.name, "argv": argv, "env": env.env, "secret_names": env.secrets,
+                "worker": wkr, "adapter": adp.name, "argv": argv, "env": env.env, "secret_names": env.secrets,
                 "cwd": str(workspace or built.dir.parent), "log_path": str(log_path),
                 "deadline": deadline, "band_s": band_s, "effort": effort, "extend_once": self.project.config.effort.extend_once,
                 "check_tree": check_tree, "exclude": [f"{rel_baton}/runs", f"{rel_baton}/project"],

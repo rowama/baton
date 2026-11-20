@@ -259,7 +259,7 @@ def test_broken_recipe_rejected(make_recipe, name, edit, code):
 
 
 def test_duplicate_yaml_key(make_recipe):
-    root = make_recipe(text=lambda t: t.replace("version: 1\n", "version: 1\nversion: 2\n", 1))
+    root = make_recipe(text=lambda t: t.replace("version: 2\n", "version: 2\nversion: 3\n", 1))
     with pytest.raises(RecipeError) as exc:
         load_recipe(root)
     assert exc.value.codes() == {"yaml.duplicate_key"}

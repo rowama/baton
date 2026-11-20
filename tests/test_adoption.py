@@ -39,15 +39,15 @@ CROSSWALK = {
     "id": "eng-flow",
     "prior_process": "eng-flow: one folder per feature, JSON step records, APPROVED marker files",
     "maps": [
-        {"match": "docs/features/*/requirements.md", "step": "software-feature@1/requirements", "artifact": "requirements_doc", "work_item": "{1}"},
-        {"match": "docs/features/*/requirements.json", "step": "software-feature@1/requirements", "output": True, "work_item": "{1}"},
-        {"match": "docs/features/*/design.md", "step": "software-feature@1/design", "artifact": "design_doc", "work_item": "{1}"},
-        {"match": "docs/features/*/design.json", "step": "software-feature@1/design", "output": True, "work_item": "{1}"},
-        {"match": "docs/features/*/plan.json", "step": "software-feature@1/plan", "output": True, "work_item": "{1}"},
-        {"match": "docs/features/*/APPROVED-plan", "step": "software-feature@1/plan", "gate": 2, "work_item": "{1}"},
-        {"match": "docs/features/*/slices/*/impl.json", "step": "software-feature@1/slices/implement", "output": True, "work_item": "{1}", "item": "{2}"},
-        {"match": "docs/features/*/slices/*/review.json", "step": "software-feature@1/slices/code_review", "output": True, "work_item": "{1}", "item": "{2}"},
-        {"match": "docs/features/*/slices/*/accepted.json", "step": "software-feature@1/slices/accept", "output": True, "work_item": "{1}", "item": "{2}"},
+        {"match": "docs/features/*/requirements.md", "step": "software-feature@2/requirements", "artifact": "requirements_doc", "work_item": "{1}"},
+        {"match": "docs/features/*/requirements.json", "step": "software-feature@2/requirements", "output": True, "work_item": "{1}"},
+        {"match": "docs/features/*/design.md", "step": "software-feature@2/design", "artifact": "design_doc", "work_item": "{1}"},
+        {"match": "docs/features/*/design.json", "step": "software-feature@2/design", "output": True, "work_item": "{1}"},
+        {"match": "docs/features/*/plan.json", "step": "software-feature@2/plan", "output": True, "work_item": "{1}"},
+        {"match": "docs/features/*/APPROVED-plan", "step": "software-feature@2/plan", "gate": 2, "work_item": "{1}"},
+        {"match": "docs/features/*/slices/*/impl.json", "step": "software-feature@2/slices/implement", "output": True, "work_item": "{1}", "item": "{2}"},
+        {"match": "docs/features/*/slices/*/review.json", "step": "software-feature@2/slices/code_review", "output": True, "work_item": "{1}", "item": "{2}"},
+        {"match": "docs/features/*/slices/*/accepted.json", "step": "software-feature@2/slices/accept", "output": True, "work_item": "{1}", "item": "{2}"},
     ],
 }
 
@@ -180,7 +180,7 @@ def through_triage(cli: Cli, project: Path, recipe: Path) -> tuple[str, dict[str
     assert out["ready"] == ["research"] and "dispatch research" in out["next"]
     d = cli.run("dispatch", adoption, "research", "--worker", "owner")
     inputs = packet_inputs(project, adoption, "research")
-    assert inputs["recipe"]["recipe"] == "software-feature@1" and inputs["crosswalk"]["id"] == "eng-flow"
+    assert inputs["recipe"]["recipe"] == "software-feature@2" and inputs["crosswalk"]["id"] == "eng-flow"
     cands = inputs["candidates"]
     assert {(c["work_item"], c["step"], c.get("item")) for c in cands} >= {("login", "slices/implement", "session"), ("export", "requirements", None)}
     pdir = Path(d["packet"])
@@ -355,11 +355,11 @@ def test_crosswalk_validation(tmp_path):
 
     _, _, recipe = setup(tmp_path)
     bad = dict(CROSSWALK, maps=[
-        {"match": "a/*", "step": "software-feature@1/nope", "output": True, "work_item": "{1}"},
-        {"match": "a/*", "step": "software-feature@1/plan", "artifact": "missing", "work_item": "{2}"},
+        {"match": "a/*", "step": "software-feature@2/nope", "output": True, "work_item": "{1}"},
+        {"match": "a/*", "step": "software-feature@2/plan", "artifact": "missing", "work_item": "{2}"},
         {"match": "a/*", "step": "other-recipe@1/plan", "output": True, "work_item": "{1}"},
-        {"match": "a/*", "step": "software-feature@1/slices/implement", "output": True, "work_item": "{1}"},
-        {"match": "a/*/*", "step": "software-feature@1/plan", "gate": 7, "output": True, "work_item": "{1}"},
+        {"match": "a/*", "step": "software-feature@2/slices/implement", "output": True, "work_item": "{1}"},
+        {"match": "a/*/*", "step": "software-feature@2/plan", "gate": 7, "output": True, "work_item": "{1}"},
     ])
     (recipe / "crosswalks" / "eng-flow.yaml").write_text(yaml.safe_dump(bad, sort_keys=False), encoding="utf-8")
     with pytest.raises(RecipeError) as e:

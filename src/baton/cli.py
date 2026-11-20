@@ -1642,6 +1642,18 @@ def workers_status(as_json: JsonOpt = False) -> None:
     for n, caps in out.get("capability_states", {}).items():
         if n not in out["generated"]:
             lines.append(f"profile {n}: " + "; ".join(f"{c} {s['state']}" for c, s in caps.items()))
+        if g.get("track_record"):
+            lines.append("  " + _track_line(g["track_record"]))
+    a = out.get("assessment") or {}
+    if a:
+        st, b = a["settings"], a["budget"]
+        lines.append(f"trials: {'on' if st['trials'] else 'off'}; shadow attempts: {'on' if st['shadows'] else 'off'}; "
+                     f"daily limit ${st['daily_limit_usd']:.2f}" + (" (free models only)" if not st["daily_limit_usd"] else "")
+                     + f"; reserved or spent today ${b['reserved_or_spent_usd']:.4f}")
+        for pb in a.get("put_back") or []:
+            lines.append(f"put back: {pb['profile']} at {pb['tier']}" + (" (by you)" if pb["by"] == "owner" else
+                         f" after {len(pb['failures'])} failures in its last tries") +
+                         f"; `baton workers standing {pb['profile']} --tier {pb['tier']} --promote` restores it")
     if out["available_not_generated"]:
         lines.append("available, not set up yet: " + ", ".join(out["available_not_generated"]) + " (`baton workers setup`)")
     _emit(out, as_json, "\n".join(lines))
@@ -2005,6 +2017,74 @@ def workers_disconnect(
         _fail(as_json, EXIT_PROBLEM, e.code, e.message)
     where = ", ".join(out["key_removed_from"])
     _emit(out, as_json, f"Disconnected {name}. " + (f"Its key was removed from the {where}." if where else "Its stored key was kept (`--forget-key` removes it)."))
+
+
+def _track_line(rec: dict[str, Any]) -> str:
+    parts = []
+    for t, row in rec["by_tier"].items():
+        counts = ", ".join(f"{k} {v['passed']}/{v['passed'] + v['failed']}" for k, v in row.items() if isinstance(v, dict) and "passed" in v)
+        parts.append(f"{t}: {row['standing'].replace('_', ' ')}" + (f" ({counts})" if counts else ""))
+    return "track record: " + "; ".join(parts)
+
+
+@workers_app.command("assessment")
+def workers_assessment(
+    trials: Annotated[Optional[bool], typer.Option("--trials/--no-trials", help="Try steps below strong on a cheaper model first.")] = None,
+    shadows: Annotated[Optional[bool], typer.Option("--shadows/--no-shadows", help="Shadow strong steps with one candidate model.")] = None,
+    daily_limit: Annotated[Optional[float], typer.Option("--daily-limit", help="US dollars a day trials and shadows may reserve; 0: free models only.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Show or change trial routing and shadow attempts on this machine (both off until you turn them on; §6.4)."""
+    from . import assessment, prefs
+    from .project import machine_home
+    from .routing import PreferencesError
+
+    home = machine_home()
+    try:
+        if trials is not None or shadows is not None or daily_limit is not None:
+            out = prefs.update_assessment(home, trials=trials, shadows=shadows, daily_limit_usd=daily_limit)
+        else:
+            out = {**prefs.as_dict(prefs.load(home)), "path": str(prefs.path(home))}
+    except PreferencesError as e:
+        _fail(as_json, EXIT_PROBLEM, "configuration.preferences", str(e))
+    st = out["assessment"]
+    from .models import AssessmentSettings
+
+    out["budget"] = assessment.budget_status(home, AssessmentSettings.model_validate(st))
+    lines = [f"trials: {'on' if st['trials'] else 'off'}", f"shadow attempts: {'on' if st['shadows'] else 'off'}",
+             f"daily limit: ${st['daily_limit_usd']:.2f}" + (" (free models only)" if not st["daily_limit_usd"] else ""),
+             f"reserved or spent today: ${out['budget']['reserved_or_spent_usd']:.4f} (estimates until reconciled; provider charges can be higher)",
+             f"proven after {st['proven_after']} passes with no failure in the last {st['window']}; put back after {st['put_back_after']} failures in the last {st['window']}"]
+    _emit(out, as_json, "\n".join(lines))
+
+
+@workers_app.command("standing")
+def workers_standing(
+    profile: Annotated[str, typer.Argument(help="The worker profile.")],
+    tier: Annotated[str, typer.Option("--tier", help="The tier: basic, standard or strong.")],
+    promote: Annotated[bool, typer.Option("--promote", help="Treat it as proven at this tier (clears a put back).")] = False,
+    put_back: Annotated[bool, typer.Option("--put-back", help="Treat it as below this tier until promoted.")] = False,
+    clear: Annotated[bool, typer.Option("--clear", help="Let the evidence decide again.")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Promote or put back a model at a tier by hand (§6.4; Decision 0176, item 5). To turn one off, use `workers prefs --exclude`."""
+    from . import assessment
+    from . import vocab as vocab_mod
+    from .project import machine_home
+
+    if sum([promote, put_back, clear]) != 1:
+        _fail(as_json, EXIT_USAGE, "usage.standing", "give exactly one of --promote, --put-back, --clear")
+    if tier not in vocab_mod.load(vocab_mod.DEFAULT).tiers:
+        _fail(as_json, EXIT_USAGE, "usage.standing", f"unknown tier {tier!r}")
+    home = machine_home()
+    profiles = assessment.machine_profiles(home)
+    if profile not in profiles:
+        _fail(as_json, EXIT_PROBLEM, "configuration.unknown_profile", f"no worker profile {profile!r} on this machine")
+    try:
+        out = assessment.set_standing(home, profile, profiles[profile], tier, "proven" if promote else "put_back" if put_back else None)
+    except assessment.AssessmentError as e:
+        _fail(as_json, EXIT_PROBLEM, "configuration.standing", str(e))
+    _emit(out, as_json, f"{profile} at {tier}: " + {"proven": "promoted", "put_back": "put back", "evidence": "the evidence decides"}[out["standing"]])
 
 
 @workers_app.command("prefs")

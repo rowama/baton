@@ -923,6 +923,19 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 | `--timeout <float>` | Seconds to wait for the worker. |
 | `--json` | Machine-readable output. |
 
+### baton workers assessment {#baton-workers-assessment}
+
+Show or change trial routing and shadow attempts on this machine (both off until you turn them on; ).
+
+Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `--trials` | Try steps below strong on a cheaper model first. |
+| `--shadows` | Shadow strong steps with one candidate model. |
+| `--daily-limit <float>` | US dollars a day trials and shadows may reserve; 0: free models only. |
+| `--json` | Machine-readable output. |
+
 ### baton workers check {#baton-workers-check}
 
 Check what models can do, once: short tasks graded by code, after an estimate of their cost.
@@ -1059,6 +1072,21 @@ Explained in the manual: [Connect an API account](user.connect-an-account#here-n
 |---|---|
 | `--verify <str>` | Live-check this profile (repeatable; costs one small model call each). |
 | `--verify-all` | Live-check every generated profile. |
+| `--json` | Machine-readable output. |
+
+### baton workers standing {#baton-workers-standing}
+
+Promote or put back a model at a tier by hand. To turn one off, use `workers prefs --exclude`.
+
+Explained in the manual: [Connect an API account](user.connect-an-account#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `profile <str>` | The worker profile. |
+| `--tier <str>` | The tier: basic, standard or strong. |
+| `--promote` | Treat it as proven at this tier (clears a put back). |
+| `--put-back` | Treat it as below this tier until promoted. |
+| `--clear` | Let the evidence decide again. |
 | `--json` | Machine-readable output. |
 
 ### baton workers status {#baton-workers-status}

@@ -331,6 +331,7 @@ published:
 - reference.commands#baton-waive
 - reference.commands#baton-workers
 - reference.commands#baton-workers-assess
+- reference.commands#baton-workers-assessment
 - reference.commands#baton-workers-check
 - reference.commands#baton-workers-check-overlay
 - reference.commands#baton-workers-connect
@@ -341,6 +342,7 @@ published:
 - reference.commands#baton-workers-prefs
 - reference.commands#baton-workers-refresh
 - reference.commands#baton-workers-setup
+- reference.commands#baton-workers-standing
 - reference.commands#baton-workers-status
 - reference.commands#here-now
 - reference.diagnostics
@@ -383,6 +385,7 @@ published:
 - user.choose-models#prefer-a-model
 - user.choose-models#rate-from-evaluations
 - user.choose-models#reading-the-table
+- user.choose-models#try-cheaper-models
 - user.connect-a-subscription
 - user.connect-a-subscription#here-now
 - user.connect-a-subscription#not-ready

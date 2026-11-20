@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "For each engineered program, how its examples will come: the owner's files, drafted ones, or both (Decision 0164, items 2 and 4)",
+  "required": ["programs"],
+  "additionalProperties": false,
+  "properties": {
+    "programs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["program", "supplied", "drafted"],
+        "additionalProperties": false,
+        "properties": {
+          "program": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "supplied": { "type": "integer", "minimum": 0, "description": "How many examples the owner supplies as files, bound to the role 'examples'" },
+          "drafted": { "type": "integer", "minimum": 0, "description": "How many the builder drafts for the owner to approve" },
+          "warned": { "type": "boolean", "description": "The owner was told that with fewer than three good examples of their own the program is more likely to differ from what they expect" },
+          "owner_words": { "type": "string", "minLength": 1, "description": "The owner's words choosing to have examples drafted" }
+        },
+        "if": { "properties": { "drafted": { "minimum": 1 } } },
+        "then": { "required": ["warned", "owner_words"], "properties": { "warned": { "const": true } } }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

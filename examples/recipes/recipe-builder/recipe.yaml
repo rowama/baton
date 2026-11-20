@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 8
+version: 9
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
@@ -35,6 +35,8 @@ complexity:
 
 steps:
   - id: profile
+    effect: none   # reads the project; writes nothing but its result (Decision 0182, item 5)
+    repeatable: true          # safe to evaluate again: a shadow attempt may shadow it (Decision 0179, item 6)
     title: Understand the process
     requires: { capabilities: [structured_output, long_form_writing, technical_reasoning, workspace_read], tier: strong }
     workspace: read                       # reads recipes/plans/ for an earlier process plan (Decision 0102)
@@ -53,6 +55,7 @@ steps:
     gates: [ { type: schema } ]          # every rating waits on the owner (confirm_lowest), so the ratings' approval is the one question here (Decision 0163)
 
   - id: guide
+    effect: none
     title: Choose or write the guide for a quick run
     depends_on: [profile]
     applies_to: { approach: [quick] }
@@ -93,6 +96,8 @@ steps:
     max_iterations: 3
     steps:
       - id: design
+        effect: none
+        repeatable: true          # safe to evaluate again: a shadow attempt may shadow it (Decision 0179, item 6)
         title: Design the process
         requires: { capabilities: [structured_output, long_form_writing, technical_reasoning], tier: strong }
         prompt: prompts/design.md
@@ -107,6 +112,8 @@ steps:
           - { name: design_doc, required: true, media_type: text/markdown }
         gates: [ { type: schema } ]
       - id: audit
+        effect: none
+        repeatable: true          # safe to evaluate again: a shadow attempt may shadow it (Decision 0179, item 6)
         title: Audit the design
         depends_on: [design]
         requires: { capabilities: [structured_output, technical_reasoning], tier: strong }
@@ -124,6 +131,7 @@ steps:
               prompt: "Is this the process you want? Saying no sends it back with your note." }
 
   - id: generate
+    effect: reversible   # writes the draft recipe under recipes/drafts/, kept in git
     title: Build the recipe package
     depends_on: [shape]
     applies_to: { approach: [simple, standard, complex] }
@@ -162,6 +170,7 @@ steps:
     gates: [ { type: schema } ]
 
   - id: examples
+    effect: reversible
     title: Place the examples each program will be built to
     depends_on: [example_plan]
     applies_to: { software: [engineered] }
@@ -192,6 +201,7 @@ steps:
     max_iterations: 3                    # at the limit the owner chooses: retry with a note, simplify (revise generate) or stop
     steps:
       - id: implement
+        effect: reversible
         title: Build the program to its examples
         requires: { capabilities: [structured_output, file_write, shell, repo_workspace], tier: standard }   # built to fixed examples and reviewed independently (0181)
         workspace: write
@@ -209,6 +219,8 @@ steps:
           - { type: script, run: "baton programs test recipes/drafts/{{ run.slug }} --program {{ item.program }} --repeat 2 --require-examples", timeout_s: 1200 }
           - { type: script, run: "baton recipe check recipes/drafts/{{ run.slug }} --ledger recipes/drafts/{{ run.slug }}.ledger.json", timeout_s: 60 }   # the program budget
       - id: review
+        effect: none
+        repeatable: true          # safe to evaluate again: a shadow attempt may shadow it (Decision 0179, item 6)
         title: Review the program against its contract
         depends_on: [implement]
         requires: { capabilities: [structured_output, technical_reasoning, workspace_read], tier: strong }

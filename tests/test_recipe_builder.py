@@ -36,7 +36,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@8" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@9" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -284,7 +284,7 @@ def test_the_published_v3_still_loads_with_its_levels():
 
 
 def test_v8_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@8" and not loaded.warnings
+    assert loaded.recipe.ref == "recipe-builder@9" and not loaded.warnings
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
@@ -683,3 +683,30 @@ def test_the_published_v7_is_a_frozen_copy_with_strong_everywhere():
     old = load_recipe(V7)
     assert old.recipe.ref == "recipe-builder@7" and not old.warnings
     assert {s.requires.tier for s in old.recipe.steps if getattr(s, "requires", None) and s.requires.tier} == {"strong"}
+
+
+# -- step effects (change 2026-11-model-assessment, slice 3; Decision 0182, item 5) --
+
+V8 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v8"
+
+
+def test_v9_declares_what_each_step_may_change(loaded):
+    def effects(steps, prefix=""):
+        out = {}
+        for s in steps:
+            if getattr(s, "steps", None):
+                out.update(effects(s.steps, f"{prefix}{s.id}/"))
+            elif s.requires is not None:
+                out[f"{prefix}{s.id}"] = (s.effect, s.repeatable)
+        return out
+
+    assert effects(loaded.recipe.steps) == {
+        "profile": ("none", True), "guide": ("none", False), "research": (None, False), "shape/design": ("none", True),
+        "shape/audit": ("none", True), "generate": ("reversible", False), "example_plan": (None, False), "examples": ("reversible", False),
+        "build_programs/implement": ("reversible", False), "build_programs/review": ("none", True), "accept": (None, False)}
+
+
+def test_the_published_v8_is_a_frozen_copy_without_effects():
+    old = load_recipe(V8)
+    assert old.recipe.ref == "recipe-builder@8" and not old.warnings
+    assert all(getattr(s, "effect", None) is None for s in old.recipe.steps)

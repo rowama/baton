@@ -802,6 +802,7 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         checked = check_summary(home, name, record)
         if checked is not None:
             g["capability_check"] = checked
+    assessed = _assessment_summary(home, bodies, gen)
     return {
         "catalog": {"path": str(kw_mod.default_path()), "sha256": kw_sha},
         "setup_complete": state.completed is not None,
@@ -815,8 +816,45 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         "providers": provider_summary(home),
         "capability_states": {n: {c: st.as_dict() for c, st in caps.items()} for n, caps in states.items()},
         "people": _people_summary(owner),
+        "assessment": assessed,
         **({"search": res.search.model_dump(mode="json", exclude_none=True)} if res.search is not None else {}),
     }
+
+
+def _assessment_summary(home: Path, bodies: dict[str, Any], gen: dict[str, Any]) -> dict[str, Any]:
+    """Trial and shadow settings, today's budget, each route's track record and the models put back (§6.4; 0182, item 2)."""
+    from pydantic import ValidationError
+
+    from . import assessment, prefs
+    from . import vocab as vocab_mod
+    from .models import AssessmentSettings, WorkerProfile
+    from .routing import PreferencesError
+
+    try:
+        settings = prefs.load(home).assessment
+    except PreferencesError:  # expected: the preferences problem is reported where they are read; defaults shown
+        settings = AssessmentSettings()
+    try:
+        models = assessment.load_models(home)
+    except assessment.AssessmentError as e:  # expected: an unreadable record shows no evidence; noted
+        diag.note("assessment.record_invalid", "resources:status", error=str(e))
+        models = {}
+    tiers = vocab_mod.load(vocab_mod.DEFAULT).tiers
+    put_back = []
+    for name, body in sorted(bodies.items()):
+        try:
+            p = WorkerProfile.model_validate(body)
+        except ValidationError:  # expected: an invalid file is reported by setup; it has no record here
+            continue
+        rec = assessment.summary(models, p, settings, tiers)
+        if rec is None:
+            continue
+        if name in gen:
+            gen[name]["track_record"] = rec
+        for t, row in rec["by_tier"].items():
+            if row["standing"] == "put_back":
+                put_back.append({"profile": name, "tier": t, "by": row["standing_by"], "failures": row.get("failures", [])})
+    return {"settings": settings.model_dump(), "budget": assessment.budget_status(home, settings), "put_back": put_back}
 
 
 def _people_summary(owner_names: set[str]) -> dict[str, Any]:
