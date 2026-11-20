@@ -319,3 +319,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0178 Tiers from evaluations: the Artificial Analysis index decides (strong 50+, standard 25+, per index version), LMArena supports; standard or better grants technical_reasoning; a failed check task is run once more](decisions/0178-evaluation-tiers.md) | accepted |
 | [0179 Trial and shadow routing: candidate selection, effects, reviews, budgets and evidence identity](decisions/0179-trial-and-shadow-routing-details.md) | accepted |
 | [0180 Explicit worker failures escalate for review instead of automatically retrying](decisions/0180-worker-failures-escalate.md) | accepted |
+| [0181 First-use feedback: cost-aware routing by default with subscriptions first; answers carried across rounds; the blocked output reaches its retry; recipe-builder's tiers per step](decisions/0181-first-use-feedback-routing-and-answers.md) | accepted |
