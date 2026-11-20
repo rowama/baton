@@ -31,7 +31,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .data import YamlError, load_yaml
-from .models import Independence, Preferences, Requires, Step, WorkerProfile
+from .models import Independence, Preferences, Requires, Step, WorkerProfile, person_slug
 from .vocab import Vocabulary
 
 #: Capability a profile needs for each workspace mode (§8.4 step 2).
@@ -297,6 +297,11 @@ class Eligibility:
         return {"step_path": self.step_path, "eligible": self.eligible, "excluded": self.excluded}
 
 
+def is_person_step(step: Step) -> bool:
+    """A step for a person: one that requires ``human_judgment`` (only a person's profile has it, §5.6)."""
+    return step.requires is not None and "human_judgment" in step.requires.capabilities
+
+
 def eligible_workers(
     step: Step,
     step_path: str,
@@ -308,11 +313,14 @@ def eligible_workers(
     source_path: str | None = None,
     source_own: bool | None = None,
     independence_waiver: str | None = None,
+    person_steps: str | None = None,
 ) -> Eligibility:
     """The ordered eligible profiles with reasons, and every exclusion with its reasons.
 
     ``source_path`` is the step path of ``independence.from_step`` (inside a
     group: the sibling in the same instance and iteration); default: the id.
+    ``person_steps`` is who the project policy says does person steps (``owner`` or a
+    name, Decision 0174): a step for a person goes to that person's profile only.
     """
     prefs = preferences or Preferences()
     out = Eligibility(step_path)
@@ -324,8 +332,11 @@ def eligible_workers(
         other = result_worker(events, source, own)
 
     kept: dict[str, dict[str, Any]] = {}
+    person_step = is_person_step(step)
     for name in sorted(profiles):
         p = profiles[name]
+        if p.builtin_person() and not person_step:
+            continue  # Baton's own profile for a person does only the steps for a person, so it is not listed (0174)
         reasons = requirement_gaps(step.requires, step.workspace, p, vocab)
         waived = False
         if other is not None and indep is not None and same_at(indep.level, identity_of(name, p), other):
@@ -335,6 +346,9 @@ def eligible_workers(
                 waived = True
         if p.adapter == "program":
             reasons.append("the program adapter runs a recipe's own program steps only (§5.9)")
+        if person_steps and p.adapter == "manual" and person_step and p.person != person_slug(person_steps):
+            reasons.append(f"the project policy says {person_steps} does the steps for a person "
+                           "(`baton policy set --person-steps` with the owner's words changes it)")
         if name in prefs.exclude:
             reasons.append("turned off for this machine (~/.baton/preferences.yaml; `baton workers prefs --include`)"
                            if prefs.excluded_by_machine(name) else "excluded by preferences.yaml")
@@ -397,6 +411,23 @@ WEB_ADVICE = (
     "and run `baton workers setup`. Baton turns on their web tools for exactly the steps that need them. "
     "An API model whose provider's own web search Baton can use (Anthropic's, billed per search) also does these steps."
 )
+
+
+def person_steps(recipe: Any) -> list[str]:
+    """Paths of a recipe's steps for a person (``is_person_step``), groups included (Decision 0174)."""
+    from .models import Group
+
+    out: list[str] = []
+
+    def visit(nodes: list[Any], prefix: str) -> None:
+        for n in nodes:
+            if isinstance(n, Group):
+                visit(n.steps, f"{prefix}{n.id}/")
+            elif isinstance(n, Step) and is_person_step(n):
+                out.append(f"{prefix}{n.id}")
+
+    visit(recipe.steps, "")
+    return out
 
 
 def web_steps(recipe: Any) -> list[str]:

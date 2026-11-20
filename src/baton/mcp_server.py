@@ -461,10 +461,12 @@ def build_server(project: str | Path | None = None, director: str | None = None)
 
     @tool
     def policy_set(note: str, floors: dict[str, dict[str, str | None]] | None = None, governing: dict[str, str | None] | None = None,
-                   permissions: dict[str, str] | None = None) -> dict[str, Any]:
+                   permissions: dict[str, str] | None = None, person_steps: str | None = None) -> dict[str, Any]:
         """Change the policy (note = the owner's words). floors {recipe or "*": {axis: value, or null to remove}};
-        governing {kind of work: recipe, or null}; permissions {"push.other" | "tag" | ...: allow | ask | deny}."""
-        return t.call(lambda api: api.policy_set(note, floors=floors, governing=governing, permissions=permissions))
+        governing {kind of work: recipe, or null}; permissions {"push.other" | "tag" | ...: allow | ask | deny};
+        person_steps: who does the steps for a person, "owner" or the name of the person who will."""
+        return t.call(lambda api: api.policy_set(note, floors=floors, governing=governing, permissions=permissions,
+                                                 person_steps=person_steps))
 
     @tool
     def policy_confirm(note: str) -> dict[str, Any]:

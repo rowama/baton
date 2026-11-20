@@ -364,8 +364,36 @@ def _profile_report(project: Any, name: str, profile: Any, run_noop: bool) -> di
     return rep
 
 
+#: When no profile for a person can do a person's step: Baton's own profile for the owner was replaced (Decision 0174).
+PERSON_STEP_UNCOVERED = ("no profile for a person on this machine can do {step}: Baton's own profile for you (`owner`) is replaced by "
+                         "a profile of that name, in ~/.baton/workers.yaml or .baton/workers.local.yaml, that lacks what the step needs; "
+                         "remove that profile to use Baton's own, or give it the step's capabilities")
+
+
+def _person_step_paths(project: Any) -> set[str]:
+    """``<recipe ref>/<step path>`` of the vendored recipes' steps for a person."""
+    from .routing import is_person_step
+
+    out: set[str] = set()
+    for ref in project.vendored():
+        try:
+            loaded = project.recipe(ref)
+        except EngineError:  # expected: a recipe that does not load is reported by check
+            continue
+
+        def visit(nodes: list, prefix: str) -> None:
+            for n in nodes:
+                if isinstance(n, Group):
+                    visit(n.steps, f"{prefix}{n.id}/")
+                elif isinstance(n, Step) and is_person_step(n):
+                    out.add(f"{ref}/{prefix}{n.id}")
+
+        visit(loaded.recipe.steps, "")
+    return out
+
+
 def _uncovered_steps(project: Any, profiles: dict[str, Any]) -> list[str]:
-    from .routing import requirement_gaps
+    from .routing import is_person_step, requirement_gaps
 
     out = []
     for ref in project.vendored():
@@ -379,7 +407,9 @@ def _uncovered_steps(project: Any, profiles: dict[str, Any]) -> list[str]:
                 if isinstance(n, Group):
                     visit(n.steps, f"{prefix}{n.id}/")
                 elif isinstance(n, Step) and n.program is None:  # a program's readiness is its own check (§5.9)
-                    if not any(not requirement_gaps(n.requires, n.workspace, p, loaded.vocab) for p in profiles.values()):
+                    person = is_person_step(n)  # Baton's own profile for a person does only a person's steps (0174)
+                    if not any(not requirement_gaps(n.requires, n.workspace, p, loaded.vocab)
+                               for p in profiles.values() if person or not p.builtin_person()):
                         out.append(f"{ref}/{prefix}{n.id}")
 
         visit(loaded.recipe.steps, "")
@@ -535,7 +565,9 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
         for i in incidents(project.store.project_log().events()).values():
             if i["status"] == "open":
                 warnings.append(f"open platform incident {i['id']}: {i.get('class')}/{i.get('code')} on {i.get('step_path')} of {i.get('run')}: {i.get('message')}")
-    warnings += [f"no healthy profile on this machine can do {s}" for s in uncovered]
+    person_steps = _person_step_paths(project) if uncovered else set()
+    warnings += [PERSON_STEP_UNCOVERED.format(step=s) if s in person_steps else f"no healthy profile on this machine can do {s}"
+                 for s in uncovered]
     from .resources import readiness
 
     for rname, line in (readiness(project.home).get("quota") or {}).items() if only is None else []:
@@ -550,7 +582,7 @@ def _doctor(project: Any, only: str | None, run_noop: bool, problems: list[str],
     if only is None:
         if worker_setup.get("problem"):
             problems.append(f"worker setup: {worker_setup['problem']}")
-        elif not healthy:
+        elif not any(not p.builtin_person() for p in healthy.values()):  # a person's profile is not an AI helper (0174)
             # Never repeats the setup questions: it says where to look (§6.4).
             problems.append(NO_WORKER_SETUP_DONE if not worker_setup["offer_setup"] else NO_WORKER_SETUP_OFFER)
     if "microsoft" in platform.uname().release.lower() and str(project.root).startswith("/mnt/") and os.name == "posix":

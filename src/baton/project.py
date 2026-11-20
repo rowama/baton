@@ -352,11 +352,25 @@ class Project:
 
     # -- profiles -----------------------------------------------------------
 
+    def people_profiles(self) -> dict[str, WorkerProfile]:
+        """The built-in profiles for people (§6.1; Decision 0174): the owner's, always, and one for the person
+        the project policy names to do person steps. Nobody writes them; a profile of the same name replaces one."""
+        from . import policy
+
+        out = {OWNER_PROFILE: person_profile("owner")}
+        try:
+            named = policy.person_steps(self.policy_state().in_force)
+        except Exception:  # expected: no project configuration yet; the owner's profile is enough
+            named = None
+        if named and named != "owner":
+            out[person_profile_name(named)] = person_profile(named)
+        return out
+
     def profiles(self) -> dict[str, WorkerProfile]:
         """Generated profiles (``workers/``, one per file), then the owner's machine profiles, then
         project-local overrides, each by name (§6.1, §6.4)."""
         vocab = load_vocab(DEFAULT_VOCAB)
-        out: dict[str, WorkerProfile] = {}
+        out: dict[str, WorkerProfile] = dict(self.people_profiles())  # built in; any profile of the same name replaces one
         issues: list[Issue] = []
         gen = self.home / GENERATED_PROFILES
         for path in sorted(gen.glob("*.yaml")) if gen.is_dir() else []:
@@ -418,6 +432,28 @@ class Project:
         except FileNotFoundError:  # expected: no git: there is no current branch
             return None
         return out.stdout.strip() or None
+
+
+#: The built-in profile for the owner, the person who starts a run (Decisions 0161 item 6, 0174).
+OWNER_PROFILE = "owner"
+#: What a person brings (Decision 0174, item 3).
+PERSON_CAPABILITIES = ["human_judgment", "long_form_writing", "vision", "file_write"]
+
+
+def person_profile_name(name: str) -> str:
+    """``owner``, or ``person-<slug>`` for a person the owner named."""
+    from .models import person_slug
+
+    slug = person_slug(name)
+    return OWNER_PROFILE if slug == "owner" else f"person-{slug}"
+
+
+def person_profile(name: str) -> WorkerProfile:
+    """A ``manual`` profile for a person, identity ``human/<slug>`` (§6.1)."""
+    from .models import person_slug
+
+    return WorkerProfile.model_validate({"adapter": "manual", "creator": "human", "person": person_slug(name),
+                                         "capabilities": list(PERSON_CAPABILITIES), "tier": "strong"}).as_builtin_person()
 
 
 def _ref_key(ref: str) -> tuple[str, int]:

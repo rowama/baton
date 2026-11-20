@@ -2823,6 +2823,7 @@ class Api:
         self._after(ctx, leases, 0, out)
         out.update(self.status(ctx.run_id))
         self._add_web_advice(out, loaded.recipe)
+        self._add_people_question(out, loaded.recipe)
         self._add_wait_advice(out, loaded)
         from .project import retired_text, retirement
 
@@ -2841,6 +2842,22 @@ class Api:
     def bind(self, run_id: str, role: str, paths: list[str], note: str) -> dict[str, Any]:
         """Bind a role of the run's recipe to project documents (owner-approved, their words in ``note``)."""
         return self._mutate(run_id, lambda ctx: bind(ctx, role, paths, note, recorded_by=self.director.actor))
+
+    def _add_people_question(self, out: dict[str, Any], recipe: Any) -> None:
+        """A recipe with steps for a person, and the policy does not say who does them yet: the Director asks once (Decision 0174)."""
+        from .routing import person_steps
+
+        steps = person_steps(recipe)
+        if not steps or self._person_steps() is not None:
+            return
+        out["people"] = {
+            "steps": steps,
+            "default": "owner",
+            "ask": "Some parts of this work are for a person. Will you be the one doing them?",
+            "next": "on yes (the default): `policy set --person-steps owner --note \"<owner's words>\"`; if someone else will: "
+                    "`policy set --person-steps \"<their name>\" --note \"<owner's words>\"`. It is kept for the project; "
+                    "the owner keeps every decision either way",
+        }
 
     def _add_web_advice(self, out: dict[str, Any], recipe: Any) -> None:
         """A recipe the owner is about to run has web steps no worker here can do: say how to get one (§13.4)."""
@@ -2868,6 +2885,7 @@ class Api:
         out: dict[str, Any] = {"run_id": ctx.run_id, "from_plan": res}
         self._after(ctx, leases, 0, out, paths)  # publishes the plan, or holds this run on its conflict (Decision 0072)
         self._add_web_advice(out, ctx.recipe.recipe)
+        self._add_people_question(out, ctx.recipe.recipe)
         # One checkpoint holds the framing run's record, the new run, the plan and anything vendored.
         from . import docs
 
@@ -3100,7 +3118,17 @@ class Api:
         return eligible_workers(
             node, step_path, self._current_profiles(), ctx.recipe.vocab, events=events, preferences=prefs, source_path=source,
             source_own=own, independence_waiver=waiver.data.get("decision_id") if waiver is not None else None,
+            person_steps=self._person_steps(),
         ), waiver
+
+    def _person_steps(self) -> str | None:
+        """Who the policy in force says does person steps (Decision 0174), or ``None`` when not yet asked."""
+        from . import policy
+
+        try:
+            return policy.person_steps(self.project.policy_state().in_force)
+        except EngineError:  # expected: no project configuration; nobody is named
+            return None
 
     def eligible(self, run_id: str, step_path: str) -> dict[str, Any]:
         """Ordered eligible profiles with reasons, and every exclusion (§8.4).
@@ -4822,8 +4850,10 @@ class Api:
         return policy.listing(self.project.policy_state())
 
     def policy_set(self, note: str, *, floors: dict[str, dict[str, str | None]] | None = None,
-                   governing: dict[str, str | None] | None = None, permissions: dict[str, str] | None = None) -> dict[str, Any]:
-        """Change the policy with the owner's words: a ``None`` floor or governing recipe removes it.
+                   governing: dict[str, str | None] | None = None, permissions: dict[str, str] | None = None,
+                   person_steps: str | None = None) -> dict[str, Any]:
+        """Change the policy with the owner's words: a ``None`` floor or governing recipe removes it;
+        ``person_steps`` says who does person steps, ``owner`` or a name (Decision 0174).
         Recorded as ``human_decision {kind: policy}`` and ``policy_changed``; project.yaml is rewritten and committed."""
         from . import policy
 
@@ -4833,7 +4863,7 @@ class Api:
             raise EngineError("policy.unconfirmed_edit",
                               "project.yaml's policy was edited by hand and not confirmed: confirm it first (`baton policy confirm`), "
                               "or restore the file, then make this change")
-        after = policy.apply(st.in_force, floors=floors, governing=governing, permissions=permissions)
+        after = policy.apply(st.in_force, floors=floors, governing=governing, permissions=permissions, person_steps=person_steps)
         if policy.sha256(after) == st.sha256:
             raise EngineError("policy.unchanged", "the policy already says that; nothing to change")
         warnings = self._policy_checked(after)

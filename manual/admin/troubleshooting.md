@@ -29,6 +29,7 @@ baton diag
 |---|---|
 | no worker on this machine is ready yet | No helper is usable. Connect a subscription or account: `baton workers setup`, or the setup page |
 | no healthy profile can do `<recipe>/<step>` | Nothing here has the capabilities that part needs. Connect more helpers, or check `baton workers status` for what is missing |
+| no profile for a person on this machine can do `<recipe>/<step>` | A profile named `owner` in `workers.yaml` replaces Baton's own profile for you and lacks what that part needs. Remove it to use Baton's, or give it the part's capabilities |
 | no completion hook would wake a Director | The assistant may end its turn and never notice finished work. See [waking an assistant](admin.directors#wake) |
 | `director_sandboxed` | The assistant's own sandbox blocks Baton. See [setting up Codex](admin.directors#codex) |
 | a login profile would bill an API key | A key in the environment would override a subscription login. It is removed by `env_deny`; check the profile |

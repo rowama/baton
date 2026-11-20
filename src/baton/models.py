@@ -597,6 +597,8 @@ class WorkerProfile(_Strict):
     _quota_until: Any = PrivateAttr(default=None)
     #: True when the owner switched this route's resource off (``resources.yaml`` ``enabled: false``, 0113); attached by ``Project.profiles``.
     _switched_off: bool = PrivateAttr(default=False)
+    #: True for Baton's built-in profile for a person (``Project.people_profiles``, Decision 0174); never in a file, never hashed.
+    _builtin_person: bool = PrivateAttr(default=False)
     #: Capabilities Baton's API runner provides for this profile (``runner_tools.provided``): capability -> evidence.
     #: Facts about Baton's code, attached by ``Project.profiles``; never in a profile file, never hashed.
     _provided: dict[str, str] = PrivateAttr(default_factory=dict)
@@ -671,6 +673,7 @@ class WorkerProfile(_Strict):
         out._capability_states = dict(self._capability_states)
         out._quota_until = self._quota_until
         out._switched_off = self._switched_off
+        out._builtin_person = self._builtin_person
         out._provided = dict(self._provided)
         out._search_via = self._search_via
         return out
@@ -696,6 +699,15 @@ class WorkerProfile(_Strict):
 
     def switched_off(self) -> bool:
         return self._switched_off
+
+    def as_builtin_person(self) -> "WorkerProfile":
+        out = self._copy_private()
+        out._builtin_person = True
+        return out
+
+    def builtin_person(self) -> bool:
+        """Baton's own profile for a person: it does only the steps for a person (Decision 0174)."""
+        return self._builtin_person
 
     def canonical_model(self) -> str | None:
         """The canonical model identity: ``model_id``; for a ``manual`` profile, ``human/<person>`` (0075)."""
@@ -991,6 +1003,30 @@ class GoverningRecipe(_Strict):
     recipe: str = Field(pattern=RECIPE_ID)
 
 
+class PeopleConfig(_Strict):
+    """``project.yaml`` ``policy.people`` (§13.7; Decision 0174): who does a run's person steps.
+
+    ``person_steps`` is ``owner`` (the person who starts the run, Decision 0161 item 6) or the
+    name of the person the owner named; that person does person steps only, never owner decisions."""
+
+    person_steps: str
+
+    @field_validator("person_steps")
+    @classmethod
+    def _person(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v or not person_slug(v):
+            raise ValueError("person_steps is owner or a person's name")
+        return v
+
+
+def person_slug(name: str) -> str:
+    """A person's name as a profile's ``person`` (``human/<slug>``): lower case, words joined by ``-``."""
+    import re
+
+    return "-".join(re.findall(r"[a-z0-9]+", name.lower()))
+
+
 class PolicyConfig(_Strict):
     """``project.yaml`` ``policy`` (§13.7; Decisions 0143, 0151): rules every run follows.
 
@@ -1001,6 +1037,7 @@ class PolicyConfig(_Strict):
 
     floors: dict[str, dict[str, str]] = Field(default_factory=dict)
     governing: list[GoverningRecipe] = Field(default_factory=list)
+    people: PeopleConfig | None = None
 
     @field_validator("floors")
     @classmethod

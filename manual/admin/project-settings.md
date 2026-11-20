@@ -35,13 +35,16 @@ permissions:
 
 ## Project policy {#policy}
 
-The policy is the few rules every run follows: `policy.floors` (the lowest rating a recipe's axis may get), `policy.governing` (which recipe suits a kind of work) and `permissions`.
+The policy is the few rules every run follows: `policy.floors` (the lowest rating a recipe's axis may get), `policy.governing` (which recipe suits a kind of work), `policy.people` (who does the steps for a person) and `permissions`.
 
 ```yaml
 policy:
   floors: { software-feature: { level: standard }, "*": { assurance: medium } }
   governing: [ { work: "software development", recipe: software-feature } ]
+  people: { person_steps: owner }
 ```
+
+`policy.people.person_steps` is `owner` or the name of the person who does the steps that need a person (those requiring `human_judgment`). It is absent until the assistant asks, at the first `start` of a recipe with such steps, and is set with `baton policy set --person-steps owner|"<name>" --note "<words>"`. Nobody writes a profile for a person: every machine has Baton's own `owner` profile, and a named person gets `person-<name>` the same way; the steps for a person then go to them only. A profile named `owner` in `~/.baton/workers.yaml` replaces Baton's. The named person does steps, never the owner's decisions.
 
 Policy changes are recorded: `baton policy set ... --note "<the owner's words>"` records the owner's decision, rewrites these blocks and commits them. `baton policy` lists each rule with the decision that last changed it. A floor must name an axis and value its recipe declares (a one-axis recipe's axis is `level`); a floor for `"*"` applies only to recipes that declare that axis with that value, and `baton check` warns when none does.
 

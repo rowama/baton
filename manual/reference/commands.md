@@ -522,6 +522,7 @@ Explained in the manual: [Project settings](admin.project-settings#here-now).
 | `--governing <str>` | "KIND OF WORK=RECIPE" |
 | `--remove-governing <str>` | KIND OF WORK |
 | `--permission <str>` | ACTION=allow\|ask\|deny (push.docs-only, push.after-verified, push.other, tag, force-push, merge, deploy). |
+| `--person-steps <str>` | Who does the steps for a person: owner, or the name of the person who will. |
 | `--json` | Machine-readable output. |
 
 ## baton programs {#baton-programs}

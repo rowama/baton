@@ -1416,6 +1416,7 @@ def policy_set(
     governing: Annotated[Optional[list[str]], typer.Option("--governing", help="\"KIND OF WORK=RECIPE\"")] = None,
     remove_governing: Annotated[Optional[list[str]], typer.Option("--remove-governing", help="KIND OF WORK")] = None,
     permission: Annotated[Optional[list[str]], typer.Option("--permission", help="ACTION=allow|ask|deny (push.docs-only, push.after-verified, push.other, tag, force-push, merge, deploy).")] = None,
+    person_steps: Annotated[Optional[str], typer.Option("--person-steps", help="Who does the steps for a person: owner, or the name of the person who will.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Change the policy with the owner's words; recorded, written to project.yaml and committed."""
@@ -1429,9 +1430,11 @@ def policy_set(
     gov: dict[str, str | None] = dict(_pairs(as_json, governing or [], "--governing", last=True))
     gov.update({w: None for w in remove_governing or []})
     perms = {k.replace("-", "_"): v for k, v in _pairs(as_json, permission or [], "--permission")}
-    if not (floors or gov or perms):
-        _fail(as_json, EXIT_USAGE, "usage.policy", "nothing to change: give --floor, --remove-floor, --governing, --remove-governing or --permission")
-    out = _call(as_json, lambda: _api().policy_set(note, floors=floors or None, governing=gov or None, permissions=perms or None))
+    if not (floors or gov or perms or person_steps):
+        _fail(as_json, EXIT_USAGE, "usage.policy",
+              "nothing to change: give --floor, --remove-floor, --governing, --remove-governing, --permission or --person-steps")
+    out = _call(as_json, lambda: _api().policy_set(note, floors=floors or None, governing=gov or None, permissions=perms or None,
+                                                   person_steps=person_steps))
     _warn(out, as_json)
     _done(out, as_json, _policy_text(out))
 
@@ -1615,6 +1618,9 @@ def workers_status(as_json: JsonOpt = False) -> None:
         lines.append(f"found {d['provider']}: " + ("ready" if d["usable"] else d["problem"] or "not usable"))
     for n, r in out["declared"].items():
         lines.append(f"declared {n}: {r['provider']}")
+    for n, pp in out.get("people", {}).items():
+        lines.append(f"{n}: " + ("Baton's own profile for you, for the steps for a person" if pp["builtin"]
+                                 else "your own profile in workers.yaml (replaces Baton's), for the steps for a person"))
     for n, e in out.get("providers", {}).items():
         cheap = ", ".join(f"{t}: {c['profile']} ({'free' if c['free'] else c['cost']})" for t, c in sorted(e["cheapest"].items()))
         lines.append(f"{n}{'' if e['enabled'] else ' (SWITCHED OFF)'}: {e['profiles']} profiles, {e['free']} free"

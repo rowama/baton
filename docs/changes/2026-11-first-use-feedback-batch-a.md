@@ -5,7 +5,7 @@ status: in-progress
 level: standard
 decisions: ["0161", "0045", "0042", "0174", "0110", "0124", "0114", "0115", "0181"]
 touches: [design/workers.md, design/director-interface.md, design/runtime.md, design/recipes.md]
-manual: []
+manual: [user/answer-questions-and-decide.md, admin/project-settings.md, admin/director-commands.md, admin/troubleshooting.md, reference/project-settings.md, reference/commands.md, reference-notes.yaml, anchors.yaml]
 ---
 
 # Fixes and tweaks from the owner's first real use of Baton; the first batch
@@ -82,7 +82,7 @@ None open. Questions 6 to 8, and the tiers of recipe-builder's steps, were answe
 
 ### Manual edits
 
-To be listed when the change is in progress. Expected: the owner's topic on what Baton asks you, `admin/director-commands.md`, `admin/machine-settings.md`, `reference/diagnostics.md`.
+- Slice 2: `user/answer-questions-and-decide.md` gains **Parts of the work for a person** (`#person-steps`): the question asked once, yes by default, someone else named instead, the answer kept, decisions staying the owner's; its *Confirming before anything is recorded* says a request to the assistant is not a confirmation (F-1). `admin/project-settings.md` documents `policy.people.person_steps`, the built-in `owner` profile and `person-<name>`. `admin/director-commands.md`: `policy set --person-steps`. `admin/troubleshooting.md`: the new `doctor` warning for a person's step. `reference/project-settings.md` (generated; optional blocks such as `policy.people` are now listed key by key, its note in `reference-notes.yaml`) and `reference/commands.md` regenerated. `anchors.yaml` updated.
 
 ### Decisions
 
@@ -168,3 +168,12 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Summary:** `skills/baton-director/SKILL.md` and its copy in §13.3 gain three lines: a hard rule that an instruction to the Director is not the owner's confirmation and never a run input (F-1); session item 4a, vendoring a shipped recipe the owner names after confirming back (F-5); and under *Questions*, reporting a `doctor`, `check` or `status` warning as stated and reading what the check tests before calling it wrong (F-4). `tests/test_director_surface.py` checks the lines. The live Director scenario is `tests/test_live_director_confirms.py` (opt-in, `BATON_LIVE=1`, about four Claude Code turns on the owner's subscription): the owner opens with an instruction to the Director, and the record must show recipe-builder vendored after the first turn with a note that is not the instruction, and a run `idea` that is the owner's description (F-1, F-5). F-4 is left to the owner's reading of the saved transcript and to the skill test. The live test has not been run yet.
 - **Manual:** none: the skill is the Director's, not the owner's.
 - **Accepted:** Pending the owner's live run of the scenario.
+
+### Slice 2: who does the person steps (F-2, F-3)
+
+- **Commit:** `2026-11-first-use-feedback-batch-a: Slice 2, who does the person steps`
+- **Summary:** Built-in profiles for people (`Project.people_profiles`): `owner` on every machine, and `person-<slug>` for a person the project policy names, both under every other profile source so a profile of the same name replaces one (`WorkerProfile.builtin_person`). They take only steps for a person (`routing.is_person_step`: requires `human_judgment`) and are not listed for any other step. Project policy gains `people.person_steps` (`PeopleConfig`), absent until set so older policies keep their hash; `policy set --person-steps` (CLI, MCP, API; `yes`/`me` record `owner`). Routing sends a person's step only to the named person, reading the policy in force at routing time. `start` (and `start --from-plan`) returns `people {steps, default, ask, next}` while unanswered. `doctor` no longer counts a person's profile as an AI helper, and says plainly when a replaced `owner` profile cannot do a person's step. `workers status` shows `people.owner {builtin}`. The Director skill asks once, yes by default. The settings reference generator now lists the keys of an optional block.
+- **Tests:** `tests/test_person_steps.py` (the built-in profile and its replacement; person steps only; doctor coverage, the plain message and no setup offer suppressed; the question at start asked once and kept; a named person's profile and routing, and changing back; the policy value, file and hash; refusal of an empty name; the CLI option; `workers status`; the skill line). Existing routing and onboarding tests pass unchanged: a built-in profile is not listed for AI steps.
+- **Design:** §6.1 (built-in profiles for people), §8.4 (person steps routed to the named person), §13.1 (`start`'s `people`, `policy_set`'s `person_steps`), §13.3 (skill), §13.4 (doctor), §13.7 (`policy.people`).
+- **Review:** clean.
+- **Accepted:** Pending the owner.

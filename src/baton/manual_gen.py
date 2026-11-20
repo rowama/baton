@@ -345,10 +345,14 @@ def project_settings() -> list[tuple[str, Any, Any]]:
     def walk(model: type[BaseModel], prefix: str) -> None:
         for name, f in model.model_fields.items():
             ann = f.annotation
+            optional = typing.get_origin(ann) in (typing.Union, getattr(__import__("types"), "UnionType", None))
+            inner = [a for a in typing.get_args(ann) if a is not type(None)] if optional else []
+            if len(inner) == 1 and isinstance(inner[0], type) and issubclass(inner[0], BaseModel):
+                ann = inner[0]  # an optional block (``policy.people``): its keys, as for any block
             if isinstance(ann, type) and issubclass(ann, BaseModel):
                 walk(ann, prefix + name + ".")
             else:
-                out.append((prefix + name, ann, f.get_default(call_default_factory=True)))
+                out.append((prefix + name, ann, None if f.is_required() else f.get_default(call_default_factory=True)))
 
     walk(ProjectConfig, "")
     return out

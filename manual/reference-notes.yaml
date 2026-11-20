@@ -26,6 +26,7 @@ project_settings:
   permissions.deploy: "Deploying. The default never does."
   policy.floors: "Project policy: the lowest rating a recipe's axis may get, as `{ <recipe>: { <axis>: <value> } }`; `\"*\"` for every recipe that declares that axis with that value, `level` for a one-axis recipe. Change it with `baton policy set`; a hand edit waits for the owner's confirmation."
   policy.governing: "Project policy: the recipe that suits a kind of work, as `[ { work: \"<kind of work>\", recipe: <id> } ]`. Advice the assistant gives; nothing is refused because of it. Change it with `baton policy set`."
+  policy.people.person_steps: "Project policy: who does the parts of the work that are for a person: `owner` (you, who started the work) or the name of the person who will. Absent until the assistant asks you, once. Change it with `baton policy set --person-steps`; whoever does them, every decision stays yours."
   docs_only_globs: "Paths that count as documents only for `permissions.push.docs_only`."
 environment:
   BATON_HOME: {who: you, text: "Where the machine's `~/.baton` is (profiles, secrets, diagnostics, installed versions). Default `~/.baton`."}

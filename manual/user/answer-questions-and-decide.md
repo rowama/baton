@@ -39,7 +39,7 @@ Some approvals also lock files: when you approve a set of acceptance specs, say,
 
 ## Confirming before anything is recorded {#confirm-back}
 
-Nothing from the conversation is recorded until you confirm what was understood. Your assistant restates it ("So: one machine per site to start, and you will handle the permits yourself?") and records it only after you say yes, together with your own words. If the restatement is wrong, say so; nothing was recorded.
+Nothing from the conversation is recorded until you confirm what was understood. Your assistant restates it ("So: one machine per site to start, and you will handle the permits yourself?") and records it only after you say yes, together with your own words. If the restatement is wrong, say so; nothing was recorded. Asking your assistant to do something ("set up the recipe builder and run it") is not a confirmation either: it first tells you what it will set up or record, and records your yes, not the request.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
@@ -88,6 +88,10 @@ If a document changes after work started using it, you decide whether to switch.
 ## Confirming a change to the rules {#rules}
 
 Your project has a few rules every piece of work follows: the lowest sizing work may get (see [sizing the work](#sizing)), what may be pushed or released without asking you (see [what Baton may do](user.what-baton-may-do#changing)), and which process suits a kind of work. When you ask for work of a kind the rules name, your assistant proposes that process and says the rules name it; you can still choose another. To change a rule, tell your assistant; it confirms the change with you and records it with your words. If someone edits the rules by hand, your assistant tells you what changed and asks whether to accept it. Until you say yes, the rules you last confirmed still apply. A project that had rules before they were recorded is asked about once, the same way.
+
+## Parts of the work for a person {#person-steps}
+
+Some work has parts only a person can do: a site visit, examples only you have, the final look before you approve. The first time you start such work in a project, your assistant asks whether you will do those parts yourself. Yes is the answer it expects, since you started the work. If someone else will, give their name: Baton sets them up, and those parts go to them. Your answer is kept for the project, so you are not asked again; tell your assistant if it changes. Whoever does those parts, every decision is still yours.
 
 ## If a question confuses you {#confusing}
 

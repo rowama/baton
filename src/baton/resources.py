@@ -814,8 +814,17 @@ def status(home: Path, *, discover_fn: Callable[[Path, kw_mod.KnownWorkers], dic
         "skipped": skipped,
         "providers": provider_summary(home),
         "capability_states": {n: {c: st.as_dict() for c, st in caps.items()} for n, caps in states.items()},
+        "people": _people_summary(owner),
         **({"search": res.search.model_dump(mode="json", exclude_none=True)} if res.search is not None else {}),
     }
+
+
+def _people_summary(owner_names: set[str]) -> dict[str, Any]:
+    """Baton's own profile for the owner (Decision 0174): built in, unless a profile of that name in workers.yaml replaces it."""
+    from .project import OWNER_PROFILE, PERSON_CAPABILITIES
+
+    return {OWNER_PROFILE: {"builtin": OWNER_PROFILE not in owner_names, "capabilities": list(PERSON_CAPABILITIES),
+                            "does": "the steps for a person"}}
 
 
 def _states_or_problem(home: Path) -> dict[str, Any]:

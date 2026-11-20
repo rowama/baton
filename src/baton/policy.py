@@ -1,6 +1,7 @@
 """Project policy (§13.7; Decisions 0143, 0151, 0153): a few rules every run follows.
 
-The policy is ``project.yaml``'s ``policy`` block (``floors``, ``governing``) plus
+The policy is ``project.yaml``'s ``policy`` block (``floors``, ``governing``, and
+``people`` once the owner has said who does person steps, Decision 0174) plus
 its ``permissions`` (the release authority, 0151). Its **value** is the
 validated configuration as plain JSON, so formatting and comments never change
 it, and its hash is the SHA-256 of that value's canonical JSON.
@@ -35,6 +36,8 @@ from .packet import EngineError
 from .store import atomic_write, canonical_json
 
 PARTS: tuple[str, ...] = ("floors", "governing", "permissions")
+#: The policy block's keys; ``people`` is in the value only when set, so a policy from before it hashes the same.
+POLICY_KEYS: tuple[str, ...] = ("floors", "governing", "people")
 RULES: tuple[str, ...] = ("allow", "ask", "deny")
 #: The permission keys ``policy set`` takes, flattened (``push.other``, ``tag``, ...).
 PERMISSION_KEYS: tuple[str, ...] = ("push.docs_only", "push.after_verified", "push.other", "tag", "force_push", "merge", "deploy")
@@ -46,8 +49,14 @@ def value_of(config: Any) -> dict[str, Any]:
     return {
         "floors": {r: dict(sorted(axes.items())) for r, axes in sorted(pol.floors.items())},
         "governing": [{"work": g.work, "recipe": g.recipe} for g in pol.governing],
+        **({"people": {"person_steps": pol.people.person_steps}} if pol.people is not None else {}),
         "permissions": config.permissions.model_dump(),
     }
+
+
+def person_steps(value: Mapping[str, Any] | None) -> str | None:
+    """Who does person steps under the policy ``value``: ``owner``, a person's name, or ``None`` (not asked yet)."""
+    return ((value or {}).get("people") or {}).get("person_steps")
 
 
 def sha256(value: Mapping[str, Any]) -> str:
@@ -55,7 +64,7 @@ def sha256(value: Mapping[str, Any]) -> str:
 
 
 def flatten(value: Mapping[str, Any] | None) -> dict[str, Any]:
-    """``floors.<recipe>.<axis>``, ``governing.<work>``, ``permissions.<action>`` (``permissions.push.<kind>``)."""
+    """``floors.<recipe>.<axis>``, ``governing.<work>``, ``people.person_steps``, ``permissions.<action>`` (``permissions.push.<kind>``)."""
     out: dict[str, Any] = {}
     if not value:
         return out
@@ -64,6 +73,8 @@ def flatten(value: Mapping[str, Any] | None) -> dict[str, Any]:
             out[f"floors.{r}.{a}"] = v
     for g in value.get("governing") or []:
         out[f"governing.{g['work']}"] = g["recipe"]
+    for k, v in (value.get("people") or {}).items():
+        out[f"people.{k}"] = v
     perms = value.get("permissions") or {}
     for k, v in perms.items():
         if isinstance(v, dict):
@@ -96,7 +107,7 @@ class State:
         return PermissionsConfig.model_validate(self.in_force["permissions"])
 
     def policy(self) -> PolicyConfig:
-        return PolicyConfig.model_validate({k: self.in_force[k] for k in ("floors", "governing")})
+        return PolicyConfig.model_validate({k: self.in_force[k] for k in POLICY_KEYS if k in self.in_force})
 
     def notice(self) -> dict[str, Any] | None:
         """For ``status``, ``board`` and ``doctor``: what the owner is asked, or ``None`` when recorded."""
@@ -153,10 +164,13 @@ def _norm_work(work: str) -> str:
 
 
 def apply(value: Mapping[str, Any], *, floors: Mapping[str, Mapping[str, str | None]] | None = None,
-          governing: Mapping[str, str | None] | None = None, permissions: Mapping[str, str] | None = None) -> dict[str, Any]:
-    """``value`` with the changes: a ``None`` floor or governing recipe removes it."""
+          governing: Mapping[str, str | None] | None = None, permissions: Mapping[str, str] | None = None,
+          person_steps: str | None = None) -> dict[str, Any]:
+    """``value`` with the changes: a ``None`` floor or governing recipe removes it; ``person_steps``
+    is ``owner`` or a person's name (Decision 0174)."""
     out = {"floors": {r: dict(a) for r, a in (value.get("floors") or {}).items()},
            "governing": [dict(g) for g in value.get("governing") or []],
+           **({"people": dict(value["people"])} if value.get("people") else {}),
            "permissions": {k: (dict(v) if isinstance(v, dict) else v) for k, v in (value.get("permissions") or {}).items()}}
     for r, axes in (floors or {}).items():
         for a, v in axes.items():
@@ -178,6 +192,8 @@ def apply(value: Mapping[str, Any], *, floors: Mapping[str, Mapping[str, str | N
             out["governing"].append({"work": " ".join(work.split()), "recipe": recipe})
         else:
             out["governing"][idx]["recipe"] = recipe
+    if person_steps is not None:
+        out["people"] = {"person_steps": "owner" if person_steps.strip().lower() in ("owner", "me", "yes") else person_steps}
     for key, rule in (permissions or {}).items():
         if key not in PERMISSION_KEYS:
             raise EngineError("policy.unknown_permission", f"unknown permission {key!r}; known: {', '.join(PERMISSION_KEYS)}")
@@ -189,12 +205,13 @@ def apply(value: Mapping[str, Any], *, floors: Mapping[str, Mapping[str, str | N
         else:
             out["permissions"][key] = rule
     try:
-        cfg = PolicyConfig.model_validate({k: out[k] for k in ("floors", "governing")})
+        cfg = PolicyConfig.model_validate({k: out[k] for k in POLICY_KEYS if k in out})
         perms = PermissionsConfig.model_validate(out["permissions"])
     except ValueError as e:
         raise EngineError("policy.invalid", str(e)) from e
     return {"floors": {r: dict(sorted(a.items())) for r, a in sorted(cfg.floors.items())},
             "governing": [{"work": g.work, "recipe": g.recipe} for g in cfg.governing],
+            **({"people": {"person_steps": cfg.people.person_steps}} if cfg.people is not None else {}),
             "permissions": perms.model_dump()}
 
 
@@ -241,7 +258,8 @@ def write(path: Path, value: Mapping[str, Any]) -> None:
     """Replace ``project.yaml``'s ``policy`` and ``permissions`` blocks, keeping its other lines and comments."""
     text = read_text(path)
     lines = text.splitlines(keepends=True)
-    blocks = {"policy": {"floors": value["floors"], "governing": value["governing"]}, "permissions": value["permissions"]}
+    blocks = {"policy": {"floors": value["floors"], "governing": value["governing"],
+                         **({"people": value["people"]} if value.get("people") else {})}, "permissions": value["permissions"]}
     for key, block_value in blocks.items():
         block = yaml.safe_dump({key: block_value}, sort_keys=False, default_flow_style=False, allow_unicode=True)
         start = next((i for i, ln in enumerate(lines) if re.match(rf"^{key}\s*:", ln)), None)
