@@ -58,6 +58,8 @@ class Submission:
     status: str | None = None
     output: Any = None
     output_sha256: str | None = None
+    #: A blocked result's partial output, kept for the retry after the owner's answers; never a result (Decision 0181).
+    blocked_output_sha256: str | None = None
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     notes: str = ""
     questions: list[dict[str, Any]] = field(default_factory=list)
@@ -70,7 +72,8 @@ class Submission:
 
     def registered(self) -> dict[str, Any]:
         """The hashes downstream steps may consume once the step passes."""
-        return {"output_sha256": self.output_sha256, "artifacts": self.artifacts}
+        return {"output_sha256": self.output_sha256, "artifacts": self.artifacts,
+                **({"blocked_output_sha256": self.blocked_output_sha256} if self.blocked_output_sha256 else {})}
 
 
 def _schema_errors(schema: dict[str, Any], value: Any) -> list[str]:
@@ -133,6 +136,12 @@ def read_result(ctx: RunContext, step: Step, result_dir: Path, packet_dir: Path,
     if result.packet_sha256 != expected_packet_sha256:
         sub.problems.append("packet_sha256 does not match this attempt's packet")
     if result.status != "completed":
+        if result.status == "blocked" and result.output not in (None, {}, []):
+            # Kept, never validated or consumed: the retry after the owner's answers builds on it (Decision 0181, item 3).
+            try:
+                sub.blocked_output_sha256 = ctx.log.cas.put(canonical_json(result.output).encode("utf-8"))
+            except (TypeError, ValueError):  # expected: never, as json.loads only yields JSON values; the retry then has no prior output
+                pass
         return sub
 
     if step.output_schema:

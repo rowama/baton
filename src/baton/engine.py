@@ -2213,9 +2213,12 @@ def _decide_answers(ctx: RunContext, ref: str, decision: str, note: str, actor: 
     checked = check_answers(recorded_questions(esc.data.get("questions")), answers, partial)
     n = st.attempt
     decision_id = f"d{log.state().last_seq + 1}"
+    sub = ctx.record().last("result_submitted", ref, n)
+    blocked_output = sub.data.get("blocked_output_sha256") if sub is not None else None  # what the answers accept (Decision 0181, item 3)
     log.append(
         "human_decision", actor=actor, step_path=ref, attempt=n,
         data={"ref": ref, "kind": "answers", "decision": "retry", "answers": checked, "note": note, "decision_id": decision_id,
+              **({"output_sha256": blocked_output} if blocked_output else {}),
               **({"partial": True} if partial else {}), **extra},
     )
     log.append("step_ready", step_path=ref, data={"after_decision": True})

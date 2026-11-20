@@ -545,6 +545,21 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
                 ans = a["answer"] if isinstance(a["answer"], str) else ", ".join(a["answer"])
                 lines.append(f"- **{a['id']}**: {ans} (owner: \"{a['owner_words']}\")")
             lines.append("")
+        if pf.get("prior_output"):
+            po = pf["prior_output"]
+            lines += ["## Your previous output", "",
+                      f"Attempt {po['attempt']}'s output, which you sent with your questions, is in `{po['output']}`. The owner's answers "
+                      "refer to it: an answer that accepts what you proposed accepts that output. Build on it; do not rebuild it from a summary.", ""]
+        if pf.get("answers_earlier"):
+            lines += ["## The owner's earlier answers", "",
+                      "Confirmed with the owner in an earlier round or attempt; they still stand. Do not ask about them again. "
+                      "Ask only about what they leave open, and if something has changed since, say what changed.", ""]
+            for e in pf["answers_earlier"]:
+                where = f"`{e['step']}`, attempt {e['attempt']}"
+                for a in e["answers"]:
+                    ans = a["answer"] if isinstance(a["answer"], str) else ", ".join(a["answer"])
+                    lines.append(f"- **{a['id']}** ({where}): {ans} (owner: \"{a['owner_words']}\")")
+            lines.append("")
         if pf["reasons"] or pf.get("guidance"):
             lines += ["Address every point above in this attempt.", ""]
         rev = pf.get("revision")
@@ -839,6 +854,66 @@ def _prior_findings(ctx: RunContext, record: RunRecord, node: Step, loc: groups.
     return reviews.prior_findings(record.events, line)
 
 
+def _iteration_free(path: str, depth: int) -> tuple[str, int | None]:
+    """``path`` with the iteration of each of its ``depth`` enclosing groups replaced by ``i*``, and the innermost
+    iteration: a group path is ``<group>/<instance>/i<n>/...`` (§5.8), so the same step in another round matches."""
+    parts = path.split("/")
+    iteration = None
+    for j in range(depth):
+        pos = 3 * j + 2
+        m = groups._ITER.match(parts[pos]) if pos < len(parts) else None
+        if m is not None:
+            iteration = int(m.group(1))
+            parts[pos] = "i*"
+    return "/".join(parts), iteration
+
+
+def answers_earlier(record: RunRecord, loc: groups.Located, step_path: str, attempt: int) -> list[dict[str, Any]]:
+    """The owner's confirmed answers that last beyond one attempt (Decision 0181, item 2).
+
+    For a step: every answer to it in an earlier iteration, or to an attempt before the previous one (whose answers
+    are ``prior_feedback.answers``). For a review of a step (its ``~review``, or a findings step independent of it):
+    every answer to that step, so the review does not fail what the owner chose. Oldest first."""
+    node = loc.node
+    depth = len(loc.frames)
+    reviewed: str | None = None
+    split = reviews.split_review(step_path)
+    if split is not None:
+        reviewed = split[0]
+    elif reviews.is_reviewer(node) and isinstance(node, Step):
+        # The step it reviews: the one it is independent of, else the one whose output it reads.
+        target = node.independence.from_step if node.independence is not None and node.independence.from_step != node.id else None
+        if target is None:
+            reads = [i.from_.split(".")[2] if i.from_.startswith("group.steps.") else i.from_.split(".")[1]
+                     for i in node.inputs if i.from_.startswith(("group.steps.", "steps.")) and i.from_.endswith(".output")]
+            target = reads[0] if len(reads) == 1 else None
+        frame = loc.frame
+        if target is not None and frame is not None and target in {c.id for c in frame.group.steps}:
+            reviewed = groups.child_path(frame, target)
+        elif target is not None:
+            reviewed = target
+    own, _ = _iteration_free(step_path, depth)
+    target, _ = _iteration_free(reviewed, depth) if reviewed is not None else (None, None)
+    out: list[dict[str, Any]] = []
+    for ev in record.events:
+        if ev.type != "human_decision" or ev.data.get("kind") != "answers" or not ev.step_path or not ev.data.get("answers"):
+            continue
+        key, iteration = _iteration_free(ev.step_path, depth)
+        if key == target or (key == own and not (ev.step_path == step_path and ev.attempt == attempt - 1)):
+            out.append({"step": ev.step_path, **({"iteration": iteration} if iteration is not None else {}), "attempt": ev.attempt,
+                        "answers": list(ev.data["answers"])})
+    return out
+
+
+def _blocked_output(ctx: RunContext, record: RunRecord, step_path: str, attempt: int) -> tuple[str, bytes] | None:
+    """The output of attempt ``attempt`` when it was blocked and then answered: ``(sha256, bytes)`` (Decision 0181, item 3)."""
+    if attempt < 1 or not any(ev.type == "human_decision" and ev.data.get("kind") == "answers" for ev in record.attempt_events(step_path, attempt)):
+        return None
+    sub = record.last("result_submitted", step_path, attempt)
+    sha = sub.data.get("blocked_output_sha256") if sub is not None else None
+    return (sha, ctx.log.cas.read(sha)) if sha else None
+
+
 def build_packet(
     ctx: RunContext,
     step_path: str,
@@ -929,6 +1004,17 @@ def build_packet(
         if len(fed) == 1 and fed[0][2]:
             revision["items"] = "output." + ".".join(fed[0][2])
 
+    feedback = prior_feedback(record, step_path, attempt - 1, guidance, revision)
+    earlier = answers_earlier(record, loc, step_path, attempt) if loc is not None else []
+    blocked = _blocked_output(ctx, record, step_path, attempt - 1)
+    if earlier or blocked:
+        feedback = feedback or {"attempt": attempt - 1, "reasons": []}
+    if earlier:
+        feedback["answers_earlier"] = earlier
+    if blocked is not None:
+        files["blocked/output.json"] = blocked[1]
+        feedback["prior_output"] = {"attempt": attempt - 1, "output": "blocked/output.json", "sha256": blocked[0]}
+
     def art(a: Any) -> dict[str, Any]:
         return {"name": a.name, "media_type": a.media_type} if a.media_type else {"name": a.name}
 
@@ -951,7 +1037,7 @@ def build_packet(
         "not_applicable": not_applicable,
         "required_artifacts": [art(a) for a in node.artifacts if a.required],
         "optional_artifacts": [art(a) for a in node.artifacts if not a.required],
-        "prior_feedback": prior_feedback(record, step_path, attempt - 1, guidance, revision),
+        "prior_feedback": feedback,
         "packet_sha256": None,
     }
     tools = runner_tools_for(profile, node)

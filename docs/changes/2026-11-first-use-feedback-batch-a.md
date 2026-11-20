@@ -4,7 +4,7 @@ title: "Fixes and tweaks from the owner's first real use of Baton; the first bat
 status: in-progress
 level: standard
 decisions: ["0161", "0045", "0042", "0174", "0110", "0124", "0114", "0115", "0181"]
-touches: [design/workers.md, design/director-interface.md, design/runtime.md, design/recipes.md]
+touches: [design/workers.md, design/director-interface.md, design/runtime.md, design/recipes.md, design/packets.md]
 manual: [user/answer-questions-and-decide.md, admin/project-settings.md, admin/director-commands.md, admin/troubleshooting.md, reference/project-settings.md, reference/commands.md, reference-notes.yaml, anchors.yaml, user/choose-models.md, admin/accounts-and-costs.md, admin/machine-settings.md]
 ---
 
@@ -79,11 +79,13 @@ None open. Questions 6 to 8, and the tiers of recipe-builder's steps, were answe
 - `design/runtime.md` §8.4: routing person steps to the recorded person (F-3); cost-aware ordering by default (F-6).
 - `design/workers.md` §6.4: lifting unjudged models (F-6): moved to `2026-11-model-assessment` (Decision 0175); not edited here.
 - `design/recipes.md` §5.7: recipe-builder's tiers per step (F-6).
+- `design/packets.md` §7.1, §7.2 and `design/director-interface.md` §13.8: answers that last and the blocked output (F-7, F-8).
 
 ### Manual edits
 
 - Slice 2: `user/answer-questions-and-decide.md` gains **Parts of the work for a person** (`#person-steps`): the question asked once, yes by default, someone else named instead, the answer kept, decisions staying the owner's; its *Confirming before anything is recorded* says a request to the assistant is not a confirmation (F-1). `admin/project-settings.md` documents `policy.people.person_steps`, the built-in `owner` profile and `person-<name>`. `admin/director-commands.md`: `policy set --person-steps`. `admin/troubleshooting.md`: the new `doctor` warning for a person's step. `reference/project-settings.md` (generated; optional blocks such as `policy.people` are now listed key by key, its note in `reference-notes.yaml`) and `reference/commands.md` regenerated. `anchors.yaml` updated.
 - Slice 3: `user/choose-models.md` says routing is by cost unless turned off (subscriptions first, then free, then cheapest), and that the assistant says what each choice costs; `admin/accounts-and-costs.md` and `admin/machine-settings.md` give the default order and `--verified-first`.
+- Slice 4: `user/answer-questions-and-decide.md` (*Confirming before anything is recorded*) says an answer stays answered for the rest of the work, reaches a part done again and its check, and that accepted suggestions are kept with the answer.
 
 ### Decisions
 
@@ -185,5 +187,15 @@ Slices as proposed; each item may become its own slice, and items that grow move
 - **Summary:** `Preferences.cheapest_first` now defaults to true, and `routing.price_rank` ranks an included route first (`routing.included`: a harness CLI on `cli_login`; an exhausted quota is already excluded), then free, then priced cheapest first, then unpriced, verified-first and name breaking ties; `cheapest_first: false` (`--verified-first`) keeps the old order, and only that opt-out is written to a preferences file. Every eligible entry carries `cost` (`routing.cost_label`) and a reason line with it. The Director skill says what each choice costs and never offers a per-use route ahead of an included one without saying why. `recipe-builder@8`: `guide`, `generate`, `examples` and `build_programs/implement` take `standard`; `@7` is frozen in `tests/fixtures/recipes/recipe-builder-v7`. The setup page's toggle reads "by cost". `2026-11-ai-delegates` now plans `recipe-builder@9`, by landing order (Decision 0173).
 - **Tests:** `tests/test_listings.py` (default and opt-out orders; an included subscription first with each `cost`; an exhausted one left out; the run of 2026-11-18 reproduced with the old order choosing Fable over OpenRouter and the new one choosing Opus through Claude Code; the skill line). `tests/test_recipe_builder.py` (the tiers per step, generate's package review still strong, the frozen `@7`). Builder run and page tests updated for `@8` and the new default.
 - **Design:** §5.7 (recipe-builder's tiers), §8.4 (cost-aware default, `cost`), §13.3 (skill).
+- **Full suite:** the first run on the slice's SHA was red on `tests/test_harness_tools.py::test_a_web_step_turns_on_web_tools_and_a_used_tool_is_verified` (outcome `retry`, not `passed`). It passes alone, and it failed the same way on three earlier, unrelated commits (`f1c96e8`, `e558d53`, `632abdb`): a known flake under load, not this slice. A rerun on the same SHA was green; no code changed.
+- **Review:** clean.
+- **Accepted:** Pending the owner.
+
+### Slice 4: answers that last (F-7, F-8)
+
+- **Commit:** `2026-11-first-use-feedback-batch-a: Slice 4, answers that last`
+- **Summary:** `packet.answers_earlier` gives a step the owner's answers from earlier iterations of its group and from attempts before the previous one, and a review of a step (its `~review`, a findings step independent of it, or one reading its output) every answer given to that step, as `prior_feedback.answers_earlier`; `INSTRUCTIONS.md` lists them under *The owner's earlier answers* and says not to ask again. Intake now keeps a blocked result's partial output in the CAS (`result_submitted.blocked_output_sha256`, never `output_sha256`, so nothing consumes it). A retry after answers receives it as `blocked/output.json` with `prior_feedback.prior_output {attempt, output, sha256}`, and the answers' `human_decision` carries its `output_sha256`. The worker skill says both.
+- **Tests:** `tests/test_lasting_answers.py`: the run of 2026-11-20 in miniature (a step blocked with a proposal, answered with "accept all as suggested", its retry receiving the proposal, the answers' record holding its hash; the review receiving the answers; round two's first attempt receiving them and told not to ask again); no earlier answers without answers; the worker skill.
+- **Design:** §7.1, §7.2, §13.8.
 - **Review:** clean.
 - **Accepted:** Pending the owner.

@@ -41,6 +41,8 @@ Some approvals also lock files: when you approve a set of acceptance specs, say,
 
 Nothing from the conversation is recorded until you confirm what was understood. Your assistant restates it ("So: one machine per site to start, and you will handle the permits yourself?") and records it only after you say yes, together with your own words. If the restatement is wrong, say so; nothing was recorded. Asking your assistant to do something ("set up the recipe builder and run it") is not a confirmation either: it first tells you what it will set up or record, and records your yes, not the request.
 
+What you answer stays answered for the rest of that piece of work. If a part is done again, for example after a check sends it back, it is given your answers, and so is the check, so you are not asked the same thing twice; you are asked again only about something your answers leave open. When you accept what a helper suggested, the suggestions themselves are kept with your answer.
+
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
 
 ## Answering in a file {#answer-file}
