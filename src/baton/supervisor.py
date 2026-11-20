@@ -560,6 +560,7 @@ def supervise(spec: dict[str, Any]) -> int:
         "dispatch_id": did, "run_id": spec["run_id"], "step_path": spec["step_path"], "attempt": spec["attempt"],
         "host": socket.gethostname(), "supervisor_pid": os.getpid(), "started": fmt(now()),
         "deadline": spec["deadline"], "extended": False, "heartbeat": fmt(now()), "log": spec["log_path"],
+        **({"shadow": True} if spec.get("shadow") else {}),
     }
     write_marker(baton_dir, marker)
 
@@ -599,7 +600,7 @@ def supervise(spec: dict[str, Any]) -> int:
                     deadline = deadline + timedelta(seconds=spec["band_s"])
                     marker.update(extended=True, deadline=fmt(deadline))
                     write_marker(baton_dir, marker)
-                    if not spec.get("sme"):
+                    if not spec.get("sme") and not spec.get("shadow"):
                         api.overdue(spec["run_id"], spec["step_path"], spec["attempt"], did, previous, fmt(deadline), spec.get("effort"))
                 else:
                     timed_out = True
@@ -618,6 +619,8 @@ def supervise(spec: dict[str, Any]) -> int:
         changes = gitops.tree_changes(before, gitops.tree_snapshot(root, spec.get("exclude") or []), root)
     if spec.get("sme"):
         api.sme_complete(spec, child, changes)  # an expert consultation turn (§12.1)
+    elif spec.get("shadow"):
+        api.shadow_complete(spec, child)  # a shadow attempt: graded and recorded, never the step's result (§8.7)
     else:
         api.complete(spec["run_id"], spec["step_path"], spec["attempt"], did, child=child, workspace_changes=changes, adapter=spec["adapter"], worker=spec["worker"])
     remove_marker(baton_dir, did)

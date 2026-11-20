@@ -130,6 +130,7 @@ baton/
 ├── capability-states.yaml  # each profile's capability states, likely/verified/absent (baton-capability-states/1, §6.1)
 ├── track-record.yaml # what checks and real work showed: last checks by profile, evidence by route and tier (baton-track-record/1, §6.4)
 ├── assessment-spend.yaml  # today's reservations and measured costs of trials and shadow attempts (§8.7)
+├── shadows/          # a running shadow attempt's packet, result and scratch copies, <run>/<shadow id>/; removed when it ends (§8.7)
 ├── hooks.yaml        # machine-level completion hooks; may reference secrets
 ├── secrets/          # optional file-based secret store (0700)
 ├── programs/            # programs' environments, <lock sha256>-py<x.y>/ (venv/, env.json), built by uv from the lock (§6.3, §5.9); a `tools/` folder left by an earlier Baton is no longer used and may be deleted (Decision: [0167](../decisions/0167-program-steps-details.md), item 4)

@@ -16,6 +16,8 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `accounts.check_failed` | Checking an account's key with its provider failed for a network or decoding reason. The page shows the reason without the key. |
 | `assessment.record_invalid` | `~/.baton/track-record.yaml` could not be read, so no model's record from real work is used: none is proven or put back, and the step's own outcome is not affected. The next outcome Baton records rewrites it. |
 | `assessment.settings_unreadable` | `~/.baton/preferences.yaml` could not be read, so trying cheaper models stays off until it is fixed. |
+| `assessment.shadow_not_planned` | A shadow attempt could not be prepared (for example, its task could not be built), so the step went ahead without one. |
+| `assessment.shadow_not_started` | A shadow attempt could not be started; it is recorded as no evidence and the step goes on as chosen. |
 | `assessment.spend_invalid` | `~/.baton/assessment-spend.yaml` could not be read, so no paid try is made today (free models may still be tried) and a finished try keeps its estimate. |
 | `cache.replay` | The cache of a run's record was out of step with its log and was rebuilt by replaying the log. Harmless; recurring means something edits the cache or the log. |
 | `capability.version_check_skipped` | A helper's version could not be read, so its observed capability states were not reset after an upgrade. |

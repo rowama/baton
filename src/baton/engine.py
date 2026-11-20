@@ -1187,6 +1187,24 @@ def _workspace_modified(ctx: RunContext, step_path: str, n: int, changes: list[s
     return Outcome(step_path, n, "escalated", reasons)
 
 
+def scratch_copy(root: Path, dest: Path) -> None:
+    """A scratch copy of the project for a shadow attempt and its gates (Decision 0179, item 6): project files only, without
+    git's store or Baton's runs and caches. It protects the project's files; it cannot stop a command reaching outside."""
+    import shutil
+
+    root = Path(root).resolve()
+
+    def ignore(folder: str, names: list[str]) -> set[str]:
+        here = Path(folder).resolve()
+        if here == root:
+            return {n for n in names if n == ".git"}
+        if here == root / ".baton":
+            return {n for n in names if n in ("runs", "cache")}
+        return set()
+
+    shutil.copytree(root, dest, symlinks=True, ignore=ignore)
+
+
 def standing_notice(profile: str, change: dict[str, Any]) -> str:
     """What the Director tells the owner when a model's standing changes (Decision 0182, item 2)."""
     tier, after = change["tier"], change["after"]
@@ -3239,6 +3257,218 @@ class Api:
                    "the step's attempts.")
         return {"profile": name, "_profile": p, "tier": assessment.tier_of(node.requires), "estimate_usd": est, "cost": cost, "message": message}
 
+    # -- shadow attempts (§8.7; Decisions 0176 items 4 and 6, 0179 items 4-6, 0182 item 1) ----------
+
+    def _plan_shadow(self, ctx: RunContext, node: Any, step_path: str, primary: str, routing: Any, *, effort: str,
+                     deadline: str) -> dict[str, Any] | None:
+        """A candidate to shadow this strong step, its estimate reserved and its own packet built (before the primary's
+        attempt is recorded, while the step is ready); ``None`` for no shadow. Never raises: a shadow never stops a dispatch."""
+        import secrets
+
+        from . import assessment
+
+        settings = self._assessment_settings()
+        if not settings.shadows or not isinstance(node, Step):
+            return None
+        sid = None
+        try:
+            events = ctx.log.events()
+            already = any(e.type == "shadow_dispatched" and e.step_path == step_path for e in events)
+            profiles = self._current_profiles()
+            home = self.project.home
+            name, _why = assessment.shadow_candidate(node, step_path, primary, routing.names(), profiles, settings, self._track_models(),
+                                                     available_usd=assessment.available(home, settings), already=already,
+                                                     level=ctx.record().ratings())
+            if name is None:
+                return None
+            p = profiles[name]
+            est = assessment.estimate_usd(p) or 0.0
+            sid = f"s_{secrets.token_hex(4)}"
+            if not assessment.reserve(home, sid, est, settings, kind="shadow", profile=name, run=ctx.run_id, step_path=step_path):
+                return None
+            sdir = home / "shadows" / ctx.run_id / sid
+            built = build_packet(ctx, step_path, name, p, deadline=deadline, effort=effort, into=sdir)
+            return {"id": sid, "profile": name, "_profile": p, "estimate_usd": est, "dir": sdir, "built": built, "effort": effort, "deadline": deadline}
+        except Exception as e:  # noqa: BLE001 - a shadow is optional: whatever stops it, the primary dispatch goes on
+            diag.note("assessment.shadow_not_planned", "engine:Api._plan_shadow", error=f"{type(e).__name__}: {e}", step_path=step_path)
+            if sid is not None:
+                self._drop_shadow({"id": sid, "dir": self.project.home / "shadows" / ctx.run_id / sid})
+            return None
+
+    def _drop_shadow(self, shadow: dict[str, Any] | None) -> None:
+        if shadow is None:
+            return
+        from . import assessment
+
+        try:
+            assessment.release(self.project.home, shadow["id"])
+        except assessment.AssessmentError as e:  # expected: an unreadable spend file; nothing was reserved to release
+            diag.note("assessment.spend_invalid", "engine:Api._drop_shadow", error=str(e))
+        remove_tree(Path(shadow["dir"]))
+
+    def _launch_shadow(self, ctx: RunContext, shadow: dict[str, Any] | None, node: Any, mode: str, step_path: str, primary: Any,
+                       out: dict[str, Any]) -> None:
+        """Start the shadow attempt beside the primary: its own dispatch id, packet, scratch workspace and supervisor.
+        Recorded as ``shadow_dispatched``; its end as ``shadow_result``. A failure here leaves the primary as it is."""
+        if shadow is None:
+            return
+        from . import adapters, supervisor
+        from .packet import task_digest
+        from .profiles import build_env
+
+        sid, name, prof, sdir, built = shadow["id"], shadow["profile"], shadow["_profile"], Path(shadow["dir"]), shadow["built"]
+        n = primary.attempt
+        try:
+            adp = adapters.get(prof.adapter)
+            workspace = None
+            if mode == "read":
+                workspace = sdir / "workspace"
+                scratch_copy(self.project.root, workspace)
+            env = build_env(prof, home=self.project.home, packet_dir=built.dir, result_dir=built.result_dir, workspace=workspace,
+                            config_home_var=adp.config_home_var, resolve=adp.needs_executable)
+            tools = self._tool_plan(prof, node.requires, mode)
+            argv = adp.command(prof, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
+                adp.command(prof, built.dir, built.result_dir, workspace, mode)
+            if argv is None:
+                raise EngineError("assessment.shadow_manual", f"{name} has no process to run")
+            if env.resolved is not None:
+                argv = [env.resolved.executable, *argv[1:]]
+            log_path = self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{n}.shadow-{sid}.log"
+            offered = runner_tools_for(prof, node)
+            if offered:
+                argv += ["--transcript", str(log_path.with_suffix(".transcript.json"))]
+                if "search" in offered and prof.search_via() not in (None, "provider"):
+                    argv += self._declared_search_env(env)
+            data = {"shadow_id": sid, **identity_record(name, prof), "packet_sha256": built.sha256, "task_sha256": task_digest(built.manifest),
+                    "primary_task_sha256": task_digest(primary.manifest), "estimate_usd": shadow["estimate_usd"], "deadline": shadow["deadline"]}
+            ctx.log.append("shadow_dispatched", actor="runtime", step_path=step_path, attempt=n, data=data)
+            band_s = self.project.config.effort.seconds(shadow["effort"])
+            spec = {
+                "root": str(self.project.root), "home": str(self.project.home), "director": self.director.id,
+                "run_id": ctx.run_id, "step_path": step_path, "attempt": n, "dispatch_id": sid,
+                "worker": name, "adapter": adp.name, "argv": argv, "env": env.env, "secret_names": env.secrets,
+                "cwd": str(workspace or sdir), "log_path": str(log_path), "deadline": shadow["deadline"], "band_s": band_s,
+                "effort": shadow["effort"], "extend_once": False, "check_tree": False,
+                "shadow": {"id": sid, "dir": str(sdir), "packet_sha256": built.sha256},
+            }
+            proc = supervisor.spawn(spec, log_path.with_suffix(".supervisor.log"))
+            if supervisor.await_start(self.project.baton, sid, proc) is None:
+                raise EngineError("assessment.shadow_not_started", "its supervisor did not start")
+            out["shadow"] = {"candidate": name, "shadow_id": sid}
+        except Exception as e:  # noqa: BLE001 - a shadow never stops or changes the primary dispatch
+            diag.note("assessment.shadow_not_started", "engine:Api._launch_shadow", error=f"{type(e).__name__}: {e}", step_path=step_path)
+            if any(ev.type == "shadow_dispatched" and (ev.data or {}).get("shadow_id") == sid for ev in ctx.log.events()):
+                ctx.log.append("shadow_result", actor="runtime", step_path=step_path, attempt=n,
+                               data={"shadow_id": sid, "profile": name, "model_id": prof.model_id, "passed": False, "counted": False,
+                                     "reasons": [f"the shadow attempt did not start: {redact_text(str(e))}"]})
+            self._drop_shadow(shadow)
+
+    def shadow_complete(self, spec: dict[str, Any], child: ChildResult) -> dict[str, Any] | None:
+        """The supervisor's end of a shadow attempt: grade it by the step's schema and script gates, in a scratch copy, and
+        record ``shadow_result``. It is never the step's result, never feeds a later step and spends no attempt."""
+        from . import assessment
+
+        sh = spec["shadow"]
+        sid, sdir = sh["id"], Path(sh["dir"])
+        run_id, path, n = spec["run_id"], spec["step_path"], spec["attempt"]
+        with self._run_lock(run_id):
+            ctx = self._ctx(run_id)
+            events = ctx.log.events()
+            if any(e.type == "shadow_result" and (e.data or {}).get("shadow_id") == sid for e in events):
+                return None
+            disp = next((e for e in events if e.type == "shadow_dispatched" and (e.data or {}).get("shadow_id") == sid), None)
+            node = node_for(ctx.recipe, path)
+            if disp is None or not isinstance(node, Step):
+                return None
+            before = ctx.log.state().last_seq
+            grade = self._grade_shadow(ctx, node, path, sdir, sh["packet_sha256"], child)
+            cost = assessment.usage_cost(sdir)
+            try:
+                assessment.reconcile(self.project.home, sid, cost)
+            except assessment.AssessmentError as e:  # expected: an unreadable spend file; the estimate stands
+                diag.note("assessment.spend_invalid", "engine:Api.shadow_complete", error=str(e))
+            data = {"shadow_id": sid, "profile": disp.data.get("profile"), "model_id": disp.data.get("model_id"), **grade,
+                    "seconds": child.duration_s, **({"cost_usd": cost} if cost is not None else {})}
+            ctx.log.append("shadow_result", actor=f"worker:{disp.data.get('profile')}", step_path=path, attempt=n, data=data)
+            self._finish_records(ctx, before, {})
+        remove_tree(sdir)
+        return data
+
+    def _grade_shadow(self, ctx: RunContext, node: Step, path: str, sdir: Path, packet_sha: str, child: ChildResult) -> dict[str, Any]:
+        """``{passed, counted, reasons, gates}``: the shadow's own schema and blocking script gates (0176 item 4, 0179 item 6)."""
+        if child.timed_out:
+            return {"passed": False, "counted": False, "reasons": ["it did not finish in time"], "gates": []}
+        rdir = sdir / "result"
+        if not (rdir / "result.json").is_file():
+            return {"passed": False, "counted": False, "reasons": ["it ended without a result"], "gates": []}
+        sub = read_result(ctx, node, rdir, sdir / "packet", packet_sha)
+        if sub.status == "blocked" and not sub.problems:
+            return {"passed": False, "counted": False, "reasons": ["it asked the owner a question"], "gates": []}
+        problems = list(sub.problems)
+        if sub.status == "failed" and not problems:
+            problems.append(f"it reported failure: {sub.notes}" if sub.notes else "it reported failure")
+        gates = [{"gate": "schema", "passed": not sub.problems}]
+        if not problems:
+            level = ctx.record().ratings()
+            scratch = sdir / "gates"
+            for i, g in enumerate(node.gates):
+                if not isinstance(g, ScriptGate) or g.advisory or not gate_included(g, level):
+                    continue
+                if not scratch.exists():
+                    scratch_copy(self.project.root, scratch)
+                res = run_script_gate(ctx, g, path, root=scratch)
+                infra = res.configuration_error
+                if not res.passed and not res.data.get("timed_out") and not infra:
+                    sha = res.data.get("output_sha256")
+                    cls = classify.classify_gate(res.data.get("exit_code"), ctx.log.cas.read(sha) if sha else b"")
+                    infra = cls is not None and cls["class"] != "subject"
+                gates.append({"gate": i, "type": "script", "passed": res.passed, "reasons": res.reasons[:3]})
+                if infra:
+                    return {"passed": False, "counted": False, "reasons": ["a gate could not run here", *res.reasons[:3]], "gates": gates}
+                if not res.passed:
+                    problems += res.reasons[:3]
+                    break
+        return {"passed": not problems, "counted": True, "reasons": problems[:10], "gates": gates}
+
+    def _record_shadow(self, ctx: RunContext, path: str, n: int, events: list[Any], settings: Any) -> list[str]:
+        """Write a shadow's evidence once it and its primary have both ended (0182, item 1); notices when standing changed."""
+        from . import assessment
+
+        res = next((e for e in events if e.type == "shadow_result" and e.step_path == path and e.attempt == n), None)
+        disp = next((e for e in events if e.type == "shadow_dispatched" and e.step_path == path and e.attempt == n), None)
+        if res is None or disp is None:
+            return []
+        mine = [e for e in events if e.step_path == path and e.attempt == n]
+        failed_gates = any(e.type == "result_rejected" or (e.type == "gate_failed" and not (e.data or {}).get("advisory")
+                           and (e.data or {}).get("type") in ("schema", "script", "provenance")) for e in mine)
+        ended = failed_gates or ctx.log.state().step(path).attempt > n or any(
+            e.type in ("step_passed", "step_escalated", "attempt_orphaned", "step_timed_out", "human_gate_opened", "trial_failed") for e in mine) \
+            or any(e.type == "step_ready" and (e.data or {}).get("review_of") == path and (e.data or {}).get("attempt") == n for e in events)
+        if not ended:
+            return []  # graded when the primary ends too, so the order cannot change the grade
+        passed, counted = assessment.shadow_outcome(res.data, failed_gates)
+        name = disp.data.get("profile")
+        p = self._current_profiles().get(name)
+        if p is None or assessment.route_key(p) is None or p.model_id != disp.data.get("model_id"):
+            return []  # the profile now names another model: its evidence is not this one's (0179, item 5)
+        node = node_for(ctx.recipe, path)
+        from .routing import needed_capabilities
+
+        outcome = {"id": f"{ctx.run_id}:{path}:{n}:shadow", "kind": "shadow", "tier": "strong", "passed": passed, "counted": counted,
+                   "capabilities": needed_capabilities(node.requires, node.workspace) if isinstance(node, Step) else [],
+                   "run": ctx.run_id, "step_path": path, "attempt": n, **({"cost_usd": res.data["cost_usd"]} if "cost_usd" in res.data else {})}
+        if not counted and res.data.get("passed") is False and res.data.get("counted", True):
+            outcome["reasons"] = ["the primary failed the same gates"]
+        try:
+            change = assessment.record_outcome(self.project.home, name, p, outcome, settings=settings)
+        except assessment.AssessmentError as e:  # expected: an unreadable record; nothing else depends on it
+            diag.note("assessment.record_invalid", "engine:Api._record_shadow", error=str(e))
+            return []
+        if change is None:
+            return []
+        ctx.log.append("model_standing_changed", step_path=path, data={"profile": name, "model_id": p.model_id, **change})
+        return [standing_notice(name, change)]
+
     def _learn(self, ctx: RunContext, new: list[Any]) -> list[str]:
         """Add what the new events show to the track record; reconcile trial reservations. Returns notices for the owner.
 
@@ -3246,15 +3476,20 @@ class Api:
         """
         from . import assessment
 
-        ends = ("step_passed", "trial_failed", "gate_failed", "result_rejected", "step_escalated", "attempt_orphaned", "step_timed_out")
-        touched = sorted({(e.step_path, e.attempt) for e in new if e.type in ends and e.step_path and e.attempt})
+        ends = ("step_passed", "trial_failed", "gate_failed", "result_rejected", "step_escalated", "attempt_orphaned", "step_timed_out",
+                "shadow_result", "human_gate_opened")
+        touched = {(e.step_path, e.attempt) for e in new if e.type in ends and e.step_path and e.attempt}
+        touched |= {(e.data["review_of"], e.data["attempt"]) for e in new
+                    if e.type == "step_ready" and (e.data or {}).get("review_of") and (e.data or {}).get("attempt")}
         if not touched:
             return []
+        touched = sorted(touched)
         events = ctx.log.events()
         settings = self._assessment_settings()
         profiles = None
         notices: list[str] = []
         for path, n in touched:
+            notices += self._record_shadow(ctx, path, n, events, settings)
             sel = next((e for e in reversed(events) if e.type == "worker_selected" and e.step_path == path and e.attempt == n), None)
             if sel is None:
                 continue
@@ -3501,6 +3736,9 @@ class Api:
                 if "search" in offered and prof.search_via() not in (None, "provider") and env is not None:
                     search_argv = self._declared_search_env(env)
                     extra["env"] = env.describe()
+            shadow = None
+            if trial is None and program_info is None:
+                shadow = self._plan_shadow(ctx, node, step_path, wkr, routing, effort=effort, deadline=deadline)
             trial_data = None
             if trial is not None:
                 trial_data = {"trial": True, "fallback": worker, "tier": trial["tier"], "estimate_usd": trial["estimate_usd"]}
@@ -3517,6 +3755,7 @@ class Api:
                     from . import assessment
 
                     assessment.release(self.project.home, dispatch_id)
+                self._drop_shadow(shadow)
                 raise
             if queue_entry is not None:
                 ctx.log.append("dispatch_dequeued", step_path=step_path, data={"queue_id": queue_entry["queue_id"], "started": True, "dispatch_id": dispatch_id})
@@ -3535,6 +3774,7 @@ class Api:
             argv = adp.command(prof, built.dir, built.result_dir, workspace, mode, tools=tools) if tools is not None else \
                 adp.command(prof, built.dir, built.result_dir, workspace, mode)
             if argv is None or env is None:
+                self._launch_shadow(ctx, shadow, node, mode, step_path, built, out)
                 return out  # a person does the work (no supervisor, no timeout); the Director submits
             if env.resolved is not None:
                 argv = [env.resolved.executable, *argv[1:]]
@@ -3566,6 +3806,7 @@ class Api:
                 reasons = [f"platform failure (supervisor_failed): {cls['message']}"]
                 ctx.log.append("step_escalated", step_path=step_path, attempt=built.attempt, data={"reason": "platform", "code": "supervisor_failed", "reasons": reasons})
                 out.update(_outcome_dict(Outcome(step_path, built.attempt, "escalated", reasons)))
+                self._drop_shadow(shadow)
                 return out
             out["supervisor_pid"] = marker.get("supervisor_pid")
             out["worker_pid"] = marker.get("worker_pid")
@@ -3574,6 +3815,7 @@ class Api:
                 out["warnings"].append(
                     f"{supervisor.NO_WAKE_WARNING}; check with `baton status {ctx.run_id}` or `baton wait {ctx.run_id}`"
                 )
+            self._launch_shadow(ctx, shadow, node, mode, step_path, built, out)
             return out
 
         out = self._mutate(run_id, body)

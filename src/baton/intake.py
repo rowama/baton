@@ -258,13 +258,16 @@ def render_command(ctx: RunContext, template: str, step_path: str | None = None)
     return env.from_string(template).render(**variables)
 
 
-def run_script_gate(ctx: RunContext, gate: ScriptGate, step_path: str) -> GateOutcome:
-    """Run the command in the project root (or ``cwd`` inside it) under a reduced environment."""
+def run_script_gate(ctx: RunContext, gate: ScriptGate, step_path: str, root: Path | None = None) -> GateOutcome:
+    """Run the command in the project root (or ``cwd`` inside it) under a reduced environment.
+
+    ``root``: another folder to run it in instead, a scratch copy of the project for a shadow attempt (§8.7).
+    """
     try:
         command = render_command(ctx, gate.run, step_path)
     except jinja2.TemplateError as e:
         return GateOutcome(False, [f"script gate command {gate.run!r} cannot be rendered: {e}"], {"command": gate.run}, True)
-    root = ctx.store.root.resolve()
+    root = (root or ctx.store.root).resolve()
     cwd = (root / gate.cwd).resolve() if gate.cwd else root
     if not cwd.is_relative_to(root) or not cwd.is_dir():
         return GateOutcome(False, [f"script gate cwd {gate.cwd!r} is not a directory inside the project"], {"command": command}, True)

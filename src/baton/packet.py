@@ -914,6 +914,16 @@ def _blocked_output(ctx: RunContext, record: RunRecord, step_path: str, attempt:
     return (sha, ctx.log.cas.read(sha)) if sha else None
 
 
+def task_digest(manifest: dict[str, Any]) -> str:
+    """The task a packet gives, whoever does it: the run, step, attempt, recipe, inputs, exit criteria and prior feedback,
+    without the worker's identity or tools. A shadow attempt's packet has the primary's task digest (§8.7)."""
+    keys = ("run_id", "recipe_sha256", "step_path", "attempt", "workspace", "exit_criteria", "ratings", "protected_paths",
+            "not_applicable", "required_artifacts", "optional_artifacts", "prior_feedback")
+    body = {k: manifest.get(k) for k in keys}
+    body["inputs"] = [{"name": i["name"], "sha256": i["sha256"]} for i in manifest.get("inputs") or []]
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def build_packet(
     ctx: RunContext,
     step_path: str,
@@ -923,8 +933,12 @@ def build_packet(
     deadline: str | None = None,
     guidance: str | None = None,
     effort: str | None = None,
+    into: Path | None = None,
 ) -> BuiltPacket:
     """Assemble and write the packet for the step's next attempt. Writes no events.
+
+    ``into``: write ``packet/`` and ``result/`` there instead of the attempt's directory (a shadow attempt's own
+    packet, §8.7: the same task for another worker, under that worker's identity).
 
     ``effort`` is the resolved effort (``effort`` or ``effort_from``, §8.7);
     ``deadline`` is supplied by the caller (the manifest's only clock reading).
@@ -1059,7 +1073,7 @@ def build_packet(
 
     # Write: a temp directory renamed into place, then made read-only. An earlier
     # packet for the same (not yet dispatched) attempt is replaced.
-    adir = ensure_dir(ctx.attempt_dir(step_path, attempt))
+    adir = ensure_dir(into if into is not None else ctx.attempt_dir(step_path, attempt))
     tmp = adir / f".packet-{secrets.token_hex(6)}"
     try:
         for rel, content in files.items():

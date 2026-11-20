@@ -41,6 +41,7 @@ Commit what the process **is** and what it has **produced**; never commit who ru
 | `~/.baton/capability-states.yaml` | Each profile's capability states: likely, verified, absent |
 | `~/.baton/track-record.yaml` | What Baton has seen each model do on each route: its last capability check, with results, cost and time, and how it did on real steps of each tier, with whether it is proven or put back |
 | `~/.baton/assessment-spend.yaml` | Today's cost estimates and real costs of trying cheaper models, kept against the daily limit |
+| `~/.baton/shadows/` | A shadow attempt's own task and its copy of the project while it runs; removed when it ends |
 | `~/.baton/listings/` | Cached provider model lists |
 | `~/.baton/quota.yaml` | Routes whose quota is used up, and until when |
 | `~/.baton/known-workers.local.yaml` | Your assessed models, merged over Baton's shipped data |

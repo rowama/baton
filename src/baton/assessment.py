@@ -341,6 +341,84 @@ def trial_candidate(step: Any, step_path: str, chosen: str, eligible: list[str],
 
 
 # ---------------------------------------------------------------------------
+# Shadow attempts (0175 item 3, 0176 items 4 and 6, 0179 items 4-6, 0182 item 1)
+# ---------------------------------------------------------------------------
+
+
+def shadow_problems(step: Any, step_path: str, level: dict[str, str] | None = None) -> list[str]:
+    """Why ``step`` may not be shadowed; empty when it may."""
+    from .models import SchemaGate
+    from .packet import gate_included
+
+    if step.requires is None:
+        return ["a program step"]
+    out: list[str] = []
+    if "human_judgment" in step.requires.capabilities:
+        out.append("a step for a person")
+    if "~" in step_path.rsplit("/", 1)[-1]:
+        out.append("a review")
+    if tier_of(step.requires) != "strong":
+        out.append("it does not require a strong model (steps below strong are tried instead)")
+    if step.workspace == "write":
+        out.append("it writes to the workspace")
+    if not step.repeatable or step.effect != "none":
+        out.append("it does not declare that it can be evaluated again safely (repeatable, effect: none)")
+    if not step.output_schema or not any(isinstance(g, SchemaGate) and not g.advisory and gate_included(g, level or {}) for g in step.gates):
+        out.append("it has no blocking schema gate to grade a candidate by")
+    return out
+
+
+def shadow_candidate(step: Any, step_path: str, primary: str, eligible: list[str], profiles: dict[str, Any], settings: Any,
+                     models: dict[str, Any], *, available_usd: float, already: bool,
+                     level: dict[str, str] | None = None) -> tuple[str | None, list[str]]:
+    """``(candidate, why not)``: one model to shadow ``primary`` on a strong step (0176, item 6: at most one per step).
+
+    Eligible for the step (so rated strong, with every capability and independence rule), a model identity, not the
+    primary's route, not yet proven or put back at strong, within the budget; free first, then the cheapest.
+    """
+    from .routing import price_rank
+
+    if not settings.shadows:
+        return None, ["shadow attempts are off"]
+    if already:
+        return None, ["this step was already shadowed in this run"]
+    why = shadow_problems(step, step_path, level)
+    if why:
+        return None, why
+    mine = route_key(profiles[primary]) if primary in profiles else None
+    options = []
+    for name in eligible:
+        p = profiles.get(name)
+        if name == primary or p is None or p.adapter in ("manual", "program", "command"):
+            continue
+        key = route_key(p)
+        if key is None or key == mine:
+            continue
+        if standing(models.get(key), "strong", settings, p.tier)["state"] != "candidate":
+            continue
+        est = estimate_usd(p)
+        if est is None or est > available_usd:
+            continue
+        options.append((price_rank(p), name))
+    if not options:
+        return None, ["no other eligible model is unproven at strong and within the budget"]
+    return sorted(options)[0][1], []
+
+
+def shadow_outcome(shadow: dict[str, Any], primary_failed_gates: bool) -> tuple[bool, bool]:
+    """``(passed, counted)`` for a shadow once both it and its primary have ended (0182, item 1).
+
+    Its own gates decide; a failure the primary shared (the primary also failed its schema or script gates) is not
+    counted against the candidate; a shadow that could not finish is no evidence. Order cannot change the answer.
+    """
+    if not shadow.get("counted", True):
+        return False, False
+    if shadow.get("passed"):
+        return True, True
+    return False, not primary_failed_gates
+
+
+# ---------------------------------------------------------------------------
 # The budget (0179, item 4)
 # ---------------------------------------------------------------------------
 
