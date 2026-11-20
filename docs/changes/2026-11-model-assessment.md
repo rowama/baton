@@ -1,7 +1,7 @@
 ---
 id: 2026-11-model-assessment
 title: "Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work"
-status: in-progress
+status: done
 level: major
 decisions: ["0175", "0176", "0177", "0178", "0179", "0182", "0110", "0081", "0084", "0088", "0111", "0076", "0114"]
 touches: [design/workers.md, design/runtime.md, design/director-interface.md, design/recipes.md, design/platform-and-security.md, design/layouts.md]
@@ -60,7 +60,7 @@ The original nine questions below were answered as suggested: Decision [0176](..
 
 ## Design
 
-Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the six remaining routing refinements were accepted in Decision 0179 on 2026-11-19. The shape below distinguishes the delivered interfaces from the remaining outline.
+Request and Design approved 2026-11-18. All four slices are implemented (Decisions 0179 and 0182 settled the details of slices 3 and 4). The shape below is what was delivered.
 
 ### Shape
 
@@ -68,9 +68,9 @@ Request and Design approved 2026-11-18. Slices 1 and 2 are implemented; the six 
 - **Command and page (delivered).** `baton workers check [<profile>…] [--free] [--provider <name>] [--all] [--again] [--yes]` and **Check abilities** on the setup page. `POST /api/models/check` returns an estimate before a separately confirmed run; the live verify route remains separate.
 - **Check evidence (delivered).** Capability states carry `by: check` and `set_version`. The last check, including completeness, date, outcomes, cost and time, is stored in the track record and used to skip a completed current-version check. A failed task is repeated once before failure counts (0178).
 - **Evaluation basis (delivered).** `tier_basis` carries deciding and optional supporting evaluation results (`name`, `version`, `score`, optional `configuration`, `source: {url, retrieved}`); a capability basis may cite one result. `defaults/evaluation-tiers.yaml` maps results to tiers and grants. The same validator checks shipped data, overlays and assessments (0178).
-- **Track record (remaining).** Extend `~/.baton/track-record.yaml` beyond its delivered last-check records to counts by tier and capability for checks, shadows, trials and real steps, plus recent outcomes for promotion. Evidence belongs to the canonical model and route configuration, resets when model, endpoint or harness version changes, and cannot confer lasting promotion on aliases (0179). Preserve last-check records separately or migrate them compatibly.
-- **Shadow attempts.** At dispatch of an eligible step, the runtime picks one candidate within budget and dispatches it with the same packet under a shadow dispatch id; its intake runs the schema and script gates only and records `shadow_result {profile, model_id, gates, cost}` on the step, never `step_passed`.
-- **Trials.** The Director's normally selected worker is the fallback; a free or cheaper eligible candidate may be tried first without relaxing any tier, capability or independence requirement. The step must declare `effect: none` or `effect: reversible` and have qualifying blocking gates. A failed gate records `trial_failed` and readies a separate fallback attempt without charging the recipe's attempt budget; `worker_selected` carries `trial: true`. Blocking reviews participate immediately, with success pending their outcome (0179).
+- **Track record (delivered).** `~/.baton/track-record.yaml` keeps its last-check records under `profiles:` and, under `models:`, evidence by route (`assessment.route_key`): outcomes of trials, shadows and real steps by tier with their capabilities and cost, totals, the harness version and rating (a change starts afresh), owner overrides; standing proven / put back / candidate (0176 item 5, 0182 items 2 and 3).
+- **Shadow attempts (delivered).** At dispatch of a strong, repeatable, non-writing step, one candidate within budget gets its own packet of the same task (`packet.task_digest` equal) under an `s_…` dispatch id and its own supervisor, in a scratch copy; its end records `shadow_result` (schema and script gates, the gates in a scratch copy), never `step_passed`; its grade is written once both have ended, a shared failure forgiven (0182 item 1).
+- **Trials (delivered).** The Director's normally selected worker is the fallback; a free or cheaper eligible candidate may be tried first without relaxing any tier, capability or independence requirement. The step must declare `effect: none` or `effect: reversible` and have qualifying blocking gates. A failed gate records `trial_failed` and readies a separate fallback attempt without charging the recipe's attempt budget; `worker_selected` carries `trial: true`. Blocking reviews participate immediately, with success pending their outcome (0179).
 
 ### Doc edits
 
@@ -215,3 +215,9 @@ Request and Design approved 2026-11-18. Each slice's detail is refined against t
 - **Tests:** `tests/test_shadows.py`: which steps are shadowed (never a write step, never without `repeatable`); one candidate, free first, within the budget, off by default, aliases and proven models excluded; the grade with and without a shared failure; the scratch copy; and through the engine (the supervisor's process not started, its end played): the same task under the candidate's own identity and packet, never `result_submitted` or `step_passed` and the step unchanged, graded only when the primary ends; either order of ending gives the same grade, a shared failure forgiven; a failure where the primary passed counts; gates run in a scratch copy and leave the project alone, recorded once; a timeout is no evidence and leaves the primary intact; once per step in a run; nothing beside the primary with shadows off; the task digest ignores the worker.
 - **Validation:** the quick gate passed (1851 passed, 3 skipped; its one failure, the Director skill not yet mirroring §13.3's new sentence, fixed before this commit).
 - **Accepted:** Yes (slice).
+
+### Finished
+
+- **Summary:** All eleven acceptance criteria are demonstrated: 1–3 and the capability evidence by slice 1 (`tests/test_capability_check.py`), 4 by slice 2 (`tests/test_evaluation_tiers.py`), 5 and 7–10 by slice 3 (`tests/test_trials.py`, `tests/test_ui_models.py`), 6 and 9–10 for shadows by slice 4 (`tests/test_shadows.py`), 11 by the design and manual edits of each slice (`tests/test_docs.py`, `tests/test_manual.py`). Replay of past work (0175, item 5) and grading by a judge model stay out of scope.
+- **Not done:** the Director's notices of a changed standing reach the owner when a Director reads the outcome (the dispatch, `wait`, `submit` and `decide` results, and `model_standing_changed` in the run); a standing changed inside a supervisor's intake is in the run record and `workers status` but in no result a Director is waiting on. No real trial or shadow has been run against a provider yet: the engine was exercised with the worker's end played, and with fake harnesses in the existing suites.
+- **Accepted:** Pending the owner's review.
