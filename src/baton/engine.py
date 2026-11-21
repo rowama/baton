@@ -748,13 +748,13 @@ def submit(
     adir = ctx.attempt_dir(step_path, n)
     sub = read_result(ctx, step, adir / "result", adir / "packet", built.data["packet_sha256"])
     claims: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
     if sub.status == "completed" and not sub.problems:
         loc = groups.locate(ctx.recipe, step_path)
         assert loc is not None
         sub.problems += view_of(ctx).foreach_id_problems(loc, sub.output)
         if sub.dispositions:
-            claims, problems = _worker_dispositions(ctx, loc, sub.dispositions)
-            sub.problems += problems
+            claims, dropped = _worker_dispositions(ctx, loc, sub.dispositions)
 
     log.append(
         "result_submitted",
@@ -762,7 +762,8 @@ def submit(
         step_path=step_path,
         attempt=n,
         data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **_tool_calls_record(adir),
-              **({"worker_exit": worker_exit} if worker_exit else {})},
+              **({"worker_exit": worker_exit} if worker_exit else {}),
+              **({"dispositions_dropped": dropped} if dropped else {})},
     )
     _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
     if sub.rating_signal is not None and not rating_signal_problems(ctx, sub.rating_signal):
@@ -910,21 +911,23 @@ def _protected_gate(ctx: RunContext, step: Step, step_path: str, n: int) -> Outc
     return Outcome(step_path, n, "needs_human", [prompt])
 
 
-def _worker_dispositions(ctx: RunContext, loc: groups.Located, items: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Check a worker's ``dispositions`` (§9.2, §18 #12): ``(events to record, problems)``.
+def _worker_dispositions(ctx: RunContext, loc: groups.Located, items: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Check a worker's ``dispositions`` (§9.2, §18 #12): ``(events to record, claims dropped)``.
 
     A worker may mark ``fixed`` or ``rejected``, with evidence, only findings it
     was shown: those of its own review and findings gates, and those of the
     judges of an enclosing loop. Its claims are provisional until a review
-    confirms them.
+    confirms them. A claim that fails its check is dropped, with its reasons,
+    and the result goes on (Decision 0183): a claim never closes a finding by
+    itself, so a bad one costs nothing but the claim.
     """
     events = ctx.log.events()
     lines = _visible_lines(loc)
-    head = reviews.repo_head(ctx.store.root)
     out: list[dict[str, Any]] = []
-    problems: list[str] = []
+    dropped: list[dict[str, Any]] = []
     for k, d in enumerate(items):
         where = f"dispositions[{k}]"
+        claim = {"index": k, "step": d.step, "finding": d.finding, "disposition": d.disposition, "evidence": d.evidence}
         cands = [ln for ln in lines if _line_matches(ctx, ln, d.step)]
         hits = []
         for ln in cands:
@@ -932,21 +935,21 @@ def _worker_dispositions(ctx: RunContext, loc: groups.Located, items: list[Any])
             if ev is not None and any(f["id"] == d.finding for f in ev.data.get("findings") or []):
                 hits.append((ln, ev))
         if not hits:
-            problems.append(f"{where}: no finding {d.finding!r} of {d.step!r} was shown to this step")
+            dropped.append({**claim, "reasons": [f"{where}: no finding {d.finding!r} of {d.step!r} was shown to this step"]})
             continue
         if len(hits) > 1:
-            problems.append(f"{where}: finding {d.finding!r} of {d.step!r} is ambiguous ({', '.join(h[0] for h in hits)}); give the step path")
+            dropped.append({**claim, "reasons": [f"{where}: finding {d.finding!r} of {d.step!r} is ambiguous ({', '.join(h[0] for h in hits)}); give the step path"]})
             continue
         ln, ev = hits[0]
-        bad = reviews.check_evidence(ctx.store.root, d.disposition, d.evidence, reviewed_commit=ev.data.get("reviewed_commit"), head=head)
+        bad = reviews.check_evidence(ctx.store.root, d.disposition, d.evidence, reviewed_commit=ev.data.get("reviewed_commit"))
         if bad:
-            problems += [f"{where} ({d.disposition} {d.finding}): {b}" for b in bad]
+            dropped.append({**claim, "reasons": [f"{where} ({d.disposition} {d.finding}): {b}" for b in bad]})
             continue
         out.append({
             "step_path": ev.step_path, "line": ln, "finding": d.finding, "evaluation_seq": ev.seq, "disposition": d.disposition,
             "evidence": d.evidence, "by": "worker", "provisional": True,
         })
-    return out, problems
+    return out, dropped
 
 
 def _visible_lines(loc: groups.Located) -> list[str]:
@@ -2006,7 +2009,7 @@ def disposition(
             )
         data.update(decision_id=dec.data["decision_id"], by="owner")
     else:
-        bad = reviews.check_evidence(ctx.store.root, value, evidence, reviewed_commit=ev.data.get("reviewed_commit"), head=reviews.repo_head(ctx.store.root))
+        bad = reviews.check_evidence(ctx.store.root, value, evidence, reviewed_commit=ev.data.get("reviewed_commit"))
         if bad:
             raise EngineError("disposition.bad_evidence", f"{value} {f['id']} refused: " + "; ".join(bad))
         data.update(evidence=evidence, by="director", provisional=False)

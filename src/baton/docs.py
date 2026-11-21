@@ -309,6 +309,9 @@ def _attempt_section(ctx: RunContext, step_path: str, n: int, evs: list[Event], 
             lines.append(f"- Result: {d.get('status')} at {ev.ts} (`result.json` `{d.get('result_sha256')}`)")
             if "tool_calls" in d:
                 lines += _tool_call_lines(ctx, step_path, n, d)
+            for c in d.get("dispositions_dropped") or []:  # Decision 0183: a claim that failed its check, dropped
+                lines.append(f"- Claim dropped: `{c.get('finding')}` {c.get('disposition')} ({c.get('evidence') or 'no evidence'}): "
+                             + "; ".join(r.split(": ", 1)[-1] if r.startswith("dispositions[") else r for r in c.get("reasons") or []))
         elif ev.type in ("gate_passed", "gate_failed"):
             lines.append(_gate_line(ev))
         elif ev.type == "result_rejected":

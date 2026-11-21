@@ -314,13 +314,19 @@ def test_rejected_evidence_is_checked_at_the_reviewed_commit(tmp_path):
     g("add", "-A")
     g("commit", "-q", "-m", "second")
     head = g("rev-parse", "HEAD")
-    check = lambda d, ev: reviews.check_evidence(root, d, ev, reviewed_commit=reviewed_commit, head=head)  # noqa: E731
+    check = lambda d, ev: reviews.check_evidence(root, d, ev, reviewed_commit=reviewed_commit)  # noqa: E731
     assert check("rejected", "a.py:3") == []  # existed when reviewed
     assert check("rejected", "b.py:1") == [f"b.py does not exist at commit {reviewed_commit[:12]}"]
     assert check("fixed", head[:10]) == []
     assert check("fixed", "deadbeef00") == ["commit deadbeef00 does not exist in this repository"]
-    assert check("fixed", "a.py:3") == ["a.py has 1 lines at commit " + head[:12] + "; line 3 does not exist"]
+    assert check("fixed", "a.py:3") == ["a.py has 1 lines in the working tree; line 3 does not exist"]
     assert check("fixed", "a.py:1") == []
+    # fixed: the tree as it is now, uncommitted files included (the issue of 2026-11-20).
+    (root / "new.md").write_text("one\ntwo\n", encoding="utf-8")
+    assert check("fixed", "new.md:2") == []
+    assert check("rejected", "new.md:2") == [f"new.md does not exist at commit {reviewed_commit[:12]}"]
+    (root / "test_new.py").write_text("def test_it():\n    pass\n", encoding="utf-8")
+    assert check("rejected", "test_new.py::test_it") == []  # a test reference: its file as it is now
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +423,46 @@ def test_a_worker_disposition_in_a_loop_reaches_the_next_review(tmp_path):
         assert engine.submit(ctx, f"{base}/i2/review").outcome == "passed"
         rec = [e for e in ctx.log.events() if e.type == "findings_recorded"][-1].data
         assert rec["resolved"][0]["id"] == "F1" and rec["resolved"][0]["confirmed"] is True
+
+
+@pytest.mark.not_slow("measured under 1 s")
+def test_a_design_round_cites_its_own_new_document_and_a_bad_claim_is_dropped(tmp_path):
+    """The run of 2026-11-20: round two's design cited lines of the document it had just written, which no
+    commit holds yet; every claim was refused and the result retried. Now the tree as it is counts, and a claim
+    that does not check out is dropped with its reasons while the result goes on (Decision 0183)."""
+    with Store(tmp_path / "project", clock=Clock()) as store:
+        root = tmp_path / "project"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "src" / "auth.py").write_text("x = 1\n", encoding="utf-8")
+        ctx = engine.start(store, engine.load_recipe(tg.slice_recipe(tmp_path / "loop", max_iterations=3)), {}, run_id="r_d")
+        tg.run_step(ctx, "plan", {"slices": [{"title": "Login"}]})
+        base = f"slices/{tg.expansions(ctx)[0]['items'][0]['id']}"
+        tg.run_step(ctx, f"{base}/i1/implement", {"done": True})
+        tg.run_step(ctx, f"{base}/i1/review", tg.HIGH)
+        p = tg.begin(ctx, f"{base}/i2/implement")
+        text = (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+        assert "may be a file you wrote in `../result/`" in text and "is dropped" in text
+        doc = p.result_dir / "artifacts" / "design_doc.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text("# Design\n\nTokens expire after an hour.\n", encoding="utf-8")
+        own = doc.relative_to(root).as_posix()
+        play(p, {"done": True}, dispositions=[
+            {"step": "review", "finding": "F1", "disposition": "fixed", "evidence": f"{own}:3"},
+            {"step": "review", "finding": "F2", "disposition": "fixed", "evidence": f"{own}:40"},
+            {"step": "review", "finding": "F9", "disposition": "rejected", "evidence": "src/auth.py:1"},
+        ])
+        assert engine.submit(ctx, f"{base}/i2/implement").outcome == "passed"
+        claims = [e.data for e in ctx.log.events() if e.type == "finding_dispositioned"]
+        assert [(c["finding"], c["evidence"]) for c in claims] == [("F1", f"{own}:3")]
+        sub = [e for e in ctx.log.events() if e.type == "result_submitted"][-1].data
+        assert [(d["finding"], d["index"]) for d in sub["dispositions_dropped"]] == [("F2", 1), ("F9", 2)]
+        assert "line 40 does not exist" in sub["dispositions_dropped"][0]["reasons"][0]
+        assert "no finding 'F9'" in sub["dispositions_dropped"][1]["reasons"][0]
+        assert not [e for e in ctx.log.events() if e.type == "result_rejected"]
+        from baton import docs as record_docs
+
+        rec = record_docs.step_record(ctx, f"{base}/i2/implement")
+        assert f"- Claim dropped: `F2` fixed ({own}:40):" in rec
 
 
 # ---------------------------------------------------------------------------

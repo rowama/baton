@@ -298,13 +298,16 @@ def _check_file_line(root: Path, m: re.Match[str], commit: str | None) -> str | 
     return None
 
 
-def check_evidence(root: Path, disposition: str, evidence: str | None, *, reviewed_commit: str | None, head: str | None) -> list[str]:
+def check_evidence(root: Path, disposition: str, evidence: str | None, *, reviewed_commit: str | None) -> list[str]:
     """Problems with a ``fixed`` / ``rejected`` disposition's evidence (empty: valid).
 
-    ``fixed``: a commit that exists, or a ``file:line`` in the current tree.
+    ``fixed``: a commit that exists, or a ``file:line`` in the working tree as
+    it is now, uncommitted files included: a worker's own result (a design
+    round's new document) and a workspace step's uncommitted change are what
+    the fix is, and Baton commits them only after intake.
     ``rejected``: a ``file:line`` that exists at the reviewed commit (the
     working tree when there is none), or a test reference ``path::name`` whose
-    file exists now and contains the name.
+    file exists now, in the working tree, and contains the name.
     """
     ev = (evidence or "").strip()
     if not ev:
@@ -320,7 +323,7 @@ def check_evidence(root: Path, disposition: str, evidence: str | None, *, review
             return [] if ok else [f"commit {ev} does not exist in this repository"]
         m = _FILE_LINE.match(ev)
         if m:
-            p = _check_file_line(root, m, head)
+            p = _check_file_line(root, m, None)
             return [p] if p else []
         return [f"evidence {ev!r} for fixed is neither a commit nor file:line"]
     if disposition == "rejected":
@@ -330,7 +333,7 @@ def check_evidence(root: Path, disposition: str, evidence: str | None, *, review
             return [p] if p else []
         t = _TEST.match(ev)
         if t:
-            text, where = _file_at(root, t["path"], head)
+            text, where = _file_at(root, t["path"], None)
             if text is None:
                 return [f"test file {t['path']} does not exist {where}"]
             missing = [part for part in t["name"].split("::") if not re.search(rf"\b{re.escape(part.split('[')[0])}\b", text)]

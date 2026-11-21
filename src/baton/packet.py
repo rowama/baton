@@ -588,10 +588,12 @@ def render_instructions(step: Step, prompt: str, manifest: dict[str, Any], input
             "",
             "For each earlier finding you fixed or believe is wrong, you may add an entry to `dispositions` in",
             "`result.json`: `{\"step\": <the step that recorded it>, \"finding\": <its id>, \"disposition\": \"fixed\" | \"rejected\",",
-            "\"evidence\": ...}`. `fixed` needs a commit SHA or `file:line`; `rejected` needs a `file:line` that exists at the",
-            "reviewed commit, or a test reference `path::name`. Evidence is checked; a disposition is only a claim until",
-            "the next review confirms it (a finding reported again stays open). Present evidence so that someone without",
-            "subject expertise can check it.",
+            "\"evidence\": ...}`. `fixed` needs a commit SHA or a `file:line` in the project as it is when you submit, which",
+            "may be a file you wrote in `../result/` (cite it by its path from the project root); `rejected` needs a",
+            "`file:line` that exists at the reviewed commit, or a test reference `path::name`. Evidence is checked: a",
+            "claim whose evidence does not check out is dropped, and your result is otherwise judged as usual. A disposition",
+            "is only a claim until the next review confirms it (a finding reported again stays open). Present evidence so",
+            "that someone without subject expertise can check it.",
             "",
         ]
     prior = manifest.get("prior_findings")

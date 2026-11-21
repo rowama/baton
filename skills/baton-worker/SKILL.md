@@ -26,7 +26,7 @@ Write to the result directory named in `INSTRUCTIONS.md`:
 - `blocked`: you need an answer from the owner; put the questions in `questions_for_human`, each `{id, ask, why, best_guess?, options?: [{id, label}], multi_select?, priority?: needed | helpful}`. Write them in the owner's terms, never the process's or a rubric's vocabulary; infer what you reasonably can and offer it as `best_guess`; ask only what you cannot infer.
 - `prior_feedback.answers` (in the manifest and `INSTRUCTIONS.md`): the owner's confirmed answers to your earlier questions, `{id, answer, owner_words}`. Use them as given.
 - `prior_feedback.answers_earlier`: answers the owner gave in an earlier round or attempt, still standing. Do not ask about them again; ask only about what they leave open, and say what changed if something has. `prior_feedback.prior_output`: your blocked attempt's output (`blocked/output.json`), which the owner's answers refer to. Build on it.
-- `dispositions`: only for findings you were shown — `fixed` or `rejected`, each with evidence (a commit or `file:line`; for `rejected`, `file:line` or `path::test`). Never `accepted-risk`.
+- `dispositions`: only for findings you were shown — `fixed` or `rejected`, each with evidence (a commit or `file:line`; for `rejected`, `file:line` or `path::test`). A `fixed` `file:line` may point into your own `result/` (cite it by its path from the project root); a claim whose evidence does not check out is dropped. Never `accepted-risk`.
 
 ## Rules
 - Stop and report a mismatch (missing input, contradictory instructions, an impossible schema) as `blocked` or `failed` with the reason, instead of improvising.
