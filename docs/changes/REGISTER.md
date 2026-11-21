@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-disposition-evidence](2026-11-disposition-evidence.md) | A worker can cite its own new result as evidence for a fixed finding, and a claim that fails its check is dropped, not the result | in-progress | standard | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
@@ -20,6 +19,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-cli-model-routes](2026-11-cli-model-routes.md) | Research proposes a route for every model each harness can run, and the capabilities that should be present | done | standard | |
 | [2026-11-codex-director-sandbox](2026-11-codex-director-sandbox.md) | Codex as Director: detect its sandbox and connect Baton through MCP | done | standard | |
 | [2026-11-diagnostics](2026-11-diagnostics.md) | Baton records the conditions it works around, keeps them bounded, and doctor speaks up when they become unusual | done | standard | |
+| [2026-11-disposition-evidence](2026-11-disposition-evidence.md) | A worker can cite its own new result as evidence for a fixed finding, and a claim that fails its check is dropped, not the result | done | standard | |
 | [2026-11-director-question-check](2026-11-director-question-check.md) | The Director checks its questions before asking the owner, and the framing label tells the truth | done | minor | |
 | [2026-11-director-wake](2026-11-director-wake.md) | A detached Director notices when work finishes, or tells the owner first that it might not | done | standard | |
 | [2026-11-fast-tests](2026-11-fast-tests.md) | Slices are checked by a fast run of the affected tests; the full suite runs in parallel in the background and still gates every finish | done | standard | |

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-disposition-evidence
 title: "A worker can cite its own new result as evidence for a fixed finding, and a claim that fails its check is dropped, not the result"
-status: in-progress
+status: done
 level: standard
 decisions: ["0183", "0181"]
 touches: [design/gates-and-reviews.md, design/packets.md, design/runtime.md]
