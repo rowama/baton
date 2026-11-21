@@ -223,22 +223,27 @@ def _failed_once(api: Api, root: Path, run: str) -> None:
 def test_rejection_without_valid_evidence_is_refused(reviewed):
     api, root, run = reviewed
     _failed_once(api, root, run)
-    # From a worker: the whole result is rejected, with the reason.
-    d = api.dispatch(run, "design", "alice")
-    write_result(packet_dir(root, run, "design", d["attempt"]), {"v": 2},
-                 dispositions=[{"step": "design", "finding": "F1", "disposition": "rejected", "evidence": "src/auth.py:40"}])
+    # A worker cannot accept a risk: a malformed entry is still an envelope error, and the result is rejected.
+    dd = api.dispatch(run, "design", "alice")
+    write_result(packet_dir(root, run, "design", dd["attempt"]), {"v": 3},
+                 dispositions=[{"step": "design", "finding": "F1", "disposition": "accepted-risk"}])
     out = api.submit(run, "design")
-    assert out["outcome"] == "retry"
-    assert any("src/auth.py has 2 lines in the working tree; line 40 does not exist" in r for r in out["reasons"])
+    assert out["outcome"] == "retry" and any("dispositions.0.disposition" in r for r in out["reasons"])
+    # From a worker: each claim that fails its check is dropped with its reason, and the result goes on (0183).
+    d = api.dispatch(run, "design", "alice")
+    write_result(packet_dir(root, run, "design", d["attempt"]), {"v": 2}, dispositions=[
+        {"step": "design", "finding": "F1", "disposition": "rejected", "evidence": "src/auth.py:40"},
+        {"step": "design", "finding": "F1", "disposition": "rejected"},
+        {"step": "design", "finding": "F9", "disposition": "rejected", "evidence": "src/auth.py:1"},
+    ])
+    out = api.submit(run, "design")
+    assert out["outcome"] == "needs_review"
     assert not events(api, run, "finding_dispositioned")
-    d = api.dispatch(run, "design", "alice")
-    write_result(packet_dir(root, run, "design", d["attempt"]), {"v": 2},
-                 dispositions=[{"step": "design", "finding": "F1", "disposition": "rejected"}])
-    assert any("rejected needs evidence" in r for r in api.submit(run, "design")["reasons"])
-    d = api.dispatch(run, "design", "alice")
-    write_result(packet_dir(root, run, "design", d["attempt"]), {"v": 2},
-                 dispositions=[{"step": "design", "finding": "F9", "disposition": "rejected", "evidence": "src/auth.py:1"}])
-    assert any("no finding 'F9'" in r for r in api.submit(run, "design")["reasons"])
+    dropped = events(api, run, "result_submitted")[-1].data["dispositions_dropped"]
+    reasons = [r for c in dropped for r in c["reasons"]]
+    assert "src/auth.py has 2 lines in the working tree; line 40 does not exist" in reasons[0]
+    assert "rejected needs evidence" in reasons[1]
+    assert "no finding 'F9'" in reasons[2]
 
     # From the Director: the call is refused.
     for bad in (None, "src/missing.py:1", "tests/test_auth.py::test_nothing_like_it", "because I said so"):
@@ -249,11 +254,6 @@ def test_rejection_without_valid_evidence_is_refused(reviewed):
     assert out["outcome"] == "recorded"
     d = events(api, run, "finding_dispositioned")[-1].data
     assert d["by"] == "director" and d["disposition"] == "rejected"
-    # A worker cannot accept a risk.
-    dd = api.dispatch(run, "design", "alice")
-    write_result(packet_dir(root, run, "design", dd["attempt"]), {"v": 3},
-                 dispositions=[{"step": "design", "finding": "F1", "disposition": "accepted-risk"}])
-    assert any("dispositions.0.disposition" in r for r in api.submit(run, "design")["reasons"])
 
 
 @pytest.mark.slow
