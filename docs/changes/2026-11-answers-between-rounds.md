@@ -1,7 +1,7 @@
 ---
 id: 2026-11-answers-between-rounds
 title: "The owner's answers can be recorded at any decision that retries the work, not only at a blocked step"
-status: in-progress
+status: done
 level: standard
 decisions: ["0184", "0181", "0170"]
 touches: [design/packets.md, design/director-interface.md, design/runtime.md, design/layouts.md]   # §7.2, §8.10, §13.1, §13.3, §13.8
@@ -116,3 +116,7 @@ The recipe side (the designer should have returned `blocked` instead of guessing
 - **Tests:** existing checks cover the skill copy (`tests/test_director_surface.py`), the manual's format, anchors and links (`tests/test_manual.py`) and the generated reference (`tests/test_manual_gen.py`).
 - **Review:** clean
 - **Accepted:** <pending the owner>
+
+### Finish
+
+- **Full suite:** green on Slice 1 (e1f0276) and Slice 2 (317610d); the finish commit's run is required green before this change is closed.
