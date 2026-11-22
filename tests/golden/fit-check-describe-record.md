@@ -8,10 +8,10 @@
 ## Attempt 1
 
 - Worker: `owner`, dispatched by director:alice@host1 at 2026-11-01T12:00:11.000000Z
-- Packet: `31a654e5aa74aa81dabac4c66899481771d3f82b8579461a3684914fa194c17c` (worker profile `f318571584e4549a2c69d16523bef672ed295bce25dd2b7e42c18d086f690bf2`)
+- Packet: `c4bf938880f547e26fe8dc25091fd253c910c5c75f023bd5924eeab228dd9e0e` (worker profile `f318571584e4549a2c69d16523bef672ed295bce25dd2b7e42c18d086f690bf2`)
 - Inputs:
   - input `idea` from `run.inputs.idea`: `867870c0b097c1d3983c49f69d1563b76116655255e7d973e766688bfdfdae5d`
-- Result: completed at 2026-11-01T12:00:14.000000Z (`result.json` `9e6009eab64f5773aba38422a0923e0cea1ee685f9ede909dbe3b4ac3b64c6c8`)
+- Result: completed at 2026-11-01T12:00:14.000000Z (`result.json` `f9140bb362e0d05d63bd7b6da878f5c0a33a786d9171fb48a7a12fbc7f834666`)
 - Rejected:
   - output (root): 'scope' is a required property
   - output (root): 'work' is a required property
@@ -20,11 +20,11 @@
 ## Attempt 2
 
 - Worker: `owner`, dispatched by director:alice@host1 at 2026-11-01T12:00:22.000000Z
-- Packet: `6666ebe59df11bce6c338ddf099b417645689f8f43a466c3f501e53dbc89fc01` (worker profile `f318571584e4549a2c69d16523bef672ed295bce25dd2b7e42c18d086f690bf2`)
+- Packet: `ca9787b0d7a01cc43acd5b72f938ee684f3703a8fa11c4d325c792d842088c38` (worker profile `f318571584e4549a2c69d16523bef672ed295bce25dd2b7e42c18d086f690bf2`)
 - Retry guidance: Fill in every occurrence field.
 - Inputs:
   - input `idea` from `run.inputs.idea`: `867870c0b097c1d3983c49f69d1563b76116655255e7d973e766688bfdfdae5d`
-- Result: completed at 2026-11-01T12:00:25.000000Z (`result.json` `4550912c438df47444ea04a79fcc9ce10a1ef8e4a6bdb2284721224fa8850fd9`)
+- Result: completed at 2026-11-01T12:00:25.000000Z (`result.json` `b3ef1e20c39c639710eda324e04ee846246a5df983423c3d90262a7868f6fce4`)
 - Gates:
   - provenance: passed
   - 0 schema: passed
