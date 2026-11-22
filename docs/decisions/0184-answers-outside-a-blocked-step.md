@@ -1,9 +1,9 @@
 ---
 id: "0184"
-title: "How the owner's answers are recorded when the questions did not come from a blocked step"
-status: proposed
-date: null
-source: "Owner, 2026-11-22, run r_20261119_ee96: answers to the design's guessed choices had no supported way in (change 2026-11-answers-between-rounds)"
+title: "Questions without blocking: a result may ask the owner to confirm its guesses, answered at any time or with a retry, holding nothing up"
+status: accepted
+date: 2026-11-22
+source: 'Owner, 2026-11-22, change 2026-11-answers-between-rounds: "Non-blocking questions (Recommended)"; "Any time, plus with a retry (Recommended)"; "No; listed, reviews judge (Recommended)"; "Leave them (Recommended)"'
 sections: ["§7.2", "§13.1", "§13.8"]
 ---
 
@@ -25,4 +25,11 @@ Suggested: option 1. It generalizes the existing mechanism instead of adding a p
 
 ## Decision
 
-Not decided. The suggested answer is assumed until the owner decides; ask before building anything that depends on it.
+Option 1, with these details:
+
+1. **A result may carry questions without blocking.** A `completed` result may list `questions_for_human` (§7.2): choices the worker made on a guess that the owner should confirm. A review step may raise them the same way. Intake records them, normalized, on `result_submitted` as `questions` (an empty list when there are none), for a result it accepts; a rejected result records none. A worker that cannot go on without an answer still returns `blocked`.
+2. **Open questions.** A step's open questions are those of its latest accepted `completed` result, every iteration of its group counting as one step, less those answered anywhere in the run for that step. A question the latest round no longer asks is no longer open. `status` and `board` list them (`open_questions`), and each asking step's open questions are one interaction request (`kind: open_questions`).
+3. **Answered at any time, or with a retry.** `decide <run> <step> answer --answers <file> --note "<owner's words>"` records answers to the open questions of `<step>` (the asking step's path, as listed), whatever state the run is in, and `answer` does the same for the request. With a retry, `decide <run> <ref> retry --answers <file>` on an iteration limit or an escalation that is not `blocked` (and `reject --answers` on a human gate) first records answers to the open questions of the steps at or under `<ref>`, one record per asking step, then the decision. Each answer is checked as a blocked step's is (its id among the open questions, `owner_words` required); a partial set is always allowed, since nothing waits for them, and an id that two steps in scope both ask is refused (answer those one step at a time). Each is recorded as `human_decision {kind: answers}` against the asking step and attempt, so the answers reach every later attempt and review of that step (Decision [0181](0181-first-use-feedback-routing-and-answers.md), item 2). A blocked step's answers are unchanged.
+4. **Nothing waits for them.** Open questions are not pending decisions: they do not set `needs_owner`, and no step, group or run waits for them. A recipe's review decides whether work may rest on a guess.
+5. **The Director never fills a gap by hand.** When Baton has no command for something the owner decided, the Director tells the owner and records what it can (`--note`); it never writes events or files under `.baton/`.
+6. **The records already written by hand stay.** The two `human_decision {kind: answers}` events a Director wrote into run `r_20261119_ee96` (seq 193 and 229) match the owner's words and keep their place in the append-only log.
