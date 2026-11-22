@@ -323,3 +323,5 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0182 Model assessment: shadows graded by their own gates, shared failures forgiven; put back is one tier lower until promoted; $0 budget means free models only; shipped recipes declare effects where clear](decisions/0182-assessment-grading-put-back-budget.md) | accepted |
 | [0183 A worker's fixed evidence is checked in the working tree; a claim that fails its check is dropped, not the result](decisions/0183-disposition-evidence-in-the-tree.md) | accepted |
 | [0184 Questions without blocking: a result may ask the owner to confirm its guesses, answered at any time or with a retry, holding nothing up](decisions/0184-answers-outside-a-blocked-step.md) | accepted |
+| [0185 Self-improvement: setting changes only through the digest, process statistics extended now, baselines from the owner's own runs](decisions/0185-self-improvement-direction.md) | accepted |
+| [0186 Recipe builder's design may not rest on a guessed choice: a gate refuses any inferred decision, smaller guesses are asked without blocking](decisions/0186-builder-asks-not-guesses.md) | accepted |
