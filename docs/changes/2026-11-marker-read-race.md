@@ -1,7 +1,7 @@
 ---
 id: 2026-11-marker-read-race
 title: "A live supervisor is not judged dead because one read of its running marker failed"
-status: in-progress
+status: done
 level: minor
 decisions: []
 touches: [design/runtime.md, design/platform-and-security.md]   # §8.7, §15.1
@@ -60,3 +60,4 @@ One slice (minor): `supervisor.read_marker` and `liveness` tell an absent marker
 - **Tests:** new `tests/test_marker_reads.py` (quick): a read that fails once with `ENODATA` is retried and noted; a marker that stays unreadable is never dead; an absent marker is dead only after every look, with no note; a marker that appears between looks is read; another host's marker is not judged; a dead supervisor with a readable marker is still dead; `read_marker` stays one look; an unreadable marker is judged only past the deadline and grace, an extension counting. `tests/test_async.py` (slow): `test_one_failed_read_of_a_live_supervisors_marker_does_not_orphan_it` (a live supervisor, its liveness read failing once: `running`, no `attempt_orphaned`; then a half-written marker: `running`, `unreadable` in `status`) failed before the fix with `orphaned`; `test_detect_judges_a_running_attempt_by_its_settled_marker` failed before the fix (detect exited on `AttributeError`); `test_a_supervisor_finishing_an_attempt_already_recorded_leaves_a_note`.
 - **Review:** self-review of the diff: clean. One gap found and closed before commit: a marker that never reads again would have held its attempt running for ever; it is now judged past the deadline and grace.
 - **Accepted:** <pending the owner>
+- **Full suite:** green on the slice commit 05ab7a8.
