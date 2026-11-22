@@ -1,7 +1,7 @@
 ---
 id: 2026-11-builder-asks-not-guesses
 title: "Recipe builder's design asks the owner about a choice that is theirs instead of guessing it, and a gate holds it to that"
-status: accepted
+status: done
 level: standard
 decisions: ["0186", "0184"]
 touches: [design/recipes.md, design/director-interface.md]   # §5.7 (recipe-builder), §5.3 and §13.2 (the helper a script gate runs)
@@ -99,3 +99,7 @@ The check is a new CLI-only helper, `baton recipe check-guesses [<ledger file>] 
 - **Tests:** `tests/test_recipe_builder.py` (quick): `@10`'s design is gated by the check and its prompt says it; `@9` is a frozen copy with the schema gate only. `tests/test_recipe_builder_runs.py` (slow): run `r_20261119_ee96` in miniature, a design that guesses a choice fails the gate on attempt 1 (a smaller guess is not named), attempt 2 is told what to ask and returns `blocked`, the owner's answer reaches attempt 3, which passes the gate with the smaller guess asked as an open question, and the audit sees only that design; the version references move to `@10`.
 - **Review:** clean
 - **Accepted:** <pending the owner>
+
+### Finish
+
+- **Full suite:** red on Slice 1 (67c98a3; repaired by 7145546), green on Slice 2 (8718311); the finish commit's run is required green before this change is closed.
