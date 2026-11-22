@@ -335,6 +335,71 @@ def budget_problems(package: Path) -> list[str]:
     return out
 
 
+#: How much of a guessed entry's statement a problem line quotes.
+GUESS_QUOTE_CHARS = 200
+
+
+def guessed_choices(raw: Any) -> list[str]:
+    """One problem per ``decision`` entry still ``inferred``: a choice that is the owner's, guessed
+    (``baton recipe check-guesses``; Decision 0186). A guess of any other kind is not a problem here: the design
+    may ask the owner to confirm it without blocking (Decision 0184), and the audit judges whether it matters."""
+    entries = _entries(raw)
+    if entries is None:
+        return ["ledger: expected a list of entries, or an object with a `ledger` list"]
+    out: list[str] = []
+    for n, e in enumerate(entries):
+        if not isinstance(e, dict):
+            out.append(f"ledger[{n}]: an entry must be an object")
+            continue
+        if e.get("kind") != "decision" or e.get("status") != "inferred":
+            continue
+        eid = e.get("id") if isinstance(e.get("id"), str) and e["id"] else f"[{n}]"
+        statement = re.sub(r"\s+", " ", str(e.get("statement") or "")).strip()
+        if len(statement) > GUESS_QUOTE_CHARS:
+            statement = statement[: GUESS_QUOTE_CHARS - 1].rstrip() + "…"
+        out.append(
+            f"ledger entry {eid}: a choice that is the owner's is still a guess (`inferred`): \"{statement}\". "
+            f"Do not design on it: return `blocked` with a question for it in `questions_for_human` "
+            f"(id {eid}, ask, why, best_guess, options), or, when the owner has answered it, record it `confirmed` "
+            f"with their words")
+    return out
+
+
+def check_guesses_file(ledger_file: Path) -> list[str]:
+    """``guessed_choices`` of a ledger file (a list, or an object with a ``ledger`` list)."""
+    try:
+        raw = json.loads(ledger_file.read_text(encoding="utf-8-sig"))
+    except OSError as e:
+        return [f"{ledger_file}: cannot be read: {e}"]
+    except ValueError as e:
+        return [f"{ledger_file}: is not valid JSON: {e}"]
+    return guessed_choices(raw)
+
+
+def check_guesses_result(root: Path, run_id: str, step_path: str) -> list[str]:
+    """``guessed_choices`` of the ``ledger`` in the output of the latest result submitted for ``step_path``, read
+    from the run's record: what a script gate runs (``baton recipe check-guesses --result``), as
+    ``guides check --artifact`` reads its artifact."""
+    from .store import Store, StoreError
+
+    try:
+        log = Store(root).run(run_id)
+    except (StoreError, ValueError) as e:
+        return [f"no run {run_id!r} in this project: {e}"]
+    sub = next((e for e in reversed(log.events()) if e.type == "result_submitted" and e.step_path == step_path), None)
+    sha = sub.data.get("result_sha256") if sub is not None else None
+    if not sha:
+        return [f"{step_path} of run {run_id} has no submitted result"]
+    try:
+        result = json.loads(log.cas.read(sha).decode("utf-8-sig"))
+    except (OSError, ValueError) as e:
+        return [f"{step_path} of run {run_id}: its result cannot be read: {e}"]
+    output = result.get("output") if isinstance(result, dict) else None
+    if not isinstance(output, dict) or "ledger" not in output:
+        return [f"{step_path} of run {run_id}: its result's output has no `ledger`"]
+    return guessed_choices(output["ledger"])
+
+
 def check(package: Path, ledger_file: Path, require_discovery: bool = False) -> list[str]:
     """Every problem, in order: the package folder, the ledger file, the ledger rules, discovery, instance leaks, then the program budget."""
     if not package.is_dir():

@@ -302,6 +302,7 @@ published:
 - reference.commands#baton-push
 - reference.commands#baton-recipe
 - reference.commands#baton-recipe-check
+- reference.commands#baton-recipe-check-guesses
 - reference.commands#baton-recipes
 - reference.commands#baton-record
 - reference.commands#baton-resume

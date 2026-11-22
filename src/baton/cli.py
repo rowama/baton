@@ -1493,6 +1493,33 @@ def recipe_check(
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 
+@recipe_app.command("check-guesses")
+def recipe_check_guesses(
+    ledger: Annotated[Optional[Path], typer.Argument(help="A requirements ledger (JSON) to check.")] = None,
+    result: Annotated[bool, typer.Option("--result", help="In a script gate: check the ledger in the result of the step being verified (BATON_RUN_ID, BATON_STEP_PATH).")] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """Gate helper: no choice that is the owner's is still a guess (no `decision` entry is `inferred`)."""
+    from . import recipe_check as rc
+    from .launcher import find_project
+
+    if (ledger is None) == (not result):
+        _fail(as_json, EXIT_USAGE, "recipe.check_guesses_usage", "give a ledger file or --result, not both")
+    if result:
+        run_id, step_path = os.environ.get("BATON_RUN_ID"), os.environ.get("BATON_STEP_PATH")
+        root = _opts.project or find_project(Path.cwd())
+        if not run_id or not step_path or root is None:
+            _fail(as_json, EXIT_USAGE, "recipe.check_guesses_usage", "--result runs in a script gate, in the project, with BATON_RUN_ID and BATON_STEP_PATH set")
+        problems = rc.check_guesses_result(Path(root), run_id, step_path)
+        where = f"{step_path} of {run_id}"
+    else:
+        problems = rc.check_guesses_file(ledger)
+        where = str(ledger)
+    _emit({"ok": not problems, "problems": problems}, as_json,
+          "".join(f"ERROR {p}\n" for p in problems) or f"{where}: no choice is a guess")
+    raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
+
+
 @app.command("help")
 def help_command(
     topic: Annotated[Optional[str], typer.Argument(help="A topic, like user.connect-an-account, or one section of it: user.connect-an-account#key-refused.")] = None,

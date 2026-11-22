@@ -78,3 +78,13 @@ The check is a new CLI-only helper, `baton recipe check-guesses [<ledger file>] 
 - **Effort:** M
 
 ## Log
+
+### Slice 1: a check for guessed choices
+
+- **Commit:** 2026-11-builder-asks-not-guesses: Slice 1, a check for guessed choices
+- **Summary:** `recipe_check.py`: `guessed_choices` (one problem per `decision` entry still `inferred`, quoting its statement, cut at 200 characters, and saying to return `blocked` with a question for it or record the owner's answer as `confirmed`; other inferred kinds pass; a malformed ledger or entry is a problem), `check_guesses_file`, and `check_guesses_result` (the `ledger` in the output of the latest `result_submitted` for the step, read from the run's CAS, as `guides.check_artifact` does). CLI: `baton recipe check-guesses [<ledger>] | --result` (CLI only, a gate helper; `recipe.check_guesses_usage` for both or neither, or `--result` outside a gate). `recipe check` is unchanged, so pinned recipes' gates keep their behavior.
+- **Design docs:** `design/recipes.md` §5.3 (the new helper); `design/director-interface.md` §13.2 (among the CLI-only gate helpers).
+- **Manual:** `manual/admin/recipes-and-vendoring.md` (the helper, beside `recipe check`); `manual/reference/commands.md` regenerated; `manual/anchors.yaml` (its anchor).
+- **Tests:** `tests/test_recipe_check.py` (quick): a guessed choice is named with what to do instead; other guesses, confirmed and excluded choices pass; every guess is reported and a long statement cut; a malformed ledger or file is reported; the CLI with a file, `--json`, and its three usage errors; `--result` reads the step's latest submitted result in a real run, and reports a step with no result, an unknown run and an output with no `ledger`.
+- **Review:** clean
+- **Accepted:** <pending the owner>

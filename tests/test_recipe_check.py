@@ -232,3 +232,76 @@ def test_the_command_takes_require_discovery(tmp_path):
     assert runner.invoke(app, ["recipe", "check", str(pkg), "--ledger", str(f)]).exit_code == 0
     r = runner.invoke(app, ["recipe", "check", str(pkg), "--ledger", str(f), "--require-discovery"])
     assert r.exit_code == 1 and "ERROR discovery:" in r.output
+
+
+# -- guessed choices (change 2026-11-builder-asks-not-guesses; Decision 0186) --
+
+GUESS = entry("A-VER-1", kind="decision", status="inferred", owner_words=None,
+              statement="release_notes computes versions by stated rules: breaking raises MAJOR")
+
+
+def test_a_guessed_choice_is_named_with_what_to_do_instead():
+    (line,) = recipe_check.guessed_choices({"ledger": [entry(), GUESS]})
+    assert line.startswith("ledger entry A-VER-1: a choice that is the owner's is still a guess")
+    assert "breaking raises MAJOR" in line and "return `blocked`" in line and "id A-VER-1, ask, why, best_guess, options" in line
+
+
+def test_other_guesses_and_confirmed_choices_pass():
+    ledger = [entry("E1", kind="assumption", status="inferred", owner_words=None),
+              entry("E2", kind="requirement", status="inferred", owner_words=None),
+              entry("E3", kind="decision"),  # confirmed, with the owner's words
+              entry("E4", kind="decision", status="excluded", owner_words=None)]
+    assert recipe_check.guessed_choices(ledger) == []
+
+
+def test_every_guessed_choice_is_reported_and_a_long_statement_is_cut():
+    long = entry("E26", kind="decision", status="inferred", owner_words=None, statement="word " * 100)
+    lines = recipe_check.guessed_choices([GUESS, long])
+    assert [x.split(":")[0] for x in lines] == ["ledger entry A-VER-1", "ledger entry E26"]
+    assert "word word" in lines[1] and "…" in lines[1] and len(lines[1]) < 600
+
+
+def test_a_malformed_ledger_is_reported_not_crashed_on(tmp_path):
+    assert recipe_check.guessed_choices({"nope": 1}) == ["ledger: expected a list of entries, or an object with a `ledger` list"]
+    assert recipe_check.guessed_choices([3]) == ["ledger[0]: an entry must be an object"]
+    bad = tmp_path / "bad.json"
+    bad.write_text("{", encoding="utf-8")
+    assert "is not valid JSON" in recipe_check.check_guesses_file(bad)[0]
+    assert "cannot be read" in recipe_check.check_guesses_file(tmp_path / "none.json")[0]
+
+
+def test_check_guesses_cli_takes_a_file_or_a_result_in_a_gate(tmp_path, monkeypatch):
+    f = write(tmp_path, {"ledger": [entry(), GUESS]})
+    res = runner.invoke(app, ["recipe", "check-guesses", str(f)])
+    assert res.exit_code == 1 and res.output.startswith("ERROR ledger entry A-VER-1:")
+    clean = write(tmp_path, [entry()])
+    res = runner.invoke(app, ["recipe", "check-guesses", str(clean), "--json"])
+    assert res.exit_code == 0 and json.loads(res.output) == {"ok": True, "problems": []}
+    assert runner.invoke(app, ["recipe", "check-guesses"]).exit_code == 2
+    assert runner.invoke(app, ["recipe", "check-guesses", str(clean), "--result"]).exit_code == 2
+    monkeypatch.delenv("BATON_RUN_ID", raising=False)
+    monkeypatch.delenv("BATON_STEP_PATH", raising=False)
+    res = runner.invoke(app, ["recipe", "check-guesses", "--result", "--json"])
+    assert res.exit_code == 2 and "recipe.check_guesses_usage" in res.output  # only in a gate
+
+
+def test_check_guesses_reads_the_steps_latest_submitted_result(tmp_path):
+    from runkit import Clock, make_recipe, write_result
+    from baton import engine
+    from baton.recipe import load_recipe
+    from baton.store import Store
+    from test_groups import WRITER
+
+    steps = [{"id": sid, "output_schema": "schemas/out.json", "gates": [{"type": "schema"}]} for sid in ("design", "notes")]
+    recipe = make_recipe(tmp_path / "r", steps, schemas={"out.json": {"type": "object"}})
+    with Store(tmp_path / "project", clock=Clock()) as store:
+        ctx = engine.start(store, load_recipe(recipe), {}, run_id="r_20261122_gu01")
+        root, run = tmp_path / "project", ctx.run_id
+        assert recipe_check.check_guesses_result(root, run, "design") == [f"design of run {run} has no submitted result"]
+        assert recipe_check.check_guesses_result(root, "r_20261122_none", "design")[0].startswith("no run 'r_20261122_none'")
+        for sid, output in (("design", {"ledger": [entry(), GUESS]}), ("notes", {"summary": "no ledger"})):
+            write_result(engine.begin_attempt(ctx, sid, "owner", WRITER), output)
+            engine.submit(ctx, sid)
+        (line,) = recipe_check.check_guesses_result(root, run, "design")
+        assert line.startswith("ledger entry A-VER-1:")
+        assert recipe_check.check_guesses_result(root, run, "notes") == [f"notes of run {run}: its result's output has no `ledger`"]

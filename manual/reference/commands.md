@@ -618,6 +618,18 @@ Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendor
 | `--require-discovery` | The ledger file must carry `discovery` records. |
 | `--json` | Machine-readable output. |
 
+### baton recipe check-guesses {#baton-recipe-check-guesses}
+
+Gate helper: no choice that is the owner's is still a guess (no `decision` entry is `inferred`).
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `ledger <path>` | A requirements ledger (JSON) to check. |
+| `--result` | In a script gate: check the ledger in the result of the step being verified (BATON_RUN_ID, BATON_STEP_PATH). |
+| `--json` | Machine-readable output. |
+
 ## baton recipes {#baton-recipes}
 
 List vendored recipes.
