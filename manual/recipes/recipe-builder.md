@@ -30,7 +30,7 @@ You never need to know how Baton describes processes. Talk about your work. The 
 - At the end, after reading the walkthrough: **Use this process?**
 - On a quick run instead, after that first question: **Use this guide?** Nothing else is built.
 
-It works out what it can and says what it assumed, so you confirm rather than start from a blank page. It will not promote its own guess to something you said: it records only what you confirmed.
+It works out what it can and says what it assumed, so you confirm rather than start from a blank page. It will not promote its own guess to something you said: it records only what you confirmed. When it designs the process and meets a choice that is yours, such as when a release waits for you, it stops and asks you, with its recommendation, before it designs around it; it is not allowed to go on with a guess. Smaller guesses, such as an assumption about how the work is done today, do not stop it: it goes on and asks you to confirm them, and you answer when you can (see [choices made on a best guess](user.answer-questions-and-decide#best-guesses)).
 
 ## What you already have written down {#your-documents}
 

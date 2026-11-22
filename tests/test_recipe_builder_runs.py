@@ -228,10 +228,10 @@ def test_framing_can_propose_the_builder_and_starts_it_vendored_on_selection(tmp
     out = manual(cli, project, fr, "frame", {"goal": "Plant flower beds properly.", "parts": [part], "assumptions": []})
     assert out["outcome"] == "needs_human"
     sel = cli.run("decide", fr, "frame", "select", "--items", "process", "--note", "Yes, build that process.")
-    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@9")]
-    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@9"]
+    assert [(r["part"], r["recipe"]) for r in sel["runs"]] == [("process", "recipe-builder@10")]
+    assert sel["gaps"] == [] and sel["vendored"] == ["recipe-builder@10"]
     started = cli.run("status", sel["runs"][0]["run"])
-    assert started["recipe"] == "recipe-builder@9"
+    assert started["recipe"] == "recipe-builder@10"
 
 
 @pytest.mark.slow
@@ -1237,7 +1237,7 @@ def test_the_owners_procedures_reach_the_profile_the_research_and_the_design(pro
                   "--note", "Yes, learn from our manual.", expect=None)["run_id"]
     d = Director(cli, project, run, route=route, decisions={"audit": [("approve", "That is it.")]})
     st = d.drive()
-    assert st["recipe"] == "recipe-builder@9" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
+    assert st["recipe"] == "recipe-builder@10" and st["state"] == "completed" and st["steps"]["research"]["state"] == "passed"
     from projectkit import packet_dir
 
     inst = st["groups"]["shape"]["instances"][0]["id"]
@@ -1262,4 +1262,75 @@ def test_a_pinned_builder_v6_still_runs_without_the_context_role(project_with, m
     run = cli.run("start", "recipe-builder@6", "--inputs", json.dumps(INPUTS))["run_id"]
     st = Director(cli, project, run, route=route).drive()
     assert st["recipe"] == "recipe-builder@6" and st["state"] == "completed"
+    assert_package_is_ready(cli, project)
+
+
+# -- the design asks, never guesses (change 2026-11-builder-asks-not-guesses; Decision 0186) --
+
+GUESSED = {"id": "A-VER-1", "statement": "The owner is asked before the first version number goes up", "kind": "decision",
+           "scope": "class", "status": "inferred", "basis": "common practice", "owner_words": None}
+VER_WORDS = "Ask me before the first number goes up; the others may go up on their own."
+VER_CONFIRMED = {**GUESSED, "status": "confirmed", "owner_words": VER_WORDS}
+SMALL = {"id": "A-WATER-1", "statement": "The bed is watered by hand", "kind": "assumption", "scope": "class", "status": "inferred",
+         "basis": "nobody mentioned a hose"}
+VER_QUESTION = {"id": "A-VER-1", "ask": "May the first version number go up without asking you?", "why": "It sets when a release waits for you",
+                "best_guess": "Ask before the first number; the others go up on their own",
+                "options": [{"id": "ask", "label": "Ask me first"}, {"id": "auto", "label": "Go ahead"}]}
+SMALL_QUESTION = {"id": "A-WATER-1", "ask": "Is the bed watered by hand?", "why": "It decides whether a hose check is needed",
+                  "best_guess": "By hand", "priority": "helpful"}
+
+
+class AnsweringDirector(Director):
+    """The scripted Director, plus the owner answering the design's blocked question."""
+
+    def __init__(self, *a, answers_file: Path, **kw):
+        super().__init__(*a, **kw)
+        self.answers_file = answers_file
+        self.answered: list[str] = []
+
+    def decide(self, p: dict) -> None:
+        if p.get("kind") == "escalation" and p.get("reason") == "blocked":
+            self.answered.append(p["ref"])
+            self.answers_file.write_text(json.dumps([{"id": "A-VER-1", "answer": "Ask me first", "owner_words": VER_WORDS}]), encoding="utf-8")
+            self.cli("decide", self.run, p["ref"], "retry", "--answers", str(self.answers_file), "--note", VER_WORDS)
+            return
+        super().decide(p)
+
+
+@pytest.mark.slow
+def test_a_design_that_guesses_a_choice_is_sent_back_and_asks_and_smaller_guesses_are_asked_without_blocking(project_with):
+    """Run r_20261119_ee96 in miniature: the gate refuses a guessed choice before the audit sees it; the design asks;
+    the owner's answer is recorded; a smaller guess is asked without holding anything up."""
+    guessed, confirmed = [GOAL, BED, GUESSED, SMALL], [GOAL, BED, VER_CONFIRMED, SMALL]
+    cli, project, script_file = project_with({
+        "profile": profile("simple", [GOAL, BED]),
+        "design": [design(guessed),
+                   {"status": "blocked", "output": design(guessed)["output"], "questions_for_human": [VER_QUESTION]},
+                   {**design(confirmed), "questions_for_human": [SMALL_QUESTION]}],
+        "audit": CLEAN, "generate": generated(confirmed)})
+    run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
+    d = AnsweringDirector(cli, project, run, route=route, answers_file=script_file.parent / "answers.json")
+    st = d.drive()
+    assert st["state"] == "completed"
+    inst = st["groups"]["shape"]["instances"][0]["id"]
+    path = f"shape/{inst}/i1/design"
+    order = [s.rsplit("/", 1)[-1] for s, _ in d.dispatches]
+    assert order == ["profile", "design", "design", "design", "audit", "generate", "accept"]  # the audit saw only the asked design
+    assert d.answered == [path]
+    evs = [e for e in run_events(project, run) if e["step_path"] == path]
+    failed = [e for e in evs if e["type"] == "gate_failed"]
+    assert len(failed) == 1 and failed[0]["attempt"] == 1 and failed[0]["data"]["command"] == "baton recipe check-guesses --result"
+    assert "ledger entry A-VER-1: a choice that is the owner's is still a guess" in json.dumps(failed[0]["data"])
+    assert "A-WATER-1" not in json.dumps(failed[0]["data"])  # a smaller guess is not refused
+    from projectkit import packet_dir
+
+    seen = json.loads((packet_dir(project, run, path, 2) / "manifest.json").read_text(encoding="utf-8"))["prior_feedback"]
+    assert any("A-VER-1" in r for r in seen["reasons"])  # the next attempt is told what to ask
+    assert [e["data"]["reason"] for e in evs if e["type"] == "step_escalated"] == ["blocked"]
+    third = json.loads((packet_dir(project, run, path, 3) / "manifest.json").read_text(encoding="utf-8"))["prior_feedback"]
+    assert third["answers"][0]["owner_words"] == VER_WORDS
+    passed = [e for e in evs if e["type"] == "gate_passed" and e["data"].get("type") == "script"]
+    assert [e["attempt"] for e in passed] == [3]
+    asked = [e for e in evs if e["type"] == "result_submitted" and e["attempt"] == 3][0]
+    assert [q["id"] for q in asked["data"]["questions"]] == ["A-WATER-1"]  # asked, holding nothing up
     assert_package_is_ready(cli, project)

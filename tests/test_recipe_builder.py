@@ -36,7 +36,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@9" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@10" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -284,7 +284,7 @@ def test_the_published_v3_still_loads_with_its_levels():
 
 
 def test_v8_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@9" and not loaded.warnings
+    assert loaded.recipe.ref == "recipe-builder@10" and not loaded.warnings
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
@@ -710,3 +710,28 @@ def test_the_published_v8_is_a_frozen_copy_without_effects():
     old = load_recipe(V8)
     assert old.recipe.ref == "recipe-builder@8" and not old.warnings
     assert all(getattr(s, "effect", None) is None for s in old.recipe.steps)
+
+
+# -- asking, not guessing (change 2026-11-builder-asks-not-guesses; Decision 0186) --
+
+V9 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v9"
+
+
+def _design(recipe):
+    shape = next(s for s in recipe.steps if s.id == "shape")
+    return next(s for s in shape.steps if s.id == "design")
+
+
+def test_v10_design_is_gated_against_guessed_choices(loaded):
+    design = _design(loaded.recipe)
+    assert [g.type for g in design.gates] == ["schema", "script"]
+    assert design.gates[1].run == "baton recipe check-guesses --result" and not design.gates[1].advisory
+    prompt = (BUILDER / "prompts" / "design.md").read_text(encoding="utf-8")
+    assert "Ask; do not guess." in prompt and "return `blocked`, with one question in `questions_for_human`" in prompt
+    assert "is a question, not a section of the document" in prompt
+
+
+def test_the_published_v9_is_a_frozen_copy_without_the_guess_gate():
+    old = load_recipe(V9)
+    assert old.recipe.ref == "recipe-builder@9" and not old.warnings
+    assert [g.type for g in _design(old.recipe).gates] == ["schema"]

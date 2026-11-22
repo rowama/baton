@@ -72,8 +72,8 @@ Then:
   Every `discovery` record reaches the design. A `before_design` record is `decided` (the owner's
   confirmed `decision` entry is in the ledger and `decision.ledger_id` names it) and the stages
   are shaped for that choice. If you find a choice that changes the stages that is not decided,
-  return `blocked`: say which question needs research and the owner's answer; do not guess, and do
-  not add or reorder stages around it later.
+  ask the owner (below): say which question needs research and the owner's answer; do not guess,
+  and do not add or reorder stages around it later.
 - An `in_generated_recipe` record is a stage that researches the options for the job, a stage the
   owner decides at, and the stages that use that decision, in that order, before any work that
   depends on the choice. Name them in `generated` (`research_step`, `decision_step`, `consumers`,
@@ -96,5 +96,20 @@ for the owner would be risky, and why. When the owner gave documents of how they
 Return the `discovery` records, updated.
 
 `open_findings`, when given, are the audit's findings and the owner's note from the last attempt:
-fix each one, or say in the document why not. Return the updated `ledger`. You may not promote an
-`inferred` entry to `confirmed`.
+fix each one, or say in the document why not. Return the updated `ledger`.
+
+Ask; do not guess. A choice that is the owner's (a `decision` entry) is never yours to guess:
+
+- When a `decision` entry is `inferred`, whichever step wrote it, or you meet a choice that is the
+  owner's and nobody has asked, return `blocked`, with one question in `questions_for_human` for
+  each: `id` (the ledger entry's id), `ask` (one question in the owner's terms), `why` (what it
+  changes in the process), `best_guess` (your recommendation and its reason) and `options` (the
+  real alternatives, each `{id, label}`, when there are a few). Ask them all at once. A design
+  that passes with an `inferred` `decision` entry fails its check and is sent back, so ask first.
+- When the owner has answered (their answers in this packet), record the entry `confirmed` with
+  their words in `owner_words`. Otherwise you may not promote an `inferred` entry to `confirmed`.
+- A smaller guess (an `inferred` assumption or requirement) need not stop the design. List the
+  ones the owner should confirm in `questions_for_human` on your `completed` result, in the same
+  shape; they hold nothing up, and the owner answers when they can.
+- Something for the owner to confirm is a question, not a section of the document. The document
+  may say which answers the design rests on, but never asks for them.

@@ -5,7 +5,7 @@ status: accepted
 level: standard
 decisions: ["0186", "0184"]
 touches: [design/recipes.md, design/director-interface.md]   # §5.7 (recipe-builder), §5.3 and §13.2 (the helper a script gate runs)
-manual: [recipe-sources/recipe-builder.md, admin/recipes-and-vendoring.md, reference/commands.md]
+manual: [recipe-sources/recipe-builder.md, recipes/recipe-builder.md, admin/recipes-and-vendoring.md, reference/commands.md]
 ---
 
 # Recipe builder's design asks the owner about a choice that is theirs instead of guessing it, and a gate holds it to that
@@ -86,5 +86,16 @@ The check is a new CLI-only helper, `baton recipe check-guesses [<ledger file>] 
 - **Design docs:** `design/recipes.md` §5.3 (the new helper); `design/director-interface.md` §13.2 (among the CLI-only gate helpers).
 - **Manual:** `manual/admin/recipes-and-vendoring.md` (the helper, beside `recipe check`); `manual/reference/commands.md` regenerated; `manual/anchors.yaml` (its anchor).
 - **Tests:** `tests/test_recipe_check.py` (quick): a guessed choice is named with what to do instead; other guesses, confirmed and excluded choices pass; every guess is reported and a long statement cut; a malformed ledger or file is reported; the CLI with a file, `--json`, and its three usage errors; `--result` reads the step's latest submitted result in a real run, and reports a step with no result, an unknown run and an output with no `ledger`.
+- **Repair:** the full suite was red on this slice (four `tests/test_docs.py` checks): the accepted commit (b4e96ad) staged `docs/README.md` and `docs/changes/REGISTER.md` whole, and with them another session's uncommitted rows for decision 0185, `2026-11-process-stats` and `2026-11-self-improvement`, whose files were not committed. With the owner's approval those files were committed as they stood, in *2026-11-process-stats: proposed, decision 0185 (repairs 2026-11-builder-asks-not-guesses Slice 1)*. From then on, only this change's own hunks are staged.
+- **Review:** clean
+- **Accepted:** <pending the owner>
+
+### Slice 2: recipe-builder@10 asks instead of guessing
+
+- **Commit:** 2026-11-builder-asks-not-guesses: Slice 2, recipe-builder@10 asks instead of guessing
+- **Summary:** `examples/recipes/recipe-builder` is version 10: `shape`'s `design` gates are schema, then `baton recipe check-guesses --result` (60 s). `prompts/design.md`: the discovery rule points to a new *Ask; do not guess* block beside the ledger rules (an `inferred` `decision`, whichever step wrote it, or an unasked choice that is the owner's, is a `blocked` result with one question each, `id`, `ask`, `why`, `best_guess`, `options` as `{id, label}`, all at once; an answered entry becomes `confirmed` with the owner's words, and no other promotion; a smaller guess is a question on a `completed` result, which holds nothing up; something to confirm is a question, never a section of the document). `@9` frozen in `tests/fixtures/recipes/recipe-builder-v9`. The audit and `static/readiness.md` are unchanged.
+- **Design docs:** `design/recipes.md` §5.7 (version 10, the design's gate in the steps table, *Asking, not guessing*; pinned `@2` to `@9` keep their behavior).
+- **Manual:** `manual/recipe-sources/recipe-builder.md` (the builder stops and asks about a choice that is yours, and asks you to confirm smaller guesses without stopping); `manual/recipes/recipe-builder.md` regenerated.
+- **Tests:** `tests/test_recipe_builder.py` (quick): `@10`'s design is gated by the check and its prompt says it; `@9` is a frozen copy with the schema gate only. `tests/test_recipe_builder_runs.py` (slow): run `r_20261119_ee96` in miniature, a design that guesses a choice fails the gate on attempt 1 (a smaller guess is not named), attempt 2 is told what to ask and returns `blocked`, the owner's answer reaches attempt 3, which passes the gate with the smaller guess asked as an open question, and the audit sees only that design; the version references move to `@10`.
 - **Review:** clean
 - **Accepted:** <pending the owner>

@@ -1,5 +1,5 @@
 id: recipe-builder
-version: 9
+version: 10
 format: baton-recipe/1
 capabilities_vocab: baton-capabilities/1
 description: Turn a described process into a validated recipe the owner approves (a flower bed, a client onboarding, a product launch), or, when a full process is not worth it, into a guide for a quick run.
@@ -110,7 +110,9 @@ steps:
         output_schema: schemas/design_out.json
         artifacts:
           - { name: design_doc, required: true, media_type: text/markdown }
-        gates: [ { type: schema } ]
+        gates:
+          - { type: schema }
+          - { type: script, run: "baton recipe check-guesses --result", timeout_s: 60 }   # a choice that is the owner's is asked, never guessed (Decision 0186)
       - id: audit
         effect: none
         repeatable: true          # safe to evaluate again: a shadow attempt may shadow it (Decision 0179, item 6)
