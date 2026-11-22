@@ -271,6 +271,29 @@ def _anchor(words: list[str]) -> str:
     return "-".join(re.sub(r"[^a-z0-9]+", "-", w.lower()).strip("-") for w in words)
 
 
+def _type_label(p: Any) -> str:
+    """A parameter's value type, as the reference names it (``str``, ``path``, ``int``, ``int range``, …).
+
+    Older typer gives each parameter a click type with a ``name``; typer 0.29 gives a ``type_descriptor``
+    (its annotation and whether it is a path or bounded) instead.
+    """
+    t = getattr(p, "type", None)
+    if t is not None:
+        return getattr(t, "name", "value")
+    td = getattr(p, "type_descriptor", None)
+    if td is None:
+        return "value"
+    if td.is_path or td.is_file:
+        return "path"
+    ann = td.annotation
+    while getattr(ann, "__args__", None) and not isinstance(ann, type):  # list[str], Optional[str]: the item type
+        ann = next(a for a in ann.__args__ if a is not type(None))
+    name = getattr(ann, "__name__", "value")
+    if td.is_ranged and name in ("int", "float"):
+        return f"{name} range"
+    return name
+
+
 def _params(cmd: Any) -> list[str]:
     rows = []
     for p in cmd.params:
@@ -279,7 +302,7 @@ def _params(cmd: Any) -> list[str]:
             continue
         label = ", ".join(opts) if opts else p.name
         if opts and not getattr(p, "is_flag", False):
-            label += f" <{getattr(p.type, 'name', 'value')}>"
+            label += f" <{_type_label(p)}>"
         if not opts and p.required:
             label += " (required)"
         rows.append(f"| `{label}` | {_clean(getattr(p, 'help', None) or '')} |")

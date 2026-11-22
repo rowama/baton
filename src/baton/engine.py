@@ -4096,6 +4096,21 @@ class Api:
             out["worker_exit"] = {**out["worker_exit"], "log": str(self.project.home / "logs" / ctx.run_id / step_path / f"attempt-{n}.log")}
         return out
 
+    #: How long past its (possibly extended) deadline an attempt whose marker cannot be read is left running:
+    #: by then a live supervisor has stopped its worker and recorded the outcome (§8.7).
+    UNREADABLE_GRACE = timedelta(minutes=5)
+
+    def _unreadable_too_long(self, ctx: RunContext, path: str, n: int, d: dict[str, Any]) -> bool:
+        """Whether an unreadable marker has outlived the attempt's deadline (the last ``deadline_extended``, else the
+        dispatch's) by the grace: a supervisor that is alive would have finished by then, so it is judged as absent."""
+        ext = _last_data(ctx.log.events(), "deadline_extended", path, n)
+        deadline = ext.get("deadline") or d.get("deadline")
+        if not deadline:
+            return False
+        from . import supervisor
+
+        return ctx.log.clock() > supervisor.parse(deadline) + self.UNREADABLE_GRACE
+
     def reconcile(self, run_id: str) -> list[dict[str, Any]]:
         """Apply the running-marker table (§8.7) to the run's in-flight process attempts.
 
@@ -4127,6 +4142,10 @@ class Api:
                     continue
                 if lv.supervisor_alive:
                     actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": "running", "overdue": lv.overdue, "deadline": lv.marker.get("deadline")})
+                    continue
+                if lv.unreadable and not self._unreadable_too_long(ctx, path, n, d):
+                    # There but not readable now: not judged on that; the next reconcile looks again (§8.7).
+                    actions.append({"step_path": path, "attempt": n, "dispatch_id": did, "action": "running", "unreadable": True})
                     continue
                 if lv.worker_alive:
                     supervisor.kill_tree_pid(lv.marker["worker_pid"])  # unsupervised: stop it before judging
@@ -4428,6 +4447,12 @@ class Api:
             ctx = self._ctx(run_id)
             st = ctx.log.state().step(step_path)
             if ctx.log.state().state != "active" or st.state not in ("dispatched", "running") or st.attempt != attempt:
+                # Someone recorded this attempt first (a reconcile that judged this supervisor dead, an abandon):
+                # say so, since a result written here is not taken in (§8.7).
+                diag.note("supervisor.late_completion", "engine:complete", run=run_id, step_path=step_path, attempt=attempt,
+                          dispatch_id=dispatch_id, run_state=ctx.log.state().state, step_state=st.state, step_attempt=st.attempt,
+                          result_written=(ctx.attempt_dir(step_path, attempt) / "result" / "result.json").is_file(),
+                          exit_code=child.exit_code)
                 return None
             before = ctx.log.state().last_seq
             signals = getattr(adapters.get(adapter), "failure_signals", None)
@@ -5903,7 +5928,7 @@ class Api:
                 break
             did = last["requested"].get("dispatch_id")
             lv = supervisor.liveness(self.project.baton, did)
-            if not lv.elsewhere and not lv.supervisor_alive:
+            if lv.dead:
                 # The supervisor is gone without recording the turn (§8.7 table): finish it here.
                 if lv.worker_alive:
                     supervisor.kill_tree_pid(lv.marker["worker_pid"])

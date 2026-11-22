@@ -107,12 +107,12 @@ def run_situation(project: Any, run_id: str, director: Any) -> dict[str, Any] | 
             (elsewhere if theirs else here).append(path)
             continue
         live = supervisor.liveness(project.baton, disp["dispatch_id"])
-        if live.remote:
+        if live.elsewhere:
             elsewhere.append(path)
-        elif live.supervisor_alive:
-            here.append(path)
-        else:
+        elif live.dead:
             orphaned.append(path)
+        else:  # alive, or a marker not readable just now (§8.7): not judged orphaned
+            here.append(path)
     if orphaned:
         out.update(situation="orphaned_attempts", attempts=orphaned)
     elif theirs or elsewhere:

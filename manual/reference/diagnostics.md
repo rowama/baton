@@ -42,7 +42,8 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `resources.yaml_invalid` | A machine resources file is not valid YAML; its declarations are ignored until fixed. |
 | `sme.profiles_unreadable` | Profiles could not be read when listing experts. |
 | `sme.run_unreadable` | A run could not be read when indexing or counting expert consultations. |
-| `supervisor.marker_unreadable` | A running marker could not be read, so that dispatch is treated as not running here. |
+| `supervisor.late_completion` | A supervisor finished a dispatch that Baton had already recorded (for example, judged its supervisor dead), so its result was not taken in. The step's record shows what was recorded instead; try that part again if it was cut short. |
+| `supervisor.marker_unreadable` | A running marker could not be read at first look, often for a moment while its supervisor rewrites it. Baton looks again; while the marker still cannot be read, that dispatch is treated as still running and is checked again next time. |
 | `tool_evidence.log_unreadable` | A helper's log could not be read to observe which tools it used; capability states are not updated from it. |
 | `tool_evidence.tree_unreadable` | The project's working tree could not be read after a dispatch, so file changes were not observed. |
 | `ui.route_failed` | A request to the setup page failed on a bug; the page answered with a generic error and no request detail was recorded. |

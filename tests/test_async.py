@@ -470,6 +470,93 @@ def test_running_attempt_without_any_marker_counts_as_a_dead_supervisor(tmp_path
     assert s.types()[-3:] == ["attempt_orphaned", "failure_classified", "step_escalated"]
 
 
+@pytest.mark.slow
+def test_one_failed_read_of_a_live_supervisors_marker_does_not_orphan_it(tmp_path, monkeypatch):
+    # r_20261119_ee96 (2026-11-22): a reconcile read the marker while its supervisor rewrote it on a Windows drive under
+    # WSL, got ENODATA, judged the supervisor dead and orphaned an audit that finished 2 s later (change 2026-11-marker-read-race).
+    import errno
+
+    s = Setup(tmp_path)
+    s.behave("hang")
+    d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
+    path = s.baton / "cache" / "running" / f"{d['dispatch_id']}.json"
+    real, failed = Path.read_text, [0]
+
+    def read_text(self, *a, **kw):
+        # Only the liveness read (not reconcile's sweep of other markers) meets the failure.
+        if self == path and not failed[0] and sys._getframe(1).f_code.co_name in ("read_marker", "settled_marker"):
+            failed[0] = 1
+            raise OSError(errno.ENODATA, "No data available")
+        return real(self, *a, **kw)
+
+    api = s.api()
+    try:
+        monkeypatch.setattr(Path, "read_text", read_text)
+        acts = api.reconcile(s.run)
+        assert failed[0] == 1
+        assert [a["action"] for a in acts] == ["running"] and "attempt_orphaned" not in s.types()
+        # Unreadable for longer (a half-written file): still running, never judged, and status says why.
+        monkeypatch.setattr(Path, "read_text", real)
+        good = path.read_text(encoding="utf-8")
+        path.write_text("{half written", encoding="utf-8")
+        assert api.reconcile(s.run) == [{"step_path": "describe", "attempt": 1, "dispatch_id": d["dispatch_id"], "action": "running", "unreadable": True}]
+        assert s.cli.run("status", s.run)["running"][0]["liveness"]["unreadable"] is True
+        assert "attempt_orphaned" not in s.types() and s.types()[-1] == "step_running"
+        path.write_text(good, encoding="utf-8")
+        assert api.reconcile(s.run)[0]["action"] == "running"
+    finally:
+        _kill(d["worker_pid"])
+        _kill_one(d["supervisor_pid"])
+        api.close()
+
+
+@pytest.mark.slow
+def test_detect_judges_a_running_attempt_by_its_settled_marker(tmp_path):
+    # detect read a `remote` field Liveness never had, so it failed on any supervised attempt in flight.
+    s = Setup(tmp_path)
+    s.behave("hang")
+    d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
+    path = s.baton / "cache" / "running" / f"{d['dispatch_id']}.json"
+    try:
+        def situation(expect: int = 0) -> dict:
+            return next(r for r in s.cli("detect", expect=expect).payload["runs"] if r["run_id"] == s.run)
+
+        assert situation()["situation"] == "active_here"
+        good = path.read_text(encoding="utf-8")
+        path.write_text("{half written", encoding="utf-8")
+        assert situation()["situation"] == "active_here"  # unreadable: not judged
+        path.unlink()
+        assert situation(expect=1)["situation"] == "orphaned_attempts"  # a problem detect reports
+        path.write_text(good, encoding="utf-8")
+    finally:
+        _kill(d["worker_pid"])
+        _kill_one(d["supervisor_pid"])
+
+
+@pytest.mark.slow
+def test_a_supervisor_finishing_an_attempt_already_recorded_leaves_a_note(tmp_path):
+    from baton import diag
+
+    s = Setup(tmp_path)
+    s.behave("hang")
+    d = s.cli.run("dispatch", s.run, "describe", "--worker", "bot")
+    api = s.api()
+    try:
+        (s.baton / "cache" / "running" / f"{d['dispatch_id']}.json").unlink()  # truly gone: judged dead, as before
+        assert api.reconcile(s.run)[0]["action"] == "orphaned"
+        child = supervisor.ChildResult(0, 1.0, False, tmp_path / "w.log", b"")
+        assert api.complete(s.run, "describe", 1, d["dispatch_id"], child=child, workspace_changes=[], adapter="command", worker="bot") is None
+        recs = [r for day in diag._raw_days() for r in diag.read_records(day) if r["code"] == "supervisor.late_completion"]
+        assert len(recs) == 1
+        assert recs[0]["run"] == s.run and recs[0]["step_path"] == "describe" and recs[0]["attempt"] == 1
+        assert recs[0]["data"]["step_state"] == "escalated" and recs[0]["data"]["result_written"] is False
+        assert recs[0]["data"]["dispatch_id"] == d["dispatch_id"]
+    finally:
+        _kill(d["worker_pid"])
+        _kill_one(d["supervisor_pid"])
+        api.close()
+
+
 # ---------------------------------------------------------------------------
 # Effort bands: extend once, then terminate and classify
 # ---------------------------------------------------------------------------

@@ -225,10 +225,45 @@ def tree_path(baton_dir: Path, dispatch_id: str) -> Path:
 
 
 def read_marker(baton_dir: Path, dispatch_id: str) -> dict[str, Any] | None:
+    """One read of the marker; ``None`` when it is absent or cannot be read now. For polling only:
+    a judgment that a supervisor is dead goes through :func:`settled_marker`."""
     try:
         return json.loads(marker_path(baton_dir, dispatch_id).read_text(encoding="utf-8"))
     except (OSError, ValueError):  # expected: an absent or half-written marker reads as no marker
         return None
+
+
+#: Pauses between looks at a marker that was absent or could not be read (about 1.2 s in all).
+SETTLE_DELAYS_S = (0.02, 0.05, 0.1, 0.2, 0.3, 0.5)
+
+
+def settled_marker(baton_dir: Path, dispatch_id: str) -> tuple[str, dict[str, Any] | None]:
+    """Read the marker until it reads, or until a short series of looks agrees it is not there.
+
+    Returns ``("present", marker)``, ``("absent", None)`` or ``("unreadable", None)`` (the file is there but
+    cannot be read). A read can fail for a moment while the supervisor replaces the marker on its heartbeat:
+    on Windows, and on a Windows drive under WSL (``ENODATA``), so one failed or empty look decides nothing
+    (§8.7, §15.1). A look that needed a retry is noted.
+    """
+    p = marker_path(baton_dir, dispatch_id)
+    state, error = "absent", ""
+    for n, delay in enumerate((*SETTLE_DELAYS_S, None), start=1):
+        try:
+            m = json.loads(p.read_text(encoding="utf-8"))
+            if n > 1:
+                diag.note("supervisor.marker_unreadable", "supervisor:settled_marker", path=str(p), looks=n, recovered=True, error=error)
+            return "present", m
+        except FileNotFoundError:  # expected: absent on this look; looked at again, then reported as absent
+            state, error = "absent", "FileNotFoundError"
+        except (OSError, ValueError) as e:
+            state, error = "unreadable", f"{type(e).__name__}: {e}"
+        if delay is not None:
+            time.sleep(delay)
+    if state == "absent" and p.exists():  # it came back after the last look: it is there, only unread
+        state = "unreadable"
+    if state == "unreadable":
+        diag.note("supervisor.marker_unreadable", "supervisor:settled_marker", path=str(p), looks=n, recovered=False, error=error)
+    return state, None
 
 
 def _while_open_elsewhere(change: Any) -> None:
@@ -286,6 +321,13 @@ class Liveness:
     worker_alive: bool
     elsewhere: bool  # written by another host: cannot be judged here
     overdue: bool
+    unreadable: bool = False  # the marker is there but could not be read: treated as running, judged next time
+
+    @property
+    def dead(self) -> bool:
+        """The §8.7 judgment that the supervisor is gone: no live supervisor here, and a marker that is either
+        read or truly absent. An unreadable marker, or one from another host, is never judged."""
+        return not (self.supervisor_alive or self.elsewhere or self.unreadable)
 
     def as_dict(self) -> dict[str, Any]:
         m = self.marker or {}
@@ -293,13 +335,15 @@ class Liveness:
             "marker": self.marker is not None, "supervisor_alive": self.supervisor_alive, "worker_alive": self.worker_alive,
             "elsewhere": self.elsewhere, "overdue": self.overdue, "deadline": m.get("deadline"),
             "heartbeat": m.get("heartbeat"), "extended": m.get("extended", False),
+            **({"unreadable": True} if self.unreadable else {}),
         }
 
 
 def liveness(baton_dir: Path, dispatch_id: str | None) -> Liveness:
-    m = read_marker(baton_dir, dispatch_id) if dispatch_id else None
+    """The §8.7 table's first two columns for one dispatch, from a settled read of its marker."""
+    state, m = settled_marker(baton_dir, dispatch_id) if dispatch_id else ("absent", None)
     if m is None:
-        return Liveness(None, False, False, False, False)
+        return Liveness(None, False, False, False, False, unreadable=state == "unreadable")
     if m.get("host") != socket.gethostname():
         return Liveness(m, False, False, True, False)
     sup = pid_alive(m.get("supervisor_pid"))

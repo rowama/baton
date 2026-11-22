@@ -4,6 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-marker-read-race](2026-11-marker-read-race.md) | A live supervisor is not judged dead because one read of its running marker failed | in-progress | minor | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-answers-between-rounds](2026-11-answers-between-rounds.md) | The owner's answers can be recorded at any decision that retries the work, not only at a blocked step | proposed | standard | Awaiting the owner's answer to Decision 0184 |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
