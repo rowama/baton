@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import socket
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
@@ -1711,8 +1711,12 @@ def decide(
         return _decide_locked_change(ctx, ref, decision, note, actor, extra)
     if path is not None:
         raise EngineError("decide.bad_decision", "--path is only for a publish conflict (alternate)")
+    if decision == "answer":
+        return _decide_open_answers(ctx, ref, note, actor, extra, answers, partial)
     if answers is not None or partial:
-        return _decide_answers(ctx, ref, decision, note, actor, extra, answers, partial)
+        if _blocked_escalation(ctx, ref) is not None:
+            return _decide_answers(ctx, ref, decision, note, actor, extra, answers, partial)
+        return _decide_with_open_answers(ctx, ref, decision, note, actor, recorded_by, path, answers, partial)
     if "#" in ref:
         return _decide_finding(ctx, ref, decision, note, actor, extra)
     if groups.locate_instance(ctx.recipe, ref) is not None:
@@ -2259,6 +2263,109 @@ def check_answers(questions: list[dict[str, Any]], answers: Any, partial: bool) 
     if problems:
         raise EngineError("answers.invalid", "; ".join(problems))
     return out
+
+
+def _blocked_escalation(ctx: RunContext, ref: str) -> Any:
+    """The ``step_escalated`` a blocked step waits on, or ``None``."""
+    st = ctx.log.state().step(ref) if ref in ctx.log.state().steps else None
+    if st is None or st.state != "escalated":
+        return None
+    esc = ctx.record().last("step_escalated", ref)
+    return esc if esc is not None and esc.data.get("reason") == "blocked" else None
+
+
+def _open_in_scope(ctx: RunContext, ref: str) -> list[dict[str, Any]]:
+    """The open questions (Decision 0184) of the steps at or under ``ref``: a step, or a group instance at its limit."""
+    from .questions import open_questions
+
+    return [o for o in open_questions(ctx.recipe, ctx.log.events()) if o["step_path"] == ref or o["step_path"].startswith(ref + "/")]
+
+
+def _check_open_answers(entries: list[dict[str, Any]], answers: Any, ref: str) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """Answers to open questions, each matched to the one asking step that asks its id; raises ``EngineError``.
+
+    Checked as a blocked step's answers are (an object per answer, ``owner_words`` required), except that a partial
+    set is always allowed: nothing waits for open questions. An id two asking steps both ask is refused."""
+    if not isinstance(answers, list):
+        raise EngineError("answers.invalid", "answers must be a JSON list of {id, answer, owner_words}")
+    if not entries:
+        raise EngineError("decide.nothing_pending", f"{ref} is not waiting on answers and has no open questions")
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for o in entries:
+        for q in o["questions"]:
+            by_id.setdefault(q["id"], []).append(o)
+    problems: list[str] = []
+    groups_: dict[int, list[dict[str, Any]]] = {}
+    for n, a in enumerate(answers, start=1):
+        qid = a.get("id") if isinstance(a, dict) else None
+        hits = by_id.get(qid, []) if isinstance(qid, str) else []
+        if len(hits) > 1:
+            problems.append(f"answer {n}: {qid} is asked by {', '.join(o['step_path'] for o in hits)}: answer it one step at a time "
+                            f"(decide <run> <step> answer)")
+        elif not hits:
+            known = ", ".join(sorted(by_id)) or "none"
+            problems.append(f"answer {n}: {qid!r} is not one of the open questions here ({known})")
+        else:
+            groups_.setdefault(id(hits[0]), []).append(a)
+    if problems:
+        raise EngineError("answers.invalid", "; ".join(problems))
+    out = []
+    for o in entries:
+        mine = groups_.get(id(o))
+        if mine:
+            out.append((o, check_answers(o["questions"], mine, partial=True)))
+    return out
+
+
+def _record_open_answers(ctx: RunContext, checked: list[tuple[dict[str, Any], list[dict[str, Any]]]], note: str, actor: str,
+                         extra: dict[str, Any], decision: str) -> list[str]:
+    """One ``human_decision {kind: answers}`` per asking step, against its asking attempt; returns the decision ids."""
+    ids = []
+    for o, answers in checked:
+        decision_id = f"d{ctx.log.state().last_seq + 1}"
+        ctx.log.append("human_decision", actor=actor, step_path=o["step_path"], attempt=o["attempt"],
+                       data={"ref": o["step_path"], "kind": "answers", "decision": decision, "answers": answers, "note": note,
+                             "decision_id": decision_id, "open": True, **extra})
+        ids.append(decision_id)
+    return ids
+
+
+def _decide_open_answers(ctx: RunContext, ref: str, note: str, actor: str, extra: dict[str, Any], answers: Any,
+                         partial: bool) -> Outcome:
+    """``decide <run> <step> answer --answers <file>``: the owner's answers to one step's open questions (Decision 0184).
+
+    Any time the run is active; changes no step's state. ``ref`` is the asking step's path as ``open_questions`` lists it."""
+    if answers is None:
+        raise EngineError("decide.bad_decision", "answer goes with --answers <file>")
+    if not note.strip():
+        raise EngineError("decide.note_required", "--note is required: the owner's words")
+    entries = [o for o in _open_in_scope(ctx, ref) if o["step_path"] == ref]
+    if not entries:
+        from .questions import open_questions
+
+        listed = ", ".join(o["step_path"] for o in open_questions(ctx.recipe, ctx.log.events())) or "none"
+        raise EngineError("decide.nothing_pending", f"{ref} has no open questions (steps with open questions: {listed})")
+    checked = _check_open_answers(entries, answers, ref)
+    ids = _record_open_answers(ctx, checked, note, actor, extra, "answer")
+    n = sum(len(a) for _o, a in checked)
+    return Outcome(ref, entries[0]["attempt"], "recorded", [f"{n} answer(s) recorded ({', '.join(ids)})"])
+
+
+def _decide_with_open_answers(ctx: RunContext, ref: str, decision: str, note: str, actor: str, recorded_by: str | None,
+                              path: str | None, answers: Any, partial: bool) -> Outcome:
+    """A retry (an iteration limit, an escalation that is not blocked) or a gate's reject, with the owner's answers to
+    the open questions of the steps at or under ``ref`` (Decision 0184): the decision, then one answers record per
+    asking step. The answers are checked before anything is recorded."""
+    if partial:
+        raise EngineError("decide.bad_decision", "--partial is only for a blocked step's questions; answers to open questions may always be partial")
+    if decision not in ("retry", "reject"):
+        raise EngineError("decide.bad_decision", f"answers go with retry or reject, got {decision!r}")
+    checked = _check_open_answers(_open_in_scope(ctx, ref), answers, ref)
+    outcome = decide(ctx, ref, decision, note, actor=actor, recorded_by=recorded_by, path=path)
+    extra = {"recorded_by": recorded_by} if recorded_by else {}
+    ids = _record_open_answers(ctx, checked, note, actor, extra, decision)
+    n = sum(len(a) for _o, a in checked)
+    return replace(outcome, reasons=[*outcome.reasons, f"{n} answer(s) to open questions recorded ({', '.join(ids)})"])
 
 
 def _decide_answers(ctx: RunContext, ref: str, decision: str, note: str, actor: str, extra: dict[str, Any],
@@ -3151,7 +3258,10 @@ class Api:
 
         if ctx.log.state().state != "active":
             return []
-        return [{k: o[k] for k in ("step_path", "attempt", "questions")} for o in open_questions(ctx.recipe, ctx.log.events())]
+        from .interactions import open_questions_id
+
+        return [{"step_path": o["step_path"], "attempt": o["attempt"], "request_id": open_questions_id(ctx, o), "questions": o["questions"]}
+                for o in open_questions(ctx.recipe, ctx.log.events())]
 
     def _policy_outdated(self, events: list[Any]) -> dict[str, Any]:
         """``policy_outdated`` when the run is under an earlier policy than the one in force (§13.7; Decision 0151)."""
@@ -4925,6 +5035,10 @@ class Api:
                     continue
                 out += [(rid, ia.build(self, ctx, p), p) for p in self._pending(ctx)]
                 out += [(rid, ia.build_person_step(ctx, path, n, seq), None) for path, n, seq in ia.person_steps(ctx)]
+                from .questions import open_questions
+
+                out += [(rid, ia.build_open_questions(ctx, o), {"kind": "open_questions", "ref": o["step_path"], "seq": o["seq"]})
+                        for o in open_questions(ctx.recipe, ctx.log.events())]
             except (EngineError, StoreError, OSError, ValueError):
                 if run_id:
                     raise
@@ -4944,7 +5058,8 @@ class Api:
         from . import interactions as ia
 
         reqs = [{**ia.summary(req), "opened": self._opened_at(rid, req, p)} for rid, req, p in self._open_requests(run_id)]
-        return {"format": ia.FORMAT, "requests": reqs, "needs_owner": bool(reqs)}
+        # Open questions are offered, never waited on (Decision 0184): they do not need the owner.
+        return {"format": ia.FORMAT, "requests": reqs, "needs_owner": any(r.get("kind") != "open_questions" for r in reqs)}
 
     def _opened_at(self, rid: str, req: dict[str, Any], p: dict[str, Any] | None) -> str | None:
         """When a request was opened or last changed: its opening event's time, else its step's last event's, else the run's."""
@@ -4999,6 +5114,20 @@ class Api:
         rid, req, p = self._find_request(request_id, run_id)
         values = ans.get("values") or {}
         partial = bool(ans.get("partial"))
+        if req["kind"] == "open_questions":  # answers to one step's open questions (Decision 0184)
+            if ans.get("choice") not in (None, "answer"):
+                raise EngineError("answer.invalid", f"choice must be one of ['answer'], got {ans.get('choice')!r}")
+            if ans.get("artifacts"):
+                raise EngineError("answer.invalid", "files are only for a person's step")
+            ia.check_values(req["choices"][0]["answer"]["schema"], values)
+            if not values:
+                raise EngineError("answer.invalid", "no answers given: fill in at least one of the questions")
+            words = ia.words_for(note, via)
+            per = ans.get("words") or {}
+            answers = [{"id": q, "answer": v, "owner_words": per.get(q) or words} for q, v in values.items()]
+            with ia.answering(request_id, via):
+                out = self.decide(rid, req["ref"], "answer", words, answers=answers)
+            return {**out, "request_id": request_id, "via": via}
         if p is None:  # a person's step: the values are its output, the files its artifacts
             if ans.get("choice") is not None:
                 raise EngineError("answer.invalid", "a person's step takes values and files, not a choice")
@@ -5044,6 +5173,10 @@ class Api:
                 out = self.decide(rid, ref, "retry", words, answers=answers, partial=partial)
             elif kind == "frame" and choice == "select":
                 out = self.decide(rid, ref, "select", words, items=list(values.get("items") or []))
+            elif spec is not None and values and (kind, choice) in ia._WITH_OPEN_ANSWERS:  # with answers to open questions
+                per = ans.get("words") or {}
+                answers = [{"id": q, "answer": v, "owner_words": per.get(q) or words} for q, v in values.items()]
+                out = self.decide(rid, ref, choice, words, answers=answers)
             else:
                 out = self.decide(rid, ref, choice, words, path=values.get("path"))
         return {**out, "request_id": request_id, "via": via}

@@ -656,3 +656,24 @@ def test_a_completed_results_questions_are_listed_as_open_and_nothing_waits(tmp_
     assert [(o["step_path"], o["attempt"], [q["id"] for q in o["questions"]]) for o in st["open_questions"]] == [("describe", 1, ["site", "permits"])]
     board = cli.run("board")["runs"][0]
     assert board["open_questions"] == st["open_questions"] and board["needs_owner"] is False
+
+
+@pytest.mark.slow
+def test_open_questions_are_a_request_answered_through_answer_without_needing_the_owner(tmp_path):
+    cli, project = fresh(tmp_path)
+    run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
+    manual(cli, project, run, "describe", GOOD_PROFILE, questions_for_human=QUESTIONS[:2])
+    listing = cli.run("interactions", "--run", run)
+    (req,) = [r for r in listing["requests"] if r["kind"] == "open_questions"]
+    assert listing["needs_owner"] is False and req["ref"] == "describe" and req["title"] == "Choices to confirm"
+    assert status(cli, run)["open_questions"][0]["request_id"] == req["id"]
+    file = tmp_path / "answer.json"
+    file.write_text(json.dumps({"choice": "answer", "values": {"site": "one machine per site at first"}}), encoding="utf-8")
+    out = cli.run("answer", req["id"], "--file", str(file), "--note", "One machine per site to start, yes.")
+    assert out["outcome"] == "recorded" and out["request_id"] == req["id"]
+    left = status(cli, run)["open_questions"]
+    assert [[q["id"] for q in o["questions"]] for o in left] == [["permits"]] and left[0]["request_id"] != req["id"]
+    log = (project / ".baton" / "runs" / run / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    dec = [e for e in map(json.loads, log) if e["type"] == "human_decision"][-1]["data"]
+    assert dec["answers"] == [{"id": "site", "answer": "one machine per site at first", "owner_words": "One machine per site to start, yes."}]
+    assert dec["request_id"] == req["id"] and dec["via"] == "conversation"

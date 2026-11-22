@@ -58,7 +58,12 @@ TITLES: dict[str, str] = {
     "publish_conflict": "A file is already where the work wants to write",
     "drift": "A delivered file was changed afterwards",
     "person_step": "Your part of the work",
+    "open_questions": "Choices to confirm",
 }
+
+#: The message of an ``open_questions`` request (Decision 0184).
+OPEN_QUESTIONS_MESSAGE = ("While doing this part, the work made these choices on a best guess. Confirm or correct any of them; "
+                          "nothing waits for your answers.")
 
 _VOLATILE = ("request_id", "web_advice", "incident")
 
@@ -94,6 +99,8 @@ def _opened_seq(ctx: Any, p: dict[str, Any]) -> int | None:
         return max(seqs) if seqs else None
     elif k == "skip_notice":
         return int(str(ref).split(":", 1)[1])
+    elif k == "open_questions":
+        return p.get("seq")
     else:
         return None
     return ev.seq if ev is not None else None
@@ -114,9 +121,25 @@ def _asked(p: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _open_asked(ctx: Any, p: dict[str, Any], kind: str) -> list[Any]:
+    """The open questions a pending decision's choices offer (Decision 0184): part of what it asks, so a change to them
+    gives a new id. Empty (and left out of the id) when there are none, so other ids are unchanged."""
+    if not any(k == kind for k, _d in _WITH_OPEN_ANSWERS) or not p.get("ref"):
+        return []
+    from .questions import open_questions
+
+    ref = p["ref"]
+    return [[o["step_path"], o["seq"], [q["id"] for q in o["questions"]]] for o in open_questions(ctx.recipe, ctx.log.events())
+            if o["step_path"] == ref or o["step_path"].startswith(ref + "/")]
+
+
 def request_id(ctx: Any, p: dict[str, Any]) -> str:
     """The request id of a pending decision (Decision 0170, item 10)."""
-    basis = [ctx.run_id, p.get("ref"), kind_of(ctx, p), _opened_seq(ctx, p), _file_sha(ctx, p), _asked(p)]
+    kind = kind_of(ctx, p)
+    basis = [ctx.run_id, p.get("ref"), kind, _opened_seq(ctx, p), _file_sha(ctx, p), _asked(p)]
+    open_ = _open_asked(ctx, p, kind)
+    if open_:
+        basis.append(open_)
     raw = json.dumps(basis, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
     return "ir_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
@@ -174,11 +197,67 @@ def questions_schema(questions: list[dict[str, Any]]) -> tuple[dict[str, Any], d
     return {"type": "object", "properties": props, "required": required, "additionalProperties": False}, prefill
 
 
+def open_questions_schema(entries: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Open questions (Decision 0184) as an answer schema with nothing required, and its prefill; ``None`` when there are none.
+
+    A question id that two asking steps both ask is left out: it is answered on its own step's request."""
+    ids = [q["id"] for o in entries for q in o["questions"]]
+    qs = [q for o in entries for q in o["questions"] if ids.count(q["id"]) == 1]
+    if not qs:
+        return None
+    schema, prefill = questions_schema(qs)
+    schema["required"] = []
+    return schema, prefill
+
+
+def open_questions_id(ctx: Any, entry: dict[str, Any]) -> str:
+    """The request id of one asking step's open questions: its run, step, result and what is still asked."""
+    basis = [ctx.run_id, entry["step_path"], "open_questions", entry["seq"], entry["questions"]]
+    raw = json.dumps(basis, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return "ir_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def build_open_questions(ctx: Any, entry: dict[str, Any]) -> dict[str, Any]:
+    """The request for one asking step's open questions (``kind: open_questions``): one choice, ``answer``, whose
+    fields are the questions, none required, best guesses prefilled. Not a pending decision: nothing waits for it."""
+    from . import labels
+
+    schema, prefill = open_questions_schema([entry]) or ({"type": "object", "properties": {}, "required": [], "additionalProperties": False}, {})
+    return {
+        "format": FORMAT,
+        "id": open_questions_id(ctx, entry),
+        "run": ctx.run_id,
+        "ref": entry["step_path"],
+        "step_path": entry["step_path"],
+        "attempt": entry["attempt"],
+        "kind": "open_questions",
+        "title": TITLES["open_questions"],
+        "message": OPEN_QUESTIONS_MESSAGE,
+        "context": [],
+        "choices": [{**labels.option("open_questions", "answer"), "answer": {"schema": schema, "prefill": prefill, "renderable": True}}],
+        "hints": {},
+        "extensions": {},
+        "needs_confirmation": True,
+    }
+
+
+#: Choices that may carry answers to the open questions under their ref (Decision 0184, item 3).
+_WITH_OPEN_ANSWERS = {("iteration_limit", "retry"), ("escalation", "retry"), ("gate", "reject")}
+
+
 def _choice_answer(api: Any, ctx: Any, p: dict[str, Any], kind: str, decision: str) -> dict[str, Any] | None:
     """The fields a choice needs besides itself, as ``{schema, prefill, renderable}``, or ``None``."""
     if kind == "blocked" and decision == "retry" and p.get("questions"):
         schema, prefill = questions_schema(p["questions"])
         return {"schema": schema, "prefill": prefill, "renderable": True}
+    if (kind, decision) in _WITH_OPEN_ANSWERS and p.get("ref"):
+        from .questions import open_questions
+
+        ref = p["ref"]
+        entries = [o for o in open_questions(ctx.recipe, ctx.log.events()) if o["step_path"] == ref or o["step_path"].startswith(ref + "/")]
+        built = open_questions_schema(entries)
+        if built is not None:
+            return {"schema": built[0], "prefill": built[1], "renderable": True}
     if kind == "frame" and decision == "select":
         from .frame import frame_output
 

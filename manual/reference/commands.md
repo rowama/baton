@@ -143,12 +143,12 @@ Explained in the manual: [Answer questions and decide](user.answer-questions-and
 | Argument or option | What it does |
 |---|---|
 | `run <str>` | Run id. |
-| `ref <str>` | What is being decided: the step path awaiting the owner, an instance path at its iteration limit, `<step>`#`<finding>`, skip:`<seq>`, publish:`<step>`.`<artifact>`, drift:`<step>`.`<artifact>` or lock:`<step>`#`<gate>`. |
-| `decision <str>` | approve \| reject (gates); retry \| abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite \| keep \| alternate (a publish conflict); leave (drift). |
+| `ref <str>` | What is being decided: the step path awaiting the owner, an instance path at its iteration limit, a step with open questions (answer), `<step>`#`<finding>`, skip:`<seq>`, publish:`<step>`.`<artifact>`, drift:`<step>`.`<artifact>` or lock:`<step>`#`<gate>`. |
+| `decision <str>` | approve \| reject (gates); retry \| abandon (escalations); answer (a step's open questions, with --answers); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite \| keep \| alternate (a publish conflict); leave (drift). |
 | `--note <str>` | The owner's words, recorded verbatim. |
 | `--path <str>` | alternate: the project path to publish at instead. |
-| `--answers <path>` | retry of a blocked step: a JSON file [{id, answer, owner_words}] of the owner's confirmed answers (keep it outside .baton/). |
-| `--partial` | With --answers: record a deliberately partial set (a needed question left open). |
+| `--answers <path>` | A JSON file [{id, answer, owner_words}] of the owner's confirmed answers (keep it outside .baton/): to a blocked step's questions (retry), to a step's open questions (answer), or to the open questions under the ref, with a retry or a reject. |
+| `--partial` | With --answers to a blocked step: record a deliberately partial set (a needed question left open). Answers to open questions may always be partial. |
 | `--items <str>` | select (a framing run's frame gate): the chosen part ids, comma-separated; empty for none. |
 | `--json` | Machine-readable output. |
 

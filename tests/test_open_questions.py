@@ -92,3 +92,122 @@ def test_the_contracts_say_a_completed_result_may_ask(store, tmp_path):
     assert "A `completed` result may also list `questions_for_human`" in text and "is still `blocked`" in text
     src = json.dumps([v for k, v in vars(worker_runner).items() if isinstance(v, str)])
     assert 'A \\"completed\\" result may also list questions_for_human' in src
+
+
+# -- Slice 2: answering open questions, alone or with a retry -----------------------
+
+CONFIRMED = [{"id": "A-VER-1", "answer": "ask before the first number; the others go up on their own",
+              "owner_words": "Ask before bumping the first number, otherwise approved."}]
+
+
+def _manifest(p) -> dict:
+    return json.loads((p.dir / "manifest.json").read_text(encoding="utf-8"))
+
+
+def test_answering_a_steps_open_questions_records_them_and_they_last(store, tmp_path):
+    ctx, base = _round_one(store, tmp_path)
+    out = engine.decide(ctx, f"{base}/i1/implement", "answer", "Ask before bumping the first number.", answers=CONFIRMED)
+    assert out.outcome == "recorded" and "1 answer(s) recorded" in out.reasons[0]
+    dec = [e for e in ctx.log.events() if e.type == "human_decision"][-1]
+    assert (dec.step_path, dec.attempt) == (f"{base}/i1/implement", 1)
+    assert dec.data["kind"] == "answers" and dec.data["decision"] == "answer" and dec.data["answers"] == CONFIRMED
+    assert _open(ctx) == [{"step_path": f"{base}/i1/implement", "attempt": 1, "ids": ["A-GAP-1"]}]  # a partial set is fine
+
+    review = begin(ctx, f"{base}/i1/review")  # the review sees what the owner settled (0181, item 2)
+    assert _manifest(review)["prior_feedback"]["answers_earlier"][0]["answers"] == CONFIRMED
+    from runkit import write_result
+
+    write_result(review, HIGH)
+    assert engine.submit(ctx, f"{base}/i1/review").outcome == "next_iteration"
+    p = begin(ctx, f"{base}/i2/implement")  # and so does the next round
+    assert [(e["step"], e["iteration"]) for e in _manifest(p)["prior_feedback"]["answers_earlier"]] == [(f"{base}/i1/implement", 1)]
+    assert "Ask before bumping the first number" in (p.dir / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("answers", "note", "code", "says"), [
+    (None, "words", "decide.bad_decision", "answer goes with --answers"),
+    (CONFIRMED, "", "decide.note_required", "--note"),
+    ([{"id": "nope", "answer": "x", "owner_words": "x"}], "words", "answers.invalid", "not one of the open questions here (A-GAP-1, A-VER-1)"),
+    ([{"id": "A-VER-1", "answer": "x"}], "words", "answers.invalid", "owner_words is required"),
+])
+def test_answers_to_open_questions_are_checked(store, tmp_path, answers, note, code, says):
+    ctx, base = _round_one(store, tmp_path)
+    before = len(ctx.log.events())
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, f"{base}/i1/implement", "answer", note, answers=answers)
+    assert e.value.code == code and says in str(e.value)
+    assert len(ctx.log.events()) == before
+
+
+def test_a_step_without_open_questions_says_which_steps_have_them(store, tmp_path):
+    ctx, base = _round_one(store, tmp_path)
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, "plan", "answer", "words", answers=CONFIRMED)
+    assert e.value.code == "decide.nothing_pending" and f"{base}/i1/implement" in str(e.value)
+
+
+def _at_the_limit(store, tmp_path, *, review_asks=None):
+    ctx = start_run(store, slice_recipe(tmp_path / "r", max_iterations=1))
+    run_step(ctx, "plan", {"slices": [{"title": "only"}]})
+    base = f"slices/{ids(ctx)[0]}"
+    run_step(ctx, f"{base}/i1/implement", {"commit_sha": "c1"}, questions_for_human=GUESSES)
+    _, out = run_step(ctx, f"{base}/i1/review", HIGH, **({"questions_for_human": review_asks} if review_asks else {}))
+    assert out.outcome == "iteration_limit"
+    return ctx, base
+
+
+def test_another_round_with_answers_records_them_against_the_asking_step(store, tmp_path):
+    # r_20261119_ee96: "Give it another set of rounds, but ask me the four questions first."
+    ctx, base = _at_the_limit(store, tmp_path)
+    p = [x for x in engine.pending_decisions(ctx) if x["kind"] == "iteration_limit"][0]
+    from baton import interactions
+
+    req = interactions.build(None, ctx, {**p, "request_id": interactions.request_id(ctx, p)})
+    retry = next(c for c in req["choices"] if c["decision"] == "retry")
+    assert set(retry["answer"]["schema"]["properties"]) == {"A-VER-1", "A-GAP-1"} and retry["answer"]["schema"]["required"] == []
+    assert "answer" not in next(c for c in req["choices"] if c["decision"] == "abandon")
+
+    out = engine.decide(ctx, base, "retry", "Another round; ask before bumping the first number.", answers=CONFIRMED)
+    assert out.outcome != "escalated" and "1 answer(s) to open questions recorded" in out.reasons[-1]
+    types = [e.type for e in ctx.log.events()]
+    assert types[-1] == "human_decision" and "iteration_started" in types[-4:]
+    dec = ctx.log.events()[-1]
+    assert (dec.step_path, dec.data["decision"], dec.data["answers"]) == (f"{base}/i1/implement", "retry", CONFIRMED)
+    p2 = begin(ctx, f"{base}/i2/implement")
+    assert _manifest(p2)["prior_feedback"]["answers_earlier"][0]["answers"] == CONFIRMED
+
+
+def test_an_id_two_steps_ask_is_answered_one_step_at_a_time(store, tmp_path):
+    ctx, base = _at_the_limit(store, tmp_path, review_asks=[GUESSES[0]])
+    before = len(ctx.log.events())
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, base, "retry", "words", answers=CONFIRMED)
+    assert e.value.code == "answers.invalid" and "answer it one step at a time" in str(e.value)
+    assert len(ctx.log.events()) == before  # neither the answers nor the retry were recorded
+    engine.decide(ctx, f"{base}/i1/review", "answer", "words", answers=CONFIRMED)
+    assert [o["ids"] for o in _open(ctx)] == [["A-VER-1", "A-GAP-1"]]
+
+
+def test_answers_go_only_with_a_retry_or_a_reject_and_are_always_partial(store, tmp_path):
+    ctx, base = _at_the_limit(store, tmp_path)
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, base, "abandon", "words", answers=CONFIRMED)
+    assert e.value.code == "decide.bad_decision" and "retry or reject" in str(e.value)
+    with pytest.raises(engine.EngineError) as e:
+        engine.decide(ctx, base, "retry", "words", answers=CONFIRMED, partial=True)
+    assert e.value.code == "decide.bad_decision" and "may always be partial" in str(e.value)
+
+
+def test_the_open_questions_request(store, tmp_path):
+    from baton import interactions
+    from baton.questions import open_questions
+
+    ctx, base = _round_one(store, tmp_path)
+    entry = open_questions(ctx.recipe, ctx.log.events())[0]
+    req = interactions.build_open_questions(ctx, entry)
+    assert req["kind"] == "open_questions" and req["ref"] == f"{base}/i1/implement" and req["attempt"] == 1
+    (choice,) = req["choices"]
+    assert choice["decision"] == "answer" and choice["label"] == "Confirm or correct these"
+    assert choice["answer"]["schema"]["required"] == [] and choice["answer"]["prefill"]["A-VER-1"].startswith("Ask before")
+    engine.decide(ctx, f"{base}/i1/implement", "answer", "words", answers=CONFIRMED)
+    assert interactions.build_open_questions(ctx, open_questions(ctx.recipe, ctx.log.events())[0])["id"] != req["id"]

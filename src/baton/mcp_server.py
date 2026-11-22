@@ -232,9 +232,10 @@ def build_server(project: str | Path | None = None, director: str | None = None)
     def decide(run: str, ref: str, decision: str, note: str = "", path: str | None = None,
                answers: list[dict[str, Any]] | str | None = None, partial: bool = False, items: list[str] | None = None) -> dict[str, Any]:
         """Record the owner's decision verbatim (note = the owner's words). ref: a step awaiting the owner, an instance path,
-        <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>. answers (retry of a blocked
-        step): the owner's confirmed answers [{id, answer, owner_words}], or the path of a JSON file holding them;
-        partial: a deliberately partial set. items (select, a framing run's frame gate): the chosen part ids."""
+        <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>, or a step with open questions
+        (decision answer). answers: the owner's confirmed answers [{id, answer, owner_words}], or the path of a JSON file holding
+        them: to a blocked step's questions (retry), a step's open questions (answer), or the open questions under ref with a
+        retry or a reject; partial: a deliberately partial set of a blocked step's answers. items (select, a framing run's frame gate): the chosen part ids."""
 
         def body(api: Any) -> dict[str, Any]:
             parsed: Any = answers

@@ -734,12 +734,12 @@ def submit(
 @app.command()
 def decide(
     run: Annotated[str, typer.Argument(help="Run id.")],
-    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>.")],
-    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite | keep | alternate (a publish conflict); leave (drift).")],
+    ref: Annotated[str, typer.Argument(help="What is being decided: the step path awaiting the owner, an instance path at its iteration limit, a step with open questions (answer), <step>#<finding>, skip:<seq>, publish:<step>.<artifact>, drift:<step>.<artifact> or lock:<step>#<gate>.")],
+    decision: Annotated[str, typer.Argument(help="approve | reject (gates); retry | abandon (escalations); answer (a step's open questions, with --answers); accept-risk (a finding); confirm (a runnable stale step); acknowledge (a skip notice); overwrite | keep | alternate (a publish conflict); leave (drift).")],
     note: Annotated[str, typer.Option("--note", help="The owner's words, recorded verbatim.")] = "",
     path: Annotated[Optional[str], typer.Option("--path", help="alternate: the project path to publish at instead.")] = None,
-    answers: Annotated[Optional[Path], typer.Option("--answers", help="retry of a blocked step: a JSON file [{id, answer, owner_words}] of the owner's confirmed answers (keep it outside .baton/).")] = None,
-    partial: Annotated[bool, typer.Option("--partial", help="With --answers: record a deliberately partial set (a needed question left open).")] = False,
+    answers: Annotated[Optional[Path], typer.Option("--answers", help="A JSON file [{id, answer, owner_words}] of the owner's confirmed answers (keep it outside .baton/): to a blocked step's questions (retry), to a step's open questions (answer), or to the open questions under the ref, with a retry or a reject.")] = None,
+    partial: Annotated[bool, typer.Option("--partial", help="With --answers to a blocked step: record a deliberately partial set (a needed question left open). Answers to open questions may always be partial.")] = False,
     items: Annotated[Optional[str], typer.Option("--items", help="select (a framing run's frame gate): the chosen part ids, comma-separated; empty for none.")] = None,
     as_json: JsonOpt = False,
 ) -> None:
