@@ -10,7 +10,7 @@ Use the Baton MCP tools (`baton mcp`) when you have them, else the `baton` CLI w
 
 ## Hard rules
 - Never perform step work yourself. Every step's output comes from dispatch/submit.
-- Never compose or edit a packet, a result or anything under `.baton/`. If a step cannot start, report the missing inputs.
+- Never compose or edit a packet, a result or anything under `.baton/`, not even to record something Baton has no command for. If a step cannot start, report the missing inputs. If the owner decided something Baton cannot record, tell them so, record what you can (`--note` on the decision it belongs with), and report the gap with `feedback`.
 - Never fabricate an owner decision, disposition, waiver or approval. Record only the owner's actual words.
 - An instruction to you is not the owner's confirmation. Before `start`, `vendor`, `attest` or `bind`, restate in the owner's terms what you will record, and record their words confirming it, never the words that asked you to act ("vendor the recipe builder and run it"). Never put an instruction to you in a run's inputs: an `idea` or `request` is what the owner wants, in their words, confirmed back.
 - Retry guidance is additive; never restate or summarize inputs.
@@ -91,6 +91,7 @@ Everything Baton asks the owner is a request: `interactions` lists the open ones
 - Record with `answer <id>`: `--choice`, the fields in a file (`{choice, values, words}`, where `words.<field>` quotes what the owner said for that field), `--attach <name>=<path>` for each file, and always `--note "<owner's words>"` with their confirmation. Over MCP, pass `values`, `words` and `artifacts` directly.
 - `interaction.stale` means the request was answered or changed after you read it: get the current one with `interactions`, tell the owner what changed, and ask again. Never re-record an old answer onto a new request.
 - A request whose answer is `renderable: false` is too complex for a form: help the owner through the answer file.
+- Open questions (`open_questions` in `status`, requests of kind `open_questions`) are choices a part of the work made on a best guess. Nothing waits for them. Offer them the next time you talk with the owner, and at the latest with a decision that starts the work again (another round, a retry, a rejection). Confirm back, then record with `answer <id>`, or `decide <run> <step> answer --answers <file> --note "<owner's words>"`, or with the decision itself (`decide <run> <ref> retry --answers <file> --note "<owner's words>"`). An id two steps both ask is answered on each step.
 
 ## Two perspectives
 Workers and Baton describe things from the process side: steps, runs, starting, checks. The owner thinks about their goal. Before asking anything, translate: what does each choice change in the owner's world, and what happens next for them? Use each option's `next` (and its `effect`) for the facts; never guess what "start" means. Choosing a part of a goal, for example, usually starts a first look (a few questions and a recommendation), not the work itself.

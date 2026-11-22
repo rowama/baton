@@ -27,7 +27,8 @@ The wording changes with the situation. These are the choices, and what each doe
 | **That's an accurate picture** | The summary of your existing work is accepted as the starting point. |
 | **Try again** / **Try again with your answers** | A part that stopped is tried again, with what you said. |
 | **Set this aside for now** | That part stops. The rest of the work may not be able to finish without it. |
-| **Give it another round** / **Stop working on this piece** | For a repeated piece of work that has not settled: allow another set of tries, or stop it. |
+| **Give it another round** / **Stop working on this piece** | For a repeated piece of work that has not settled: allow another set of tries, or stop it. You can answer any [choices made on a best guess](#best-guesses) at the same time. |
+| **Confirm or correct these** | For [choices a part made on a best guess](#best-guesses): your answers are kept for every later try at that part. Nothing waits for them. |
 | **Keep that change** / **Undo that change** | A change to files the process protects stays, or is undone and redone. |
 | **Keep the change** | Files you approved earlier were changed outside the work (by hand, say): the change stays and becomes what you approved. Otherwise, put the files back as they were, and the work carries on. See [files you approved](#approved-files). |
 | **Replace the existing file** / **Keep the existing file** / **Save the new one alongside** | What to do when the work wants to write a file that already exists. |
@@ -44,6 +45,12 @@ Nothing from the conversation is recorded until you confirm what was understood.
 What you answer stays answered for the rest of that piece of work. If a part is done again, for example after a check sends it back, it is given your answers, and so is the check, so you are not asked the same thing twice; you are asked again only about something your answers leave open. When you accept what a helper suggested, the suggestions themselves are kept with your answer.
 
 You may answer only some of a set of questions. Your assistant will tell you what is still needed before the work can go on.
+
+## Choices made on a best guess {#best-guesses}
+
+Sometimes a part of the work can go on without you, but has to make a choice you would normally make: how version numbers go up, say. It then makes its best guess, carries on, and asks you to confirm the guess. Nothing waits for your answer. Your assistant tells you about these the next time you talk, and at the latest when it asks you to let the work try again, for example **Give it another round**: you can answer them in the same breath.
+
+Answer only the ones you want to; the others stay open. What you say is kept like any other answer: every later try at that part follows it, and so do the checks of that part, so a check does not fault the work for following your choice. If a guess is one the work could not rest on until you decide, it stops and asks instead, as before.
 
 ## Answering in a file {#answer-file}
 

@@ -106,3 +106,13 @@ The recipe side (the designer should have returned `blocked` instead of guessing
 - **Tests:** `tests/test_open_questions.py` (quick): `decide … answer` records against the asking step, leaves the rest open, and reaches the review and the next round (`answers_earlier`, the packet text); four refusals that record nothing (no `--answers`, no note, an unknown id, no `owner_words`); a step with no open questions names the steps that have them; another round with answers at an iteration limit (the retry choice offers the questions, none required; the answers are recorded against the asking step after the retry and reach round two); an id two steps ask is refused, recording nothing, and is answered on its own step; answers go only with retry or reject and are always partial; the request's shape, and a new id after an answer. `tests/test_conversation.py` (slow): open questions are a request `interactions` lists without `needs_owner`, with the id `status` gives, answered through `answer` with `request_id` and `via` recorded, the rest left open under a new id.
 - **Review:** clean
 - **Accepted:** <pending the owner>
+
+### Slice 3: the Director's rule and the manual
+
+- **Commit:** 2026-11-answers-between-rounds: Slice 3, the Director's rule and the manual
+- **Summary:** the Director skill (`skills/baton-director/SKILL.md`, and its copy in §13.3): the hard rule against editing anything under `.baton/` now says "not even to record something Baton has no command for", and that the Director tells the owner, records what it can (`--note`) and reports the gap with `feedback` (Decision 0184, item 5); *Answering requests* says what open questions are, that nothing waits for them, when to offer them (next time, at the latest with a decision that restarts the work) and the three ways to record them.
+- **Design docs:** `design/director-interface.md` §13.3 (the skill's copy).
+- **Manual:** `manual/user/answer-questions-and-decide.md` (new section *Choices made on a best guess*, `#best-guesses`; **Give it another round** can carry answers; **Confirm or correct these**); `manual/admin/director-commands.md` (`decide … answer`, `--answers` with a retry or reject, the `open_questions` request not counting as needing the owner); `manual/anchors.yaml` (the new anchor).
+- **Tests:** existing checks cover the skill copy (`tests/test_director_surface.py`), the manual's format, anchors and links (`tests/test_manual.py`) and the generated reference (`tests/test_manual_gen.py`).
+- **Review:** clean
+- **Accepted:** <pending the owner>
