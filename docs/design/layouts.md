@@ -25,6 +25,7 @@ baton/
 │   ├── packet.py            # packet builder (the critical module)
 │   ├── intake.py            # result validation, gates, findings
 │   ├── reviews.py           # review steps, findings lines and statuses, evidence, waivers, protected files
+│   ├── questions.py         # open questions: what a completed result asked the owner to confirm (§7.2, §13.8)
 │   ├── supervisor.py        # detached per-dispatch supervisor, markers, deadlines, hooks
 │   ├── classify.py          # failure classification rules (data-driven)
 │   ├── project.py           # project root, project.yaml, lockfile access, vendoring, profile loading

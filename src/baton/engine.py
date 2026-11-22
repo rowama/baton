@@ -763,7 +763,9 @@ def submit(
         attempt=n,
         data={"result_sha256": sub.result_sha256, "status": sub.status, **sub.registered(), **_tool_calls_record(adir),
               **({"worker_exit": worker_exit} if worker_exit else {}),
-              **({"dispositions_dropped": dropped} if dropped else {})},
+              **({"dispositions_dropped": dropped} if dropped else {}),
+              # A completed result's questions ask the owner to confirm its guesses; nothing waits for them (Decision 0184).
+              **({"questions": sub.questions} if sub.status == "completed" and sub.questions and not sub.problems else {})},
     )
     _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
     if sub.rating_signal is not None and not rating_signal_problems(ctx, sub.rating_signal):
@@ -2998,6 +3000,7 @@ class Api:
                 **({"waiting": [{k: w.get(k) for k in ("step_path", "waits_for", "deadline", "last_checked", "failed_checks")} for w in st["waiting"]]}
                    if st.get("waiting") else {}),
                 **({"waiting_on_binding": st["waiting_on_binding"]} if st.get("waiting_on_binding") else {}),
+                **({"open_questions": st["open_questions"]} if st.get("open_questions") else {}),
                 **({"upstream_changes": st["upstream_changes"]} if st.get("upstream_changes") else {}),
                 **({"policy_outdated": True} if st.get("policy_outdated") else {}),
             })
@@ -3133,6 +3136,7 @@ class Api:
             "queued": self._queued_for(run_id),
             "pending_decisions": pending,
             "needs_owner": bool(pending),
+            **({"open_questions": oq} if (oq := self._open_questions(ctx)) else {}),  # only when any, so other status output is unchanged
             "lease": lease_info,
             **({"adoption": started["adoption"], "awaiting_baseline": awaiting_baseline(events)} if started.get("adoption") else {}),
             "last_checkpoint": gitops.last_checkpoint(self.project.root, run_id),
@@ -3140,6 +3144,14 @@ class Api:
             **self._policy_notice(),
             **self._policy_outdated(events),
         }
+
+    def _open_questions(self, ctx: RunContext) -> list[dict[str, Any]]:
+        """The run's open questions (Decision 0184): ``[{step_path, attempt, questions}]``, only while it is active."""
+        from .questions import open_questions
+
+        if ctx.log.state().state != "active":
+            return []
+        return [{k: o[k] for k in ("step_path", "attempt", "questions")} for o in open_questions(ctx.recipe, ctx.log.events())]
 
     def _policy_outdated(self, events: list[Any]) -> dict[str, Any]:
         """``policy_outdated`` when the run is under an earlier policy than the one in force (§13.7; Decision 0151)."""

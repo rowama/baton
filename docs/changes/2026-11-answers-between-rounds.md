@@ -1,10 +1,10 @@
 ---
 id: 2026-11-answers-between-rounds
 title: "The owner's answers can be recorded at any decision that retries the work, not only at a blocked step"
-status: accepted
+status: in-progress
 level: standard
 decisions: ["0184", "0181", "0170"]
-touches: [design/packets.md, design/director-interface.md, design/runtime.md]   # §7.2, §8.10, §13.1, §13.3, §13.8
+touches: [design/packets.md, design/director-interface.md, design/runtime.md, design/layouts.md]   # §7.2, §8.10, §13.1, §13.3, §13.8
 manual: [user/answer-questions-and-decide.md, admin/director-commands.md, reference/commands.md]
 ---
 
@@ -87,3 +87,12 @@ The recipe side (the designer should have returned `blocked` instead of guessing
 - **Effort:** S
 
 ## Log
+
+### Slice 1: open questions from any result
+
+- **Commit:** 2026-11-answers-between-rounds: Slice 1, open questions from any result
+- **Summary:** intake (`engine.submit`) records an accepted completed result's `questions_for_human`, normalized, on `result_submitted` as `questions`, only when it has some (so no other record changes). New `questions.py`: `step_key` (the step with each enclosing group's iteration as `i*`, packet's `_iteration_free`), `answered_ids` (every `human_decision {kind: answers}` per step key) and `open_questions` (per step key, the latest accepted completed result's questions less those answered; a result intake rejected asks nothing; a later round's accepted result replaces the earlier round's, even when it asks nothing). `status` lists `open_questions` (`[{step_path, attempt, questions}]`) while the run is active and only when any, and `board` per run; neither sets `needs_owner`. The packet's result instructions and the API runner's two contracts say a completed result may list questions for guesses to confirm, and that a choice the work cannot rest on is still `blocked`; the instructions golden (`tests/golden/fit-check-assess-INSTRUCTIONS.md`) is regenerated.
+- **Design docs:** `design/packets.md` §7.2 (questions on a completed result; open questions); `design/runtime.md` §8.10 (intake step 3 records them); `design/director-interface.md` §13.1 (`status` and `board` list `open_questions`); `design/layouts.md` (the new module).
+- **Tests:** new `tests/test_open_questions.py` (quick): a completed result's questions are recorded and open; none recorded when there are none; a rejected result asks nothing; the next round replaces the last round's questions, and a round that asks nothing leaves none open; an answered question is not open in any later round, even asked again; the contracts say a completed result may ask. `tests/test_conversation.py::test_a_completed_results_questions_are_listed_as_open_and_nothing_waits` (slow): `status` and `board` list them, with `needs_owner` false and no pending decision.
+- **Review:** clean
+- **Accepted:** <pending the owner>

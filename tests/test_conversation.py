@@ -640,3 +640,19 @@ def test_communication_defaults(tmp_path):
         assert phrase in oper, phrase
     cli, project = fresh(tmp_path)
     assert (project / ".baton" / "communication.md").read_text(encoding="utf-8") == conv
+
+
+# -- questions without blocking (Decision 0184) --------------------------------
+
+
+@pytest.mark.slow
+def test_a_completed_results_questions_are_listed_as_open_and_nothing_waits(tmp_path):
+    cli, project = fresh(tmp_path)
+    run = cli.run("start", "fit-check", "--inputs", json.dumps(FIT_INPUTS))["run_id"]
+    out = manual(cli, project, run, "describe", GOOD_PROFILE, questions_for_human=QUESTIONS[:2])
+    assert out["outcome"] == "passed"
+    st = status(cli, run)
+    assert st["needs_owner"] is False and st["pending_decisions"] == []
+    assert [(o["step_path"], o["attempt"], [q["id"] for q in o["questions"]]) for o in st["open_questions"]] == [("describe", 1, ["site", "permits"])]
+    board = cli.run("board")["runs"][0]
+    assert board["open_questions"] == st["open_questions"] and board["needs_owner"] is False

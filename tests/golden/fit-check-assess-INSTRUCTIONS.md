@@ -127,8 +127,11 @@ File: `inputs/recipes.json` (application/json)
 }
 ```
 
-- Use `blocked` with `questions_for_human` when only the owner can answer something; `failed` when
-  you cannot do the step. Never guess or improvise around a mismatch: report it.
+- Use `blocked` with `questions_for_human` when only the owner can answer something you cannot go on
+  without; `failed` when you cannot do the step. Never guess or improvise around a mismatch: report it.
+- A `completed` result may also list `questions_for_human` for choices you made on a reasonable guess that
+  the owner should confirm, with your guess as `best_guess`. The work goes on; the owner's answers reach
+  later attempts and reviews. A choice the work cannot rest on until the owner decides is still `blocked`.
 - The output schema and required artifacts apply only to `completed` results. For `blocked` or `failed`,
   return partial `output` or `{}` and list no artifacts. The result envelope, protocol and packet hash
   must still be valid. An unanswered owner choice is `blocked`; never invent a decision to satisfy the schema.

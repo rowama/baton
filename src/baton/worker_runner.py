@@ -69,9 +69,11 @@ Every input is included below. Reply with ONE JSON object and nothing else:
  "output": <an object matching the output schema>,
  "artifacts": {"<declared artifact name>": "<full text of the artifact>"},
  "notes": "<short notes for the record>",
- "questions_for_human": [<only when status is blocked: {"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?, "priority"?: "needed" | "helpful"}>]}
-Use "blocked" with questions_for_human when only the owner can answer something, "failed" when you
-cannot do the step. Ask in the owner's terms; offer a best guess for anything you can infer.
+ "questions_for_human": [<{"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?, "priority"?: "needed" | "helpful"}>]}
+Use "blocked" with questions_for_human when only the owner can answer something you cannot go on
+without, "failed" when you cannot do the step. A "completed" result may also list questions_for_human
+for choices you made on a reasonable guess that the owner should confirm, your guess as best_guess.
+Ask in the owner's terms; offer a best guess for anything you can infer.
 Never guess around a mismatch: report it."""
 
 
@@ -98,9 +100,11 @@ When you are done, call the tool `finish` exactly once. Its arguments are your r
  "output": <an object matching the output schema>,
  "artifacts": {"<declared artifact name>": "<full text of the artifact>"},
  "notes": "<short notes for the record>",
- "questions_for_human": [<only when status is blocked: {"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?, "priority"?: "needed" | "helpful"}>]}
-Use "blocked" with questions_for_human when only the owner can answer something, "failed" when you
-cannot do the step. Ask in the owner's terms; offer a best guess for anything you can infer.
+ "questions_for_human": [<{"id", "ask", "why", "best_guess"?, "options"?: [{"id", "label"}], "multi_select"?, "priority"?: "needed" | "helpful"}>]}
+Use "blocked" with questions_for_human when only the owner can answer something you cannot go on
+without, "failed" when you cannot do the step. A "completed" result may also list questions_for_human
+for choices you made on a reasonable guess that the owner should confirm, your guess as best_guess.
+Ask in the owner's terms; offer a best guess for anything you can infer.
 Never guess around a mismatch: report it."""
 
 #: Replies without a tool call the loop answers with a reminder to call ``finish`` before it gives up.
