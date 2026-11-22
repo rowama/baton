@@ -322,3 +322,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0181 First-use feedback: cost-aware routing by default with subscriptions first; answers carried across rounds; the blocked output reaches its retry; recipe-builder's tiers per step](decisions/0181-first-use-feedback-routing-and-answers.md) | accepted |
 | [0182 Model assessment: shadows graded by their own gates, shared failures forgiven; put back is one tier lower until promoted; $0 budget means free models only; shipped recipes declare effects where clear](decisions/0182-assessment-grading-put-back-budget.md) | accepted |
 | [0183 A worker's fixed evidence is checked in the working tree; a claim that fails its check is dropped, not the result](decisions/0183-disposition-evidence-in-the-tree.md) | accepted |
+| [0184 How the owner's answers are recorded when the questions did not come from a blocked step](decisions/0184-answers-outside-a-blocked-step.md) | proposed |
