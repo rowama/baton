@@ -15,7 +15,7 @@ sections: ["§12.4", "§8.8", "§5.1", "§13.3"]
 
 ## Decision
 
-0. **Scope.** The hold is lifted for four slices: capturing cases with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own later.
+0. **Scope.** The hold is lifted for four slices: capturing cases with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own later. *Amended by [0189](0189-contract-checks-out-of-self-improvement.md): contract checks before runs leave the change, which keeps three slices.*
 1. **Temporary local patch: yes, narrowly.** Offered only for a case classified as a contract contradiction, and only when the patch makes a check less strict, never stricter or different in meaning. Applied on the owner's one-line yes, recorded in the run, dropped automatically when upstream fixes it. (It needs the overlay of local lines, so it arrives with them.)
 2. **Circuit breaker.** The same rejection or gate failure (same check, same reason) on two consecutive attempts stops the retries and escalates as one choice, with the spend so far. A different reason keeps retrying. This extends Decision [0180](0180-worker-failures-escalate.md) and narrows [0183](0183-disposition-evidence-in-the-tree.md), item 4.
 3. **Director skill: upstream only.** It is improved through cases and reports fixed by the maintainer; local lines cover recipes and the owner's communication preferences.

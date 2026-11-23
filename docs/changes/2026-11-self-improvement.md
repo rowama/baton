@@ -3,14 +3,14 @@ id: 2026-11-self-improvement
 title: "Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible"
 status: accepted
 level: major
-decisions: ["0188", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
-touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md, design/platform-and-security.md, design/testing.md]
+decisions: ["0188", "0189", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
+touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md]
 manual: [manual/user/when-something-is-wrong.md, manual/admin/director-commands.md, manual/admin/machine-settings.md, manual/reference/commands.md]
 ---
 
 # Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible
 
-> **Hold lifted for four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), 2026-11-22):** capture with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own; they are kept below, under *Later*, so the thinking isn't lost. Request and Design approved 2026-11-23.
+> **Hold lifted for three slices (Decisions [0188](../decisions/0188-self-improvement-open-questions.md), 2026-11-22, and [0189](../decisions/0189-contract-checks-out-of-self-improvement.md), 2026-11-23):** capture with a repro bundle, the circuit breaker, and baselines with detectors. Contract checks before runs were a fourth until 0189 moved them to [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md): this change handles the problems that got past every check. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own; they are kept below, under *Later*, so the thinking isn't lost. Request and Design approved 2026-11-23.
 >
 > History: Widened on 2026-11-22 from wording-level fixes for owner confusion (the first version, 2026-11-05) to two tracks: **A, learning from what goes wrong**, and **B, learning from how work goes**. The owner settled three questions (Decision [0185](../decisions/0185-self-improvement-direction.md)) and asked for every suggestion of that discussion to be written in; apart from 0185, everything below is a position, not a decision. The measuring part of track B goes ahead now as [2026-11-process-stats](2026-11-process-stats.md). Related: [2026-11-recipe-tree](2026-11-recipe-tree.md) (on hold), whose tree is the route for cases upstream; [2026-11-model-assessment](2026-11-model-assessment.md) (done), which already improves routing from evidence.
 
@@ -70,20 +70,20 @@ Only one of the seven is wording, the only kind the first version handled, and t
 - **Undo.** The owner can ask "what has Baton adjusted for me?" and get a plain answer, with undo.
 - **Privacy.** Nothing leaves the machine unless the owner opted in and saw the exact text being sent.
 
-### Acceptance criteria for this change (Decision 0188, item 0)
+### Acceptance criteria for this change (Decision 0188, item 0, as amended by 0189)
 
 The criteria above are the whole direction. This change delivers these, and the rest (replay, autonomy, undo, privacy, and the digest's proposals) goes to the later changes:
 
 1. **Cases.** A case is a `process_feedback` event with one shape whatever produced it: kind, `source` (`director` or a detector's name), what was shown or measured, the owner's words if any, the evidence (event seqs, attempt paths), the Director's harness and model when it is about the Director, and `fix_in` (where its fix lives). `stats` counts cases per step by kind and `fix_in`.
 2. **Report, without being asked.** When a Baton problem blocks a run, the Director writes a repro bundle (`baton report`) and offers the owner one choice: hold, or a named workaround. The bundle is assembled deterministically from the record, machine-local parts redacted.
 3. **Circuit breaker.** The same rejection or gate failure on two consecutive attempts escalates with reason `repeated_failure`, the spend so far, and no further automatic retry (0188, item 2).
-4. **Contract checks.** Each built-in recipe and every example recipe the project ships passes a simulated run in the suite, through the blocked-and-answered path and a second round of each review loop; recipe-builder's audit checks a recipe's instructions against its schemas and runtime rules.
+4. *(Contract checks before runs: moved to 2026-11-recipe-contract-checks by Decision 0189.)*
 5. **Baselines and detectors.** A recipe can carry baselines; at the end of a run a step well off its baseline opens a case that records its quality guards (so a later proposal can require them holding); a re-asked question opens a case.
 6. **Late defects.** `stats` counts defects found late against the step that produced the file (0188, item 8).
 
 ## Design
 
-### This change: four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), item 0)
+### This change: three slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), item 0; [0189](../decisions/0189-contract-checks-out-of-self-improvement.md))
 
 Nothing here changes a step, gate, schema or recipe on its own; everything recorded is an observation (Principle 5). The *Positions* further down are the background for the later changes and are not part of this design.
 
@@ -103,10 +103,7 @@ It records nothing and changes no state; the Director records a `baton_problem` 
 - Equal signatures: `step_escalated {reason: repeated_failure, reasons, attempts: [n-1, n], spend: {usd, attempts_priced, attempts_included, attempts_unknown}}` instead of `step_ready`, and a `repeated_failure` case. It is checked before the attempt budget, so with `max_attempts: 2` the reason is `repeated_failure`, not `attempts_exhausted`.
 - Different signatures: retry as today. `repeated_failure` joins the escalation reasons (§8.1) and is a stop (§12.4). The Director offers the owner one choice, with the spend so far. A decision readies the step and restarts the budget, as for any escalation.
 
-**D4. Contract checks before runs (§5.1, §15.3, §17).**
-- *Runtime against the packet.* For every rule the packet's INSTRUCTIONS state about results (a blocked or failed result is exempt from the output schema; `fixed` evidence in the attempt's own result; answers carried across rounds; dispositions in a second review round), the suite has a scenario that follows the rule as written and passes. That is the class of `issues/2026-11-20`. The scenarios use `tests/runkit.py` and the fake adapter.
-- *Shipped recipes, simulated.* A small generator in `recipe_check.py` builds a minimal instance of an output schema for the JSON Schema subset recipes use (`type`, `required`, `properties`, `enum`, `const`, `items`, `minItems`, `if`/`then`, `allOf`, `$ref` within the package). Each built-in recipe and each example recipe is simulated in the suite (`slow`): every step returns its generated output; a step whose prompt allows `blocked` (or which asks questions) returns blocked first, then completes on the answers; every review loop runs a second round with `fixed` dispositions citing the new artifact. A schema the generator can't satisfy is a problem reported by name.
-- *Recipe instructions against their schemas.* Prose can't be checked by code, so recipe-builder's audit step gains a contract-consistency check: do its instructions require what the output schema forbids, or forbid what it requires; does each disposition, answer and evidence rule have a way to be met. `baton recipe check` (and `vendor`) runs the generator's satisfiability check on every output schema.
+**D4. Contract checks before runs:** moved out (Decision 0189). Checking recipes before they ship is recipe authoring; this change deals with what got past every check. The recipe-builder audit check and the schema satisfiability warning are proposed as [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md); the runtime's result rules already have their scenario tests from the changes that made them.
 
 **D5. Baselines and detectors (§5.1, §12.4; 0185 item 3, 0187 item 2, 0188 item 8).**
 - *Baselines.* An optional `baselines.json` in a recipe package: per step id, the medians of `cost_usd`, `duration_s`, `attempts`, `iterations`, `owner_stops` and `owner_questions`, with `samples`, plus `derived {from, runs, recipe_versions, date}`. It is part of the package and its hash, so it changes with a recipe version. `baton recipe baselines <recipe> [--project <dir>]...` writes it from the completed runs in the projects named (the owner's own, as reference owner), medians only.
@@ -120,8 +117,7 @@ It records nothing and changes no state; the Director records a `baton_problem` 
 - `design/experts.md` §12.4: case fields, the new kinds and sources, `stats` `cases` and `defects_late`, the detectors, baselines.
 - `design/runtime.md` §8.1, §8.2, §8.8: the `repeated_failure` escalation and its event fields; the circuit breaker.
 - `design/director-interface.md` §13.1, §13.3, §13.8: `report`, the new `feedback` options, the skill's rules for cases, reports, the hold-or-workaround choice and "Is that clearer?".
-- `design/recipes.md` §5.1: `baselines.json`; `recipe baselines`; the satisfiability check in `recipe check`.
-- `design/platform-and-security.md` §15.3: the simulated runs of shipped recipes; `design/testing.md` §17: the contract scenarios.
+- `design/recipes.md` §5.1: `baselines.json`; `recipe baselines`.
 
 ### Manual edits
 
@@ -265,7 +261,8 @@ Case, candidate, local line, baseline and digest are internal vocabulary; the ow
 - [0181](../decisions/0181-first-use-feedback-routing-and-answers.md) (accepted): answers last across rounds, so a re-asked question is a detectable fault.
 - [0184](../decisions/0184-answers-outside-a-blocked-step.md) (accepted): a completed result may carry questions on its guesses; such guesses are themselves a measure (track B).
 - [0026](../decisions/0026-judges.md) (accepted): judges from a different vendor.
-- [0188](../decisions/0188-self-improvement-open-questions.md) (accepted): this change's scope (four slices), the temporary local patch, the circuit breaker, the Director skill upstream only, promotion after replay plus 3 clean uses, where the digest goes, what may be shared, baselines across owners left open, and late defects counted deterministically.
+- [0189](../decisions/0189-contract-checks-out-of-self-improvement.md) (accepted): contract checks leave this change, which keeps three slices.
+- [0188](../decisions/0188-self-improvement-open-questions.md) (accepted): this change's scope (four slices, three after 0189), the temporary local patch, the circuit breaker, the Director skill upstream only, promotion after replay plus 3 clean uses, where the digest goes, what may be shared, baselines across owners left open, and late defects counted deterministically.
 - [0187](../decisions/0187-process-stats-details.md) (accepted), items 2, 3 and 6: medians, late defects moved here, what a stop is.
 
 ## Plan
@@ -284,11 +281,9 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 - **Criteria:** the same rejection twice escalates `repeated_failure` with both attempts and the spend, and records a `repeated_failure` case; reasons differing only in attempt number, SHA or line number match; different reasons retry; the same failure of a different gate retries; with `max_attempts: 2` the reason is `repeated_failure`; trial attempts are skipped; a decision readies the step with a fresh budget; `stats` counts it as a stop; the 2026-11-20 disposition case, replayed through runkit, stops after its second attempt.
 - **Effort:** S
 
-### Slice 3: contract checks before runs
+### Slice 3: contract checks before runs (moved out)
 
-- **Outcome:** D4.
-- **Criteria:** the contract scenarios pass; the generator yields a valid instance for every output schema of every built-in and example recipe and reports an unsatisfiable one by name (e.g. the recipe-builder@7 research rule, kept as a fixture); every built-in and example recipe completes a simulated run through blocked-and-answered and second review rounds; `recipe check` reports an unsatisfiable schema; recipe-builder's audit prompt holds the contract-consistency check.
-- **Effort:** L (the generator and ten recipes' runs)
+- Moved to [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md) by Decision 0189. The number is kept so the slices' names stay stable.
 
 ### Slice 4: baselines and detectors
 
@@ -360,3 +355,8 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 - **Modules:** `engine.py` (`_failure_signature`).
 - **Design docs:** §8.8 (the exclusion); D3 above.
 - **Tests:** `test_reviews.py::test_a_superseded_evaluation_cannot_be_dispositioned` passes as written (a second review round with the same finding retries); `test_capability_states.py` (three schema-failure tests); `test_recipe_builder_runs.py::test_drafted_examples_are_approved_and_a_program_that_special_cases_the_awkward_one_is_built_again` (the owner's retry after `repeated_failure`).
+
+### Slice 3 moved out
+
+- **Summary:** On starting Slice 3, schema-generated outputs turned out to fail most shipped recipes' script gates (ledger, guess and budget checks), so simulated runs would mostly stop at the circuit breaker and test nothing about contradictions; and the recipe-builder@7 contradiction it was meant to catch was between prompt and schema, which no schema check sees (its research schema is satisfiable). The owner asked whether the slice belonged here at all: self-improvement deals with problems that escape design, implementation and testing, by fixing them upstream and adding them to the regression, as the 2026-11-20 issue went (fixed in recipe-builder, covered by `test_recipe_builder_runs.py`). Slice 3 leaves the change; the audit check and the satisfiability warning are kept as the proposed change 2026-11-recipe-contract-checks. Design platform-and-security.md and testing.md are no longer touched. No code changed.
+- **Owner decision:** 2026-11-23, "Proceed as you have suggested" (0189).

@@ -327,3 +327,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0186 Recipe builder's design may not rest on a guessed choice: a gate refuses any inferred decision, smaller guesses are asked without blocking](decisions/0186-builder-asks-not-guesses.md) | accepted |
 | [0187 Process statistics: seen through the process SME, raw waits, late defects later, unmeasured subscription routes included, the included flag recorded at dispatch, one stop per held step](decisions/0187-process-stats-details.md) | accepted |
 | [0188 Self-improvement: four slices now, the rest held; local patches, the circuit breaker, upstream-only skill fixes, promotion, digest, sharing and late defects settled](decisions/0188-self-improvement-open-questions.md) | accepted |
+| [0189 Self-improvement: contract checks before runs leave the change; it handles problems that got past every check](decisions/0189-contract-checks-out-of-self-improvement.md) | accepted |
