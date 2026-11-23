@@ -94,3 +94,10 @@ All six settled by the owner on 2026-11-22 as suggested ("All as suggested"): De
 ### Accepted
 
 - **Summary:** The owner answered the six open questions (four from the Request, two found in the code) "All as suggested", 2026-11-22. Decision 0187 recorded.
+
+### Slice 1: cost, owner burden and outcome in stats
+
+- **Summary:** `sme.stats()` gains per step `cost`, `owner` and `outcome`, and `recipes` per recipe version; every dispatch's `worker_selected` records `included` (`routing.included`, Decision 0187, item 5). A stop is a `human_gate_opened`, `step_escalated` or `iteration_limit_reached`, ended by the next owner decision on the same path (an answer to open questions ends none). Questions come from `result_submitted.questions` and blocked escalations' `questions`; `reasked` checks ids already answered for the same qualified step in the run; `open` is the latest result's questions still unanswered at the run's end. `gate_first_try` counts step instances whose first `human_decision {kind: gate}` was `approve` or `select`. An iteration limit's stop and the decision on it are keyed by the group (`<recipe>@<v>/<group>`), as `iterations` is. The stats input's label in a process consultation names the new keys.
+- **Modules:** `src/baton/sme.py` (`stats`, `_key`, `_usage`, `_STOPS`), `src/baton/engine.py` (dispatch records `included`).
+- **Design docs:** `design/experts.md` §12.4, `design/runtime.md` §8.2.
+- **Tests:** `tests/test_process_stats.py` (from a recorded log of two runs: priced, included, tokens-without-cost and pre-flag attempts; open answers, a re-asked and an open question; a blocked escalation counted once; an iteration limit; waits; first-try, rejections and drift edits; recipe totals and means; existing keys unchanged); `tests/test_routing.py` (`worker_selected` carries `included`).

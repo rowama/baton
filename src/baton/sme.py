@@ -276,7 +276,9 @@ def resolve(src: Sources, raw: str, subject: str) -> list[Item]:
         fb = [dict(e.data, seq=e.seq, ts=e.ts, actor=e.actor) for e in src.project.store.project_log().events() if e.type == "process_feedback"]
         return [Item(raw, "process feedback recorded in this project", "feedback.json", _redacted(_json(fb)), "application/json")]
     if kind == "stats":
-        return [Item(raw, "process statistics of this project (derived from every run's events)", "stats.json", _json(stats(src.project.store)), "application/json")]
+        return [Item(raw, "process statistics of this project (derived from every run's events): per step attempts, outcomes, failure classes, "
+                     "time, cost (priced, included, unknown), owner burden (stops, questions, re-asked, waits) and outcome at the "
+                     "owner's gates; iterations; reviews; and per recipe version run totals and means (§12.4)", "stats.json", _json(stats(src.project.store)), "application/json")]
     if kind == "lessons":
         p = src.baton / "process" / "lessons.md"
         content = p.read_bytes() if p.is_file() else b"No process lessons are recorded yet.\n"
@@ -948,15 +950,46 @@ def qualified(recipe_ref: str, step_path: str) -> str:
     return f"{recipe_ref}/{'/'.join(out)}"
 
 
+#: Events that hold a step until the owner decides (Decision 0187, item 6): each is one stop.
+_STOPS = ("human_gate_opened", "step_escalated", "iteration_limit_reached")
+
+
+def _key(recipe_ref: str, path: str) -> str:
+    """``qualified``, for a step path or a group instance's path (an iteration limit's, and the owner's decision on it)."""
+    k = qualified(recipe_ref, path + "/i1/x")
+    return k[:-2] if k.endswith("/x") and not k.endswith("/i1/x") else qualified(recipe_ref, path)
+
+
+def _ts(e: Any) -> datetime:
+    return datetime.fromisoformat(e.ts.replace("Z", "+00:00"))
+
+
+def _usage(run_dir: Path | None, step_path: str, attempt: int) -> dict[str, Any] | None:
+    """An attempt's ``usage.json`` (Decision 0177), or ``None`` when it wrote none."""
+    if run_dir is None:
+        return None
+    try:
+        u = json.loads((run_dir / "steps" / PurePosixPath(step_path) / f"attempt-{attempt}" / "usage.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # expected: a route that measures nothing (a harness CLI, a person) writes no usage record
+        return None
+    return u if isinstance(u, dict) else None
+
+
 def stats(store: Any) -> dict[str, Any]:
-    """Attempts, outcomes, failure classes, time per step, iterations and review statistics across every run."""
+    """Attempts, outcomes, failure classes, time per step, iterations, review statistics, cost, owner burden and
+    outcome at the owner's gates, across every run; and per recipe version, run totals (§12.4, Decision 0187)."""
     steps: dict[str, dict[str, Any]] = {}
     reviews: dict[str, dict[str, Any]] = {}
     iterations: dict[str, list[int]] = {}
+    recipes: dict[str, dict[str, Any]] = {}
 
     def step(q: str) -> dict[str, Any]:
         return steps.setdefault(q, {"runs": set(), "attempts": 0, "passed": 0, "rejected": 0, "gate_failures": 0, "timeouts": 0,
-                                    "escalations": {}, "failure_classes": {}, "durations_s": []})
+                                    "escalations": {}, "failure_classes": {}, "durations_s": [],
+                                    "cost": {"usd": 0.0, "tokens_in": 0, "tokens_out": 0,
+                                             "attempts_priced": 0, "attempts_included": 0, "attempts_unknown": 0},
+                                    "owner": {"stops": 0, "questions": 0, "open": 0, "reasked": 0, "decisions": 0, "waits_s": []},
+                                    "outcome": {"gate_first_try": 0, "gate_rejections": 0, "owner_edits": 0}})
 
     for rid in store.run_ids():
         try:
@@ -967,12 +1000,62 @@ def stats(store: Any) -> dict[str, Any]:
         if not events or events[0].type != "run_started":
             continue
         recipe = events[0].data.get("recipe") or "?"
+        run_dir = Path(store.run_dir(rid)) if hasattr(store, "run_dir") else None  # usage records live in the run folder
+        rr = recipes.setdefault(recipe, {"runs": 0, "completed": 0, "abandoned": 0, "cost_usd": [], "owner_stops": [], "owner_wait_s": []})
+        rr["runs"] += 1
+        run_cost, run_stops, run_wait = 0.0, 0, 0.0
         dispatched: dict[tuple[str, int], tuple[datetime, str]] = {}
+        selected: dict[tuple[str, int], dict[str, Any]] = {}
         evals: dict[str, list[dict[str, Any]]] = {}
         inst_iters: dict[str, int] = {}
+        open_stops: dict[str, list[datetime]] = {}  # step path -> times of stops not yet decided
+        answered: dict[str, set[str]] = {}  # qualified step -> question ids the owner answered in this run
+        latest_asked: dict[str, list[str]] = {}  # qualified step -> question ids of its latest result
+        first_gate: set[str] = set()  # step paths whose first gate decision is counted
         for e in events:
             if e.type == "iteration_started" and e.step_path:
                 inst_iters[e.step_path] = max(inst_iters.get(e.step_path, 0), int(e.data.get("iteration") or 0))
+            elif e.type == "run_completed":
+                rr["completed"] += 1
+            elif e.type == "run_abandoned":
+                rr["abandoned"] += 1
+            if e.type == "worker_selected" and e.step_path:
+                selected[(e.step_path, e.attempt or 0)] = e.data
+                continue
+            if e.type in _STOPS and e.step_path:
+                o = step(_key(recipe, e.step_path))["owner"]
+                o["stops"] += 1
+                run_stops += 1
+                open_stops.setdefault(e.step_path, []).append(_ts(e))
+            if e.type == "human_decision":
+                path = e.step_path or e.data.get("ref")
+                if not path or e.data.get("kind") in ("rating_signal", "skip_notice"):
+                    continue
+                q = _key(recipe, path)
+                s = step(q)
+                s["runs"].add(rid)
+                s["owner"]["decisions"] += 1
+                if e.data.get("kind") == "answers":
+                    ids = {a.get("id") for a in e.data.get("answers") or [] if isinstance(a, dict)}
+                    answered.setdefault(q, set()).update(i for i in ids if isinstance(i, str))
+                if e.data.get("kind") == "gate":
+                    d = e.data.get("decision")
+                    if d == "reject":
+                        s["outcome"]["gate_rejections"] += 1
+                    if path not in first_gate:
+                        first_gate.add(path)
+                        if d in ("approve", "select"):
+                            s["outcome"]["gate_first_try"] += 1
+                if not e.data.get("open") and open_stops.get(path):  # an answer to open questions ends no stop (0184)
+                    t = _ts(e)
+                    for t0 in open_stops.pop(path):
+                        w = (t - t0).total_seconds()
+                        s["owner"]["waits_s"].append(w)
+                        run_wait += w
+                continue
+            if e.type == "human_revision_ingested" and e.step_path and e.data.get("source") == "drift":
+                step(qualified(recipe, e.step_path))["outcome"]["owner_edits"] += 1
+                continue
             if not e.step_path or e.type not in (
                 "dispatched", "step_passed", "result_rejected", "gate_failed", "step_timed_out", "step_escalated",
                 "failure_classified", "result_submitted", "findings_recorded", "finding_dispositioned",
@@ -981,13 +1064,39 @@ def stats(store: Any) -> dict[str, Any]:
             q = qualified(recipe, e.step_path)
             s = step(q)
             s["runs"].add(rid)
+            asked: list[Any] = []
+            if e.type == "result_submitted":
+                asked = e.data.get("questions") or []
+                latest_asked[q] = [x.get("id") for x in asked if isinstance(x, dict)]
+            elif e.type == "step_escalated" and e.data.get("reason") == "blocked":
+                asked = e.data.get("questions") or []
+                latest_asked[q] = [x.get("id") for x in asked if isinstance(x, dict)]
+            for x in asked:
+                s["owner"]["questions"] += 1
+                if isinstance(x, dict) and x.get("id") in answered.get(q, set()):
+                    s["owner"]["reasked"] += 1
             if e.type == "dispatched":
                 s["attempts"] += 1
-                dispatched[(e.step_path, e.attempt or 0)] = (datetime.fromisoformat(e.ts.replace("Z", "+00:00")), e.data.get("profile") or "?")
+                n = e.attempt or 0
+                dispatched[(e.step_path, n)] = (_ts(e), e.data.get("profile") or "?")
+                u = _usage(run_dir, e.step_path, n)
+                c = s["cost"]
+                if u:
+                    c["tokens_in"] += int(u.get("input_tokens") or 0)
+                    c["tokens_out"] += int(u.get("output_tokens") or 0)
+                usd = u.get("cost_usd") if u else None
+                if isinstance(usd, (int, float)) and not isinstance(usd, bool):
+                    c["usd"] += float(usd)
+                    c["attempts_priced"] += 1
+                    run_cost += float(usd)
+                elif selected.get((e.step_path, n), {}).get("included") is True:
+                    c["attempts_included"] += 1  # a subscription route: included, tokens or not (0187, items 4 and 5)
+                else:
+                    c["attempts_unknown"] += 1
             elif e.type == "result_submitted":
                 d = dispatched.get((e.step_path, e.attempt or 0))
                 if d:
-                    s["durations_s"].append((datetime.fromisoformat(e.ts.replace("Z", "+00:00")) - d[0]).total_seconds())
+                    s["durations_s"].append((_ts(e) - d[0]).total_seconds())
             elif e.type == "step_passed" and not e.data.get("confirmed"):
                 s["passed"] += 1
             elif e.type == "result_rejected":
@@ -1020,6 +1129,11 @@ def stats(store: Any) -> dict[str, Any]:
                     disp = e.data.get("disposition") or "?"
                     rd = reviews[ks[-1]]["dispositions"]
                     rd[disp] = rd.get(disp, 0) + 1
+        for q, ids in latest_asked.items():
+            step(q)["owner"]["open"] += len([i for i in ids if i not in answered.get(q, set())])
+        rr["cost_usd"].append(run_cost)
+        rr["owner_stops"].append(run_stops)
+        rr["owner_wait_s"].append(run_wait)
         for line, ev in evals.items():
             for i, x in enumerate(ev, start=1):
                 if not x["blocking"]:
@@ -1030,9 +1144,25 @@ def stats(store: Any) -> dict[str, Any]:
     out_steps = {}
     for q, s in sorted(steps.items()):
         d = s.pop("durations_s")
+        w = s["owner"].pop("waits_s")
+        s["cost"]["usd"] = round(s["cost"]["usd"], 6)
+        s["owner"].update({"wait_s_total": round(sum(w), 3), "wait_s_max": max(w) if w else None})
         out_steps[q] = {**s, "runs": len(s["runs"]), "mean_duration_s": round(sum(d) / len(d), 3) if d else None, "max_duration_s": max(d) if d else None}
+
+    def total_mean(v: list[float]) -> tuple[float, float | None]:
+        return round(sum(v), 6), (round(sum(v) / len(v), 6) if v else None)
+
+    out_recipes = {}
+    for r, x in sorted(recipes.items()):
+        cost, cost_mean = total_mean(x["cost_usd"])
+        stops, stops_mean = total_mean(x["owner_stops"])
+        wait, wait_mean = total_mean(x["owner_wait_s"])
+        out_recipes[r] = {"runs": x["runs"], "completed": x["completed"], "abandoned": x["abandoned"],
+                          "cost_usd": {"total": cost, "mean": cost_mean}, "owner_stops": {"total": int(stops), "mean": stops_mean},
+                          "owner_wait_s": {"total": wait, "mean": wait_mean}}
     return {
         "steps": out_steps,
         "iterations": {g: {"instances": len(v), "mean": round(sum(v) / len(v), 3), "max": max(v)} for g, v in sorted(iterations.items())},
         "reviews": dict(sorted(reviews.items())),
+        "recipes": out_recipes,
     }

@@ -48,7 +48,7 @@ from .packet import (
     view_of,
 )
 from .recipe import LoadedRecipe, build_plan, load_recipe
-from .routing import identity_record
+from .routing import identity_record, included as route_included
 from .redact import redact_text
 from .runner_tools import DEFAULT_TOOL_CALLS, SEARCH_KEY_VAR
 from .state import SATISFIES_DEPS, IllegalTransition
@@ -684,6 +684,7 @@ def begin_attempt(
         if head:
             dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it)
     selected = identity_record(profile_name, profile)  # identity and route, for independence (§8.4, 0075)
+    selected["included"] = route_included(profile)  # a subscription the owner already pays for, for stats (§12.4, 0187)
     if excluded is not None:
         selected["excluded"] = excluded  # the profiles routing left out, with reasons: every dispatch, not only a failed one (§8.4)
     if selected_extra:
