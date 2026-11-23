@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-process-stats](2026-11-process-stats.md) | Process statistics also count what work costs, how much of the owner it takes, and how often the owner accepts it first time | accepted | standard | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
@@ -35,6 +34,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-model-assessment](2026-11-model-assessment.md) | Baton learns what each model can do from checks run once, published evaluations and safe use, so cheaper models can take real work | done | major |  |
 | [2026-11-model-listings](2026-11-model-listings.md) | Every model a connected provider offers can become a worker, with its price, and free or cheap capable models are found and preferred | done | major | |
 | [2026-11-not-offered-reasons](2026-11-not-offered-reasons.md) | Worker status says which catalog it read and exactly why a generated profile is no longer offered | done | minor | |
+| [2026-11-process-stats](2026-11-process-stats.md) | Process statistics also count what work costs, how much of the owner it takes, and how often the owner accepts it first time | done | standard | |
 | [2026-11-program-steps](2026-11-program-steps.md) | A recipe's tool is renamed a program, so "tool" means only what a model or a harness calls | done | standard | |
 | [2026-11-project-documents](2026-11-project-documents.md) | Runs bind the project's accepted or attested documents as inputs, by role, so one process can build on what another settled | done | major | |
 | [2026-11-project-policy](2026-11-project-policy.md) | A project sets a few rules every run follows: minimum ratings, who may release, and which recipe governs a kind of work | done | major | |
