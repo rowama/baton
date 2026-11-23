@@ -373,3 +373,4 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 ### Done
 
 - **Summary:** Slices 1, 2 and 4 delivered; Slice 3 moved out (Decision 0189). Acceptance criteria 1 to 3, 5 and 6 are demonstrated by `tests/test_cases_and_reports.py`, `tests/test_circuit_breaker.py` and `tests/test_baselines.py`; criterion 4 went to 2026-11-recipe-contract-checks. Full suite green on `a0a4120` (Slice 4) and `ce6ed06` (the Slice 2 repair). Replay, local lines with the digest, sharing upstream and the analyst remain sketched under *Later*, each to be its own change.
+- **Repair:** The full suite on `2219d04` (docs only since the green `a0a4120`) was red on `test_director_surface.py::test_http_serves_the_api_to_bearer_holders_only`: the port probe connected but the first request was refused, under the parallel suite's load. The test passed alone 3 times out of 3. It now waits until the server itself answers (its 401) before going on.

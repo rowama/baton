@@ -692,15 +692,16 @@ def test_http_serves_the_api_to_bearer_holders_only(tmp_path):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     url = f"http://127.0.0.1:{port}/mcp"
     try:
+        # Ready when the server itself answers: an open socket alone raced under a loaded parallel suite (2219d04).
         deadline = time.monotonic() + 30
         while True:
             try:
-                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                first = httpx2.post(url, json={}, timeout=2)
                 break
-            except OSError:
+            except httpx2.TransportError:
                 assert proc.poll() is None and time.monotonic() < deadline, proc.stderr.read().decode() if proc.poll() is not None else "timeout"
                 time.sleep(0.1)
-        assert httpx2.post(url, json={}).status_code == 401
+        assert first.status_code == 401
         assert httpx2.post(url, json={}, headers={"Authorization": "Bearer wrong-token-0123456789"}).status_code == 401
 
         async def main():
