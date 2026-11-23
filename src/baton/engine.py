@@ -873,11 +873,11 @@ def _record_worker_feedback(ctx: RunContext, step_path: str, n: int, actor: str,
         plog = ctx.store.project_log()
         for it in items:
             d = it if isinstance(it, dict) else {"text": str(it)}
-            kind = d.get("kind") if d.get("kind") in sme.FEEDBACK_KINDS and d.get("kind") != "skipped_step" else "friction"
+            kind = d.get("kind") if d.get("kind") in sme.WORKER_KINDS else "friction"
             text = redact_text(str(d.get("text") or json.dumps(d, sort_keys=True)))[:2000]
             plog.append("process_feedback", actor=actor, data={
                 "kind": kind, "text": text, "run": ctx.run_id, "step_path": step_path, "attempt": n,
-                "qualified": sme.qualified(ctx.recipe.recipe.ref, step_path),
+                "qualified": sme.qualified(ctx.recipe.recipe.ref, step_path), "source": "worker",
             })
 
 
@@ -5770,17 +5770,31 @@ class Api:
         sme.project_append(self.project, "platform_fact_recorded", {"fact": text, "source": "runtime", "observed": True})
 
     def feedback(self, kind: str, text: str, run_id: str | None = None, step_path: str | None = None,
-                 gate: str | None = None, informed_owner: bool = False) -> dict[str, Any]:
-        """Record process feedback (§12.4). A report that a blocking gate or approval was skipped outside
+                 gate: str | None = None, informed_owner: bool = False, *, fix_in: str | None = None,
+                 evidence: list[str] | None = None, owner_words: str | None = None,
+                 director_harness: str | None = None, director_model: str | None = None,
+                 clarified_before: str | None = None, clarified_after: str | None = None,
+                 owner_reply: str | None = None, report: str | None = None) -> dict[str, Any]:
+        """Record process feedback, a case (§12.4). A report that a blocking gate or approval was skipped outside
         Baton (``skipped_step``) is surfaced to the owner at once: ``on_needs_human`` fires and a notice
         stays pending (``decide <run> skip:<seq> acknowledge``) until the owner acknowledges it.
+
+        The keyword fields make it a case (change 2026-11-self-improvement, D1): where its fix lives, the evidence,
+        the owner's words, the Director's harness and model when it is about the Director, the "Is that clearer?"
+        check, and the repro bundle written for it.
         """
         from . import docs, sme, supervisor
 
-        if kind not in sme.FEEDBACK_KINDS:
-            raise EngineError("feedback.bad_kind", f"kind must be one of {', '.join(sme.FEEDBACK_KINDS)}, got {kind!r}")
+        if kind not in sme.FEEDBACK_KINDS or kind in sme.DETECTOR_KINDS:
+            allowed = [k for k in sme.FEEDBACK_KINDS if k not in sme.DETECTOR_KINDS]
+            raise EngineError("feedback.bad_kind", f"kind must be one of {', '.join(allowed)}, got {kind!r}")
         if not text.strip():
             raise EngineError("feedback.empty", "feedback needs text")
+        if fix_in is not None and fix_in not in sme.FIX_IN:
+            raise EngineError("feedback.bad_fix_in", f"--fix-in must be one of {', '.join(sme.FIX_IN)}, got {fix_in!r}")
+        clarified = {k: v for k, v in (("before", clarified_before), ("after", clarified_after), ("owner_reply", owner_reply)) if v}
+        if clarified and (kind != "confusing" or not (clarified_before and clarified_after)):
+            raise EngineError("feedback.clarified", "the clarification check is recorded on a confusing case, with both the wording before and after")
         ctx = self._ctx(run_id) if run_id else None
         blocking = None
         if kind == "skipped_step":
@@ -5806,6 +5820,20 @@ class Api:
             data["gate"] = gate
         if informed_owner:
             data["informed_owner"] = True
+        data["source"] = "director"
+        if fix_in:
+            data["fix_in"] = fix_in
+        ev = [x.strip() for x in evidence or [] if x.strip()]
+        if ev:
+            data["evidence"] = ev
+        if owner_words:
+            data["owner_words"] = redact_text(owner_words)  # verbatim but for secrets, as notes are (§13.8)
+        if director_harness or director_model:
+            data["director"] = {k: v for k, v in (("harness", director_harness), ("model", director_model)) if v}
+        if clarified:
+            data["clarified"] = {k: redact_text(v) for k, v in clarified.items()}
+        if report:
+            data["report"] = report
         fb = sme.project_append(self.project, "process_feedback", data, actor=self.director.actor)
         out: dict[str, Any] = {"recorded": True, "seq": fb.seq}
         if kind == "skipped_step":
@@ -5833,6 +5861,17 @@ class Api:
         if cp is not None:
             out["checkpoint"] = cp.as_dict()
         return out
+
+    def report(self, run_id: str, step_path: str | None = None, case: int | None = None, title: str | None = None) -> dict[str, Any]:
+        """Write a repro bundle for a Baton problem in a run (change 2026-11-self-improvement, D2). Records nothing."""
+        from . import report
+
+        ctx = self._ctx(run_id)
+        try:
+            c = report.case_event(self.project, case) if case is not None else None
+            return report.write(self.project, ctx, step_path, c, title)
+        except report.ReportError as e:
+            raise EngineError(e.code, str(e)) from e
 
     # consultations
 

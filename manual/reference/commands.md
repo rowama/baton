@@ -265,18 +265,27 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 
 ## baton feedback {#baton-feedback}
 
-Record process feedback; a skipped blocking gate or approval is surfaced to the owner at once.
+Record process feedback, a case; a skipped blocking gate or approval is surfaced to the owner at once.
 
 Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
 
 | Argument or option | What it does |
 |---|---|
-| `kind <str>` | friction \| skipped_step \| waste \| confusing |
+| `kind <str>` | friction \| skipped_step \| waste \| confusing \| baton_problem |
 | `text <str>` | What happened. |
 | `--run <str>` | The run it concerns. |
 | `--step <str>` | The step it concerns. |
 | `--gate <str>` | skipped_step: the gate skipped (index or type). |
 | `--informed-owner` | skipped_step: the owner was told at the time. |
+| `--fix-in <str>` | Where the fix lives: local_wording \| local_preference \| local_settings \| recipe_shape \| upstream. |
+| `--evidence <str>` | An event seq or attempt path that shows it (repeatable). |
+| `--owner-words <str>` | What the owner said, verbatim. |
+| `--director-harness <str>` | About the Director's behaviour: the Director's harness. |
+| `--director-model <str>` | About the Director's behaviour: the Director's model. |
+| `--clarified-before <str>` | confusing: the wording that confused the owner. |
+| `--clarified-after <str>` | confusing: the rewording that got them unstuck. |
+| `--owner-reply <str>` | confusing: the owner's answer to "Is that clearer?". |
+| `--report <str>` | The repro bundle written for it (baton report). |
 | `--json` | Machine-readable output. |
 
 ## baton frame {#baton-frame}
@@ -650,6 +659,20 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 |---|---|
 | `run <str>` | Run id. |
 | `step <str>` | Step path. |
+| `--json` | Machine-readable output. |
+
+## baton report {#baton-report}
+
+Write a repro bundle for a Baton problem under .baton/reports/: a report to complete and the redacted evidence.
+
+Explained in the manual: [The commands an assistant uses](admin.director-commands#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `run <str>` | The run that hit the problem. |
+| `step <str>` | The step it concerns. |
+| `--case <int>` | The case (process feedback seq) it reports. |
+| `--title <str>` | A short title for the report. |
 | `--json` | Machine-readable output. |
 
 ## baton resume {#baton-resume}

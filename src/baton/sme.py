@@ -55,7 +55,13 @@ CONSULTATION_ID = re.compile(r"^c_[0-9a-f]{8}$")
 #: Capabilities a pasted prompt cannot carry: an expert relying on any of them
 #: answers by working on this machine (§18 #17).
 NO_HANDOFF = ("shell", "code_exec", "workspace_read", "repo_workspace", "file_write")
-FEEDBACK_KINDS = ("friction", "skipped_step", "waste", "confusing")
+FEEDBACK_KINDS = ("friction", "skipped_step", "waste", "confusing", "baton_problem", "repeated_failure", "off_baseline", "reasked")
+#: Kinds only a detector records (change 2026-11-self-improvement, D3, D5): never accepted from ``feedback``.
+DETECTOR_KINDS = ("repeated_failure", "off_baseline", "reasked")
+#: Kinds a worker may report in its result (§7.2); anything else is recorded as friction.
+WORKER_KINDS = ("friction", "waste", "confusing")
+#: Where a case's fix lives (D1); absent while nobody has classified it.
+FIX_IN = ("local_wording", "local_preference", "local_settings", "recipe_shape", "upstream")
 PROMOTE_TARGETS = ("decision", "fact", "lesson", "proposal", "revision")
 LOG_TAIL = 64 * 1024
 TEXT_INLINE = 16 * 1024
@@ -278,7 +284,8 @@ def resolve(src: Sources, raw: str, subject: str) -> list[Item]:
     if kind == "stats":
         return [Item(raw, "process statistics of this project (derived from every run's events): per step attempts, outcomes, failure classes, "
                      "time, cost (priced, included, unknown), owner burden (stops, questions, re-asked, waits) and outcome at the "
-                     "owner's gates; iterations; reviews; and per recipe version run totals and means (§12.4)", "stats.json", _json(stats(src.project.store)), "application/json")]
+                     "owner's gates; cases (process feedback) per step by kind and where their fix lives; iterations; reviews; and per "
+                     "recipe version run totals and means (§12.4)", "stats.json", _json(stats(src.project.store)), "application/json")]
     if kind == "lessons":
         p = src.baton / "process" / "lessons.md"
         content = p.read_bytes() if p.is_file() else b"No process lessons are recorded yet.\n"
@@ -1160,8 +1167,19 @@ def stats(store: Any) -> dict[str, Any]:
         out_recipes[r] = {"runs": x["runs"], "completed": x["completed"], "abandoned": x["abandoned"],
                           "cost_usd": {"total": cost, "mean": cost_mean}, "owner_stops": {"total": int(stops), "mean": stops_mean},
                           "owner_wait_s": {"total": wait, "mean": wait_mean}}
+    cases: dict[str, dict[str, Any]] = {}
+    for e in store.project_log().events():
+        if e.type != "process_feedback":
+            continue
+        d = e.data or {}
+        c = cases.setdefault(d.get("qualified") or "-", {"total": 0, "kinds": {}, "fix_in": {}})
+        c["total"] += 1
+        k, f = str(d.get("kind") or "?"), str(d.get("fix_in") or "unclassified")
+        c["kinds"][k] = c["kinds"].get(k, 0) + 1
+        c["fix_in"][f] = c["fix_in"].get(f, 0) + 1
     return {
         "steps": out_steps,
+        "cases": dict(sorted(cases.items())),
         "iterations": {g: {"instances": len(v), "mean": round(sum(v) / len(v), 3), "max": max(v)} for g, v in sorted(iterations.items())},
         "reviews": dict(sorted(reviews.items())),
         "recipes": out_recipes,

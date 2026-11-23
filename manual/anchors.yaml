@@ -305,6 +305,7 @@ published:
 - reference.commands#baton-recipe-check-guesses
 - reference.commands#baton-recipes
 - reference.commands#baton-record
+- reference.commands#baton-report
 - reference.commands#baton-resume
 - reference.commands#baton-retriage
 - reference.commands#baton-retry
@@ -446,6 +447,7 @@ published:
 - user.what-is-baton#who-does-what
 - user.when-something-is-wrong
 - user.when-something-is-wrong#another-assistant
+- user.when-something-is-wrong#baton-problem
 - user.when-something-is-wrong#here-now
 - user.when-something-is-wrong#key-refused
 - user.when-something-is-wrong#no-helper-ready

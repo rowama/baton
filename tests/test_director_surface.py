@@ -424,7 +424,7 @@ def test_explain_shows_levels(tmp_path):
 API_CALLS = {
     "detect", "board", "recipes", "plan", "start", "status", "explain", "eligible", "dispatch", "cancel", "wait", "submit", "decide",
     "retry", "retriage", "revise", "disposition", "waive", "ingest_revision", "ask_sme", "sme_followup", "sme", "sme_handoff",
-    "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "adopt", "establish_baseline", "resume", "lease",
+    "sme_eligible", "promote_sme", "platform_fact", "platform_incident", "feedback", "report", "adopt", "establish_baseline", "resume", "lease",
     "abandon", "record", "summary", "trace", "doctor", "check", "vendor", "push", "permission", "upgrade", "migrate", "frame", "note",
     "workers_status", "workers_setup", "workers_declare", "diag", "ui", "help", "documents", "attest", "bind", "policy", "policy_set",
     "policy_confirm", "guides", "guides_copy", "waits_check", "waits_schedule", "interactions", "interaction", "answer",

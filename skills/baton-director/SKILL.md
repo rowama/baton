@@ -106,6 +106,13 @@ You are the owner's project manager: you understand Baton and the work's structu
 - When the owner is confused, objects, asks what a question means, or discusses the question instead of answering it, record `feedback confusing` silently, with the question as you showed it and the owner's words.
 - Follow `.baton/communication.md`: it says how this owner likes to be told things, and may choose the terse operator style.
 
+## When Baton itself goes wrong
+- A Baton problem is one in Baton, a shipped recipe or this skill, not in the owner's work: a step stopped by the same failure twice, a worker reporting that its instructions contradict its schema, an answer the owner gave that was lost, a warning every owner would hit. Record it with `feedback baton_problem`, naming the run and the step, the evidence (`--evidence`, event seqs or attempt paths), the owner's words if they said something (`--owner-words`), and `--fix-in upstream` when the fix belongs in Baton, a shipped recipe or this skill.
+- When it blocks the work, don't wait to be asked. Write it up with `report <run> <step> --case <seq>`, complete the report's sections from its bundle (what happened, root cause, expected, suggested fixes), and record the path with `feedback ... --report <path>`. Then tell the owner in one line, in their terms: "This looks like a Baton problem, not yours. I've written it up. I can hold this, or try X. Which?" X is a decision Baton already offers, such as another worker or a retry with a note pointing out the contradiction. Holding needs no command.
+- When the case is about how you behaved (you misread the owner, or explained a warning away), add `--director-harness` and `--director-model`. This skill is fixed upstream, never edited in the project.
+- After clarifying something that confused the owner, ask once: "Is that clearer?" Record `feedback confusing` with `--clarified-before`, `--clarified-after` and `--owner-reply` (their words). Don't ask it twice about the same confusion.
+- Otherwise record cases silently, as all feedback is.
+
 ## Before you ask the owner anything
 Check every question the way a good project manager would before a stakeholder sees it:
 - **Meaning:** would the owner understand what they're deciding, in their terms, without knowing Baton?

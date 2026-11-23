@@ -1297,18 +1297,43 @@ def guides_check(
 
 @app.command()
 def feedback(
-    kind: Annotated[str, typer.Argument(help="friction | skipped_step | waste | confusing")],
+    kind: Annotated[str, typer.Argument(help="friction | skipped_step | waste | confusing | baton_problem")],
     text: Annotated[str, typer.Argument(help="What happened.")],
     run: Annotated[Optional[str], typer.Option("--run", help="The run it concerns.")] = None,
     step: Annotated[Optional[str], typer.Option("--step", help="The step it concerns.")] = None,
     gate: Annotated[Optional[str], typer.Option("--gate", help="skipped_step: the gate skipped (index or type).")] = None,
     informed_owner: Annotated[bool, typer.Option("--informed-owner", help="skipped_step: the owner was told at the time.")] = False,
+    fix_in: Annotated[Optional[str], typer.Option("--fix-in", help="Where the fix lives: local_wording | local_preference | local_settings | recipe_shape | upstream.")] = None,
+    evidence: Annotated[Optional[list[str]], typer.Option("--evidence", help="An event seq or attempt path that shows it (repeatable).")] = None,
+    owner_words: Annotated[Optional[str], typer.Option("--owner-words", help="What the owner said, verbatim.")] = None,
+    director_harness: Annotated[Optional[str], typer.Option("--director-harness", help="About the Director's behaviour: the Director's harness.")] = None,
+    director_model: Annotated[Optional[str], typer.Option("--director-model", help="About the Director's behaviour: the Director's model.")] = None,
+    clarified_before: Annotated[Optional[str], typer.Option("--clarified-before", help="confusing: the wording that confused the owner.")] = None,
+    clarified_after: Annotated[Optional[str], typer.Option("--clarified-after", help="confusing: the rewording that got them unstuck.")] = None,
+    owner_reply: Annotated[Optional[str], typer.Option("--owner-reply", help="confusing: the owner's answer to \"Is that clearer?\".")] = None,
+    report: Annotated[Optional[str], typer.Option("--report", help="The repro bundle written for it (baton report).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Record process feedback; a skipped blocking gate or approval is surfaced to the owner at once."""
-    out = _call(as_json, lambda: _api().feedback(kind, text, run, step, gate, informed_owner))
+    """Record process feedback, a case; a skipped blocking gate or approval is surfaced to the owner at once."""
+    out = _call(as_json, lambda: _api().feedback(
+        kind, text, run, step, gate, informed_owner, fix_in=fix_in, evidence=evidence, owner_words=owner_words,
+        director_harness=director_harness, director_model=director_model, clarified_before=clarified_before,
+        clarified_after=clarified_after, owner_reply=owner_reply, report=report))
     lines = [f"Recorded feedback (seq {out['seq']})."] + _pending_lines(out)
     _done(out, as_json, "\n".join(lines))
+
+
+@app.command("report")
+def report_cmd(
+    run: Annotated[str, typer.Argument(help="The run that hit the problem.")],
+    step: Annotated[Optional[str], typer.Argument(help="The step it concerns.")] = None,
+    case: Annotated[Optional[int], typer.Option("--case", help="The case (process feedback seq) it reports.")] = None,
+    title: Annotated[Optional[str], typer.Option("--title", help="A short title for the report.")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Write a repro bundle for a Baton problem under .baton/reports/: a report to complete and the redacted evidence."""
+    out = _call(as_json, lambda: _api().report(run, step, case, title))
+    _done(out, as_json, f"Wrote {out['report']} and {len(out['files'])} redacted files in {out['path']}/bundle/; complete its sections.")
 
 
 # ---------------------------------------------------------------------------

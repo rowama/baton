@@ -53,6 +53,12 @@ Only one assistant changes a piece of work at a time. If another holds it, you a
 
 Your assistant may end its turn while work runs, and nothing would bring it back. It will tell you this before starting work. It is a warning, not a failure: stay in the conversation, or come back and ask where things stand. To set up an automatic wake-up, see the admin guide.
 
+## A problem in Baton, not in your work {#baton-problem}
+
+Sometimes the work stops because of something in Baton itself: a process's instructions that contradict each other, or an answer you gave that didn't reach the next step. Your assistant tells you in one line ("This looks like a Baton problem, not yours. I've written it up. I can hold this, or try something else. Which?"). Either choice is fine. Holding keeps everything as it is until a fix arrives; the other way round is something Baton already offers, such as giving the step to a different helper.
+
+The write-up stays on your computer, in `.baton/reports/`, with the evidence and your secrets taken out. Nothing is sent anywhere.
+
 ## Still stuck {#still-stuck}
 
 Ask your assistant: it can read Baton's record of what happened. Or search the manual: [using the manual](user.using-the-manual#here-now).

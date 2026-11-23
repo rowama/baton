@@ -410,9 +410,22 @@ def build_server(project: str | Path | None = None, director: str | None = None)
 
     @tool
     def feedback(kind: str, text: str, run: str | None = None, step: str | None = None, gate: str | None = None,
-                 informed_owner: bool = False) -> dict[str, Any]:
-        """Record process feedback (friction | skipped_step | waste | confusing)."""
-        return t.call(lambda api: api.feedback(kind, text, run, step, gate, informed_owner))
+                 informed_owner: bool = False, fix_in: str | None = None, evidence: list[str] | None = None,
+                 owner_words: str | None = None, director_harness: str | None = None, director_model: str | None = None,
+                 clarified_before: str | None = None, clarified_after: str | None = None, owner_reply: str | None = None,
+                 report: str | None = None) -> dict[str, Any]:
+        """Record process feedback, a case (friction | skipped_step | waste | confusing | baton_problem); fix_in:
+        local_wording | local_preference | local_settings | recipe_shape | upstream; owner_words verbatim."""
+        return t.call(lambda api: api.feedback(
+            kind, text, run, step, gate, informed_owner, fix_in=fix_in, evidence=evidence, owner_words=owner_words,
+            director_harness=director_harness, director_model=director_model, clarified_before=clarified_before,
+            clarified_after=clarified_after, owner_reply=owner_reply, report=report))
+
+    @tool
+    def report(run: str, step: str | None = None, case: int | None = None, title: str | None = None) -> dict[str, Any]:
+        """Write a repro bundle for a Baton problem in a run under .baton/reports/ (records nothing): a report.md to
+        complete and the redacted evidence."""
+        return t.call(lambda api: api.report(run, step, case, title))
 
     # -- adoption, setup, permissions -------------------------------------------------
 

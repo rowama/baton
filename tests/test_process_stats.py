@@ -35,6 +35,9 @@ class _Store:
     def run_dir(self, rid: str) -> Path:
         return self.root / rid
 
+    def project_log(self) -> _Run:
+        return _Run([])  # no process feedback: stats' cases are covered in test_cases_and_reports.py
+
 
 class _Log:
     """Builds a run's events, one minute apart unless a time is given."""
@@ -146,7 +149,7 @@ def test_recipe_totals_and_means_per_run(tmp_path: Path) -> None:
 
 def test_existing_keys_are_unchanged(tmp_path: Path) -> None:
     out = _record(tmp_path)
-    assert set(out) == {"steps", "iterations", "reviews", "recipes"}
+    assert set(out) == {"steps", "cases", "iterations", "reviews", "recipes"}  # cases: 2026-11-self-improvement
     d = out["steps"]["r@1/draft"]
     assert {k: d[k] for k in ("runs", "attempts", "passed", "rejected", "gate_failures", "timeouts", "escalations", "failure_classes")} == {
         "runs": 2, "attempts": 3, "passed": 1, "rejected": 0, "gate_failures": 0, "timeouts": 0, "escalations": {}, "failure_classes": {}}

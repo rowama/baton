@@ -88,7 +88,8 @@ An owner talks to an assistant, and the assistant runs these commands (or the sa
 | `sme`, `sme-followup`, `sme-handoff` | Read a consultation, take its next turn, or print a prompt to continue with the expert directly |
 | `promote-sme` | Bring an expert's answer into the work, with the owner's agreement |
 | `platform-fact`, `platform-incident` | Record a durable platform fact; list and resolve platform incidents |
-| `feedback`, `note` | Record process feedback; keep a note the owner asked for, word for word |
+| `feedback`, `note` | Record process feedback, a case (what happened, its evidence, the owner's words, where its fix lives); keep a note the owner asked for, word for word |
+| `report <run> [<step>]` | Write a repro bundle for a Baton problem under `.baton/reports/`: a report to complete and the redacted evidence. Records nothing |
 
 ## Where an assistant starts {#start}
 

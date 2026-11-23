@@ -39,6 +39,7 @@ commands:
   eligible: admin.director-commands
   explain: admin.director-commands
   feedback: admin.director-commands
+  report: admin.director-commands
   ingest-revision: admin.director-commands
   lease: admin.director-commands
   note: admin.director-commands
