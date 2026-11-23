@@ -1,7 +1,7 @@
 ---
 id: 2026-11-self-improvement
 title: "Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible"
-status: proposed
+status: accepted
 level: major
 decisions: ["0188", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
 touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/platform-and-security.md, design/testing.md]
@@ -10,7 +10,7 @@ manual: [manual/user/when-something-is-wrong.md, manual/admin/director-commands.
 
 # Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible
 
-> **Hold lifted for four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), 2026-11-22):** capture with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own; they are kept below, under *Later*, so the thinking isn't lost. Awaiting approval of Request and Design.
+> **Hold lifted for four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), 2026-11-22):** capture with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own; they are kept below, under *Later*, so the thinking isn't lost. Request and Design approved 2026-11-23.
 >
 > History: Widened on 2026-11-22 from wording-level fixes for owner confusion (the first version, 2026-11-05) to two tracks: **A, learning from what goes wrong**, and **B, learning from how work goes**. The owner settled three questions (Decision [0185](../decisions/0185-self-improvement-direction.md)) and asked for every suggestion of that discussion to be written in; apart from 0185, everything below is a position, not a decision. The measuring part of track B goes ahead now as [2026-11-process-stats](2026-11-process-stats.md). Related: [2026-11-recipe-tree](2026-11-recipe-tree.md) (on hold), whose tree is the route for cases upstream; [2026-11-model-assessment](2026-11-model-assessment.md) (done), which already improves routing from evidence.
 
@@ -336,4 +336,4 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 
 - **Summary:** The owner answered the seven open questions, the late-defects question 0187 moved here, and the scope (Decision 0188). The hold is lifted for capture with a repro bundle, the circuit breaker, contract checks and baselines with detectors; replay, local lines with the digest, sharing and the analyst stay on hold as later changes. Design D1 to D5 and slice criteria written against the code at `0b9ee8e` (`engine._failed`, `feedback`, `Finding.location`, `recipe_check.py`). The pay-per-token detector is left out (no record of eligible routes not chosen). The temporary local patch waits for local lines. No code changed.
 - **Owner decision:** 2026-11-22, "All as suggested" (0188).
-- **Accepted:** No; Request and Design await approval.
+- **Accepted:** Yes, 2026-11-23: "Approved" (Request and Design, slices 1 to 4).
