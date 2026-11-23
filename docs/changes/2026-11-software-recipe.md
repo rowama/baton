@@ -1,7 +1,7 @@
 ---
 id: 2026-11-software-recipe
 title: "Baton's one software recipe, software, is designed fresh by recipe-builder, with the owner's eng-process as evidence"
-status: proposed
+status: in-progress
 level: major
 decisions: ["0172", "0149", "0155", "0144", "0147", "0142", "0169"]
 touches: [design/recipes.md]
@@ -136,3 +136,8 @@ Slices as proposed; refined once the Request and Design are approved. It starts 
 - **Summary:** At the owner's instruction, ahead of approving the Request and Design, the reference documents were put in the run project `D:\rob\projects\baton-recipes`, under `reference\`: `software-brief.md` (this change's brief), `eng-process\` (`PROCESS.md`, `LESSONS.md` and `SOURCES.md` from https://github.com/rowama/eng-process at `cd615b4`, with a README giving their hashes) and `sources-and-lessons-ledger.md` (73 rows: 13 lessons, 36 eng-process practices, 12 sources as eng-process recorded them, 12 current practices read 2026-11-18, each marked primary, secondary or as recorded; Decision and Reason left for the run). This follows open questions 1 and 3 as suggested. Not done here, by the owner's choice: attesting the documents, vendoring recipe-builder and starting the run, which the owner does in another session. Nothing was committed in the run project.
 - **Owner decision:** 2026-11-18, "implement the software-recipe proposal until the point of putting the reference files in d:\rob\projects\baton-recipes ... Don't vendor the recipe-builder".
 - **Accepted:** No; proposal only. Open question 2 (the builder's ratings) is decided in the run.
+
+### Marked in progress
+
+- **Summary:** Status set to `in-progress` at the owner's instruction: the owner is working on the change outside this repo (the recipe-builder run in `D:\rob\projects\baton-recipes`). Request and Design are not formally approved here; nothing else changed. No code changed.
+- **Owner decision:** 2026-11-23, "Mark the software-recipe in progress since I'm working on it externally."
