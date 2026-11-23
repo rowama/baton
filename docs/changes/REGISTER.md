@@ -4,9 +4,9 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-process-stats](2026-11-process-stats.md) | Process statistics also count what work costs, how much of the owner it takes, and how often the owner accepts it first time | accepted | standard | |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
-| [2026-11-process-stats](2026-11-process-stats.md) | Process statistics also count what work costs, how much of the owner it takes, and how often the owner accepts it first time | proposed | standard | Ready for the owner's answers to four open questions; ahead of 2026-11-self-improvement (0185) |
 | [2026-11-recipe-tree](2026-11-recipe-tree.md) | Recipes form a tree: broad recipes that specialized ones are derived from by copy | proposed | major | On hold indefinitely (2026-11-08): provenance recorded via 2026-11-recipe-builder; revisit on trigger |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible | proposed | major | On hold: discussion stage, not ready for Design approval; its measuring part goes ahead as 2026-11-process-stats |
 | [2026-11-software-recipe](2026-11-software-recipe.md) | Baton's one software recipe, software, is designed fresh by recipe-builder, with the owner's eng-process as evidence | proposed | major | Reference documents prepared in the run project (slice 1 material); Request and Design not yet approved; the builder run is next, in the owner's session |

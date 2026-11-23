@@ -325,3 +325,4 @@ Decisions recorded inline in the guide (0025–0052; each design doc links its r
 | [0184 Questions without blocking: a result may ask the owner to confirm its guesses, answered at any time or with a retry, holding nothing up](decisions/0184-answers-outside-a-blocked-step.md) | accepted |
 | [0185 Self-improvement: setting changes only through the digest, process statistics extended now, baselines from the owner's own runs](decisions/0185-self-improvement-direction.md) | accepted |
 | [0186 Recipe builder's design may not rest on a guessed choice: a gate refuses any inferred decision, smaller guesses are asked without blocking](decisions/0186-builder-asks-not-guesses.md) | accepted |
+| [0187 Process statistics: seen through the process SME, raw waits, late defects later, unmeasured subscription routes included, the included flag recorded at dispatch, one stop per held step](decisions/0187-process-stats-details.md) | accepted |

@@ -1,10 +1,10 @@
 ---
 id: 2026-11-process-stats
 title: "Process statistics also count what work costs, how much of the owner it takes, and how often the owner accepts it first time"
-status: proposed            # ready for the owner's answers to the open questions; small, ahead of 2026-11-self-improvement (Decision 0185, item 2)
+status: accepted
 level: standard
-decisions: ["0185", "0184", "0177", "0181", "0031"]
-touches: [design/experts.md]
+decisions: ["0187", "0185", "0184", "0177", "0181", "0031"]
+touches: [design/experts.md, design/runtime.md]   # §12.4 (the stats reference), §8.2 (worker_selected records included)
 manual: "none: the stats reference is read by the process SME and by Directors, not by the owner; nothing an owner sees or configures changes"
 ---
 
@@ -32,24 +32,28 @@ This is the measuring half of the "how work goes" track of [2026-11-self-improve
    - `decisions`: the owner's `human_decision` events on the step;
    - `wait_s_*`: time from each stop to the owner's decision that ends it.
 3. **Outcome per step.** Every step carries `outcome {gate_first_try, gate_rejections, owner_edits}`: steps whose human gates passed on the first owner decision, human-gate rejections, and the owner's edits to the step's published artifacts afterwards (`human_revision_ingested {source: drift}`).
-4. **Per recipe.** `stats` gains `recipes {<recipe>@<v>: {runs, completed, abandoned, cost_usd, owner_stops, owner_wait_s}}`, with run-level totals and means, so a whole run can be compared with a baseline.
-5. Existing keys are unchanged; the process SME's instructions name the new ones.
-6. Tests cover each count from a recorded event log, including an included route, an unpriced one and a re-asked question.
+4. **Per recipe.** `stats` gains `recipes {<recipe>@<v>: {runs, completed, abandoned, cost_usd, owner_stops, owner_wait_s}}`, the last three each `{total, mean}` over the runs, so a whole run can be compared with a baseline.
+5. **Included recorded at dispatch.** Every `worker_selected` carries `included: true|false` (Decision 0187, item 5); an attempt without it is unknown unless its `usage.json` has a cost.
+6. Existing keys are unchanged; the process SME's instructions name the new ones.
+7. Tests cover each count from a recorded event log, including an included route, an unpriced one and a re-asked question.
 
 ### Open questions
 
-Suggested answers, each with its rationale, for the owner to confirm or change in one batch:
+All six settled by the owner on 2026-11-22 as suggested ("All as suggested"): Decision [0187](../decisions/0187-process-stats-details.md). Questions 5 and 6 came from the code: `worker_selected` does not record the login mode `routing.included` needs, and a blocked result is itself an escalation.
 
 1. **Where does the owner see these?** *Suggested:* through the process SME (`--ref stats`) and the Director, as today; no new command in this change. *Rationale:* the concept budget (§0 rule 8); a page view belongs with the setup page later, and the digest of 2026-11-self-improvement is where the owner normally meets them.
 2. **Wait time when the owner is away overnight.** *Suggested:* record raw wait time; later analysis (baselines, detectors) uses medians, not means. *Rationale:* the record should state what happened; how to read it belongs to the analysis.
 3. **Defects found late** (a later review finding a problem in an earlier step's artifact). *Suggested:* not in this change; it moves to 2026-11-self-improvement's detectors. *Rationale:* attributing a finding to the step that caused it needs design (which artifact, which line); the counts above don't.
 4. **Harness routes report no tokens.** *Suggested:* counted as included with tokens absent, never estimated. *Rationale:* matches the rule that a subscription route is "included", never guessed (§6.4).
+5. **Included is not recorded at dispatch.** *Suggested:* every `worker_selected` records `included`; older attempts count as unknown unless priced. *Rationale:* nothing estimated; the adapter alone cannot tell a subscription login from an API key.
+6. **What is a stop.** *Suggested:* a human gate opened, an escalation of any reason (`blocked` among them) or an iteration limit reached, each once. *Rationale:* each holds the step until the owner decides; open questions hold nothing (0184).
 
 ## Design
 
 ### Doc edits
 
 - `design/experts.md` §12.4: the `stats` reference gains `cost`, `owner` and `outcome` per step and `recipes` per recipe version, each defined as in the acceptance criteria; the process SME's inputs say so.
+- `design/runtime.md` §8.2: `worker_selected` carries `included`.
 
 ### Manual edits
 
@@ -57,6 +61,7 @@ Suggested answers, each with its rationale, for the owner to confirm or change i
 
 ### Decisions
 
+- [0187](../decisions/0187-process-stats-details.md) (accepted): the six open questions, all as suggested.
 - [0185](../decisions/0185-self-improvement-direction.md) (accepted): this change goes ahead now; baselines from the owner's own runs.
 - [0177](../decisions/0177-capability-check-details.md) (accepted): `usage.json` per attempt.
 - [0181](../decisions/0181-first-use-feedback-routing-and-answers.md) (accepted): answers last across rounds, so re-asking is measurable as a fault.
@@ -73,8 +78,9 @@ Suggested answers, each with its rationale, for the owner to confirm or change i
   - `owner` counts and waits, with a re-asked question detected (criterion 2);
   - `outcome` from human gates and owner edits (criterion 3);
   - `recipes` totals (criterion 4);
-  - existing keys unchanged; the process SME's instructions updated (criterion 5);
-  - tests from recorded event logs (criterion 6).
+  - `included` recorded at dispatch (criterion 5);
+  - existing keys unchanged; the process SME's instructions updated (criterion 6);
+  - tests from recorded event logs (criterion 7).
 - **Effort:** M
 
 ## Log
@@ -84,3 +90,7 @@ Suggested answers, each with its rationale, for the owner to confirm or change i
 - **Summary:** Opened from the 2026-11-22 discussion of 2026-11-self-improvement, as its measuring half taken first. Checked against `src/baton/sme.py` `stats()` at `a1d25f0`: no cost, owner or outcome counts today. No code changed.
 - **Owner decision:** 2026-11-22, "2-yes, now." (Decision 0185, item 2).
 - **Accepted:** No; proposal only. Open questions 1 to 4 await the owner.
+
+### Accepted
+
+- **Summary:** The owner answered the six open questions (four from the Request, two found in the code) "All as suggested", 2026-11-22. Decision 0187 recorded.
