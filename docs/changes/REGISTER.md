@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-self-improvement](2026-11-self-improvement.md) | Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible | accepted | major | Slices 1, 2 and 4 (Decisions 0188, 0189); contract checks moved to 2026-11-recipe-contract-checks; replay, local lines, sharing and the analyst on hold as later changes |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
 | [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md) | Recipe builder and recipe check catch a recipe whose instructions and schemas contradict each other before it ships | proposed | standard | Split from 2026-11-self-improvement (Decision 0189); not urgent; Request not yet discussed |
@@ -44,6 +43,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | done | major | |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | done | standard |  |
 | [2026-11-research-blocked-vs-schema](2026-11-research-blocked-vs-schema.md) | Research can ask unanswered owner questions, and explicit worker failures pause for review | done | standard | |
+| [2026-11-self-improvement](2026-11-self-improvement.md) | Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible | done | major | Slices 1, 2 and 4 (Decisions 0188, 0189); replay, local lines, sharing and the analyst to come as later changes |
 | [2026-11-setup-ui](2026-11-setup-ui.md) | A local setup page lets the owner connect subscriptions and API accounts and manage the models Baton may use, without editing any file | done | major | |
 | [2026-11-step-tool-harness](2026-11-step-tool-harness.md) | Baton runs a bounded tool loop for API workers, with only the tools a step requires | done | major | |
 | [2026-11-tailoring-axes](2026-11-tailoring-axes.md) | A recipe rates complexity on a few axes of its own, so each concern changes only the parts of the process it affects | done | major | |

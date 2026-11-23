@@ -1,7 +1,7 @@
 ---
 id: 2026-11-self-improvement
 title: "Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible"
-status: accepted
+status: done
 level: major
 decisions: ["0188", "0189", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
 touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md]
@@ -369,3 +369,7 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 - **Design docs:** §12.4 (measures, baselines, the three detectors, `defects_late`), §5.3 (`baselines.json`, `recipe baselines`), §8.2 (`head` on a write step's dispatch, `changed_files` on its pass).
 - **Manual:** `admin/machine-settings.md` (`self_improvement`), `admin/recipes-and-vendoring.md` (`recipe baselines`), `reference/commands.md` (regenerated), `anchors.yaml`.
 - **Tests:** `tests/test_baselines.py`: measures and medians from completed runs only, the file's check; `baselines.json` changes the package hash and a malformed one is refused; `recipe baselines` from named projects and from this one; a step at three times its median opens one `off_baseline` case with its guards and none before completion; too few samples, or within the machine's factor, opens none; a re-asked question opens a `reasked` case with the answer and the asking as evidence, on a blocked and on a completed result; a finding naming a reviewed earlier step's file (by name and by its attempt path) counts against it, none for a step without its own review or a location that matches nothing; a write step's pass records the files it committed.
+
+### Done
+
+- **Summary:** Slices 1, 2 and 4 delivered; Slice 3 moved out (Decision 0189). Acceptance criteria 1 to 3, 5 and 6 are demonstrated by `tests/test_cases_and_reports.py`, `tests/test_circuit_breaker.py` and `tests/test_baselines.py`; criterion 4 went to 2026-11-recipe-contract-checks. Full suite green on `a0a4120` (Slice 4) and `ce6ed06` (the Slice 2 repair). Replay, local lines with the digest, sharing upstream and the analyst remain sketched under *Later*, each to be its own change.
