@@ -5,7 +5,7 @@ status: done
 level: major
 decisions: ["0188", "0189", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
 touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md]
-manual: [manual/user/when-something-is-wrong.md, manual/admin/director-commands.md, manual/admin/machine-settings.md, manual/admin/recipes-and-vendoring.md, manual/reference/commands.md]
+manual: [user/when-something-is-wrong.md, admin/director-commands.md, admin/machine-settings.md, admin/recipes-and-vendoring.md, reference/commands.md]
 ---
 
 # Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible
