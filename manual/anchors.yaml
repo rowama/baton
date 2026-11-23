@@ -452,5 +452,6 @@ published:
 - user.when-something-is-wrong#key-refused
 - user.when-something-is-wrong#no-helper-ready
 - user.when-something-is-wrong#no-wake
+- user.when-something-is-wrong#same-problem-twice
 - user.when-something-is-wrong#sandboxed
 - user.when-something-is-wrong#still-stuck

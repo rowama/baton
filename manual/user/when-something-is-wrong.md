@@ -59,6 +59,10 @@ Sometimes the work stops because of something in Baton itself: a process's instr
 
 The write-up stays on your computer, in `.baton/reports/`, with the evidence and your secrets taken out. Nothing is sent anywhere.
 
+## A step stopped after the same problem twice {#same-problem-twice}
+
+When a step fails the same way on two tries in a row, Baton stops trying: a third try would fail the same way and only cost more. Your assistant tells you what went wrong and what it has cost so far, and offers a choice: hold it, try again with a note about what to do differently, give it to a different helper, or, if the check itself is wrong, let it through.
+
 ## Still stuck {#still-stuck}
 
 Ask your assistant: it can read Baton's record of what happened. Or search the manual: [using the manual](user.using-the-manual#here-now).

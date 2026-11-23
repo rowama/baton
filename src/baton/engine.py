@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import socket
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -1239,6 +1240,85 @@ def _trial_failed(ctx: RunContext, step_path: str, n: int, trial: dict[str, Any]
     return Outcome(step_path, n, "retry", [message, *reasons])
 
 
+_VOLATILE = (re.compile(r"attempt-\d+"), re.compile(r"\b[0-9a-f]{7,}\b"), re.compile(r"\d+"), re.compile(r"\s+"))
+
+
+def _normalized_reason(reason: str) -> str:
+    """A failure reason with what changes between attempts taken out: attempt numbers, SHAs, numbers, spacing."""
+    r = reason.lower()
+    for pat, rep in zip(_VOLATILE, ("attempt-#", "#", "#", " ")):
+        r = pat.sub(rep, r)
+    return r.strip()
+
+
+def _failure_signature(ctx: RunContext, step_path: str, n: int) -> tuple[Any, ...] | None:
+    """What attempt ``n`` failed on (change 2026-11-self-improvement, D3): the rejection or the blocking gate failure,
+    and its normalized reasons. ``None`` when it was not one, or when the owner decided it (a human gate, triage,
+    selection, a protected change in warn mode): the owner is already in the loop."""
+    events = ctx.record().attempt_events(step_path, n)
+    if any(e.type == "human_decision" for e in events):
+        return None
+    last = next((e for e in reversed(events) if e.type == "result_rejected" or (e.type == "gate_failed" and not (e.data or {}).get("advisory"))), None)
+    if last is None:
+        return None
+    d = last.data or {}
+    gate = d.get("gate") if last.type == "gate_failed" else None
+    return (last.type, gate, frozenset(_normalized_reason(str(r)) for r in d.get("reasons") or []))
+
+
+def _attempt_spend(ctx: RunContext, step_path: str, upto: int) -> dict[str, Any]:
+    """What a step's attempts 1..``upto`` cost, as ``stats`` counts it (§12.4): priced, included or unknown, never estimated."""
+    from .sme import _usage
+
+    out: dict[str, Any] = {"usd": 0.0, "attempts_priced": 0, "attempts_included": 0, "attempts_unknown": 0}
+    rec = ctx.record()
+    for k in range(1, upto + 1):
+        sel = rec.last("worker_selected", step_path, k)
+        if sel is None:
+            continue
+        u = _usage(ctx.run_dir, step_path, k)
+        usd = u.get("cost_usd") if u else None
+        if isinstance(usd, (int, float)) and not isinstance(usd, bool):
+            out["usd"] += float(usd)
+            out["attempts_priced"] += 1
+        elif (sel.data or {}).get("included") is True:
+            out["attempts_included"] += 1
+        else:
+            out["attempts_unknown"] += 1
+    out["usd"] = round(out["usd"], 6)
+    return out
+
+
+def _repeated_failure(ctx: RunContext, step_path: str, n: int) -> Outcome | None:
+    """The circuit breaker (§8.8; Decision 0188, item 2): the same failure on two consecutive counted attempts
+    escalates instead of retrying, with the spend so far, and records a ``repeated_failure`` case."""
+    from . import sme
+
+    events = ctx.log.events()
+    ready = next((e for e in reversed(events) if e.type == "step_ready" and e.step_path == step_path), None)
+    prev = (ready.data or {}).get("retry_of") if ready is not None else None
+    if not isinstance(prev, int) or (ready.data or {}).get("not_counted") or _trial(ctx, step_path, prev) is not None:
+        return None
+    now, before = _failure_signature(ctx, step_path, n), _failure_signature(ctx, step_path, prev)
+    if now is None or now != before:
+        return None
+    last = next(e for e in reversed(ctx.record().attempt_events(step_path, n)) if e.type in ("result_rejected", "gate_failed"))
+    reasons = [str(r) for r in (last.data or {}).get("reasons") or []]
+    spend = _attempt_spend(ctx, step_path, n)
+    message = f"the same failure on attempts {prev} and {n}; trying again would fail the same way"
+    esc = ctx.log.append("step_escalated", step_path=step_path, attempt=n, data={
+        "reason": "repeated_failure", "reasons": [message, *reasons], "attempts": [prev, n], "spend": spend,
+        "failure": {"event": now[0], "gate": now[1]}})
+    from .locks import project_lock
+
+    with project_lock(ctx.store.baton):
+        ctx.store.project_log().append("process_feedback", data={
+            "kind": "repeated_failure", "text": redact_text("; ".join(reasons))[:2000] or message, "run": ctx.run_id,
+            "step_path": step_path, "attempt": n, "qualified": sme.qualified(ctx.recipe.recipe.ref, step_path),
+            "source": "detector:repeated_failure", "evidence": [str(last.seq), str(esc.seq)]})
+    return Outcome(step_path, n, "escalated", [message, *reasons])
+
+
 def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outcome:
     """Back to ``ready`` for another attempt, or ``escalated`` when the budget is used.
 
@@ -1249,6 +1329,9 @@ def _failed(ctx: RunContext, step_path: str, n: int, reasons: list[str]) -> Outc
     if trial is not None:
         timed_out = ctx.record().last("step_timed_out", step_path, n) is not None
         return _trial_failed(ctx, step_path, n, trial, reasons, counts=not timed_out)
+    repeated = _repeated_failure(ctx, step_path, n)
+    if repeated is not None:
+        return repeated
     try:
         ctx.log.append("step_ready", step_path=step_path, data={"retry_of": n})
         return Outcome(step_path, n, "retry", reasons)
@@ -2048,7 +2131,7 @@ def waive(ctx: RunContext, step_path: str, gate: str, reason: str, *, actor: str
     if g != "independence" and st.state == "escalated":
         esc = record.last("step_escalated", step_path, st.attempt)
         failed = [e for e in record.attempt_events(step_path, st.attempt) if e.type == "gate_failed" and not e.data.get("advisory")]
-        if esc is not None and esc.data.get("reason") == "attempts_exhausted" and failed and failed[-1].data.get("gate") == g:
+        if esc is not None and esc.data.get("reason") in ("attempts_exhausted", "repeated_failure") and failed and failed[-1].data.get("gate") == g:
             held = "escalated"
     elif g != "independence" and st.state == "passed" and groups.is_judge(loc):
         cond = groups.View(ctx.recipe, log.events(), rs, log.cas).condition(step_path) or {}

@@ -155,9 +155,10 @@ def test_modified_packet_rejected(store):
 @pytest.mark.not_slow("measured under 1 s")
 def test_attempts_exhausted_escalates(store):
     ctx = start(store, FIT_CHECK)  # fit-check: defaults.max_attempts = 3
-    for n in (1, 2):
-        assert attempt(ctx, "describe", {"bad": n})[1].outcome == "retry"
-    _, out = attempt(ctx, "describe", {"bad": 3})
+    # Three different failures: the same one twice would stop at the circuit breaker (2026-11-self-improvement, slice 2).
+    for bad in ({"bad": 1}, {**PROFILE_OUT, "summary": 1}):
+        assert attempt(ctx, "describe", bad)[1].outcome == "retry"
+    _, out = attempt(ctx, "describe", {**PROFILE_OUT, "scope": 1})
     assert out.outcome == "escalated" and state(ctx, "describe") == "escalated"
     assert ctx.record().last("step_escalated", "describe").data["reason"] == "attempts_exhausted"
 

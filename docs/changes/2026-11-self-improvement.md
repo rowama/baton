@@ -4,7 +4,7 @@ title: "Baton learns from what goes wrong and from how work goes, taking as litt
 status: accepted
 level: major
 decisions: ["0188", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
-touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/platform-and-security.md, design/testing.md]
+touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/gates-and-reviews.md, design/platform-and-security.md, design/testing.md]
 manual: [manual/user/when-something-is-wrong.md, manual/admin/director-commands.md, manual/admin/machine-settings.md, manual/reference/commands.md]
 ---
 
@@ -345,3 +345,11 @@ Slices get approved criteria with the Design (major). Each pays off on its own. 
 - **Design docs:** §12.4 (cases, `stats` `cases`), §13.1 (`report` row), §13.3 (the skill text).
 - **Manual:** `user/when-something-is-wrong.md` (#baton-problem), `admin/director-commands.md`, `context.yaml` (`report`), `reference/commands.md` (regenerated), `anchors.yaml`.
 - **Tests:** `tests/test_cases_and_reports.py`: every field round-trips and `stats` counts by kind and `fix_in`; old-style events read unchanged; refusals (detector kind, bad `fix_in`, clarification off a confusing case or half given); a worker can't record a Director or detector kind; `report` writes the header, the sections and the bundle (events, summary, step record, packet text and schemas, result, log tail cut to 64 KiB, recipe), with a planted secret and the project path absent, `~` for home, `-2` on a second report, a whole-run report, unknown step and case refused, and no event recorded; the skill's rules. `test_director_surface.py`: `report` added to the MCP API set. `test_process_stats.py`: its stub store gains an empty project log, and `cases` joins the top-level keys.
+
+### Slice 2: circuit breaker
+
+- **Summary:** `engine._failed` checks, before readying a retry, whether the attempt failed the same way as the counted attempt it retried (same event, same gate, same normalized reasons); if so it escalates `repeated_failure` with `attempts`, `failure` and `spend`, and records a `repeated_failure` case. Not after a trial or an uncounted attempt, nor for failures the owner decided (any `human_decision` on the attempt). Checked before the budget. A waiver of the held gate is allowed after `repeated_failure`, as after `attempts_exhausted`. Director skill: one choice with the spend.
+- **Modules:** `engine.py` (`_normalized_reason`, `_failure_signature`, `_attempt_spend`, `_repeated_failure`; `waive`).
+- **Design docs:** §8.1 (the reason), §8.8 (the circuit breaker), §9.3 (waiver of the held gate), §12.4 (the detector kind), §13.3 (the skill text).
+- **Manual:** `user/when-something-is-wrong.md` (#same-problem-twice), `anchors.yaml`.
+- **Tests:** `tests/test_circuit_breaker.py`: the 2026-11-20 reasons match once normalized; the same rejection twice escalates with attempts, failure, spend (priced, included, unknown) and a case, counted as a stop; different reasons retry to `attempts_exhausted`; with two attempts the reason is `repeated_failure`; a script gate naming a new SHA each time stops (the class of the 2026-11-20 loop, replayed through runkit with a real gate); a different gate failing is a different failure; a decision restarts the window; an owner's rejections at a human gate retry; the held gate can be waived; the skill rule. `test_intake.py::test_attempts_exhausted_escalates` now uses three different failures.
