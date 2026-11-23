@@ -183,7 +183,7 @@ def schema_run(tmp_path):
     recipe = make_recipe(
         tmp_path / "toy",
         [{"id": "draft", "requires": {"capabilities": ["structured_output"]}, "output_schema": "schemas/out.json"}],
-        schemas={"out.json": {"type": "object", "required": ["title"]}},
+        schemas={"out.json": {"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}}}},
         defaults={"max_attempts": 9},
     )
     root = tmp_path / "proj"
@@ -194,6 +194,10 @@ def schema_run(tmp_path):
     api.vendor(recipe)
     run = api.start("toy", {"title": "Schema"})["run_id"]
     return api, root, home, run
+
+
+#: Three different schema failures: the same one twice in a row would stop at the circuit breaker (§8.8).
+WRONG = ({"wrong": 1}, {"title": 1}, {"title": []})
 
 
 def attempt(api, root, run, worker, output):
@@ -207,12 +211,12 @@ def attempt(api, root, run, worker, output):
 @pytest.mark.slow
 def test_three_schema_failures_in_a_row_make_structured_output_absent(schema_run):
     api, root, home, run = schema_run
-    for _ in range(2):
-        assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    for wrong in WRONG[:2]:
+        assert attempt(api, root, run, "alice", wrong) == "retry"
     st = cs.load(home)["alice"]["structured_output"]
     assert (st.state, st.failures) == ("likely", 2)  # one or two failures change nothing
     assert "alice" in names(api.eligible(run, "draft"))
-    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    assert attempt(api, root, run, "alice", WRONG[2]) == "retry"
     st = cs.load(home)["alice"]["structured_output"]
     assert (st.state, st.evidence) == ("absent", "3 schema-gate failures in a row")
     assert names(api.eligible(run, "draft")) == ["carol"]
@@ -223,8 +227,8 @@ def test_three_schema_failures_in_a_row_make_structured_output_absent(schema_run
 @pytest.mark.slow
 def test_a_pass_resets_the_count(schema_run):
     api, root, home, run = schema_run
-    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
-    assert attempt(api, root, run, "alice", {"wrong": 1}) == "retry"
+    assert attempt(api, root, run, "alice", WRONG[0]) == "retry"
+    assert attempt(api, root, run, "alice", WRONG[1]) == "retry"
     assert attempt(api, root, run, "alice", {"title": "ok"}) == "passed"
     assert "alice" not in cs.load(home)
 
@@ -232,8 +236,8 @@ def test_a_pass_resets_the_count(schema_run):
 @pytest.mark.slow
 def test_failures_are_counted_per_profile(schema_run):
     api, root, home, run = schema_run
-    for worker in ("alice", "carol", "alice", "carol"):
-        assert attempt(api, root, run, worker, {"wrong": 1}) == "retry"
+    for worker, wrong in zip(("alice", "carol", "alice", "carol"), (*WRONG, WRONG[0])):
+        assert attempt(api, root, run, worker, wrong) == "retry"
     assert {p: s["structured_output"].failures for p, s in cs.load(home).items()} == {"alice": 2, "carol": 2}
 
 

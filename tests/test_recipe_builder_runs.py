@@ -1126,11 +1126,14 @@ def test_drafted_examples_are_approved_and_a_program_that_special_cases_the_awkw
     run = cli.run("start", "recipe-builder", "--inputs", json.dumps(INPUTS))["run_id"]
     words = "I understand three of my own would be better; draft them and I'll check each."
     plan = {"programs": [{"program": "count_plants", "supplied": 0, "drafted": 3, "warned": True, "owner_words": words}]}
+    # Changing the example back fails the protected check the same way as changing it, so the circuit breaker
+    # (§8.8) stops the second attempt and the owner says to go on.
     d = Director(cli, project, run, route=route, person={"example_plan": lambda _d: plan},
-                 decisions={"examples": [("reject", "The narrow bed should take no plants at all."), ("approve", "Those are right.")]})
+                 decisions={"examples": [("reject", "The narrow bed should take no plants at all."), ("approve", "Those are right.")],
+                            "implement": [("retry", "The example is back as it was; build the program against it.")]})
     st = d.drive()
     assert st["state"] == "completed"
-    assert strip(d.owner_decisions) == ["profile", "shape/i1/audit", "examples", "examples", "accept"]
+    assert strip(d.owner_decisions) == ["profile", "shape/i1/audit", "examples", "examples", "build_programs/i1/implement", "accept"]
     evs = run_events(project, run)
     assert any(e["type"] == "step_passed" and e["step_path"] == "example_plan" for e in evs)
     assert not any(e["type"] == "project_input_bound" for e in evs)

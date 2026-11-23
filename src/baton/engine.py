@@ -1254,7 +1254,8 @@ def _normalized_reason(reason: str) -> str:
 def _failure_signature(ctx: RunContext, step_path: str, n: int) -> tuple[Any, ...] | None:
     """What attempt ``n`` failed on (change 2026-11-self-improvement, D3): the rejection or the blocking gate failure,
     and its normalized reasons. ``None`` when it was not one, or when the owner decided it (a human gate, triage,
-    selection, a protected change in warn mode): the owner is already in the loop."""
+    selection, a protected change in warn mode): the owner is already in the loop. ``None`` too for a review or
+    findings gate: a reviewer judging a new round is not a fixed check."""
     events = ctx.record().attempt_events(step_path, n)
     if any(e.type == "human_decision" for e in events):
         return None
@@ -1262,6 +1263,8 @@ def _failure_signature(ctx: RunContext, step_path: str, n: int) -> tuple[Any, ..
     if last is None:
         return None
     d = last.data or {}
+    if last.type == "gate_failed" and d.get("type") in ("review", "findings"):
+        return None  # a reviewer's judgment of new work, bounded by the loop's own rounds (§9.1), not a fixed check
     gate = d.get("gate") if last.type == "gate_failed" else None
     return (last.type, gate, frozenset(_normalized_reason(str(r)) for r in d.get("reasons") or []))
 
