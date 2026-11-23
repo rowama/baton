@@ -1,16 +1,18 @@
 ---
 id: 2026-11-self-improvement
 title: "Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible"
-status: proposed            # ON HOLD: discussion stage, not ready for Design approval; its measuring part goes ahead as 2026-11-process-stats
+status: proposed
 level: major
-decisions: ["0185", "0184", "0180", "0179", "0026", "0181", "0183"]
-touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/versioning.md, design/platform-and-security.md, design/runtime.md, design/workers.md]
-manual: []
+decisions: ["0188", "0185", "0187", "0184", "0180", "0179", "0026", "0181", "0183"]
+touches: [design/experts.md, design/director-interface.md, design/recipes.md, design/runtime.md, design/platform-and-security.md, design/testing.md]
+manual: [manual/user/when-something-is-wrong.md, manual/admin/director-commands.md, manual/admin/machine-settings.md, manual/reference/commands.md]
 ---
 
 # Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible
 
-> **On hold.** Recorded so the thinking isn't lost. Widened on 2026-11-22 from wording-level fixes for owner confusion (the first version, 2026-11-05) to two tracks: **A, learning from what goes wrong**, and **B, learning from how work goes**. The owner settled three questions (Decision [0185](../decisions/0185-self-improvement-direction.md)) and asked for every suggestion of that discussion to be written in; apart from 0185, everything below is a position, not a decision. The measuring part of track B goes ahead now as [2026-11-process-stats](2026-11-process-stats.md). Related: [2026-11-recipe-tree](2026-11-recipe-tree.md) (on hold), whose tree is the route for cases upstream; [2026-11-model-assessment](2026-11-model-assessment.md) (done), which already improves routing from evidence.
+> **Hold lifted for four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), 2026-11-22):** capture with a repro bundle, the circuit breaker, contract checks before runs, and baselines with detectors. Replay, local lines with the digest, sharing upstream and the analyst stay on hold, each to become a change of its own; they are kept below, under *Later*, so the thinking isn't lost. Awaiting approval of Request and Design.
+>
+> History: Widened on 2026-11-22 from wording-level fixes for owner confusion (the first version, 2026-11-05) to two tracks: **A, learning from what goes wrong**, and **B, learning from how work goes**. The owner settled three questions (Decision [0185](../decisions/0185-self-improvement-direction.md)) and asked for every suggestion of that discussion to be written in; apart from 0185, everything below is a position, not a decision. The measuring part of track B goes ahead now as [2026-11-process-stats](2026-11-process-stats.md). Related: [2026-11-recipe-tree](2026-11-recipe-tree.md) (on hold), whose tree is the route for cases upstream; [2026-11-model-assessment](2026-11-model-assessment.md) (done), which already improves routing from evidence.
 
 ## Request
 
@@ -68,19 +70,67 @@ Only one of the seven is wording, the only kind the first version handled, and t
 - **Undo.** The owner can ask "what has Baton adjusted for me?" and get a plain answer, with undo.
 - **Privacy.** Nothing leaves the machine unless the owner opted in and saw the exact text being sent.
 
-### Open questions
+### Acceptance criteria for this change (Decision 0188, item 0)
 
-Each with a suggested answer and its rationale, for the owner to settle in one batch before Design approval:
+The criteria above are the whole direction. This change delivers these, and the rest (replay, autonomy, undo, privacy, and the digest's proposals) goes to the later changes:
 
-1. **A temporary local patch?** For a contract contradiction blocking a run (e.g. a schema that a blocked result cannot meet), may Baton offer a temporary local patch (a loosened schema, a reworded rule), applied on the owner's one-line yes and dropped automatically when upstream fixes it? *Suggested:* yes, offered only when the case's classification is a contract contradiction and the patch makes the check less strict, never stricter or different in meaning; recorded as a candidate and in the run. *Rationale:* holding the build was the right call in first use, but an owner without a maintainer would just be stuck; loosening a self-contradictory check removes an impossible requirement and doesn't change what the step is meant to do.
-2. **Circuit breaker for schema and gate failures.** 0180 left rejected results and failed gates on automatic retry; the disposition case showed they loop too. *Suggested:* the same rejection or gate failure (same reason, same check) on consecutive attempts stops after the second and escalates as one choice; different reasons keep retrying. *Rationale:* a repeated identical reason means the worker cannot fix it by trying again, which is the condition 0180 cared about, detected without reading prose.
-3. **Director skill in scope?** *Suggested:* the Director skill is improved upstream only (cases and reports, fixed by the maintainer); local lines cover recipes and the owner's communication preferences. *Rationale:* the skill is vendored per project and re-vendored on upgrade (§14.2), so local edits would conflict, and every owner hits it.
-4. **How many clean uses before a wording candidate joins the local line?** *Suggested:* all replayed cases pass, plus 3 clean real uses; a recurrence rolls it back. A machine setting, like the trial thresholds. *Rationale:* volume per owner is low; replay carries most of the evidence, and real use confirms.
-5. **Where does the digest reach the owner?** *Suggested:* the Director gives it at the end of a run (or at a phase's natural break), in the owner's terms; it is also kept in the project for a detached Director to pick up, and shown on the setup page later. *Rationale:* end of run is the natural break; keeping it means it is never lost when the Director session ends.
-6. **What may be shared upstream?** *Suggested:* the case's shape (step, kind, measures, the reaction, the local fix), never the subject matter or the owner's words, shown to the owner exactly as it would be sent, in batches at natural breaks; after a few batches sent unedited, Baton offers "send without asking". *Rationale:* separating subject matter from shape isn't fully automatic, so the preview is the safeguard.
-7. **Baselines once other owners exist** (left open by 0185, item 3). *Suggested:* leave open until shared cases exist; then baselines are medians across owners who share, kept beside the reference owner's. *Rationale:* no data to decide on yet.
+1. **Cases.** A case is a `process_feedback` event with one shape whatever produced it: kind, `source` (`director` or a detector's name), what was shown or measured, the owner's words if any, the evidence (event seqs, attempt paths), the Director's harness and model when it is about the Director, and `fix_in` (where its fix lives). `stats` counts cases per step by kind and `fix_in`.
+2. **Report, without being asked.** When a Baton problem blocks a run, the Director writes a repro bundle (`baton report`) and offers the owner one choice: hold, or a named workaround. The bundle is assembled deterministically from the record, machine-local parts redacted.
+3. **Circuit breaker.** The same rejection or gate failure on two consecutive attempts escalates with reason `repeated_failure`, the spend so far, and no further automatic retry (0188, item 2).
+4. **Contract checks.** Each built-in recipe and every example recipe the project ships passes a simulated run in the suite, through the blocked-and-answered path and a second round of each review loop; recipe-builder's audit checks a recipe's instructions against its schemas and runtime rules.
+5. **Baselines and detectors.** A recipe can carry baselines; at the end of a run a step well off its baseline opens a case that records its quality guards (so a later proposal can require them holding); a re-asked question opens a case.
+6. **Late defects.** `stats` counts defects found late against the step that produced the file (0188, item 8).
 
 ## Design
+
+### This change: four slices (Decision [0188](../decisions/0188-self-improvement-open-questions.md), item 0)
+
+Nothing here changes a step, gate, schema or recipe on its own; everything recorded is an observation (Principle 5). The *Positions* further down are the background for the later changes and are not part of this design.
+
+**D1. Cases (§12.4).** A case is a `process_feedback` event with more fields, not a new store:
+- New kinds: `baton_problem` (the Director: the run hit something in Baton, a shipped recipe or the Director skill, not in the owner's work), and three a detector records: `repeated_failure` (D3), `off_baseline` and `reasked` (D5). The existing four kinds stay.
+- New fields, all optional: `source` (`director`, `worker`, `owner` or `detector:<name>`; the existing events read as before); `fix_in` (`local_wording`, `local_preference`, `local_settings`, `recipe_shape`, `upstream`, or absent when nobody has classified it); `evidence` (event seqs and attempt paths); `owner_words` (verbatim, when the owner said something); `director` (`{harness, model}`, recorded when the case is about the Director's behaviour, as the Director states it); `clarified` (`{before, after, owner_reply}` for the "Is that clearer?" check); `report` (the repro bundle's path, D2).
+- `feedback` (CLI, MCP, engine) gains `--fix-in`, `--evidence`, `--owner-words`, `--about-director` and `--clarified-before/--clarified-after/--owner-reply`. Detectors set `source` and the evidence and leave `fix_in` to the Director or the process SME.
+- `stats` adds `cases` per step: counts by kind and by `fix_in` (`unclassified` for absent).
+
+**D2. Report, hold or work around (§13.3, §13.8, a new command in §13.1).** `baton report <run> [<step>] [--case <seq>] [--title <text>]` writes `.baton/reports/<date>-<slug>/`, kept out of git like `.baton/cache/`:
+- `report.md`: a header assembled from the record (Baton version, recipe and version, run, step, attempts, harness and model of each, the case), then sections headed *What happened*, *Root cause*, *Expected* and *Suggested fixes* for the Director to fill in, as in the two first-use `issues/` reports.
+- `bundle/`: the step's events, each attempt's packet (INSTRUCTIONS.md, the schemas), `result.json`, the gate outputs and the tail of each attempt's log, all redacted (`redact_text`) and with machine-local paths written as `~`.
+It records nothing and changes no state; the Director records a `baton_problem` case with `report` set. The Director skill gains rules: when a Baton problem blocks the run, write the report without being asked, then tell the owner in one line, "This looks like a Baton problem, not yours. I've written it up. I can hold this step, or try X. Which?", where X is an existing decision (another worker, a retry with a note pointing out the contradiction). Holding needs no command; the step stays escalated. After clarifying something that confused the owner, ask "Is that clearer?" once and record a `confusing` case with `clarified`. Record cases silently otherwise. The Director skill itself is fixed upstream only (0188, item 3). The temporary local patch (0188, item 1) needs the overlay of local lines and arrives with them.
+
+**D3. The circuit breaker (§8.8; 0188, item 2).** When a counted attempt is rejected (`result_rejected`) or fails a blocking gate (`gate_failed`), and would be retried, the runtime compares its failure with the previous counted attempt's in the same attempt budget (trial attempts and attempts not counted are skipped):
+- A failure's signature is its event type, the gate's index (none for a rejection) and the set of its reasons, each normalized: lower case, `attempt-<n>` and runs of digits and hex of 7 or more characters replaced by `#`, whitespace collapsed. So "design_doc.md does not exist at commit 13b48b3" on attempt 2 and the same text with another SHA on attempt 3 match.
+- Equal signatures: `step_escalated {reason: repeated_failure, reasons, attempts: [n-1, n], spend: {usd, attempts_priced, attempts_included, attempts_unknown}}` instead of `step_ready`, and a `repeated_failure` case. It is checked before the attempt budget, so with `max_attempts: 2` the reason is `repeated_failure`, not `attempts_exhausted`.
+- Different signatures: retry as today. `repeated_failure` joins the escalation reasons (§8.1) and is a stop (§12.4). The Director offers the owner one choice, with the spend so far. A decision readies the step and restarts the budget, as for any escalation.
+
+**D4. Contract checks before runs (§5.1, §15.3, §17).**
+- *Runtime against the packet.* For every rule the packet's INSTRUCTIONS state about results (a blocked or failed result is exempt from the output schema; `fixed` evidence in the attempt's own result; answers carried across rounds; dispositions in a second review round), the suite has a scenario that follows the rule as written and passes. That is the class of `issues/2026-11-20`. The scenarios use `tests/runkit.py` and the fake adapter.
+- *Shipped recipes, simulated.* A small generator in `recipe_check.py` builds a minimal instance of an output schema for the JSON Schema subset recipes use (`type`, `required`, `properties`, `enum`, `const`, `items`, `minItems`, `if`/`then`, `allOf`, `$ref` within the package). Each built-in recipe and each example recipe is simulated in the suite (`slow`): every step returns its generated output; a step whose prompt allows `blocked` (or which asks questions) returns blocked first, then completes on the answers; every review loop runs a second round with `fixed` dispositions citing the new artifact. A schema the generator can't satisfy is a problem reported by name.
+- *Recipe instructions against their schemas.* Prose can't be checked by code, so recipe-builder's audit step gains a contract-consistency check: do its instructions require what the output schema forbids, or forbid what it requires; does each disposition, answer and evidence rule have a way to be met. `baton recipe check` (and `vendor`) runs the generator's satisfiability check on every output schema.
+
+**D5. Baselines and detectors (§5.1, §12.4; 0185 item 3, 0187 item 2, 0188 item 8).**
+- *Baselines.* An optional `baselines.json` in a recipe package: per step id, the medians of `cost_usd`, `duration_s`, `attempts`, `iterations`, `owner_stops` and `owner_questions`, with `samples`, plus `derived {from, runs, recipe_versions, date}`. It is part of the package and its hash, so it changes with a recipe version. `baton recipe baselines <recipe> [--project <dir>]...` writes it from the completed runs in the projects named (the owner's own, as reference owner), medians only.
+- *Off baseline.* When a run completes, for each step with a baseline of at least `min_samples` (a machine setting, `~/.baton/preferences.yaml` `self_improvement`, default 3), a measure above `factor` × its median (default 2) opens one `off_baseline` case per step and measure, recording the value, the median and the guards (first-try gate pass, rejections, late defects). The process SME reads these cases as today; turning them into proposals for the owner waits for the digest.
+- *Re-asked.* At intake, a result or blocked escalation asking a question whose id the owner already answered for the step in this run opens a `reasked` case with both seqs.
+- *Late defects.* When findings are recorded, a finding whose `location` (the part before `:line`) names a file produced by another step P counts as a late defect against P, provided P has a review or findings gate of its own that had passed earlier in the run. "Produced by P" means one of P's result artifacts or a file P's accepted attempt changed in the working tree. `stats` gains `outcome.defects_late` on P. A location that matches nothing is not counted.
+- *Left out:* the pay-per-token detector of the positions. The record keeps the routes left out but not the eligible routes not chosen, and default routing already prefers included routes. It would need a new routing field, so it waits until a case shows the need.
+
+### Doc edits
+
+- `design/experts.md` §12.4: case fields, the new kinds and sources, `stats` `cases` and `defects_late`, the detectors, baselines.
+- `design/runtime.md` §8.1, §8.2, §8.8: the `repeated_failure` escalation and its event fields; the circuit breaker.
+- `design/director-interface.md` §13.1, §13.3, §13.8: `report`, the new `feedback` options, the skill's rules for cases, reports, the hold-or-workaround choice and "Is that clearer?".
+- `design/recipes.md` §5.1: `baselines.json`; `recipe baselines`; the satisfiability check in `recipe check`.
+- `design/platform-and-security.md` §15.3: the simulated runs of shipped recipes; `design/testing.md` §17: the contract scenarios.
+
+### Manual edits
+
+- `manual/user/when-something-is-wrong.md`: "This looks like a Baton problem" and the choice; a step stopped after the same problem twice.
+- `manual/admin/director-commands.md` and `manual/reference/commands.md`: `report`, the new `feedback` options, `recipe baselines`.
+- `manual/admin/machine-settings.md`: the off-baseline settings.
+
+### Later (on hold): the positions below
+
 
 ### Positions (2026-11-05 and 2026-11-22; the owner's positions and Claude's suggestions, not decisions unless linked)
 
@@ -191,7 +241,7 @@ Case, candidate, local line, baseline and digest are internal vocabulary; the ow
 - Detectors with loose thresholds would fill the digest; the digest says nothing unless something clears its threshold and its guards.
 - Separating subject matter from a case's shape isn't fully automatic, hence the owner preview.
 
-### Doc edits (anticipated)
+### Doc edits for the later changes (anticipated)
 
 - `design/experts.md` §12.4: cases (sources, classification), detectors, baselines, replay as evidence, candidates and local lines, the digest.
 - `design/director-interface.md` §13.3, §13.8: the Director records cases silently, asks one "Is that clearer?" after clarifying, offers hold or workaround for a blocking Baton problem, and gives the digest.
@@ -202,7 +252,7 @@ Case, candidate, local line, baseline and digest are internal vocabulary; the ow
 - `design/workers.md` §6.4: harness-specific Director notes in the shipped harness data.
 - `principles.md` §2: concept-budget entries if any term becomes user-visible.
 
-### Manual edits (anticipated)
+### Manual edits for the later changes (anticipated)
 
 - `manual/user/`: what Baton adjusts for the owner and how to undo it; the digest; the blocked-run choice. Settled with Design.
 
@@ -215,31 +265,38 @@ Case, candidate, local line, baseline and digest are internal vocabulary; the ow
 - [0181](../decisions/0181-first-use-feedback-routing-and-answers.md) (accepted): answers last across rounds, so a re-asked question is a detectable fault.
 - [0184](../decisions/0184-answers-outside-a-blocked-step.md) (accepted): a completed result may carry questions on its guesses; such guesses are themselves a measure (track B).
 - [0026](../decisions/0026-judges.md) (accepted): judges from a different vendor.
-- To write once the owner decides: open questions 1 to 7.
+- [0188](../decisions/0188-self-improvement-open-questions.md) (accepted): this change's scope (four slices), the temporary local patch, the circuit breaker, the Director skill upstream only, promotion after replay plus 3 clean uses, where the digest goes, what may be shared, baselines across owners left open, and late defects counted deterministically.
+- [0187](../decisions/0187-process-stats-details.md) (accepted), items 2, 3 and 6: medians, late defects moved here, what a stop is.
 
 ## Plan
 
-Sketch only; slices get criteria after Request and Design are approved (major). Depends on [2026-11-process-stats](2026-11-process-stats.md) for track B. Ordered so each slice pays off on its own, even if nothing ever goes upstream.
+Slices get approved criteria with the Design (major). Each pays off on its own. The four later sections are kept as the sketch for the changes that follow.
 
-### Capture and classify, with a repro bundle
+### Slice 1: cases and the repro bundle
 
-- **Outcome:** the Director records cases silently, asks "Is that clearer?" after clarifying, and for a Baton problem writes a repro bundle and offers hold or a workaround; deterministic detectors open cases from the record. Formalizes what the Director did by hand for `issues/`.
+- **Outcome:** D1 and D2: the richer `process_feedback` (kinds, `source`, `fix_in`, evidence, owner's words, Director identity, `clarified`, `report`) through CLI, MCP and engine; `stats` `cases`; `baton report` with its redacted bundle; `.baton/reports/` ignored by git; the Director skill's rules; manual.
+- **Criteria:** a case with every field round-trips and `stats` counts it by kind and `fix_in`; an old `process_feedback` event reads unchanged; `report` on a run with a rejected attempt writes `report.md` with the header and the empty sections, and a bundle holding the events, packet, schemas, result, gate output and log tail, with a planted secret and a machine path absent; `report` records no event; the skill text holds the rules (skill test).
 - **Effort:** M
 
-### Circuit breaker
+### Slice 2: circuit breaker
 
-- **Outcome:** a repeated identical failure stops and reaches the owner as one choice, with the spend so far.
+- **Outcome:** D3.
+- **Criteria:** the same rejection twice escalates `repeated_failure` with both attempts and the spend, and records a `repeated_failure` case; reasons differing only in attempt number, SHA or line number match; different reasons retry; the same failure of a different gate retries; with `max_attempts: 2` the reason is `repeated_failure`; trial attempts are skipped; a decision readies the step with a fresh budget; `stats` counts it as a stop; the 2026-11-20 disposition case, replayed through runkit, stops after its second attempt.
 - **Effort:** S
 
-### Contract checks before runs
+### Slice 3: contract checks before runs
 
-- **Outcome:** recipe-builder and `vendor` check a recipe's contracts for contradictions; shipped recipes are simulated before release.
+- **Outcome:** D4.
+- **Criteria:** the contract scenarios pass; the generator yields a valid instance for every output schema of every built-in and example recipe and reports an unsatisfiable one by name (e.g. the recipe-builder@7 research rule, kept as a fixture); every built-in and example recipe completes a simulated run through blocked-and-answered and second review rounds; `recipe check` reports an unsatisfiable schema; recipe-builder's audit prompt holds the contract-consistency check.
+- **Effort:** L (the generator and ten recipes' runs)
+
+### Slice 4: baselines and detectors
+
+- **Outcome:** D5.
+- **Criteria:** `recipe baselines` writes medians from fixture projects and a recipe with `baselines.json` loads and hashes it; a completed run with a step at more than twice its median opens one `off_baseline` case per measure with the guards recorded, none below `min_samples` or within the factor; a re-asked question opens a `reasked` case; a finding locating a file of a reviewed earlier step counts one late defect on that step, and none for a step without its own review or a location that matches nothing; manual.
 - **Effort:** M
 
-### Baselines and detectors
-
-- **Outcome:** baselines derived from the reference owner's runs ship with recipes; a step well off its baseline, guards holding, opens a case.
-- **Effort:** M
+## Later (each its own change, on hold)
 
 ### Replay
 
@@ -274,3 +331,9 @@ Sketch only; slices get criteria after Request and Design are approved (major). 
 - **Summary:** Rewritten from the 2026-11-22 discussion, checked against first-use evidence (2026-11-first-use-feedback-batch-a F-1 to F-8; `issues/2026-11-19-research-blocked-vs-schema.md`; `issues/2026-11-20-design-evidence-and-lost-answers.md`) and Baton at `a1d25f0` (`sme.stats()`, the track record, 0180, 0183). Track A (what goes wrong) and track B (how work goes, measured) share cases, replay, local lines and the digest; fixes are classified by where they live, and upstream fixes are the provider's. Three answers recorded as Decision 0185; the measuring part split out as 2026-11-process-stats. Title changed. No code changed.
 - **Owner decision:** 2026-11-22, "1-only through the digest. 2-yes, now. 3-my own for now. Incorporate all of your suggestions into the change proposal." (0185).
 - **Accepted:** No; still on hold. Open questions 1 to 7 await the owner.
+
+### Open questions settled; four slices designed
+
+- **Summary:** The owner answered the seven open questions, the late-defects question 0187 moved here, and the scope (Decision 0188). The hold is lifted for capture with a repro bundle, the circuit breaker, contract checks and baselines with detectors; replay, local lines with the digest, sharing and the analyst stay on hold as later changes. Design D1 to D5 and slice criteria written against the code at `0b9ee8e` (`engine._failed`, `feedback`, `Finding.location`, `recipe_check.py`). The pay-per-token detector is left out (no record of eligible routes not chosen). The temporary local patch waits for local lines. No code changed.
+- **Owner decision:** 2026-11-22, "All as suggested" (0188).
+- **Accepted:** No; Request and Design await approval.
