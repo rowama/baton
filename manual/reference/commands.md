@@ -614,6 +614,18 @@ Checks for a recipe being built.
 
 Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
 
+### baton recipe baselines {#baton-recipe-baselines}
+
+Write the recipe's baselines.json: each step's medians over the completed runs of this recipe.
+
+Explained in the manual: [Recipes, vendoring and trust](admin.recipes-and-vendoring#here-now).
+
+| Argument or option | What it does |
+|---|---|
+| `package <path>` | The recipe folder to write baselines.json into. |
+| `--project <Path>` | A project whose completed runs of this recipe to use (repeatable; default: this project). |
+| `--json` | Machine-readable output. |
+
 ### baton recipe check {#baton-recipe-check}
 
 Gate helper: no open ledger entry, every confirmed entry has the owner's words, no instance fact in the recipe, and discovery recorded and handed on.

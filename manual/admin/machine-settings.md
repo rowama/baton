@@ -69,6 +69,14 @@ An API profile (`litellm_api`) whose model calls tools (`tool_use`) can also rea
 
 The machine file alone also holds `assessment:` (a project's is ignored, since it spends the machine's budget): `trials` and `shadows` (both `false` until you turn them on), `daily_limit_usd` (0: free models only), and the thresholds `proven_after` (5), `put_back_after` (2) and `window` (5). `baton workers assessment` and the setup page edit it. See [trying cheaper models](user.choose-models#try-cheaper-models).
 
+It also holds `self_improvement:` (a project's is ignored): when a recipe ships expected figures for its steps (`baselines.json`), a finished run whose step took more than `factor` (2) times its usual attempts, time, cost, stops or questions is noted for the process expert, once the figure rests on at least `min_samples` (3) earlier runs. Nothing changes because of a note.
+
+```yaml
+self_improvement:
+  factor: 3
+  min_samples: 5
+```
+
 ## Other machine files {#other-files}
 
 - `~/.baton/hooks.yaml`: machine-level completion hooks; may reference secrets.

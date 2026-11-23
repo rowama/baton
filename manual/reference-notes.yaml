@@ -80,6 +80,8 @@ diagnostics:
   assessment.settings_unreadable: "`~/.baton/preferences.yaml` could not be read, so trying cheaper models stays off until it is fixed."
   assessment.spend_invalid: "`~/.baton/assessment-spend.yaml` could not be read, so no paid try is made today (free models may still be tried) and a finished try keeps its estimate."
   resources.search_invalid: "The search service under `search:` in `~/.baton/resources.yaml` could not be read, so API models have no declared search. Declare it again with `baton workers declare --search`."
+  baselines.unreadable: "A recipe's `baselines.json` could not be read, so its finished runs are not compared with expected figures. Write it again with `baton recipe baselines`."
+  baselines.preferences_unreadable: "`preferences.yaml` could not be read when a run finished, so the default thresholds were used to compare it with its recipe's expected figures."
   sme.profiles_unreadable: "Profiles could not be read when listing experts."
   sme.run_unreadable: "A run could not be read when indexing or counting expert consultations."
   supervisor.late_completion: "A supervisor finished a dispatch that Baton had already recorded (for example, judged its supervisor dead), so its result was not taken in. The step's record shows what was recorded instead; try that part again if it was cut short."

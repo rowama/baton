@@ -743,6 +743,15 @@ class AssessmentSettings(_Strict):
     window: int = Field(default=5, ge=1)
 
 
+class SelfImprovementSettings(_Strict):
+    """The off-baseline detector (§12.4; change 2026-11-self-improvement, D5): machine-level only."""
+
+    #: A measure above ``factor`` times its baseline median opens a case.
+    factor: float = Field(default=2.0, gt=1)
+    #: A baseline median is compared only with at least this many samples.
+    min_samples: int = Field(default=3, ge=1)
+
+
 class Preferences(_Strict):
     """``.baton/preferences.yaml``: reorder or exclude eligible profiles; never add one (§8.4)."""
 
@@ -753,6 +762,8 @@ class Preferences(_Strict):
     cheapest_first: bool = True
     #: Trials and shadow attempts: read from the machine's file only (a project's is ignored), §6.4.
     assessment: AssessmentSettings = Field(default_factory=AssessmentSettings)
+    #: The off-baseline detector's thresholds: read from the machine's file only, like ``assessment``.
+    self_improvement: SelfImprovementSettings = Field(default_factory=SelfImprovementSettings)
     #: Names the machine-level file excludes (0124); set by the merge, never read from a file, so a reason can say which level excluded.
     _machine_exclude: set[str] = PrivateAttr(default_factory=set)
 

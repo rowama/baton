@@ -135,8 +135,8 @@ def test_owner_burden_counts_stops_questions_reasked_decisions_and_waits(tmp_pat
 
 def test_outcome_counts_first_try_acceptance_rejections_and_owner_edits(tmp_path: Path) -> None:
     st = _record(tmp_path)["steps"]
-    assert st["r@1/draft"]["outcome"] == {"gate_first_try": 0, "gate_rejections": 1, "owner_edits": 1}
-    assert st["r@1/review"]["outcome"] == {"gate_first_try": 1, "gate_rejections": 0, "owner_edits": 0}
+    assert st["r@1/draft"]["outcome"] == {"gate_first_try": 0, "gate_rejections": 1, "owner_edits": 1, "defects_late": 0}
+    assert st["r@1/review"]["outcome"] == {"gate_first_try": 1, "gate_rejections": 0, "owner_edits": 0, "defects_late": 0}
 
 
 def test_recipe_totals_and_means_per_run(tmp_path: Path) -> None:

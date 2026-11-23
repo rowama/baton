@@ -1518,6 +1518,48 @@ def recipe_check(
     raise typer.Exit(EXIT_PROBLEM if problems else EXIT_OK)
 
 
+@recipe_app.command("baselines")
+def recipe_baselines(
+    package: Annotated[Path, typer.Argument(help="The recipe folder to write baselines.json into.")],
+    projects: Annotated[Optional[list[Path]], typer.Option("--project", help="A project whose completed runs of this recipe to use (repeatable; default: this project).")] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Write the recipe's baselines.json: each step's medians over the completed runs of this recipe (§5.1, §12.4)."""
+    import json as _json
+    from datetime import date
+
+    from . import baselines
+    from .launcher import find_project
+    from .recipe import RecipeError, load_recipe
+    from .store import Store
+
+    try:
+        name = load_recipe(package).recipe.id
+    except RecipeError as e:
+        _fail(as_json, EXIT_PROBLEM, "recipe.invalid", str(e))
+    roots = list(projects or [])
+    if not roots:
+        here = _opts.project or find_project(Path.cwd())
+        if here is None:
+            _fail(as_json, EXIT_USAGE, "recipe.baselines_usage", "run it in a project, or name one or more with --project")
+        roots = [Path(here)]
+    runs = []
+    for root in roots:
+        if not (Path(root) / ".baton").is_dir():
+            _fail(as_json, EXIT_USAGE, "recipe.baselines_usage", f"{root} is not a Baton project")
+        with Store(Path(root)) as store:
+            for rid in store.run_ids():
+                events = store.run(rid).events()
+                if events and events[0].type == "run_started" and str(events[0].data.get("recipe") or "").split("@")[0] == name:
+                    runs.append((events, Path(store.run_dir(rid))))
+    doc = baselines.derive(runs, [Path(r).resolve().name for r in roots], date.today().isoformat())
+    out = Path(package) / baselines.BASELINES_FILE
+    out.write_text(_json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    d = doc["derived"]
+    _emit({"ok": True, "path": str(out), "steps": len(doc["steps"]), **d}, as_json,
+          f"{out}: {len(doc['steps'])} steps from {d['runs']} completed runs\n")
+
+
 @recipe_app.command("check-guesses")
 def recipe_check_guesses(
     ledger: Annotated[Optional[Path], typer.Argument(help="A requirements ledger (JSON) to check.")] = None,

@@ -680,10 +680,10 @@ def begin_attempt(
         dispatch_data["protected"] = reviews.protected_snapshot(ctx.store.root, node.protect_paths())
     if lock_refs and "locks" not in dispatch_data:
         dispatch_data["locks"] = lock_refs  # the approved sets this attempt is bound by, checked at its intake (§9.4)
-    if reviews.is_reviewer(node):
+    if reviews.is_reviewer(node) or (isinstance(node, Step) and node.workspace == "write"):
         head = reviews.repo_head(ctx.store.root)
         if head:
-            dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it)
+            dispatch_data["head"] = head  # the reviewed commit (§9.2: rejections cite it); a write step's start, for late defects (§12.4)
     selected = identity_record(profile_name, profile)  # identity and route, for independence (§8.4, 0075)
     selected["included"] = route_included(profile)  # a subscription the owner already pays for, for stats (§12.4, 0187)
     if excluded is not None:
@@ -704,6 +704,37 @@ def begin_attempt(
     log.append("dispatched", actor=actor, step_path=step_path, attempt=n, data=disp)
     log.append("step_running", step_path=step_path, attempt=n)
     return built
+
+
+def _reasked(ctx: RunContext, step_path: str, n: int, questions: list[Any]) -> None:
+    """The re-asked detector (§12.4; change 2026-11-self-improvement, D5; Decision 0181): a question whose id the owner
+    already answered for this step in this run opens a ``reasked`` case, with the answer and the asking as evidence."""
+    from . import sme
+    from .locks import project_lock
+
+    events = ctx.log.events()
+    asking = events[-1]  # the result_submitted or step_escalated just appended
+    recipe = ctx.recipe.recipe.ref
+    q = sme.qualified(recipe, step_path)
+    answered: dict[str, int] = {}
+    for e in events:
+        if e.type == "human_decision" and e.data.get("kind") == "answers":
+            path = e.step_path or e.data.get("ref")
+            if path and sme._key(recipe, path) == q:
+                for a in e.data.get("answers") or []:
+                    if isinstance(a, dict) and isinstance(a.get("id"), str):
+                        answered[a["id"]] = e.seq
+    again = [x for x in questions if isinstance(x, dict) and x.get("id") in answered]
+    if not again:
+        return
+    with project_lock(ctx.store.baton):
+        log = ctx.store.project_log()
+        for x in again:
+            log.append("process_feedback", data={
+                "kind": "reasked", "source": "detector:reasked", "run": ctx.run_id, "step_path": step_path, "attempt": n,
+                "qualified": q, "question": x["id"],
+                "text": redact_text(f"asked again after the owner answered it: {x.get('ask') or x['id']}")[:2000],
+                "evidence": [str(answered[x["id"]]), str(asking.seq)]})
 
 
 def _step(ctx: RunContext, step_path: str) -> Step:
@@ -770,6 +801,8 @@ def submit(
               **({"questions": sub.questions} if sub.status == "completed" and sub.questions and not sub.problems else {})},
     )
     _record_worker_feedback(ctx, step_path, n, actor, sub.process_feedback)
+    if sub.status == "completed" and sub.questions and not sub.problems:
+        _reasked(ctx, step_path, n, sub.questions)
     if sub.rating_signal is not None and not rating_signal_problems(ctx, sub.rating_signal):
         rating = (ctx.record().ratings() or {}).get(sub.rating_signal["axis"])
         log.append("rating_signal_recorded", actor=actor, step_path=step_path, attempt=n, data={**sub.rating_signal, "rating": rating})
@@ -788,6 +821,7 @@ def submit(
             attempt=n,
             data={"reason": "blocked", "questions": sub.questions, "notes": sub.notes},
         )
+        _reasked(ctx, step_path, n, sub.questions)
         return Outcome(step_path, n, "escalated", reasons)
     if sub.status == "failed":
         reasons = [f"the worker reported failure: {sub.notes}" if sub.notes else "the worker reported failure"]
@@ -1058,6 +1092,9 @@ def _run_gates(ctx: RunContext, step: Step, step_path: str, n: int, start: int) 
     if held is not None:
         return held
     data = _registered(ctx, step_path, n)
+    changed = _committed_files(ctx, step, step_path, n)
+    if changed:
+        data["changed_files"] = changed
     loc = groups.locate(ctx.recipe, step_path)
     if loc is not None and groups.is_judge(loc):
         data["condition"] = {"gates_passed": True}
@@ -1150,6 +1187,29 @@ def _review_finished(ctx: RunContext, review: Step, rpath: str, rn: int) -> Outc
     if out is None:
         return _run_gates(ctx, parent, ppath, pn, gi + 1)
     return out
+
+
+#: At most this many changed files are recorded with a write step's pass.
+CHANGED_FILES_MAX = 500
+
+
+def _committed_files(ctx: RunContext, step: Step, step_path: str, n: int) -> list[str]:
+    """The files a write step's attempt committed (from its dispatch head to HEAD, Baton's own records left out), for
+    counting defects found late against it (§12.4; Decision 0188, item 8). Write steps hold the workspace one at a time
+    (§8.9), so the commits between are its own."""
+    if step.workspace != "write":
+        return []
+    head = _last_data(ctx.log.events(), "dispatched", step_path, n).get("head")
+    if not head:
+        return []
+    from . import gitops
+
+    try:
+        out = gitops.git(ctx.store.root, "diff", "--name-only", f"{head}..HEAD", check=False).stdout.splitlines()
+    except gitops.GitError:  # expected: git is not usable here; nothing is counted
+        return []
+    own = ctx.store.baton.name + "/"
+    return sorted(f for f in out if f and not f.startswith(own))[:CHANGED_FILES_MAX]
 
 
 def _registered(ctx: RunContext, step_path: str, n: int) -> dict[str, Any]:
@@ -2836,6 +2896,9 @@ class Api:
         notices = self._learn(ctx, [e for e in ctx.log.events() if e.seq > before])
         if notices:
             out.setdefault("notices", []).extend(notices)
+        done = next((e for e in ctx.log.events() if e.seq > before and e.type == "run_completed"), None)
+        if done is not None:
+            self._off_baseline(ctx, done.seq)
         paths = list(extra or []) + publish.deliverable_paths(ctx) + self._adoption_progress(ctx) + self._project_paths()
         docs.write_records(ctx)
         new = [e for e in ctx.log.events() if e.seq > before]
@@ -2845,6 +2908,41 @@ class Api:
         pending = self._pending(ctx)
         out["pending_decisions"] = pending
         out["needs_owner"] = bool(pending)
+
+    def _off_baseline(self, ctx: RunContext, completed_seq: int) -> None:
+        """The off-baseline detector (§12.4; change 2026-11-self-improvement, D5): a completed run's steps against the
+        recipe's ``baselines.json``, with this machine's ``self_improvement`` thresholds. One case per step and measure."""
+        from . import baselines
+        from .locks import project_lock
+
+        try:
+            base = baselines.load(ctx.recipe.root)
+        except baselines.BaselineError as e:
+            diag.note("baselines.unreadable", "engine:Api._off_baseline", error=str(e), recipe=ctx.recipe.recipe.ref)
+            return
+        if base is None:
+            return
+        from .routing import PreferencesError, load_preferences
+
+        try:
+            settings = load_preferences(self.project.baton, self.project.home).self_improvement
+        except PreferencesError as e:  # expected: a broken preferences file is doctor's to report; the defaults apply
+            diag.note("baselines.preferences_unreadable", "engine:Api._off_baseline", error=str(e))
+            from .models import SelfImprovementSettings
+
+            settings = SelfImprovementSettings()
+        found = baselines.off_baseline(ctx.log.events(), ctx.run_dir, base, settings.factor, settings.min_samples)
+        if not found:
+            return
+        with project_lock(self.project.baton):
+            log = self.project.store.project_log()
+            for c in found:
+                log.append("process_feedback", data={
+                    "kind": "off_baseline", "source": "detector:off_baseline", "run": ctx.run_id, "step_path": c["step"],
+                    "qualified": f"{ctx.recipe.recipe.ref}/{c['step']}",
+                    "text": f"{c['measure']} {c['value']:g} against a median of {c['median']:g} ({c['samples']} samples, factor {c['factor']:g})",
+                    "measure": c["measure"], "value": c["value"], "median": c["median"], "samples": c["samples"],
+                    "factor": c["factor"], "guards": c["guards"], "evidence": [str(completed_seq)]})
 
     def _checkpoint(self, ctx: RunContext, new: list[Any], extra: list[Path] | None = None) -> Any:
         from . import docs, gitops

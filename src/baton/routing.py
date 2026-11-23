@@ -116,6 +116,7 @@ def merge_preferences(machine: Preferences, project: Preferences) -> Preferences
         exclude=sorted(set(machine.exclude) | set(project.exclude)),
         cheapest_first=project.cheapest_first if "cheapest_first" in project.model_fields_set else machine.cheapest_first,
         assessment=machine.assessment,  # machine-level only: trials and shadows spend the machine's budget (0176, item 7)
+        self_improvement=machine.self_improvement,  # machine-level only, as assessment
     )
     out._machine_exclude = set(machine.exclude)
     return out

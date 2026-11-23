@@ -19,6 +19,8 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `assessment.shadow_not_planned` | A shadow attempt could not be prepared (for example, its task could not be built), so the step went ahead without one. |
 | `assessment.shadow_not_started` | A shadow attempt could not be started; it is recorded as no evidence and the step goes on as chosen. |
 | `assessment.spend_invalid` | `~/.baton/assessment-spend.yaml` could not be read, so no paid try is made today (free models may still be tried) and a finished try keeps its estimate. |
+| `baselines.preferences_unreadable` | `preferences.yaml` could not be read when a run finished, so the default thresholds were used to compare it with its recipe's expected figures. |
+| `baselines.unreadable` | A recipe's `baselines.json` could not be read, so its finished runs are not compared with expected figures. Write it again with `baton recipe baselines`. |
 | `cache.replay` | The cache of a run's record was out of step with its log and was rebuilt by replaying the log. Harmless; recurring means something edits the cache or the log. |
 | `capability.version_check_skipped` | A helper's version could not be read, so its observed capability states were not reset after an upgrade. |
 | `capability_check.record_invalid` | `~/.baton/track-record.yaml` could not be read, so no model's last capability check is shown. Checking a model again rewrites it. |

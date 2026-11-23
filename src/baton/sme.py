@@ -996,7 +996,7 @@ def stats(store: Any) -> dict[str, Any]:
                                     "cost": {"usd": 0.0, "tokens_in": 0, "tokens_out": 0,
                                              "attempts_priced": 0, "attempts_included": 0, "attempts_unknown": 0},
                                     "owner": {"stops": 0, "questions": 0, "open": 0, "reasked": 0, "decisions": 0, "waits_s": []},
-                                    "outcome": {"gate_first_try": 0, "gate_rejections": 0, "owner_edits": 0}})
+                                    "outcome": {"gate_first_try": 0, "gate_rejections": 0, "owner_edits": 0, "defects_late": 0}})
 
     for rid in store.run_ids():
         try:
@@ -1138,6 +1138,10 @@ def stats(store: Any) -> dict[str, Any]:
                     rd[disp] = rd.get(disp, 0) + 1
         for q, ids in latest_asked.items():
             step(q)["owner"]["open"] += len([i for i in ids if i not in answered.get(q, set())])
+        from . import baselines
+
+        for k, n in baselines.late_defects(events).items():  # Decision 0188, item 8
+            step(f"{recipe}/{k}")["outcome"]["defects_late"] += n
         rr["cost_usd"].append(run_cost)
         rr["owner_stops"].append(run_stops)
         rr["owner_wait_s"].append(run_wait)
