@@ -36,7 +36,7 @@ def loaded():
 
 def test_it_loads_cleanly_and_is_a_root_recipe_with_a_scope(loaded):
     r = loaded.recipe
-    assert r.ref == "recipe-builder@10" and r.provenance == "scratch"
+    assert r.ref == "recipe-builder@11" and r.provenance == "scratch"
     assert r.scope is not None and r.scope.covers and r.scope.not_for
     assert not loaded.warnings
 
@@ -284,7 +284,7 @@ def test_the_published_v3_still_loads_with_its_levels():
 
 
 def test_v8_loads_and_plans_at_every_pair_of_ratings(loaded):
-    assert loaded.recipe.ref == "recipe-builder@10" and not loaded.warnings
+    assert loaded.recipe.ref == "recipe-builder@11" and not loaded.warnings
     for a in APPROACHES:
         for sw in SOFTWARE:
             plan = at(loaded, a, sw)
@@ -735,3 +735,43 @@ def test_the_published_v9_is_a_frozen_copy_without_the_guess_gate():
     old = load_recipe(V9)
     assert old.recipe.ref == "recipe-builder@9" and not old.warnings
     assert [g.type for g in _design(old.recipe).gates] == ["schema"]
+
+
+# -- contract checks (change 2026-11-recipe-contract-checks, Slice 2; Decision 0190) --
+
+V10 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v10"
+V7 = ROOT / "tests" / "fixtures" / "recipes" / "recipe-builder-v7"
+CONTRACT_ROW = "A step whose prompt and output schema contradict each other"
+
+
+def test_v11_package_review_checks_each_prompt_against_its_schema(loaded):
+    rubric = (BUILDER / "prompts" / "package_review_rubric.md").read_text(encoding="utf-8")
+    [row] = [line for line in rubric.splitlines() if line.startswith("| " + CONTRACT_ROW)]
+    assert row.endswith("| high |")
+    assert "requires what the schema forbids or forbids what the schema requires" in row
+    assert "returning `blocked` with questions while a choice is still open" in row
+    assert "name both files in the `location`" in rubric and "inventing an owner's answer" in rubric
+    generate = next(s for s in loaded.recipe.steps if s.id == "generate")
+    review = next(g for g in generate.gates if g.type == "review")
+    assert review.rubric == "prompts/package_review_rubric.md"
+    assert review.applies_to == {"approach": ["complex"], "software": ["simple", "engineered"]}  # as scoped (0190, item 1)
+
+
+def test_the_recipe_builder_7_contradiction_is_the_case_the_row_names():
+    """@7's research prompt asks for `blocked` with the choice open; its schema requires the choice decided.
+
+    The schema alone has an instance (test_schema_instance), so only the review row can catch it.
+    """
+    prompt = (V7 / "prompts" / "research.md").read_text(encoding="utf-8")
+    assert "The choice is the owner's. A recommendation is not a decision. Return `blocked`" in prompt
+    assert "Never confirm an\n  entry the owner has not answered." in prompt
+    schema = json.loads((V7 / "schemas" / "research_out.json").read_text(encoding="utf-8"))
+    text = json.dumps(schema)
+    assert '"if": {"properties": {"timing": {"const": "before_design"}}' in text
+    assert '"then": {"properties": {"status": {"const": "decided"}' in text
+
+
+def test_the_published_v10_is_a_frozen_copy_without_the_contract_row():
+    old = load_recipe(V10)
+    assert old.recipe.ref == "recipe-builder@10" and not old.warnings
+    assert CONTRACT_ROW not in (V10 / "prompts" / "package_review_rubric.md").read_text(encoding="utf-8")

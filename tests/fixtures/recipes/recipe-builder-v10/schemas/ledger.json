@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Requirements ledger",
+  "description": "One entry per requirement, assumption or decision, carried from profile to generate",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "statement",
+      "kind",
+      "scope",
+      "status",
+      "basis"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "statement": {
+        "type": "string",
+        "minLength": 1
+      },
+      "kind": {
+        "enum": [
+          "goal",
+          "requirement",
+          "constraint",
+          "assumption",
+          "decision",
+          "failure",
+          "limit"
+        ]
+      },
+      "scope": {
+        "enum": [
+          "class",
+          "instance"
+        ],
+        "description": "class: true of every job the recipe will cover; instance: true of this job only"
+      },
+      "status": {
+        "enum": [
+          "confirmed",
+          "researched",
+          "inferred",
+          "open",
+          "excluded"
+        ]
+      },
+      "basis": {
+        "type": "string",
+        "description": "Why this is believed: the owner's words, a source, or the inference made"
+      },
+      "owner_words": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Required for a confirmed entry"
+      },
+      "value": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "For an instance entry: the job's own value, kept for the example run input"
+      },
+      "source": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "additionalProperties": false
+  }
+}

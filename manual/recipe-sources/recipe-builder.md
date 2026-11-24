@@ -85,7 +85,7 @@ You then see every example once more: **Build the programs to these examples?** 
 ## What it produces {#what-it-produces}
 
 - A **plan** of the process, in a document in the project (`recipes/plans/`).
-- The **process** itself as a draft in your project (`recipes/drafts/`), checked automatically for mistakes.
+- The **process** itself as a draft in your project (`recipes/drafts/`), checked automatically for mistakes. For a larger process, or one with programs, an independent reviewer also checks that each part's instructions ask only for what that part is allowed to hand back, so no helper is asked for something it can't deliver.
 - A **walkthrough** in plain language, so you can judge the process without reading it. It lists each small program in the process (what it does, what it needs installed, what it may touch) and each part an AI helper does that a program could have done, with the trade.
 - When you allowed programs, the **programs** themselves, each with its worked examples. Each is run on its examples before you see the result, and an independent reviewer checks it does only what the design says.
 
