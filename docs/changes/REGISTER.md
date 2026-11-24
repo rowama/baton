@@ -4,6 +4,7 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
+| [2026-11-director-note-capture](2026-11-director-note-capture.md) | The Director records whatever the owner frames as a note, and a note given before the notes file is accepted is not lost | in-progress | standard | |
 | [2026-11-software-recipe](2026-11-software-recipe.md) | Baton's one software recipe, software, is designed fresh by recipe-builder, with the owner's eng-process as evidence | in-progress | major | Owner working on it externally: the recipe-builder run in the run project |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
