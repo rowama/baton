@@ -1205,14 +1205,19 @@ def platform_incident(
 def note(
     text: Annotated[Optional[str], typer.Argument(help="The owner's words, verbatim.")] = None,
     keep_file: Annotated[Optional[str], typer.Option("--keep-file", help="The owner's answer to the notes-file offer: yes | no.")] = None,
-    note_: Annotated[Optional[str], typer.Option("--note", help="With --keep-file: the owner's words.")] = None,
+    note_: Annotated[Optional[str], typer.Option("--note", help="With --keep-file: the owner's answer to the offer, in their words (not the note).")] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Keep a note the owner asked for, word for word, in the project's notes file (offered once)."""
     out = _call(as_json, lambda: _api().note(text, keep_file=keep_file, note=note_))
     msg = {"offer": "No notes file yet: offer to keep one.", "declined": "The owner chose not to keep a notes file here.",
            "kept": f"Notes file: {out.get('path')}."}[out["notes"]]
-    _done(out, as_json, msg + (f" Noted at {out['at']}." if out.get("recorded") else ""))
+    extra = (f" Noted at {out['at']}." if out.get("recorded") else "")
+    if out.get("held"):
+        extra += f" {out['held']} note(s) held until the owner answers: kept on a yes, discarded on a no."
+    if out.get("discarded"):
+        extra += f" {out['discarded']} held note(s) discarded."
+    _done(out, as_json, msg + extra)
 
 
 def _document_line(d: dict) -> str:

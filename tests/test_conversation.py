@@ -610,6 +610,63 @@ def test_a_note_is_kept_verbatim_only_after_the_owner_accepts_the_file(tmp_path)
 
 
 @pytest.mark.slow
+def test_a_note_given_during_the_offer_is_held_and_kept_on_yes(tmp_path):
+    """Decision 0191: the owner's yes keeps the note given before it, with no second call; a leading
+    "note:" is the owner addressing the Director, not part of the note."""
+    cli, project = fresh(tmp_path)
+    notes = project / "docs" / "notes.md"
+    held_file = project / ".baton" / "cache" / "notes-held.json"
+    head = git(project, "rev-parse", "HEAD").strip()
+    first = cli.run("note", "note: The build handoff question needs resolving.\n  Also adoption.", expect=4)
+    assert first["notes"] == "offer" and first["held"] == 1 and first["recorded"] is False and "held" in first["next"]
+    second = cli.run("note", "Note :second thought", expect=4)
+    assert second["held"] == 2 and not notes.exists() and held_file.is_file()
+    # Nothing of a held note reaches the log or git.
+    assert "build handoff" not in (project / ".baton" / "project" / "events.jsonl").read_text(encoding="utf-8")
+    assert git(project, "rev-parse", "HEAD").strip() == head and git(project, "status", "--porcelain").strip() == ""
+    yes = cli.run("note", "--keep-file", "yes", "--note", "yes, keep a notes file")
+    assert yes["notes"] == "kept" and yes["recorded"] is True and yes["notes_recorded"] == 2 and not held_file.exists()
+    text = notes.read_text(encoding="utf-8")
+    assert f"\n## {first_at(text, 0)}\n\nThe build handoff question needs resolving.\n  Also adoption.\n" in text
+    assert text.endswith("\n\nsecond thought\n") and "note:" not in text.lower().replace("# notes", "")
+    plog = [json.loads(line) for line in (project / ".baton" / "project" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    dec = [e["data"] for e in plog if e["type"] == "human_decision" and e["data"].get("kind") == "notes"]
+    assert [d["note"] for d in dec] == ["yes, keep a notes file"]
+    assert [e["data"]["text"] for e in plog if e["type"] == "note_recorded"] == [
+        "The build handoff question needs resolving.\n  Also adoption.", "second thought"]
+    assert git(project, "status", "--porcelain").strip() == ""
+    assert cli.run("note", "note:   ", expect=1)["error"] == "note.empty"
+
+
+def first_at(text: str, i: int) -> str:
+    import re
+    return re.findall(r"^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$", text, re.M)[i]
+
+
+@pytest.mark.slow
+def test_a_no_discards_the_held_note(tmp_path):
+    cli, project = fresh(tmp_path)
+    cli.run("note", "Keep this in mind.", expect=4)
+    no = cli.run("note", "--keep-file", "no", "--note", "No thanks.")
+    assert no["notes"] == "declined" and no["discarded"] == 1 and "not kept" in no["next"]
+    assert not (project / ".baton" / "cache" / "notes-held.json").exists() and not (project / "docs" / "notes.md").exists()
+    assert "Keep this in mind" not in (project / ".baton" / "project" / "events.jsonl").read_text(encoding="utf-8")
+    # A later yes has nothing held to keep.
+    yes = cli.run("note", "--keep-file", "yes", "--note", "Actually yes.")
+    assert yes["recorded"] is False and "discarded" not in yes
+
+
+@pytest.mark.slow
+def test_an_unreadable_held_file_is_kept_aside_not_overwritten(tmp_path):
+    cli, project = fresh(tmp_path)
+    cache = project / ".baton" / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "notes-held.json").write_text("{not json", encoding="utf-8")
+    out = cli.run("note", "A fresh note.", expect=4)
+    assert out["held"] == 1 and (cache / "notes-held.unreadable.json").read_text(encoding="utf-8") == "{not json"
+
+
+@pytest.mark.slow
 def test_no_packet_ever_contains_a_note(tmp_path):
     cli, project = fresh(tmp_path)
     cli.run("note", "Unique-note-marker 7f3a", "--keep-file", "yes", "--note", "Yes please.")

@@ -81,6 +81,7 @@ diagnostics:
   assessment.spend_invalid: "`~/.baton/assessment-spend.yaml` could not be read, so no paid try is made today (free models may still be tried) and a finished try keeps its estimate."
   resources.search_invalid: "The search service under `search:` in `~/.baton/resources.yaml` could not be read, so API models have no declared search. Declare it again with `baton workers declare --search`."
   baselines.unreadable: "A recipe's `baselines.json` could not be read, so its finished runs are not compared with expected figures. Write it again with `baton recipe baselines`."
+  notes.held_unreadable: "Notes held until the owner answered the notes-file offer could not be read. The file was moved to `.baton/cache/notes-held.unreadable.json`, so the words can be recovered by hand; new notes are held afresh."
   baselines.preferences_unreadable: "`preferences.yaml` could not be read when a run finished, so the default thresholds were used to compare it with its recipe's expected figures."
   sme.profiles_unreadable: "Profiles could not be read when listing experts."
   sme.run_unreadable: "A run could not be read when indexing or counting expert consultations."

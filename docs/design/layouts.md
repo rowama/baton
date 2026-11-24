@@ -96,7 +96,7 @@ baton/
 │   ├── runs/<run_id>/                # events.jsonl, cas/, steps/, sme/<c_id>/turn-<n>/ and handoff.md, docs/
 │   ├── .gitattributes                # `* -text`: git never converts line endings in hashed files (§15.1)
 │   ├── workers.local.yaml            # GITIGNORED: project-specific profile overrides
-│   └── cache/                        # GITIGNORED: SQLite, running markers, locks
+│   └── cache/                        # GITIGNORED: SQLite, running markers, locks, notes held until the notes-file offer is answered (§13.1)
 ├── guides/<id>.md                    # the project's guidance documents (§5.7), project documents once attested or published
 ├── <published deliverables at the project's own paths>   # incl. framing's process plans (paths.process_plans) and the owner's notes file (paths.notes); init maps both to docs (§11.6, §13.1)
 └── .gitattributes                    # LFS rules for large blobs and binary deliverables

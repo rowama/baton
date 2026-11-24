@@ -5433,18 +5433,35 @@ class Api:
         b = self.project.baton
         return [p for p in (b / "project", b / "platform", b / "process") if p.exists()]
 
-    def note(self, text: str | None = None, *, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
-        """The owner's note, kept only when they asked for it (Decisions 0065, 0067, 0070).
+    _NOTE_LABEL = re.compile(r"\A\s*note\s*:\s*", re.IGNORECASE)
 
-        Until the owner has answered the one-time offer of a notes file, nothing is recorded and the
-        result is ``notes: offer``; after a no, ``notes: declined``. With the file accepted, ``text``
-        is appended verbatim under a dated heading. No input reference resolves to notes: no packet
-        ever contains one."""
+    def note(self, text: str | None = None, *, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
+        """The owner's note, kept only when they asked for it (Decisions 0065, 0067, 0070, 0191).
+
+        Until the owner has answered the one-time offer of a notes file, a note is held in the
+        gitignored cache (never logged or committed) and the result is ``notes: offer``; their yes
+        appends every held note, a no discards them. After a no, ``notes: declined``. With the file
+        accepted, ``text`` is appended verbatim under a dated heading, less a leading ``note:``
+        label (addressed to the Director). No input reference resolves to notes: no packet ever
+        contains one."""
         from . import publish
         from .frame import DEFAULT_PATHS
         from .redact import redact_text
 
+        if text is not None:
+            text = self._NOTE_LABEL.sub("", text, count=1)
+            if not text.strip():
+                raise EngineError("note.empty", "a note needs the owner's words")
         plog = self.project.store.project_log()
+        held_path = self.project.baton / "cache" / "notes-held.json"
+        held: list[dict[str, str]] = []
+        if held_path.is_file():
+            try:
+                held = [h for h in json.loads(held_path.read_text(encoding="utf-8")) if isinstance(h, dict) and h.get("text")]
+            except (OSError, ValueError) as e:  # kept aside, never overwritten, so the owner's words can be recovered
+                diag.note("notes.held_unreadable", "engine:Api.note", error=f"{type(e).__name__}: {e}", path=str(held_path))
+                held_path.replace(held_path.with_name("notes-held.unreadable.json"))
+                held = []
         out: dict[str, Any] = {}
         if keep_file is not None:
             if keep_file not in ("yes", "no"):
@@ -5462,23 +5479,39 @@ class Api:
         folder = str((self.project.config.paths or {}).get("notes") or DEFAULT_PATHS["notes"]).replace("\\", "/").rstrip("/")
         rel = publish.check_target(self.project.root, f"{folder}/notes.md")
         out.update(notes=state, path=rel, recorded=False)
-        if text is not None and not text.strip():
-            raise EngineError("note.empty", "a note needs the owner's words")
-        if text is not None and state == "kept":
+        now = plog.clock().astimezone().strftime("%Y-%m-%d %H:%M")
+        if state == "offer":
+            if text is not None:  # held until the owner answers the offer (Decision 0191)
+                held.append({"text": text, "at": now})
+                publish.write_file(held_path, json.dumps(held, ensure_ascii=False, indent=1).encode("utf-8"))
+            out["held"] = len(held)
+        elif held:
+            if state == "declined":
+                out["discarded"] = len(held)
+            held_path.unlink(missing_ok=True)
+        to_record = (held if state == "kept" else []) + ([{"text": text, "at": now}] if text is not None and state == "kept" else [])
+        if to_record:
             full = self.project.root / rel
-            at = plog.clock().astimezone().strftime("%Y-%m-%d %H:%M")
-            existing = full.read_text(encoding="utf-8") if full.is_file() else (
-                "# Notes\n\nThings you asked to have noted, word for word. Edit freely; new notes are added at the end.\n")
-            entry = f"\n## {at}\n\n{text}" + ("" if text.endswith("\n") else "\n")
-            publish.write_file(full, (existing if existing.endswith("\n") else existing + "\n").encode("utf-8") + entry.encode("utf-8"))
-            ev = plog.append("note_recorded", actor="human", data={"text": redact_text(text), "at": at, "path": rel})
-            out.update(recorded=True, at=at, seq=getattr(ev, "seq", None))
+            data = (full.read_text(encoding="utf-8") if full.is_file() else
+                    "# Notes\n\nThings you asked to have noted, word for word. Edit freely; new notes are added at the end.\n")
+            seqs = []
+            for item in to_record:
+                body, at = item["text"], item["at"]
+                data = (data if data.endswith("\n") else data + "\n") + f"\n## {at}\n\n{body}" + ("" if body.endswith("\n") else "\n")
+                ev = plog.append("note_recorded", actor="human", data={"text": redact_text(body), "at": at, "path": rel})
+                seqs.append(getattr(ev, "seq", None))
+            publish.write_file(full, data.encode("utf-8"))
+            out.update(recorded=True, at=to_record[-1]["at"], seq=seqs[-1])
+            if len(to_record) > 1 or held:
+                out["notes_recorded"] = len(to_record)
         out["needs_owner"] = state == "offer"  # the offer is a question for the owner
         if state == "offer":
             out["next"] = ("offer once to keep a simple notes file for this project (they may keep notes anywhere they like); "
-                           "record their answer with `baton note --keep-file yes|no --note \"<their words>\"`")
-        elif state == "declined" and text is not None:
-            out["next"] = "the owner chose not to keep a notes file here: say they can keep the note anywhere they like"
+                           "record their answer with `baton note --keep-file yes|no --note \"<their answer>\"`"
+                           + (f"; {len(held)} held note(s) are kept on a yes and discarded on a no" if held else ""))
+        elif state == "declined" and (text is not None or out.get("discarded")):
+            out["next"] = ("the owner chose not to keep a notes file here: say they can keep the note anywhere they like"
+                           + ("; the held note(s) were not kept" if out.get("discarded") else ""))
         if keep_file is not None or out["recorded"]:
             cp = self._project_checkpoint("owner note" if out["recorded"] else f"notes file {state}", extra=[self.project.root / rel] if out["recorded"] else None)
             if cp is not None:

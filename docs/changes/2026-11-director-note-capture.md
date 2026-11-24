@@ -5,7 +5,7 @@ status: in-progress
 level: standard
 decisions: ["0065", "0067", "0070", "0191"]
 touches: [design/director-interface.md, design/layouts.md]
-manual: [reference/commands.md]
+manual: [reference/commands.md, reference/diagnostics.md]
 ---
 
 # The Director records whatever the owner frames as a note, and a note given before the notes file is accepted is not lost
@@ -46,6 +46,7 @@ Answered by the owner on 2026-11-23, all as suggested (Decision [0191](../decisi
 ### Manual edits
 
 - `manual/reference/commands.md` (generated from the CLI): `baton note`'s `--note` help now says it is the owner's answer to the offer.
+- `manual/reference/diagnostics.md` (generated from `manual/reference-notes.yaml`): `notes.held_unreadable`, held notes that could not be read and were kept aside.
 
 ### Decisions
 
@@ -71,3 +72,10 @@ Answered by the owner on 2026-11-23, all as suggested (Decision [0191](../decisi
 - **Effort:** S
 
 ## Log
+
+### Slice 1: a held note is kept on the owner's yes, and a leading "note:" is not recorded
+
+- **Commit:** 2026-11-director-note-capture: Slice 1, a held note is kept on the owner's yes, and a leading "note:" is not recorded
+- **Summary:** `Engine.note` holds a note given during the offer in `.baton/cache/notes-held.json` (`held`). `--keep-file yes` appends every held note under the time it was given (`notes_recorded`; one `note_recorded` each, one checkpoint). `--keep-file no` discards them (`discarded`). A leading `note:` label is removed before holding or recording. The CLI message says when notes are held or discarded. The `--note` help (and the MCP tool) say it holds the owner's answer, not the note. §13.1's `note` row and §4.3's `cache/` line are updated, and `manual/reference/commands.md` is regenerated. An unreadable held file is moved to `notes-held.unreadable.json`, never overwritten, and noted as `notes.held_unreadable` (`manual/reference/diagnostics.md`). Tests: `test_a_note_given_during_the_offer_is_held_and_kept_on_yes` (held notes stay out of the log and git, are kept verbatim on yes with the label stripped, label-only is `note.empty`) `test_a_no_discards_the_held_note` and `test_an_unreadable_held_file_is_kept_aside_not_overwritten`.
+- **Review:** self-review. The quick gate flagged the held file's unreadable case as swallowed silently; it is now a diagnostic, and the bad file is kept aside. The empty-note check now runs before `--keep-file` is recorded, so a bad call records no decision.
+- **Accepted:** pending the owner's review

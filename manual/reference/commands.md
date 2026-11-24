@@ -441,7 +441,7 @@ Explained in the manual: [The commands an assistant uses](admin.director-command
 |---|---|
 | `text <str>` | The owner's words, verbatim. |
 | `--keep-file <str>` | The owner's answer to the notes-file offer: yes \| no. |
-| `--note <str>` | With --keep-file: the owner's words. |
+| `--note <str>` | With --keep-file: the owner's answer to the offer, in their words (not the note). |
 | `--json` | Machine-readable output. |
 
 ## baton permission {#baton-permission}

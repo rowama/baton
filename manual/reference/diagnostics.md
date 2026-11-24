@@ -35,6 +35,7 @@ Read them with `baton diag`. Each is something Baton worked around instead of fa
 | `listings.fetch_failed` | A provider's model list could not be read; the last good list, if any, is kept. |
 | `listings.key_failed` | A provider's remaining quota could not be read; the last figures, if any, are kept. |
 | `listings.user_failed` | A user-chosen model source could not be read; it is skipped. |
+| `notes.held_unreadable` | Notes held until the owner answered the notes-file offer could not be read. The file was moved to `.baton/cache/notes-held.unreadable.json`, so the words can be recovered by hand; new notes are held afresh. |
 | `permissions.output_unreadable` | A passed step's output could not be read when deciding whether a commit was vouched for; it counts as not vouched for. |
 | `permissions.run_unreadable` | A run could not be read when deciding whether commits were vouched for; it vouches for nothing. |
 | `profiles.keyring_failed` | The OS keyring failed or is missing, so the secret file store was used instead. |

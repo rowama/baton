@@ -378,7 +378,7 @@ def build_server(project: str | Path | None = None, director: str | None = None)
 
     @tool
     def note(text: str | None = None, keep_file: str | None = None, note: str | None = None) -> dict[str, Any]:
-        """Keep a note the owner asked for, verbatim, in the project's notes file; keep_file (yes | no) with note records their answer to the one-time offer."""
+        """Keep a note the owner asked for, verbatim, in the project's notes file (held until they answer the one-time offer); keep_file (yes | no) with note (their answer, not the note) records that answer."""
         return t.call(lambda api: api.note(text, keep_file=keep_file, note=note))
 
     @tool
