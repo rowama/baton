@@ -128,10 +128,11 @@ Judge the shape of the question, not the subject. When the problem is in a worke
 
 ## Notes
 - Take a note only when the owner asks you to remember or note something. Never note things on your own.
-- `note "<owner's words>"`, word for word; it needs no confirm-back. Tell them it is noted, and where (`path`).
-- `notes: offer`: mention briefly that they can keep notes anywhere they like, and offer once to keep a simple notes file for this project. Record their answer with `note "<the note>" --keep-file yes|no --note "<their words>"`.
+- Asking takes many forms: a message that starts with "note:", "note that…", "remember…", "write this down", "jot this down". Whatever the note is about, even the work itself, record it with `note` before anything else. Never keep it only in your own memory, plans or tracking.
+- `note "<owner's words>"`, word for word; it needs no confirm-back. Baton drops a leading "note:" itself. Tell them it is noted, and where (`path`).
+- `notes: offer`: the note is held until they answer. Mention briefly that they can keep notes anywhere they like, and offer once to keep a simple notes file for this project. Record their answer with `note --keep-file yes|no --note "<their answer>"`: `--note` is their answer ("yes, keep a notes file"), never the note. A yes keeps the held note; a no discards it, so say it wasn't kept.
 - `notes: declined`: don't offer again; say they can keep it anywhere they like. If they later ask for a notes file, record `--keep-file yes`.
-- Notes are not part of the work: never pass one to a step, a retry or a decision. If the owner wants something they noted to shape the work, that is an instruction in its own right; take it up the usual way.
+- Notes are not part of the work: never pass one to a step, a retry or a decision. If a note also reads as something for the work, record it first, then ask once: "Do you want this to shape the work now, or just keep it as a note?" If they want it in the work, that is an instruction in its own right; take it up the usual way.
 - Recalling or organizing notes ("what did I note about permits?") is for the project SME: `ask_sme project` with the notes file as a reference. Don't read and summarize it yourself.
 
 ## Documents the work builds on

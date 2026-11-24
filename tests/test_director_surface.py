@@ -366,6 +366,20 @@ def test_the_director_skill_offers_quick_runs_and_leaves_the_choice_to_the_owner
 
 
 @pytest.mark.not_slow("measured under 1 s")
+def test_the_director_skill_records_anything_framed_as_a_note_first():
+    """Change 2026-11-director-note-capture, Slice 2 (Decision 0191): what counts as asking for a note, recording
+    before anything else, never only in the Director's own tracking, asking once when it reads as work, and what
+    `--note` holds."""
+    text = (ROOT / "skills" / "baton-director" / "SKILL.md").read_text(encoding="utf-8")
+    notes = text[text.index("## Notes"):text.index("## Documents the work builds on")]
+    assert '"note:"' in notes and '"remember…"' in notes and "Whatever the note is about, even the work itself" in notes
+    assert "record it with `note` before anything else" in notes and "Never keep it only in your own memory" in notes
+    assert '`--note` is their answer ("yes, keep a notes file"), never the note' in notes
+    assert "the note is held until they answer" in notes and "a no discards it" in notes
+    assert "record it first, then ask once" in notes
+
+
+@pytest.mark.not_slow("measured under 1 s")
 def test_shipped_director_skill_is_the_guides_text():
     """§13.3: the shipped director skill is the text in the design doc."""
     guide = (ROOT / "docs" / "design" / "director-interface.md").read_text(encoding="utf-8")
