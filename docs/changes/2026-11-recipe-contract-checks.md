@@ -1,7 +1,7 @@
 ---
 id: 2026-11-recipe-contract-checks
 title: "Recipe builder's package review and the recipe loader catch a recipe whose instructions and schemas contradict each other before it ships"
-status: in-progress
+status: done
 level: standard
 decisions: ["0190", "0189", "0188"]
 touches: [design/recipes.md]
@@ -93,3 +93,7 @@ A new module, `schema_instance.py`, has one function: given a schema, return an 
 - **Summary:** recipe-builder version 11. `prompts/package_review_rubric.md` has a `high` row for a step whose prompt and output schema contradict each other (requires what the schema forbids or the reverse; a disposition, answer, evidence or result-status rule, `blocked` with questions included, that no valid output can meet), and a note to read every rule against the schema and the schemas it draws on, name both files in the `location`, and not count an output that validates only by inventing an owner's answer. The review's scope is unchanged (Decision 0190, item 1); `audit` is unchanged. `@10` frozen in `tests/fixtures/recipes/recipe-builder-v10`. Design §5.7 (version 11, the steps table, "Prompts checked against their schemas"); manual `recipe-sources/recipe-builder.md` (#what-it-produces), `recipes/recipe-builder.md` regenerated. Not changed: `2026-11-ai-delegates` (proposed) still plans its marks for `recipe-builder@10`; it will take the next version when it is designed.
 - **Tests:** `test_recipe_builder.py`: the row, its severity and the `blocked` case, and the review's scope (prompt test); the recipe-builder@7 research prompt asks for `blocked` with the choice open while its schema requires a `before_design` record `decided`, the case the row names (the schema alone is satisfiable, `test_schema_instance.py`); `@10` frozen without the row. Version references to `@11` in `test_recipe_builder.py` and `test_recipe_builder_runs.py`.
 - **Review:** none (standard level).
+
+### Done
+
+- **Summary:** Both acceptance criteria shown by tests: the package review row (Slice 2) and the loader's `schema.no_instance` warning, shown by `plan` and `vendor` (Slice 1). `vendor` runs no model. Status `done`.

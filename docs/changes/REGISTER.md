@@ -4,7 +4,6 @@ One row per change doc in this folder: the place to see every change's status wi
 
 | Change | Title | Status | Level | Note |
 |---|---|---|---|---|
-| [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md) | Recipe builder's package review and the recipe loader catch a recipe whose instructions and schemas contradict each other before it ships | in-progress | standard | |
 | [2026-11-software-recipe](2026-11-software-recipe.md) | Baton's one software recipe, software, is designed fresh by recipe-builder, with the owner's eng-process as evidence | in-progress | major | Owner working on it externally: the recipe-builder run in the run project |
 | [2026-11-ai-delegates](2026-11-ai-delegates.md) | An owner can have their own AI assistant act for them in a run, with warnings and a recorded waiver where that is risky | proposed | major | Awaiting the owner's answers to nine open questions, then approval of Request and Design |
 | [2026-11-browser-automation](2026-11-browser-automation.md) | Steps can operate a web app in a browser for the owner, with the owner's authorization | proposed | major | On hold: after 2026-11-step-tool-harness |
@@ -41,6 +40,7 @@ One row per change doc in this folder: the place to see every change's status wi
 | [2026-11-project-review](2026-11-project-review.md) | An owner who wants guidance can run a project review that recommends which processes to start next, with the documents they would build on | done | major | |
 | [2026-11-quick-runs](2026-11-quick-runs.md) | An owner can choose a quick guided run instead of a full process for a part of the project, and its result counts as a project document | done | major | |
 | [2026-11-recipe-builder](2026-11-recipe-builder.md) | A recipe-builder recipe turns an owner's described process into a validated, vendorable recipe | done | major | |
+| [2026-11-recipe-contract-checks](2026-11-recipe-contract-checks.md) | Recipe builder's package review and the recipe loader catch a recipe whose instructions and schemas contradict each other before it ships | done | standard | |
 | [2026-11-recipe-implementation-discovery](2026-11-recipe-implementation-discovery.md) | Recipe builder discovers implementation options early enough to shape the process, or includes discovery in the generated recipe | done | standard |  |
 | [2026-11-research-blocked-vs-schema](2026-11-research-blocked-vs-schema.md) | Research can ask unanswered owner questions, and explicit worker failures pause for review | done | standard | |
 | [2026-11-self-improvement](2026-11-self-improvement.md) | Baton learns from what goes wrong and from how work goes, taking as little of the owner's attention as possible | done | major | Slices 1, 2 and 4 (Decisions 0188, 0189); replay, local lines, sharing and the analyst to come as later changes |
