@@ -1,7 +1,7 @@
 ---
 id: 2026-11-director-note-capture
 title: "The Director records whatever the owner frames as a note, and a note given before the notes file is accepted is not lost"
-status: in-progress
+status: done
 level: standard
 decisions: ["0065", "0067", "0070", "0191"]
 touches: [design/director-interface.md, design/layouts.md]
