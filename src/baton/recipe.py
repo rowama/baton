@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
-from . import refs, tailoring, programs, versions
+from . import refs, schema_instance, tailoring, programs, versions
 from . import vocab as vocab_mod
 from .data import YamlError, load_yaml, read_text
 from .models import (
@@ -513,6 +513,14 @@ class _Checker:
         self.schemas[rel] = schema
         return schema
 
+    def _check_instance(self, schema: dict, rel: str, where: str) -> None:
+        """Warn about an output schema no output can satisfy (§5.3; Decision 0190): a warning, never a refusal."""
+        found, _ = schema_instance.find_instance(schema)
+        if not found:
+            self.warn("schema.no_instance", where,
+                      f"{rel}: no output this schema accepts was found, so a worker may be unable to pass the step; "
+                      "check the schema's rules against each other and against the step's prompt")
+
     # -- requirements ----------------------------------------------------
 
     def _check_requires(self, req: Requires, where: str) -> None:
@@ -700,7 +708,9 @@ class _Checker:
         if step.doc_template:
             self._file(step.doc_template, f"{w}.doc_template", "doc template")
         if step.output_schema:
-            self._schema(step.output_schema, f"{w}.output_schema")
+            schema = self._schema(step.output_schema, f"{w}.output_schema")
+            if schema is not None and versions.runtime_schema(step.output_schema) is None:
+                self._check_instance(schema, step.output_schema, f"{w}.output_schema")
         if step.interaction is not None:
             self._check_hints(step, step.interaction.hints, f"{w}.interaction.hints")
 

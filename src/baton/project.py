@@ -708,10 +708,13 @@ def vendor(project: Project, src: str | Path, *, decision: dict[str, Any] | None
         lock["vocab"].append(loaded.recipe.capabilities_vocab)
     write_lock(project, lock)
     out: dict[str, Any] = {"recipe": ref, "sha256": loaded.sha256, "changed": True, "flags": flags, "needs_owner": False}
+    no_instance = [f"{w.where}: [{w.code}] {w.message}" for w in loaded.warnings if w.code == "schema.no_instance"]  # warn, never refuse (§5.3; Decision 0190)
+    if no_instance:
+        out["warnings"] = no_instance
     ret = retirement(project, loaded.recipe.id)
     if ret is not None:  # warn, never refuse: a pinned copy keeps working (§5.3; Decision 0173)
         out["retired"] = ret
-        out["warnings"] = [retired_text(loaded.recipe.id, ret)]
+        out.setdefault("warnings", []).append(retired_text(loaded.recipe.id, ret))
         known = {r.split("@", 1)[0] for r in project.vendored()} | set(catalog())
         if ret["replaced_by"] not in known:
             out["warnings"].append(f"{ret['replaced_by']} is neither vendored here nor shipped with Baton")

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-recipe-contract-checks
 title: "Recipe builder's package review and the recipe loader catch a recipe whose instructions and schemas contradict each other before it ships"
-status: accepted
+status: in-progress
 level: standard
 decisions: ["0190", "0189", "0188"]
 touches: [design/recipes.md]
@@ -74,3 +74,15 @@ A new module, `schema_instance.py`, has one function: given a schema, return an 
 
 - **Summary:** The owner answered the open questions and approved the Request (Decision 0190). Criteria rewritten from the answers: the check is a package review row, not the audit's; the warning is a loader warning; `vendor` runs no model. Design and two slices written; title updated (`recipe check` itself is unchanged). Status set to `accepted`; the Design awaits the owner. No code changed.
 - **Owner decision:** 2026-11-23, "Package review, as scoped"; "Loader warning"; "No" to a model-run vendor check; "Approve, design next".
+
+### Design approved
+
+- **Summary:** The owner approved the Design and Plan. Status set to `in-progress`.
+- **Owner decision:** 2026-11-23, "Approved".
+
+### Slice 1: the loader warns about an output schema with no instance
+
+- **Commit:** `2026-11-recipe-contract-checks: Slice 1, the loader warns about an output schema with no instance`
+- **Summary:** New module `schema_instance.py` (`find_instance`): alternatives flattened from `allOf`, `anyOf`/`oneOf` and `if`+`then`/`else`, with combinations whose `const`/`enum` or types plainly clash pruned before the bound (without that, recipe-builder's `design_out.json`, with seven `if` rules on each stage, found nothing); candidates per alternative; every candidate judged by the validator with intake's format checker. The loader (`recipe.py`) warns `schema.no_instance` for each step's own output schema; `plan` prints it; `vendor` (`project.py`) now returns it in `warnings` and still vendors. Only this loader warning was added to `vendor`'s output, to keep the slice narrow; its other loader warnings are unchanged. All 129 schemas under `examples/recipes` and `tests/fixtures/recipes` yield an instance; the shipped catalog takes about 0.15 s in all. Design §5.3; manual `admin/recipes-and-vendoring.md` (#review).
+- **Tests:** `tests/test_schema_instance.py`: every shipped recipe's schemas and both runtime schemas yield a valid instance, and no shipped recipe gets the warning; five crafted contradictions have none; five satisfiable shapes (if/then, recursive `$ref`, pattern, `contains`, `anyOf`) yield a valid one; the recipe-builder@7 research schema alone yields an instance; the loader warns by step and file and still loads; `plan` prints it and exits 0; `vendor` returns it and vendors (slow).
+- **Review:** none (standard level).

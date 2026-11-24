@@ -26,6 +26,8 @@ baton plan path/to/recipe
 
 Things to read: every `script` check's command, any [program](#programs) it ships, any `command` adapter a profile would run for it, the files it publishes and where (`publish: to:`), and the capabilities each part requires. Recipes declare the capabilities they need, never a model or vendor, and Baton's loader rejects a recipe that names one.
 
+`baton vendor` and `baton plan` warn about a part whose output no answer could satisfy: `WARNING work.output_schema: [schema.no_instance] schemas/out.json: no output this schema accepts was found`. Its schema's rules contradict each other, so a worker can't pass that part, and Baton stops it once the same check fails twice in a row. The recipe still vendors and runs; ask the recipe's author to fix the schema before you use it. Baton tries a range of answers but can't prove a schema impossible, so now and then the warning comes up for a schema that is fine.
+
 ## New versions and retired ids {#versions}
 
 A published version is never edited in place; a change is a new version. When a new version changes a kept part's signature, or reuses an id an earlier version retired, vendoring needs the owner's decision: `vendor` exits 4 and lists the flags, then:
